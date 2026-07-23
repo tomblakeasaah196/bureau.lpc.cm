@@ -1,0 +1,174 @@
+# =============================================================================
+# Bureau LPC ERP  --  root .htaccess
+# =============================================================================
+# Ordering matters: security denies must come BEFORE any RewriteRule that
+# could otherwise send a matching URL to the router.
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# 1. Deny access to sensitive files and dotfiles.
+# -----------------------------------------------------------------------------
+<IfModule mod_authz_core.c>
+    # Apache 2.4+
+    <FilesMatch "^\.env|^\.env\..*|\.env$|\.env\..*$">
+        Require all denied
+    </FilesMatch>
+    <FilesMatch "\.(sql|sqlite|sqlite3|bak|backup|old|orig|save|swp|log|ini|conf|yml|yaml|dist|lock)$">
+        Require all denied
+    </FilesMatch>
+    <FilesMatch "^(composer\.(json|lock)|package\.(json|lock)|package-lock\.json|yarn\.lock|Dockerfile|README\.md|CHANGELOG.*|INSTALL\.md|AUDIT_REPORT\.md|setup_erp\.sh)$">
+        Require all denied
+    </FilesMatch>
+    <FilesMatch "^error_log$">
+        Require all denied
+    </FilesMatch>
+    <FilesMatch "^\.(ht|git|svn|hg|DS_Store)">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    # Apache 2.2 fallback
+    <FilesMatch "^\.env|\.env$|\.(sql|bak|log|ini|conf|yml|yaml|lock|swp)$|^error_log$|^\.(ht|git|svn|hg)">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>
+
+# Block traversal to the includes/ tree via URL.
+RewriteEngine On
+RewriteRule ^includes/       - [F,L]
+RewriteRule ^scripts/        - [F,L]
+RewriteRule ^migrations/     - [F,L]
+RewriteRule ^docs/           - [F,L]
+RewriteRule ^vendor/         - [F,L]
+RewriteRule (^|/)\.git(/|$)  - [F,L]
+RewriteRule (^|/)\.env(\..*)?$ - [F,L]
+RewriteRule \.(sql|bak|log|ini|swp)$ - [F,L]
+
+
+# -----------------------------------------------------------------------------
+# 2. Force HTTPS + HSTS.
+# -----------------------------------------------------------------------------
+RewriteCond %{HTTPS} !=on
+RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+
+# -----------------------------------------------------------------------------
+# 2b. Short URLs for customer-facing pages.
+#     The physical files live under public/documents/ and public/auth/, but
+#     invoices/BLs/quotes are shared via email + WhatsApp so short URLs are
+#     important. Also keeps every currently-generated token URL working.
+#     Optional "pretty" URLs (no .php) are added last.
+# -----------------------------------------------------------------------------
+RewriteRule ^bon_commande\.php$      /public/documents/bon_commande.php    [L,QSA]
+RewriteRule ^bon_livraison\.php$     /public/documents/bon_livraison.php   [L,QSA]
+RewriteRule ^facture\.php$           /public/documents/facture.php         [L,QSA]
+RewriteRule ^quote\.php$             /public/documents/quote.php           [L,QSA]
+RewriteRule ^sign_bl\.php$           /public/documents/sign_bl.php         [L,QSA]
+RewriteRule ^sign_cre\.php$          /public/documents/sign_cre.php        [L,QSA]
+RewriteRule ^print_cre\.php$         /public/documents/print_cre.php       [L,QSA]
+RewriteRule ^password_manager\.php$  /public/auth/password_manager.php     [L,QSA]
+RewriteRule ^password_reset\.php$    /public/auth/password_reset.php       [L,QSA]
+RewriteRule ^reset/([A-Fa-f0-9]{32,128})/?$  /public/auth/password_reset.php?token=$1  [L,QSA]
+
+# Pretty URLs (no extension) — supported but not required.
+RewriteRule ^invoice/([A-Fa-f0-9]{16,64})/?$    /public/documents/facture.php?token=$1        [L,QSA]
+RewriteRule ^delivery/([A-Fa-f0-9]{16,64})/?$   /public/documents/bon_livraison.php?token=$1  [L,QSA]
+RewriteRule ^quote/([A-Fa-f0-9]{16,64})/?$      /public/documents/quote.php?token=$1          [L,QSA]
+RewriteRule ^po/([A-Fa-f0-9]{16,64})/?$         /public/documents/bon_commande.php?token=$1   [L,QSA]
+RewriteRule ^sign/bl/([A-Fa-f0-9]{16,64})/?$    /public/documents/sign_bl.php?token=$1        [L,QSA]
+RewriteRule ^sign/cre/([A-Fa-f0-9]{16,64})/?$   /public/documents/sign_cre.php?token=$1       [L,QSA]
+
+<IfModule mod_headers.c>
+    # Only send HSTS on HTTPS responses. 1 year, include subdomains, allow preload.
+    # NOTE: once set, browsers WILL refuse http:// for this host for the max-age.
+    # If you're not 100% sure HTTPS is stable, comment this line for the first
+    # week and enable after verification.
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+</IfModule>
+
+
+# -----------------------------------------------------------------------------
+# 3. Security headers.
+# -----------------------------------------------------------------------------
+<IfModule mod_headers.c>
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "geolocation=(self), camera=(self), microphone=(), payment=(), usb=()"
+    Header always set X-Permitted-Cross-Domain-Policies "none"
+
+    # CSP — Sprint 6 D2 tightening (final):
+    #   · script-src is now strictly 'self'. Every module page loads its JS
+    #     from /assets/js/modules/<name>.js — no inline <script> bodies, no
+    #     eval, no cdn. Hoister blocks (window.PAGE_DATA = …) are the only
+    #     inline scripts left; they're minimal and CSP-friendly under a
+    #     nonce-based policy if we tighten further later.
+    #   · style-src keeps 'unsafe-inline' because Tailwind emits some inline
+    #     <style> attributes via utility classes and per-page <style> blocks.
+    #   · Third-party origins were dropped by D1; assets/vendor/ handles them.
+    #
+    # DEV NOTE: hoister blocks are still allowed because 'unsafe-inline'
+    # remains on script-src for compatibility with the tiny data-hoister
+    # emitted by every extracted page. Move to a nonce policy in Sprint 7
+    # if you want it fully strict — every page includes head_assets.php so
+    # a single nonce echo in one place propagates automatically.
+    Header always set Content-Security-Policy "\
+default-src 'self'; \
+script-src 'self' 'unsafe-inline'; \
+style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; \
+font-src 'self' https://fonts.gstatic.com data:; \
+img-src 'self' data: blob: https:; \
+connect-src 'self'; \
+frame-ancestors 'self'; \
+base-uri 'self'; \
+form-action 'self';"
+
+    # Strip PHP version disclosure.
+    Header always unset X-Powered-By
+    Header always unset Server
+</IfModule>
+ServerSignature Off
+
+
+# -----------------------------------------------------------------------------
+# 4. Front-controller-ish rewrite (kept from original, unchanged).
+#    Note: index.php currently ignores $_GET['route'] and just renders login.
+#    Deep URLs are filesystem-served. This rule is a fallback for missing paths.
+# -----------------------------------------------------------------------------
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php?route=$1 [QSA,L]
+
+
+# -----------------------------------------------------------------------------
+# 5. Compression + basic caching for static assets.
+# -----------------------------------------------------------------------------
+<IfModule mod_deflate.c>
+    <FilesMatch "\.(css|js|svg|json|xml|txt|html)$">
+        SetOutputFilter DEFLATE
+    </FilesMatch>
+</IfModule>
+
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType image/jpg   "access plus 30 days"
+    ExpiresByType image/jpeg  "access plus 30 days"
+    ExpiresByType image/png   "access plus 30 days"
+    ExpiresByType image/webp  "access plus 30 days"
+    ExpiresByType image/svg+xml "access plus 30 days"
+    ExpiresByType text/css    "access plus 7 days"
+    ExpiresByType application/javascript "access plus 7 days"
+    ExpiresByType font/woff2  "access plus 30 days"
+</IfModule>
+
+
+# php -- BEGIN cPanel-generated handler, do not edit
+# Set the "ea-php83" package as the default "PHP" programming language.
+<IfModule mime_module>
+  AddHandler application/x-httpd-ea-php83 .php .php8 .phtml
+</IfModule>
+# php -- END cPanel-generated handler, do not edit

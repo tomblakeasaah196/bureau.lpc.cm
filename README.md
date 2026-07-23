@@ -1,0 +1,607 @@
+# Bureau LPC ERP — Developer Guide
+
+> **READ THIS FIRST. Every engineer, every session, before touching a file.**
+>
+> This project is a full revamp of a production-bound PHP ERP for
+> Ets. La Petite Cour (agri-food distribution, Cameroon). Nothing here has
+> been deployed yet — we are rebuilding the codebase inside this folder and
+> will ship the whole thing as one zip when it's done.
+
+---
+
+## 0. Status — where we are in the revamp
+
+| Phase | Item | Status |
+|---|---|---|
+| Sprint 0 | Audit of the pre-revamp codebase | Done → see `AUDIT_REPORT.md` |
+| Sprint 0 | `.env` extraction + loader | Done |
+| Sprint 0 | Hardened root `.htaccess` (HTTPS, HSTS, security headers, deny .env/.sql/dotfiles) | Done |
+| Sprint 0 | Hardened `uploads/.htaccess` (PHP-FPM-safe) | Done |
+| Sprint 1 | RBAC data model + Rbac class + bootstrap | Done |
+| Sprint 1 | Unified sidebar (permission-driven `nav.php` config) | Done |
+| Sprint 1 | Roles & Permissions admin UI (`modules/admin/roles.php`) | Done |
+| Sprint 1 | `rbac_controller.php` API | Done |
+| Sprint 1 | `auth.php` loads permissions into session on login | Done |
+| Sprint 1 | Module-page gates (all 25 pages use `Rbac::requirePermission`) | Done |
+| Sprint 1 | Frontend RBAC helper (`assets/js/lpc-rbac.js`, `data-perm=`) | Done |
+| Sprint 1 | API-controller gates (35 controllers, per-action) | In progress |
+| Sprint 2 | CSRF middleware + tokens on all state-changing endpoints | Todo |
+| Sprint 2 | Rate-limit `auth.php` / `password_controller.php` | Todo |
+| Sprint 2 | Kill account-takeover in password recovery flow | Todo |
+| Sprint 2 | Escape all `_SESSION` echoes + `innerHTML` → `textContent` sweep | Todo |
+| Sprint 2 | Fix SQL injection risks (see AUDIT_REPORT §2.3) | Todo |
+| Sprint 2 | Fix file-upload extension bypass (`fleet_controller`, `mdm_controller`) | Done |
+| Sprint 2 | Signature blobs → filesystem (paths stored, base64 gone) | Done |
+| Sprint 2 | Legacy `$allowed_roles=['admin','finance']` blocks stripped (35 files) | Done |
+| Sprint 3 | Self-host Tailwind (kill `cdn.tailwindcss.com`) — toolchain + placeholder CSS + dev build script | Done |
+| Sprint 3 | Migration 003 — backfill 8 missing OHADA mappings | Done |
+| Sprint 3 | Migration 004 — double-entry balance trigger + `post_journal_entry` stored proc | Done |
+| Sprint 3 | Migration 005 — closed-period lock triggers on JE/invoices/payments/deliveries/overheads | Done |
+| Sprint 3 | Migration 006 — ~55 missing foreign keys via reusable stored proc | Done |
+| Sprint 3 | Migration 007 — audit columns on 50+ tables + JSON change-log triggers | Done |
+| Sprint 3 | Migration 008 — composite indexes on hot query paths | Done |
+| Sprint 3.5 | Dedup clients + COA duplicates; fix `products.linked_empty_id`; year(4)→SMALLINT; enum→lookup tables; money precision standardize | Todo |
+| Sprint 4 | Restore commented-out `fetch()` in journal_entry / cashflow | In progress (parallel session) |
+| Sprint 4 | Payroll lifecycle fully wired (schema, engine, preview UI, JE post) | Done — see migrations/010, `includes/classes/Payroll.php`, `api/v1/payroll_controller.php`, `modules/hr/payroll_finance.php`, `public/documents/payslip.php` |
+| Sprint 4 | Fixed-asset lifecycle fully wired (salvage + proration + disposals, plus/moins-value) | Done — see migrations/011, `includes/classes/Depreciation.php`, `api/v1/fixed_assets_controller.php`, `modules/accounting/fixed_assets.php` |
+| Sprint 4 | Server-side PDF renderer (dompdf) with cache + cache-hit header | Done — see migrations/012, `includes/classes/PdfRenderer.php`, `includes/functions/document_pdf.php`, `composer.json`, all `public/documents/*.php` rewritten |
+| Sprint 4 | Concurrency locks + PO/reception single-write-path | Done (Batch B) — see migration 013, FOR UPDATE added to `inventory_controller.php` (log_damage/submit_audit), `sales_controller.php` (generate_dispatch), `procurement_controller.php` (ristourne race). Modal subtitle in `modules/inventory/procurement.php:126` now correctly states reception is the sole stock-write path. |
+| Sprint 4 | Idempotency on submit_audit | Done (Batch B) — migration 013 adds UNIQUE `inventory_reports.idempotency_key`; server returns `{status:'error', code:'duplicate_audit'}` on replay. |
+| Sprint 4 | Kill strpos product classifier + magic IDs 901-904 | Done (Batch B) — migration 014 adds `products.is_empty` + `bottle_size` + `has_cork` with backfill. Rewired in `cre_controller.php` (get_history, get_recycling_prices, get_recycling_revenue, new `get_empty_products`), `empties_collection.php` (drops hardcoded 901-904), `sign_cre.php`, `print_cre.php`. |
+| Sprint 4 | Treasury wiring (books-don't-balance fix) | Done (Batch B) — new `includes/classes/JournalPoster.php` posts a balanced JE via `CALL post_journal_entry` for every payment, transfer, expense, tournée. Called from `invoices_controller.php` (register_payment + validate_cash) and `treasury_controller.php` (transfer + expense + process_tournee). Verification queries in `scripts/tests/books_balance.sql`. |
+| Sprint 4 | Amount-in-words on invoice PDF | Done — `get_invoice.php` already returned `amount_in_words`; the new PDF template in `includes/functions/document_pdf.php` renders it via `lpc_amount_in_words()` (NumberFormatter SPELLOUT with graceful fallback). |
+| Sprint 5 | Pagination on list endpoints + server-side search | Done — see `includes/classes/Paginator.php`, `assets/js/lpc-paginator.js`, wired in 7 controllers (inventory/procurement/sales/invoices/mdm/cre/settings) and `modules/inventory/stock.php`. |
+| Sprint 5 | Purge / archive crons + migration 016 | Done — 4 scripts under `scripts/cron/` + `notifications_archive` / `audit_logs_archive` tables. Retention floors baked into code. |
+| Sprint 5 | Client-side image compression | Done — `assets/js/lpc-image-compress.js`; wired into fuel_log receipts, MDM avatars, and both signature-pad pages (BL + CRE). |
+| Sprint 5 | File-tail error monitor | Done — `includes/classes/ErrorMonitor.php` + `modules/admin/error_monitor.php` gated by new `admin.errors.view` perm (migration 018), sidebar item added. |
+| Sprint 5 | Ship-day polish (verify.sh + deploy.sh + ship-day.md) | Done — verify.sh gained Sprint-5 checks; deploy.sh chmods cron scripts and prints deliverable summary; new `scripts/ship-day.md`. |
+| Sprint 6 | #49 Self-host + SRI-pin FontAwesome / Chart.js / jsPDF / html2canvas / html2pdf / signature_pad / qrcodejs | Done — 7 pinned libraries under `assets/vendor/`; SHA-384 integrity + crossorigin on every referring tag; CDN sweep grep-zero; `assets/vendor/README.md` covers versions + regen procedure. |
+| Sprint 6 | #50 Extract every inline `<script>` block to `assets/js/modules/` | Done — 37 module JS files; PHP-emitted data lives in `<script type="application/json" id="lpc-page-data">` hoister blocks parsed by each extracted file's prelude. |
+| Sprint 6 | #51 Unified modal system (LPC.modal.alert / confirm / prompt / custom) | Done — `assets/js/lpc-modal.js` (native `<dialog>` + fallback; focus trap, Escape, backdrop click); every `alert()` / `confirm()` in modules/ + public/ routed through `LPC.modal.*`. |
+| Sprint 6 | #52 Real i18n across every module page | Done — `includes/functions/i18n.php` + `includes/config/i18n_dictionaries.php` (352 keys FR + EN); `assets/js/lpc-i18n.js` (`LPC.t`); `$lang === 'fr' ?` ternary count went from ~152 to 0. |
+| Sprint 6 | #53 FCFA rounding rollout | Done — `LPC.fmt.fcfa` on every currency display in JS; `lpc_fcfa()` in `includes/functions/i18n.php` powers PDF templates + server-rendered totals. |
+| Sprint 6 | #54 WCAG AA contrast + focus rings | Done — `text-white/40|50` bumped to `/70`; `.lpc-focusable` brand-green ring in `assets/css/src/input.css` `@layer utilities`; `.lpc-skip-link` on every module page. |
+| Sprint 6 | #55 ARIA landmarks + roles | Done — sidebar carries `role="navigation"` + inner `role="menu"/menuitem"`; every module page has `<main role="main" id="main">`; `password_manager.php` tablist gets arrow-key nav via `assets/js/lpc-a11y.js`; modals are `role="dialog" aria-modal="true"`; icon-only buttons inherit `aria-label` from their `title`. |
+| Sprint 6 | Migrate off shared cPanel to VPS | Deferred |
+| Sprint 7A | #47 Analytics KPI drilldowns (real data + CSV export) | Done — see `assets/js/modules/analytics-reports.js`, `api/v1/analytics_controller.php`, `includes/functions/lpc_csv.php`. |
+| Sprint 7A | #46 Vue Dirigeant executive summary (ratios, cash, AR/AP, alerts, print + server-side PDF) | Done — see `includes/functions/executive_summary_data.php`, `includes/pdf_templates/executive_summary.php`, `api/v1/financials_controller.php`. |
+| Sprint 7A | Kill every "à venir" / "en cours de développement" button in `modules/accounting/` + `modules/analytics/` | Done — advanced budgets filter, bilan/résultat dompdf export, CSV fallback. |
+| Sprint 7B | Dead-link sweep — 5 audit sidebar hrefs + 3 further finds (advance_request, reconciliations, deliveries) | Done — see `includes/components/{admin,driver,finance,ops}_sidebar.php`, `modules/dashboard/views/{driver,finance,ops}_dashboard.php`. |
+| Sprint 7B | Delete orphan `api/v1/print_audit.php` (byte-similar stale copy, 0 refs) | Done — canonical is `modules/inventory/print_audit.php`. |
+| Sprint 7B | Delete 3 zero-byte `setup_erp.sh` stubs (`Auth.php`, `Accounting.php`, `constants.php`) | Done — 0 refs sitewide. |
+| Ship | Final zip + `deploy.sh` | Ready — see `scripts/ship-day.md`. |
+
+Update this table when you finish a phase item. It's the truth about where the revamp stands.
+
+---
+
+## 1. Deployment model
+
+**We are NOT doing incremental deploys.** The whole app ships in one drop:
+
+```
+   [ engineer's laptop / this folder ]
+              │
+              │  (zip -r bureau.lpc.cm-vX.Y.Z.zip .)
+              ▼
+   [ upload to ~/public_html/ on cPanel ]
+              │
+              │  1. mv bureau.lpc.cm  bureau.lpc.cm.bak-YYYY-MM-DD
+              │  2. unzip bureau.lpc.cm-vX.Y.Z.zip -d bureau.lpc.cm
+              │  3. cd bureau.lpc.cm && bash deploy.sh
+              ▼
+       [ deploy.sh runs: ]
+       • verify PHP + MariaDB versions
+       • ensure ~/backups/ and error_log exist
+       • run pending SQL migrations (migrations/*.sql, tracked in schema_migrations table)
+       • chmod 600 .env, chmod -R 750 includes/, chmod 700 uploads/
+       • warm opcache, purge any stale sessions
+       • curl a few smoke-test URLs
+       • print a red PASS/FAIL summary
+```
+
+`deploy.sh` doesn't exist yet — it's a Sprint-ship deliverable. Add it under `/scripts/deploy.sh`.
+
+---
+
+## 2. Architecture (one page)
+
+```
+bureau.lpc.cm/                     ← app root = Apache document root
+│
+├── .env                           SECRETS. chmod 600. Never commit. See §3.
+├── .env.example                   Safe template. Commit this.
+├── .htaccess                      HTTPS+HSTS, security headers, deny .env/.sql/dotfiles/scripts/migrations,
+│                                  short-URL rewrites (facture.php → public/documents/facture.php, etc.)
+├── index.php                      The ONLY public entry point (login).
+├── favicon.ico
+├── README.md                      ← YOU ARE HERE
+│
+├── public/                        Customer-facing pages (accessed via token URLs).
+│   ├── documents/                     bon_commande, bon_livraison, facture, quote,
+│   │                                  sign_bl, sign_cre, print_cre, payslip (NEW Sprint 4)
+│   │                                  All render server-side PDFs via PdfRenderer by default;
+│   │                                  pass ?html=1 for the legacy HTML view (debug only).
+│   └── auth/                          password_manager
+│
+├── includes/                      Server-only PHP (deny-listed at the URL level).
+│   ├── bootstrap.php                  ← EVERY entry point requires this first
+│   ├── config/
+│   │   ├── env.php                    .env loader + env() helper
+│   │   ├── db.php                     defines DB_* + APP_* constants, session cookie hardening,
+│   │   │                               error handling. All values sourced from .env.
+│   │   ├── permissions.php            canonical permission catalog + default role matrix
+│   │   └── nav.php                    sidebar structure (item → required permission)
+│   ├── classes/
+│   │   ├── Database.php               PDO singleton
+│   │   ├── Rbac.php                   Rbac::requirePermission(), ::hasPermission(), ::jsBootstrap()
+│   │   ├── Csrf.php                   Csrf::token(), ::requireValid(), ::field()
+│   │   ├── RateLimiter.php            Per-IP throttling for auth + password endpoints
+│   │   ├── Uploads.php                Signature/base64 → filesystem uploads with MIME whitelist
+│   │   ├── Mail.php                   Server-side mail wrapper (PHPMailer or native)
+│   │   ├── Depreciation.php           NEW (Sprint 4): OHADA monthly() + disposalGain()
+│   │   ├── Payroll.php                NEW (Sprint 4): CM payroll compute() gross → net
+│   │   ├── PdfRenderer.php            NEW (Sprint 4): dompdf wrapper + pdf_documents cache
+│   │   └── JournalPoster.php          NEW (Sprint 4 B): postInvoicePayment / postInternalTransfer / postExpense / postTourneeReconciliation — every treasury movement lands in the GL as a balanced JE.
+│   ├── functions/
+│   │   ├── helpers.php                legacy translation stub — to be replaced Sprint 3
+│   │   └── document_pdf.php           NEW (Sprint 4): shared PDF dispatcher for public/documents/*
+│   └── pdf_templates/                 NEW (Sprint 4): inline in document_pdf.php for now
+│   ├── components/
+│   │   ├── sidebar.php                the unified sidebar renderer (permission-driven)
+│   │   ├── admin_sidebar.php          backward-compat wrapper → sidebar.php
+│   │   ├── driver_sidebar.php         "
+│   │   ├── finance_sidebar.php        "
+│   │   └── ops_sidebar.php            "
+│   └── functions/
+│       └── helpers.php                legacy translation stub — to be replaced Sprint 3
+│
+├── api/v1/                        Procedural REST-ish controllers.
+│   ├── auth.php                       login/logout, populates $_SESSION['rbac']
+│   ├── rbac_controller.php            roles & permissions CRUD (used by modules/admin/roles.php)
+│   ├── password_controller.php        password change/recover (TODO Sprint 2 hardening)
+│   └── *_controller.php               domain controllers, action-dispatched via $_POST['action']
+│
+├── modules/                       Feature UIs (one PHP page per feature).
+│   ├── dashboard/views/               md, finance, ops, driver
+│   ├── accounting/                    invoices, journal_entry, ledger, cashflow, budgets, fixed_assets, reports
+│   ├── admin/                         master_data, roles
+│   ├── analytics/                     reports
+│   ├── crm/                           clients
+│   ├── fleet/                         vehicles, fuel_log, report_breakdown
+│   ├── hr/                            payroll_finance
+│   ├── inventory/                     stock, procurement, fiche_stock, print_audit
+│   ├── operations/                    empties_collection
+│   ├── sales/                         orders
+│   └── settings/                      index
+│
+├── assets/
+│   ├── img/
+│   ├── js/
+│   │   └── lpc-rbac.js                window.LPC.can(perm), data-perm auto-gating
+│   └── css/                           (Sprint 3: built Tailwind lands here)
+│
+├── uploads/                       User uploads. `.htaccess` denies PHP execution.
+│   ├── .htaccess
+│   ├── signatures/
+│   ├── receipts/
+│   └── avatars/
+│
+├── migrations/                    SQL migrations, applied in filename order by scripts/migrate.php.
+│   ├── 000_init_schema_migrations.sql     tracking table (bootstraps itself)
+│   ├── 001_rbac_seed.sql                  permissions catalog + default role matrix
+│   ├── 002_auth_hardening.sql             session_token_hash, must_reset_password
+│   ├── 003_ohada_backfill.sql             fill the 8 missing OHADA account mappings
+│   ├── 004_double_entry_trigger.sql       journal_lines balance triggers + post_journal_entry proc
+│   ├── 005_closed_period_lock.sql         closed-year triggers on JE/invoices/payments
+│   ├── 006_foreign_keys.sql               ~55 missing FKs via reusable stored proc
+│   ├── 007_audit_columns.sql              updated_at/updated_by/deleted_at + audit_logs triggers
+│   ├── 008_composite_indexes.sql          hot-query indexes
+│   ├── 009_*                              RESERVED — parallel session (concurrency work)
+│   ├── 010_payroll_schema.sql             NEW (Sprint 4): CM payroll_rates + IRPP/CRTV brackets + hr_contracts extensions
+│   ├── 011_fixed_assets_schema.sql        NEW (Sprint 4): salvage_value, service_start_date, disposal linkage, fixed_asset_disposals
+│   ├── 012_pdf_documents.sql              NEW (Sprint 4): pdf_documents cache table for server-side renders
+│   ├── 013_inventory_idempotency.sql      NEW (Sprint 4 B): inventory_reports.idempotency_key UNIQUE + products.bottle_size/has_cork
+│   ├── 014_products_is_empty.sql          NEW (Sprint 4 B): products.is_empty + bottle_size/has_cork backfill (kills strpos classifier)
+│   └── 00X_*.sql                          add here as the schema evolves
+│
+├── scripts/                       ALL ops / deploy tooling. See scripts/README.md.
+│   ├── deploy.sh                       orchestrator (the one you run on deploy day)
+│   ├── migrate.php                     SQL runner, idempotent, tracks via schema_migrations
+│   ├── backup.sh                       tar + mysqldump into ~/backups/
+│   ├── verify.sh                       post-deploy smoke tests (curl-based)
+│   ├── rollback.sh                     restore latest backup with confirmation
+│   ├── README.md                       usage docs
+│   └── legacy/
+│       └── setup_erp.sh                original mkdir bootstrap — archived, do not run
+│
+├── composer.json                  NEW (Sprint 4): dompdf/dompdf pinned for the PDF renderer.
+├── composer.lock                  Generated by `composer install` on the engineer laptop.
+├── vendor/                        Composer packages. Committed to the repo — the cPanel server
+│                                  has no Composer. See vendor/README.md for the populate/commit flow.
+│
+├── docs/                          All documentation. Web-denied via .htaccess.
+│   ├── AUDIT_REPORT.md                 the initial audit (2026-07-20)
+│   ├── ARCHITECTURE.md                 stub (points back to this README)
+│   ├── DEPLOYMENT.md                   stub (points to scripts/README.md)
+│   ├── DEPRECATED_INSTALL_ENV.md       archived; old drop-in workflow, superseded
+│   └── archive/                        pre-revamp SQL dumps + old error_log (excluded from deploy zip)
+│
+├── cgi-bin/                       cPanel-managed. Leave alone.
+└── .well-known/                   ACME / SSL. cPanel-managed. Leave alone.
+```
+
+### Ship-day zip layout
+
+At the end of the revamp, the release zip is built like this:
+
+```bash
+cd bureau.lpc.cm/
+zip -r ../bureau.lpc.cm-vX.Y.Z.zip . \
+  -x '.env'                \       # production .env stays on the server
+  -x 'docs/archive/*'      \       # historical SQL dumps
+  -x 'vendor/*'            \       # populated by composer install on server
+  -x 'node_modules/*'      \       # never in the zip
+  -x '.git*'               \       # local git state
+  -x '**/.DS_Store'
+```
+
+The zip is uploaded to `~/`, extracted over the app dir, and `bash scripts/deploy.sh` runs the rest (see §8).
+
+**Request flow:**
+
+```
+Browser  ─►  Apache (.htaccess forces HTTPS, sets security headers)
+             │
+             ▼
+         PHP-FPM (EA-PHP83)
+             │
+             ▼
+       modules/foo.php
+       or api/v1/bar_controller.php
+             │
+             │   require_once __DIR__.'/../../includes/bootstrap.php';
+             │      → env.php (loads .env)
+             │      → db.php  (sets error handling + session cookie params)
+             │      → Database (PDO singleton, lazy)
+             │      → session_start()
+             │      → Rbac::init() (loads perms from $_SESSION or DB)
+             ▼
+       Rbac::requirePermission('module.action')
+             │
+             ▼
+       page logic + <?= Rbac::jsBootstrap() ?> injects window.LPC.rbac
+             │
+             ▼
+       lpc-rbac.js hides any element with data-perm the user lacks
+```
+
+---
+
+## 3. Environment (`.env`)
+
+Every secret + every environment-varying config value lives in `.env` at the app root. See `.env.example` for the full key list with comments.
+
+**Rules:**
+1. Never hard-code a secret. If it feels sensitive, it goes in `.env`.
+2. `.env` is `chmod 600` and never committed. `.env.example` gets committed.
+3. In PHP, read via the `env()` helper: `env('DB_PASS')`, `env('APP_DEBUG', false)`. Default values are typed — passing `false` as default coerces the response to bool, passing `30` coerces to int.
+4. If you add a new key, update BOTH `.env` and `.env.example` in the same commit.
+5. On the server, moving `.env` outside `public_html` is documented — see the header comment in `includes/config/env.php` for the `LPC_ENV_PATH` override.
+
+---
+
+## 4. RBAC — how it works and how to use it
+
+### 4.1 Model
+
+Three DB tables (already in the schema, seeded by `migrations/001_rbac_seed.sql`):
+
+| Table | Purpose |
+|---|---|
+| `roles` | `admin`, `accountant`, `operations`, `driver` (lowercase, canonical) + any custom roles admins create |
+| `permissions` | ~80 permission keys, dot-notation `module.action`. See `includes/config/permissions.php`. |
+| `role_permissions` | junction: which permissions each role has |
+
+Users have a scalar `role_id`. On login, `auth.php` calls `Rbac::loadFromDb()` which caches the user's full permission set in `$_SESSION['rbac']`. Every subsequent request reads from the session cache — DB is only hit on login (or when an admin edits the role, which forces a reload for that session).
+
+### 4.2 The permission catalog
+
+Grouped by module, in `includes/config/permissions.php`. Naming: `<module>.<entity>.<action>` (lower_snake, dot-separated). Examples:
+
+- `dashboard.md.view`
+- `crm.clients.create`
+- `accounting.journal.approve`
+- `admin.roles.edit`
+
+Wildcards work in checks:
+- `*` — user is superuser (has every permission)
+- `module.*` — user has every permission in the module
+
+### 4.3 Adding a new permission
+
+1. Add the key to `$LPC_PERMISSIONS` in `includes/config/permissions.php`, in the right module group.
+2. Add an `INSERT INTO permissions (name, module, description) VALUES (...)` line to a new migration file, e.g. `migrations/00X_add_permission_something.sql`. Use `ON DUPLICATE KEY UPDATE module=VALUES(module), description=VALUES(description)` so it's idempotent.
+3. If the default admin/accountant/operations/driver roles should get it automatically, add it to `$LPC_DEFAULT_ROLE_PERMISSIONS` AND add `INSERT INTO role_permissions ...` clauses to the same migration.
+4. Use it: `Rbac::requirePermission('module.entity.action')` in PHP; `data-perm="module.entity.action"` in HTML.
+
+### 4.4 Adding a new role
+
+Two ways:
+
+**Runtime (recommended for tenant admins):**
+Admin logs in, opens `Administration → Rôles & Permissions`, clicks "+ Nouveau Rôle", names it, then ticks the permissions they want. Done. No code change.
+
+**Baked-in (for new default roles that ship with the product):**
+Edit `includes/config/permissions.php`, add a new key under `$LPC_DEFAULT_ROLE_PERMISSIONS` with its permission list. Add a new migration file that `INSERT`s the role and its `role_permissions` rows.
+
+### 4.5 Gating a module page
+
+Every module page must start with:
+
+```php
+<?php
+// modules/whatever/mypage.php
+require_once __DIR__ . '/../../includes/bootstrap.php';
+Rbac::requirePermission('module.entity.view');
+```
+
+For nested paths like `modules/dashboard/views/*.php`, the depth is 3 levels:
+
+```php
+require_once __DIR__ . '/../../../includes/bootstrap.php';
+```
+
+The bootstrap loads env → db → session (with hardened cookie params) → Rbac. It's idempotent, safe to include everywhere.
+
+If the check fails and the user IS logged in: they get a 403 page. If NOT logged in: they get redirected to `/index.php`. Both are handled inside `Rbac::requirePermission`.
+
+### 4.6 Gating an API controller
+
+```php
+<?php
+// api/v1/whatever_controller.php
+require_once __DIR__ . '/../../includes/bootstrap.php';
+
+header('Content-Type: application/json; charset=utf-8');
+Rbac::requireAuth();                     // must be logged in
+
+$action = $_POST['action'] ?? $_GET['action'] ?? '';
+switch ($action) {
+    case 'list':
+        Rbac::requirePermission('module.entity.view');
+        // ...
+        break;
+    case 'create':
+        Rbac::requirePermission('module.entity.create');
+        // ...
+        break;
+    case 'delete':
+        Rbac::requirePermission('module.entity.delete');
+        // ...
+        break;
+    default:
+        http_response_code(400);
+        echo json_encode(['status'=>'error','message'=>'Unknown action']);
+}
+```
+
+For API contexts `Rbac` responds with `403 application/json` instead of the HTML error page — the client-side helper knows to handle it.
+
+### 4.7 Gating a button in the UI
+
+Server side (renders nothing at all if unauthorized):
+
+```php
+<?php if (Rbac::hasPermission('accounting.invoices.create')): ?>
+    <button onclick="openInvoiceModal()">Nouvelle facture</button>
+<?php endif; ?>
+```
+
+Client side (element exists in DOM but is hidden — useful for AJAX-loaded partials):
+
+```html
+<button data-perm="accounting.invoices.create" onclick="openInvoiceModal()">Nouvelle facture</button>
+```
+
+The `lpc-rbac.js` helper reads `window.LPC.rbac.permissions` and hides any `[data-perm]` / `[data-perm-any]` / `[data-perm-all]` / `[data-perm-disable]` element the user isn't authorized for. It also watches for AJAX-inserted DOM via MutationObserver.
+
+You can also check programmatically:
+
+```javascript
+if (LPC.can('accounting.invoices.create')) { ... }
+if (LPC.canAny(['a','b'])) { ... }
+if (LPC.isAdmin()) { ... }
+```
+
+**Never trust the frontend gate alone. Server MUST re-check on every write.** The JS helper is UX only.
+
+### 4.8 Adding a new sidebar item
+
+Edit `includes/config/nav.php`. Sections are ordered arrays with `heading_fr`, `heading_en`, `items[]`. Each item needs `href`, `label_fr`, `label_en`, `icon` (Heroicons v2 outline `d` path), `permission`.
+
+The sidebar renderer skips any section whose items are all hidden by RBAC — so an ops-only user won't see an empty "Comptabilité" heading.
+
+---
+
+## 5. Coding conventions
+
+### 5.1 PHP
+
+- **PHP 8.3.** Type hints on new code (`function foo(int $x): array`). Union types are fine.
+- **Every entry point** (module page, controller) opens with `require_once __DIR__ . '/.../includes/bootstrap.php';`.
+- **Every state-changing action** goes through a prepared statement. No `$db->query("... $var ...")` — even for int-cast variables. If you catch yourself typing raw `query()` with interpolation, stop and use `prepare()`.
+- **Never** echo `$e->getMessage()` in a response. Log server-side (`error_log($e->getMessage())`), return a generic user message.
+- **Escape output.** `htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8')` — always with the `?? ''` null-guard on PHP 8+.
+- **JSON in JS context** uses `json_encode()`, not `htmlspecialchars()`. HTML in HTML context uses `htmlspecialchars()`.
+- **Money** is `DECIMAL(15,2)`, never `FLOAT` or `DOUBLE`. Cast to `(string)` when binding to a PDO param that maps to DECIMAL.
+- **Dates:** prefer `TIMESTAMP` (UTC-normalized, auto-updated) over `DATETIME`. Store business dates as `DATE`.
+- **Enums** in DB → prefer lookup tables. Only use MySQL `ENUM` for immutable technical values.
+- **Transactions** on any multi-row write. `$db->beginTransaction()`, `$db->commit()`, `$db->rollBack()` in a `catch`.
+- **Files** get one class or one concern each. If a module page exceeds 800 lines, split it.
+- **Names:** snake_case for DB columns and PHP variables; PascalCase for classes; camelCase for JS.
+- **French UI strings, English code comments.** The user base is francophone; the engineering team is bilingual.
+
+### 5.2 SQL
+
+- Every table has `id INT AI PK`, `created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, `updated_at TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP`, `updated_by INT NULL FK users(id)`, and (for business tables) `deleted_at TIMESTAMP NULL`.
+- Every FK column has a `KEY` (or the FK creates one implicitly).
+- Every FK is declared with `ON DELETE RESTRICT` unless you have a very specific reason for CASCADE (child records that are meaningless without the parent — `delivery_items → deliveries` is the archetype).
+- Every migration file:
+  - Lives in `migrations/` and is numbered sequentially (`00X_verb_noun.sql`)
+  - Is idempotent (use `IF NOT EXISTS`, `INSERT ... ON DUPLICATE KEY UPDATE`)
+  - Wraps writes in `START TRANSACTION; ... COMMIT;`
+  - Ends with a comment block of verification queries
+- Never delete a journal entry, invoice, or payment. Reverse it.
+
+### 5.3 JavaScript
+
+- **No jQuery.** Vanilla + Fetch. No new libraries without a discussion.
+- **No inline `<script>` blocks** in new module pages. Extract to `assets/js/module-name.js` unless the block is < 5 lines of bootstrap-only glue.
+- **Rendering user data** uses `textContent` or `LPC.html`…`` (tagged template that auto-escapes every `${…}`). Never build markup with plain `innerHTML +=` from API-derived strings. If you truly need raw HTML in one slot, wrap it in `LPC.raw(html)` so code review can find every escape hatch. See `assets/js/lpc-dom.js`.
+- **AJAX responses** always show a loading state and always handle errors — never a silent `catch{}`.
+- **Every fetch to a state-changing endpoint** sends `Content-Type: application/json` when the body is JSON, and includes the CSRF token once middleware is live (Sprint 2).
+
+### 5.4 CSS / UI
+
+- **Tailwind — self-hosted, not CDN.** The `cdn.tailwindcss.com` script is a Sprint-2 removal target. In the meantime, don't add new pages that depend on new Tailwind arbitrary classes.
+- **Design tokens:** brand colors live in the `tailwind.config` block at the top of each page (`lpc.dark: #005A2B`, `lpc.light: #8CC63F`). Once we self-host Tailwind these move to `tailwind.config.js`.
+- **Accessibility:** every input has a `<label for="id">`; every icon-only button has `aria-label`; error alerts have `role="alert"`; contrast ≥ 4.5:1.
+- **Mobile:** the app has one hamburger, in the unified sidebar. Don't add per-page mobile menus.
+
+---
+
+## 6. Security — non-negotiables
+
+Copy of the "must-follow" list from the audit. These are trip-wires; violating one blocks merge.
+
+1. **No secrets in code.** `.env` only. `git grep -E "(password|api_key|secret) *= *['\"]"` should return zero hits in the codebase.
+2. **No `$db->query("... $var ...")`** — always `prepare()` + `execute()`.
+3. **No echo of exception messages** to the client. `error_log()` server-side.
+4. **No `innerHTML +=` on API-derived strings.** `textContent` or a `<template>`.
+5. **No sidebar/route/API/button without a `permission` key.**
+6. **No file upload without: extension whitelist, MIME sniff, size cap, filename randomization, target dir under `/uploads/`** (which is protected by `uploads/.htaccess`).
+7. **No CSRF-unsafe state change** once Sprint 2 middleware is live. Every POST/PUT/DELETE validates the token.
+8. **No `display_errors=1`** in any file. It's env-driven — set `APP_DEBUG=false` in prod.
+9. **No hardcoded English/French strings** in new sidebars/nav — use the `label_fr`/`label_en` pair.
+10. **Any change to `role_permissions` calls `Rbac::forceReload()`** for the current session (already handled inside `rbac_controller.php`).
+
+---
+
+## 7. How to work in this folder
+
+### Before you start
+
+1. Read this README end-to-end (once).
+2. Skim `AUDIT_REPORT.md` for the historical context — it's the reason most of the choices in the current codebase look the way they do.
+3. Read `includes/config/permissions.php` so you know what permissions exist.
+4. Read `includes/config/nav.php` so you know how the sidebar wires up.
+
+### While you work
+
+- One feature = one branch (once we adopt git — currently there's no `.git/` here).
+- One migration = one file, numbered, idempotent.
+- Update `AUDIT_REPORT.md` if you fix a documented issue (mark the finding "resolved YYYY-MM-DD").
+- Update the status table in §0 of this README when you finish a phase item.
+
+### Before you push
+
+- `php -l` every file you touched (or `find . -name '*.php' -exec php -l {} \;` for a full sweep).
+- Load the affected page in a browser as each of the 4 default roles and verify the sidebar + gates work.
+- If you touched a controller: `curl -X POST -H 'Content-Type: application/json' -b cookie.txt https://…/api/v1/x.php -d '{"action":"y"}'` with cookies for each role.
+
+### Never do these
+
+- Never SSH into the production server to edit files by hand.
+- Never `mysql -e "DROP TABLE …"` against production.
+- Never commit `.env`, `*.sql` dumps, or `error_log` files.
+- Never disable a security gate to "test something quickly."
+
+---
+
+## 8. Deployment day
+
+When the revamp is done, we ship as follows. This section is a placeholder; expand once `scripts/deploy.sh` is written.
+
+1. Freeze the codebase (tag `v1.0.0`).
+2. On the server:
+   ```bash
+   cd ~/public_html
+   tar -czf ~/backups/bureau.lpc.cm_pre_v1_$(date +%F).tar.gz bureau.lpc.cm/
+   mysqldump -u smartqaq_jbsoperations -p smartqaq_lpc_core \
+     | gzip > ~/backups/db_pre_v1_$(date +%F).sql.gz
+   ```
+3. Upload `bureau.lpc.cm-v1.0.0.zip`.
+4. ```bash
+   mv ~/public_html/bureau.lpc.cm  ~/public_html/bureau.lpc.cm.bak
+   mkdir ~/public_html/bureau.lpc.cm
+   cd    ~/public_html/bureau.lpc.cm
+   unzip ~/bureau.lpc.cm-v1.0.0.zip
+   cp   ~/public_html/bureau.lpc.cm.bak/.env  .          # keep production .env
+   bash scripts/deploy.sh
+   ```
+5. Smoke test:
+   - `curl -sI https://bureau.lpc.cm/.env` → **403**
+   - `curl -sI http://bureau.lpc.cm/`      → **301 → https**
+   - Log in as admin, walk each dashboard, confirm no PHP notices.
+   - Log in as accountant, walk each accounting page.
+   - Log in as ops, walk sales/inventory/empties.
+   - Log in as driver, confirm mobile sidebar, sign a test BL.
+6. If anything is off:
+   ```bash
+   cd ~/public_html
+   rm -rf bureau.lpc.cm
+   mv bureau.lpc.cm.bak bureau.lpc.cm
+   mysql -u ... smartqaq_lpc_core < <(gunzip -c ~/backups/db_pre_v1_YYYY-MM-DD.sql.gz)
+   ```
+
+---
+
+## 9. Roadmap references
+
+The full backlog with priorities, effort estimates, and file:line references is in `AUDIT_REPORT.md` §10. This README's status table (§0) is the working checklist; the audit report is the reasoning.
+
+---
+
+## 10. Contact
+
+If you're an outside engineer picking this up: the code owner is Tom Blake (tomblakeasaah@gmail.com). This is a private project; do not fork, share, or discuss externally without permission.
+
+---
+
+## 11. FAQ
+
+**Q: My module page says "403 — Accès refusé" when I log in as admin.**
+A: The admin role has the `*` permission by default, so it should see everything. Check:
+1. `SELECT p.name FROM users u JOIN role_permissions rp ON rp.role_id = u.role_id JOIN permissions p ON p.id = rp.permission_id WHERE u.id = <admin_id> AND p.name = '*';` — should return 1 row.
+2. If not, run `migrations/001_rbac_seed.sql` — it seeds admin with `*` on install.
+
+**Q: I added a sidebar item but it doesn't show up.**
+A: The item's `permission` isn't in your role's grant list. Either give your role the permission via `Administration → Rôles & Permissions`, or if it's a new permission entirely, add it to `permissions.php` AND a migration.
+
+**Q: `Rbac::requirePermission()` isn't defined.**
+A: You forgot `require_once __DIR__ . '/../../includes/bootstrap.php';` at the top of your file. Bootstrap loads the Rbac class.
+
+**Q: My admin role has all permissions but the sidebar's "Rôles & Permissions" item doesn't appear.**
+A: The admin role's `*` was seeded only if you ran `migrations/001_rbac_seed.sql`. If you migrated from the pre-revamp DB without the seed, admin has no explicit permissions. Fix: run the seed migration.
+
+**Q: How do I test as a different role without logging out?**
+A: Open a private/incognito window. Each browser tab session is separate.
+
+**Q: I need to add a permission that doesn't fit the current modules.**
+A: Add a new module group to `permissions.php` and a new section to `nav.php`. Ship both in the same migration.
+
+---
+
+## 12. Historical / deprecated
+
+- **`docs/DEPRECATED_INSTALL_ENV.md`** — obsolete. Was for a partial drop-in deploy we abandoned; the full-zip model in §1 supersedes it.
+- **`scripts/legacy/setup_erp.sh`** — the original `mkdir` bootstrap script. Archived; do not run.
+- **`docs/archive/db_backup_lpc.sql`, `ddl_only.sql`, `error_log`** — pre-revamp artifacts kept for the audit. Excluded from the deploy zip.
+- **`includes/functions/helpers.php`** — legacy translation stub. Being replaced by a proper i18n loader in Sprint 3.
+- **`includes/classes/Auth.php`, `Accounting.php`, `includes/config/constants.php`** — empty stubs left from the original scaffolding. Safe to delete once nothing `require`s them.
+- **The 4 role-specific sidebar files** (`admin_sidebar.php`, `driver_sidebar.php`, `finance_sidebar.php`, `ops_sidebar.php`) — now thin wrappers around `sidebar.php`. Existing pages keep including them by name; new pages should include `sidebar.php` directly.
+
+---
+
+Last updated: 20 July 2026. Bump this date when you materially change the document.

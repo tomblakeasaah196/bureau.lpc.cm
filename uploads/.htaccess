@@ -1,0 +1,60 @@
+# =============================================================================
+# uploads/.htaccess
+# -----------------------------------------------------------------------------
+# Belt-and-suspenders defence for any user-uploaded file directory. The old
+# 'php_flag engine off' is a mod_php directive and is IGNORED under PHP-FPM /
+# suPHP (which is what cPanel EA-PHP83 uses). The FilesMatch / SetHandler /
+# ForceType directives below work regardless of the PHP SAPI.
+# =============================================================================
+
+
+# 1. Explicitly deny execution of any file extension a PHP handler might touch.
+<FilesMatch "\.(php|php3|php4|php5|php7|php8|phtml|phar|pht|phps|inc|cgi|pl|py|rb|sh|shtml)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# 2. Strip any handler / type an inherited config might have assigned.
+<IfModule mod_mime.c>
+    RemoveHandler .php .php3 .php4 .php5 .php7 .php8 .phtml .phar .pht .phps
+    RemoveType    .php .php3 .php4 .php5 .php7 .php8 .phtml .phar .pht .phps
+</IfModule>
+
+# 3. Force everything served from here to be treated as a plain download.
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set Content-Disposition "attachment"
+</IfModule>
+
+# 4. Belt-and-suspenders: also disable mod_php IF it happens to be active.
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php5.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php8.c>
+    php_flag engine off
+</IfModule>
+
+# 5. Belt-and-suspenders: disable CGI execution.
+Options -ExecCGI -Indexes
+
+# 6. Deny dotfiles and executables that snuck in with an unusual extension.
+<FilesMatch "^\.(ht|env|git)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>

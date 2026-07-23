@@ -1,0 +1,255 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* -------------------------------------------------------------------------- */
+/*  Bureau LPC ERP — project-wide additions (used across many pages).         */
+/*  Put page-specific styles in the page itself, not here.                    */
+/* -------------------------------------------------------------------------- */
+
+@layer components {
+
+    /* Glassmorphism panels used by the auth pages + admin/roles matrix. */
+    .glass {
+        background: rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+
+    /* Login-form input treatment (dark theme). */
+    .glass-input {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: #fff;
+    }
+    .glass-input:focus {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: #8CC63F;
+        box-shadow: 0 0 0 2px rgba(140, 198, 63, 0.2);
+        outline: none;
+    }
+    /* D6: was rgba(...,.4) → fails WCAG AA on dark glass. */
+    .glass-input::placeholder { color: rgba(255, 255, 255, 0.7); }
+
+    /* "seamless" inline editable cells used in sales/orders and invoicing. */
+    .seamless-input {
+        background: transparent;
+        border: 1px solid transparent;
+        width: 100%;
+        outline: none;
+        transition: border-color .2s;
+    }
+    .seamless-input:focus,
+    .seamless-input:hover {
+        border-bottom: 1px solid #8CC63F;
+        background: #F9FAFB;
+    }
+
+    /* Tab-content show/hide used across accounting + sales + inventory. */
+    .tab-content       { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Rules-list state for password validators. */
+    .valid-rule   { color: #8CC63F; transition: color .3s; }
+    /* D6: was rgba(...,.4) → 3.8:1 on dark glass. Bump to .7 = AA. */
+    .invalid-rule { color: rgba(255, 255, 255, 0.7); transition: color .3s; }
+
+    /* Reconciled cash rows (cashflow module). */
+    .reconciled-row { background-color: #ecfdf5 !important; color: #065f46; opacity: 0.8; }
+
+    /* RBAC hide helper set by lpc-rbac.js. */
+    .lpc-hidden-by-rbac { display: none !important; }
+
+    /* -------------------------------------------------------------------- */
+    /*  Sprint 6 D3 — Unified modal system                                  */
+    /* -------------------------------------------------------------------- */
+
+    .lpc-modal-dialog {
+        border: none;
+        padding: 0;
+        background: transparent;
+        max-width: min(560px, 92vw);
+        color: inherit;
+    }
+    .lpc-modal-dialog::backdrop {
+        background: rgba(15, 23, 42, 0.55);
+        backdrop-filter: blur(3px);
+    }
+
+    /* Fallback (non-<dialog>) overlay */
+    .lpc-modal-fallback {
+        position: fixed; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        z-index: 9999;
+    }
+    .lpc-modal-fallback .lpc-modal-backdrop {
+        position: absolute; inset: 0;
+        background: rgba(15, 23, 42, 0.55);
+        backdrop-filter: blur(3px);
+    }
+    .lpc-modal-fallback > .lpc-modal { position: relative; z-index: 1; }
+
+    .lpc-modal {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+        padding: 20px 24px 16px;
+        min-width: 320px;
+        max-width: 560px;
+        animation: lpcModalSlideUp .18s ease-out;
+    }
+    .lpc-modal-header {
+        display: flex; align-items: center; gap: 12px;
+        margin-bottom: 8px;
+    }
+    .lpc-modal-icon {
+        font-size: 24px; line-height: 1;
+    }
+    .lpc-modal--info    .lpc-modal-icon { color: #0ea5e9; }
+    .lpc-modal--warn    .lpc-modal-icon { color: #f59e0b; }
+    .lpc-modal--error   .lpc-modal-icon { color: #dc2626; }
+    .lpc-modal--success .lpc-modal-icon { color: #059669; }
+
+    .lpc-modal-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: #0f172a;
+        margin: 0;
+        line-height: 1.3;
+    }
+    .lpc-modal-body {
+        color: #334155;
+        font-size: 14.5px;
+        line-height: 1.55;
+        margin-bottom: 16px;
+    }
+    .lpc-modal-body p:not(:last-child) { margin-bottom: 8px; }
+
+    .lpc-modal-label {
+        display: block;
+        font-size: 13px; font-weight: 500;
+        color: #475569;
+        margin-bottom: 6px;
+    }
+    .lpc-modal-input {
+        width: 100%;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-size: 14px;
+        color: #0f172a;
+        background: #fff;
+    }
+    .lpc-modal-input:focus {
+        border-color: #8CC63F;
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(140,198,63,0.25);
+    }
+
+    .lpc-modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .lpc-modal-btn {
+        border: 1px solid transparent;
+        border-radius: 8px;
+        padding: 8px 16px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        min-width: 80px;
+        transition: background .15s, box-shadow .15s;
+    }
+    .lpc-modal-btn--secondary {
+        background: #f1f5f9;
+        color: #334155;
+        border-color: #cbd5e1;
+    }
+    .lpc-modal-btn--secondary:hover { background: #e2e8f0; }
+    .lpc-modal-btn--primary {
+        background: #005A2B;
+        color: #fff;
+    }
+    .lpc-modal-btn--primary:hover { background: #024a24; }
+    .lpc-modal-btn--danger {
+        background: #dc2626;
+        color: #fff;
+    }
+    .lpc-modal-btn--danger:hover { background: #b91c1c; }
+
+    @keyframes lpcModalSlideUp {
+        0%   { opacity: 0; transform: translateY(8px) scale(.98); }
+        100% { opacity: 1; transform: translateY(0)   scale(1); }
+    }
+}
+
+@layer utilities {
+    .animation-delay-2000 { animation-delay: 2s; }
+    .animation-delay-4000 { animation-delay: 4s; }
+
+    /* Custom scrollbars used by tabs in accounting / stock. */
+    .scrollbar-thin::-webkit-scrollbar        { width: 6px; height: 6px; }
+    .scrollbar-thin::-webkit-scrollbar-track  { background: transparent; }
+    .scrollbar-thin::-webkit-scrollbar-thumb  { background: #cbd5e1; border-radius: 4px; }
+
+    /* -------------------------------------------------------------------- */
+    /*  Sprint 6 D6 — WCAG AA focus rings + skip link + sr-only             */
+    /* -------------------------------------------------------------------- */
+
+    /* Any element carrying .lpc-focusable gets a brand-green focus ring.
+       Also apply to native interactive controls via :where(...) so existing
+       Tailwind class stacks still cascade normally.                        */
+    .lpc-focusable:focus-visible,
+    :where(a, button, input, select, textarea, summary,
+           [role="button"], [role="menuitem"], [role="tab"],
+           [tabindex]:not([tabindex="-1"])):focus-visible {
+        outline: 2px solid #8CC63F;
+        outline-offset: 2px;
+        box-shadow: 0 0 0 4px rgba(140, 198, 63, .25);
+        border-radius: 4px;
+    }
+
+    /* Skip-link (rendered as the first focusable element inside every
+       module page's <body>; jumps keyboard users past the sidebar).       */
+    .lpc-skip-link {
+        position: absolute;
+        left: -9999px;
+        top: 0;
+        z-index: 10000;
+        background: #005A2B;
+        color: #fff;
+        padding: 10px 16px;
+        border-radius: 0 0 8px 0;
+        font-weight: 600;
+        text-decoration: none;
+    }
+    .lpc-skip-link:focus,
+    .lpc-skip-link:focus-visible {
+        left: 1rem;
+        top: 1rem;
+        outline: 2px solid #8CC63F;
+        outline-offset: 2px;
+    }
+
+    /* Visible only to screen readers. */
+    .lpc-sr-only {
+        position: absolute;
+        width: 1px; height: 1px;
+        padding: 0; margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
+
+    /* Sidebar section headings — WCAG AA bump. */
+    .lpc-sidebar-heading {
+        color: rgba(255, 255, 255, 0.75);
+        font-weight: 600;
+        letter-spacing: 0.03em;
+    }
+}

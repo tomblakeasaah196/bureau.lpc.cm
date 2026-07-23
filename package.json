@@ -1,0 +1,18 @@
+{
+  "name": "bureau-lpc-erp",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Bureau LPC ERP — Tailwind + build toolchain (dev-only). No runtime JS deps.",
+  "scripts": {
+    "build:css":  "tailwindcss -i ./assets/css/src/input.css -o ./assets/css/tailwind.css --minify",
+    "watch:css":  "tailwindcss -i ./assets/css/src/input.css -o ./assets/css/tailwind.css --watch",
+    "build":      "npm run build:css"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.10",
+    "@tailwindcss/forms": "^0.5.7",
+    "@tailwindcss/typography": "^0.5.13",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.41"
+  }
+}

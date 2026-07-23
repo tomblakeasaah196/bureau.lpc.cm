@@ -1,0 +1,40 @@
+# =============================================================================
+# Bureau LPC ERP — .gitignore
+# =============================================================================
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Historical / archive
+docs/archive/
+error_log
+*.log
+*.sql
+!migrations/*.sql
+
+# Backups
+*.bak
+*.tar.gz
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Build artifacts / packages
+node_modules/
+vendor/
+!vendor/README.md
+!vendor/.gitkeep
+
+# Uploaded runtime files (structure kept via .gitkeep, contents excluded)
+uploads/*/*/*
+!uploads/*/*/.gitkeep
+!uploads/.htaccess
+
+# The BUILT Tailwind CSS is committed on purpose so the deploy zip doesn't
+# require node/npm on the server. Only ignore intermediate build files.

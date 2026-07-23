@@ -1,0 +1,30 @@
+{
+    "name": "bureau-lpc/erp",
+    "type": "project",
+    "description": "Bureau LPC ERP — production release. Server-side PDF renderer + supporting libs.",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.3",
+        "ext-pdo": "*",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "dompdf/dompdf": "^3.0"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true,
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": false
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "LPC\\": "src/"
+        }
+    },
+    "scripts": {
+        "post-install-cmd": [
+            "@php -r \"echo 'vendor/ populated — remember to commit it before zipping the release.' . PHP_EOL;\""
+        ]
+    }
+}
