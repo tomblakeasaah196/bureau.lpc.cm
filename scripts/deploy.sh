@@ -115,6 +115,38 @@ mkdir -p uploads uploads/signatures uploads/receipts uploads/avatars && ok "uplo
 mkdir -p "$HOME/backups" && ok "$HOME/backups/ ensured"
 touch "$HOME/backups/lpc_error.log"; chmod 600 "$HOME/backups/lpc_error.log" && ok "lpc_error.log ensured (chmod 600)"
 
+# ---- 3b. Composer dependencies --------------------------------------------
+# Needed now that deploys can come from a bare `git reset --hard` (CI) instead
+# of a zip that already had vendor/ built in. vendor/ is gitignored (only
+# tracked via composer.lock), so it won't exist after a fresh git checkout.
+# Safe to run every deploy: composer no-ops fast when lock/installed already match.
+step "Composer dependencies"
+# No system-wide `composer` on this host (shared cPanel, confirmed
+# 2026-07-23 -- `which composer` found nothing, no root to install one).
+# Also check the common self-installed phar locations before giving up.
+COMPOSER_BIN=""
+if command -v composer >/dev/null 2>&1; then
+    COMPOSER_BIN="composer"
+elif [ -f "$HOME/bin/composer" ]; then
+    COMPOSER_BIN="php $HOME/bin/composer"
+elif [ -f "$HOME/composer.phar" ]; then
+    COMPOSER_BIN="php $HOME/composer.phar"
+fi
+
+if [ -f "composer.json" ]; then
+    if [ -n "$COMPOSER_BIN" ]; then
+        if $COMPOSER_BIN install --no-dev --optimize-autoloader --no-interaction 2>&1 | tail -20; then
+            ok "composer install (vendor/ up to date with composer.lock)"
+        else
+            fail "composer install failed -- see output above"
+        fi
+    else
+        warn "composer not found (checked PATH, \$HOME/bin/composer, \$HOME/composer.phar) -- skipping. vendor/ keeps whatever was there before; only a problem once composer.json/composer.lock actually change."
+    fi
+else
+    warn "composer.json missing -- skipping"
+fi
+
 # ---- 4. Migrations --------------------------------------------------------
 step "SQL migrations"
 if [ -f "scripts/migrate.php" ]; then

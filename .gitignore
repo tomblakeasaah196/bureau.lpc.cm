@@ -6,6 +6,15 @@
 .env
 .env.*
 !.env.example
+# Certificates, private keys, and credential exports
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+credentials*.json
+secrets*.json
 
 # Historical / archive
 docs/archive/
@@ -13,10 +22,16 @@ error_log
 *.log
 *.sql
 !migrations/*.sql
+!scripts/tests/*.sql
 
 # Backups
 *.bak
 *.tar.gz
+*.zip
+*.dump
+*.sqlite
+*.sqlite3
+*.db
 
 # Editor / OS
 .DS_Store
@@ -25,11 +40,9 @@ Thumbs.db
 .idea/
 *.swp
 
-# Build artifacts / packages
-node_modules/
-vendor/
-!vendor/README.md
-!vendor/.gitkeep
+# Build artifacts / packages — root folders only
+/node_modules/
+/vendor/
 
 # Uploaded runtime files (structure kept via .gitkeep, contents excluded)
 uploads/*/*/*

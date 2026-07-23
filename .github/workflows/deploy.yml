@@ -1,0 +1,62 @@
+name: Deploy to production
+
+# Fully automatic: every push to main deploys immediately, no approval step.
+# (Chosen deliberately 2026-07-23 -- tradeoffs discussed in chat before this
+# was added. scripts/deploy.sh still runs its own migrations + OHADA COA
+# preflight + smoke tests on every run; a failure there fails this workflow
+# run red in the Actions tab, but does NOT roll back files already written
+# to the server before the failing step -- there is no atomic rollback in
+# an auto-deploy-on-every-push setup. scripts/rollback.sh is still there
+# for manual recovery, same as before this workflow existed.)
+#
+# How it works: the runner checks out the repo (so no git credentials are
+# ever needed on the server itself), rsyncs the tracked files over SSH,
+# then runs the existing deploy.sh remotely. Only one SSH keypair is
+# needed -- GitHub Actions -> server -- since the server never has to
+# authenticate back to GitHub.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}   # lets you manually re-run a deploy from the Actions tab, no new commit needed
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Package + ship to server + run deploy.sh
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_HOST:        ${{ secrets.DEPLOY_SSH_HOST }}
+          SSH_USER:        ${{ secrets.DEPLOY_SSH_USER }}
+          SSH_PORT:        ${{ secrets.DEPLOY_SSH_PORT }}
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          # rsync isn't available on the target host (shared cPanel, no root
+          # to install it) -- tar + scp needs nothing beyond ssh itself on
+          # either end. Trade-off: this overwrites/adds files but does NOT
+          # remove files that were deleted from the repo -- there's no
+          # --delete equivalent here. .git/.github are excluded from the
+          # archive; vendor/, node_modules/, and real uploads/ content were
+          # never part of the checkout at all (gitignored), so they're
+          # never touched by extraction either way.
+          tar czf /tmp/deploy.tar.gz --exclude='.git' --exclude='.github' .
+
+          scp -i ~/.ssh/deploy_key -P "$SSH_PORT" -o StrictHostKeyChecking=yes \
+            /tmp/deploy.tar.gz "$SSH_USER@$SSH_HOST:~/deploy_incoming.tar.gz"
+
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" '
+            set -e
+            cd ~/public_html/bureau.lpc.cm
+            tar xzf ~/deploy_incoming.tar.gz
+            rm ~/deploy_incoming.tar.gz
+            bash scripts/deploy.sh
+          '
