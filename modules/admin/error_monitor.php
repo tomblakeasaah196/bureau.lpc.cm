@@ -78,13 +78,118 @@ $total24h = 0; foreach ($hourly as $h) { $total24h += (int) $h['count']; }
 $totalWin = count($entries);
 $undated  = ErrorMonitor::undatedCount($entries);
 
-// Extract available levels for the filter.
+// Extract available levels for the filter. Built from the UNFILTERED set so
+// the dropdown doesn't shrink to whatever is currently selected.
 $levels = [];
 foreach ($agg as $row) { if (!in_array($row['level'], $levels, true)) $levels[] = $row['level']; }
 sort($levels);
 
+// -----------------------------------------------------------------------------
+// Filter + paginate SERVER-SIDE.
+//
+// The old page rendered every signature at once and let JS hide rows. With a
+// large window that is thousands of <details> nodes plus a <pre> sample for
+// each — enough to lock up the tab. Filtering has to happen before the slice,
+// otherwise "page 2" would mean "page 2 of the unfiltered list", which is why
+// this is no longer done in the browser.
+// -----------------------------------------------------------------------------
+const ERR_PER_PAGE = 20;
+
+$fLevel = trim((string) ($_GET['level'] ?? ''));
+$fText  = mb_strtolower(trim((string) ($_GET['q'] ?? '')));
+
+$filtered = $agg;
+if ($fLevel !== '' || $fText !== '') {
+    $filtered = array_values(array_filter($agg, function ($row) use ($fLevel, $fText) {
+        if ($fLevel !== '' && $row['level'] !== $fLevel) return false;
+        if ($fText !== '') {
+            $hay = mb_strtolower(($row['message'] ?? '') . ' ' . ($row['file'] ?? ''));
+            if (mb_strpos($hay, $fText) === false) return false;
+        }
+        return true;
+    }));
+}
+
+// -----------------------------------------------------------------------------
+// Sort order. aggregate() returns count-DESC, which buries a one-off fatal
+// underneath a 46x warning — the newest and most serious error on the box can
+// sit below the fold indefinitely. "Most recent" is the default now, because
+// the point of this screen is to see errors as they happen.
+// -----------------------------------------------------------------------------
+$sort = ($_GET['sort'] ?? 'recent') === 'count' ? 'count' : 'recent';
+if ($sort === 'recent') {
+    usort($filtered, function ($a, $b) {
+        $ta = ErrorMonitor::parseTs($a['last_seen']);
+        $tb = ErrorMonitor::parseTs($b['last_seen']);
+        $va = $ta ? $ta->getTimestamp() : 0;
+        $vb = $tb ? $tb->getTimestamp() : 0;
+        if ($va !== $vb) return $vb <=> $va;
+        return $b['count'] <=> $a['count'];
+    });
+}
+
+$totalGroups = count($filtered);
+$totalPages  = max(1, (int) ceil($totalGroups / ERR_PER_PAGE));
+$page        = max(1, (int) ($_GET['p'] ?? 1));
+if ($page > $totalPages) $page = $totalPages;
+$pageRows    = array_slice($filtered, ($page - 1) * ERR_PER_PAGE, ERR_PER_PAGE);
+
+/** Rebuild the current query string with one key overridden. */
+$qs = function (array $over = []) use ($bytes, $fLevel, $fText, $page, $sort) {
+    $p = array_merge([
+        'bytes' => $bytes,
+        'level' => $fLevel,
+        'q'     => $fText,
+        'sort'  => $sort,
+        'p'     => $page,
+    ], $over);
+    return '?' . http_build_query(array_filter($p, fn($v) => $v !== '' && $v !== null));
+};
+
 $hourlyMax = 1;
 foreach ($hourly as $h) { if ($h['count'] > $hourlyMax) $hourlyMax = $h['count']; }
+
+/**
+ * Render a raw log timestamp in the app's timezone.
+ *
+ * PHP writes these in UTC while the app runs in Africa/Douala, so the list was
+ * showing "09:23 UTC" for an error the user experienced at 10:23. Now that the
+ * 24h chart is keyed in local time, leaving the list in UTC would put two
+ * different clocks on one screen.
+ */
+$fmtTs = function (string $raw): string {
+    $d = ErrorMonitor::parseTs($raw);
+    if (!$d) return $raw !== '' ? $raw : '—';
+    return $d->setTimezone(new DateTimeZone(date_default_timezone_get()))->format('d-M-Y H:i:s');
+};
+
+// -----------------------------------------------------------------------------
+// Logging health. "Why are there no errors after 10 a.m.?" is not answerable
+// from the entry list alone — an empty tail looks identical whether the app was
+// quiet or the log simply stopped being written (full disk, unwritable
+// directory, a rotation job, or ini_set() being skipped in db.php because the
+// target directory was not writable at boot). Surface the facts.
+// -----------------------------------------------------------------------------
+$health = [];
+$effective = @ini_get('error_log');
+foreach ($sources as $s) {
+    $mtime = @filemtime($s);
+    $health[] = [
+        'path'      => $s,
+        'size'      => (int) @filesize($s),
+        'mtime'     => $mtime ?: null,
+        'writable'  => @is_writable($s),
+        'effective' => ($effective && realpath($effective) === realpath($s)),
+    ];
+}
+$configuredDir      = $logPath ? dirname($logPath) : null;
+$configuredDirOk    = $configuredDir ? (is_dir($configuredDir) && is_writable($configuredDir)) : false;
+$configuredIsActive = $logPath && $effective && (realpath($effective) === realpath($logPath));
+$newestWrite        = 0;
+foreach ($health as $h) { if ($h['mtime'] && $h['mtime'] > $newestWrite) $newestWrite = $h['mtime']; }
+$staleHours         = $newestWrite ? (time() - $newestWrite) / 3600 : null;
+$diskFree           = @disk_free_space($configuredDir ?: __DIR__);
+$diskTotal          = @disk_total_space($configuredDir ?: __DIR__);
 ?>
 <!DOCTYPE html>
 <html lang="<?= htmlspecialchars($lang, ENT_QUOTES, 'UTF-8') ?>">
@@ -131,6 +236,10 @@ require __DIR__ . '/../../includes/components/topbar.php';
     <div class="lpc-toolbar">
         <p class="lpc-toolbar-lead text-xs text-gray-500 max-w-2xl truncate"><?= __t('ui.error_monitor.intro') ?></p>
         <form method="get" class="lpc-field">
+            <!-- Carry the active filter across a window change, otherwise
+                 resizing the read window silently resets the user's search. -->
+            <input type="hidden" name="q" value="<?= htmlspecialchars($fLevel === '' && $fText === '' ? '' : (string) ($_GET['q'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
+            <input type="hidden" name="level" value="<?= htmlspecialchars($fLevel, ENT_QUOTES, 'UTF-8') ?>">
             <label for="em-bytes" class="lpc-field-label"><?= __t('ui.fen_tre') ?></label>
             <select id="em-bytes" name="bytes" onchange="this.form.submit()">
                 <?php foreach ([16384, 65536, 262144, 1048576, 4194304] as $b): ?>
@@ -192,14 +301,51 @@ require __DIR__ . '/../../includes/components/topbar.php';
 </section>
 <?php endif; ?>
 
-<!-- Which files we actually read, so "missing error" is diagnosable at a glance. -->
+<!-- Logging health. An empty tail looks the same whether the app was quiet or
+     the log stopped being written; these facts tell the two apart. -->
 <section class="glass rounded-xl p-3 mb-6">
-    <p class="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1"><?= __t('ui.error_monitor.sources') ?></p>
+    <p class="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2"><?= __t('ui.error_monitor.health') ?></p>
+
+    <?php if ($staleHours !== null && $staleHours >= 2): ?>
+        <p class="text-xs text-amber-800 mb-2 font-semibold">
+            <?= htmlspecialchars(__t('ui.error_monitor.stale', ['h' => number_format($staleHours, 1, ',', ' ')]), ENT_QUOTES, 'UTF-8') ?>
+        </p>
+    <?php endif; ?>
+
+    <?php if ($logPath && !$configuredDirOk): ?>
+        <p class="text-xs text-red-700 mb-2 font-semibold">
+            <?= htmlspecialchars(__t('ui.error_monitor.dir_unwritable', ['d' => (string) $configuredDir]), ENT_QUOTES, 'UTF-8') ?>
+        </p>
+    <?php elseif ($logPath && !$configuredIsActive): ?>
+        <p class="text-xs text-red-700 mb-2 font-semibold">
+            <?= htmlspecialchars(__t('ui.error_monitor.not_active', ['want' => (string) $logPath, 'got' => (string) ($effective ?: '—')]), ENT_QUOTES, 'UTF-8') ?>
+        </p>
+    <?php endif; ?>
+
     <ul class="mono text-[11px] text-gray-600 space-y-0.5">
-        <?php foreach ($sources as $s): ?>
-            <li><?= htmlspecialchars($s, ENT_QUOTES, 'UTF-8') ?> — <?= number_format((int) @filesize($s) / 1024, 0, ',', ' ') ?> KB</li>
+        <?php foreach ($health as $h): ?>
+            <li>
+                <?= $h['effective'] ? '● ' : '○ ' ?><?= htmlspecialchars($h['path'], ENT_QUOTES, 'UTF-8') ?>
+                — <?= number_format($h['size'] / 1024, 0, ',', ' ') ?> KB
+                <?php if ($h['mtime']): ?>
+                    · <?= __t('ui.error_monitor.last_write') ?> <?= htmlspecialchars(date('d-M-Y H:i:s', $h['mtime']), ENT_QUOTES, 'UTF-8') ?>
+                <?php endif; ?>
+                <?php if (!$h['writable']): ?>
+                    · <span class="text-red-600"><?= __t('ui.error_monitor.read_only') ?></span>
+                <?php endif; ?>
+            </li>
         <?php endforeach; ?>
     </ul>
+
+    <?php if ($diskFree && $diskTotal): ?>
+        <p class="text-[11px] text-gray-500 mt-2 mono">
+            <?= __t('ui.error_monitor.disk') ?>:
+            <?= number_format($diskFree / 1073741824, 2, ',', ' ') ?> GB / <?= number_format($diskTotal / 1073741824, 2, ',', ' ') ?> GB
+            <?php if ($diskTotal > 0 && ($diskFree / $diskTotal) < 0.02): ?>
+                <span class="text-red-600 font-semibold">— <?= __t('ui.error_monitor.disk_full') ?></span>
+            <?php endif; ?>
+        </p>
+    <?php endif; ?>
 </section>
 
 <!-- Hourly bar chart -->
@@ -226,26 +372,47 @@ require __DIR__ . '/../../includes/components/topbar.php';
         <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-500">
             <?= __t('ui.erreurs_regroup_es') ?>
         </h2>
-        <div class="flex items-center gap-2">
-            <input id="err-search" type="text"
+        <!-- Filtering is a GET round-trip now, not a JS hide/show: it has to be
+             applied BEFORE the 20-per-page slice or "page 2" would page through
+             the unfiltered list. -->
+        <form method="get" id="err-filter" class="flex items-center gap-2">
+            <input type="hidden" name="bytes" value="<?= (int) $bytes ?>">
+            <input id="err-search" type="text" name="q"
+                   value="<?= htmlspecialchars((string) ($_GET['q'] ?? ''), ENT_QUOTES, 'UTF-8') ?>"
                    placeholder="<?= __t('ui.filtrer') ?>"
                    class="bg-gray-50 border border-gray-200 rounded px-3 py-1 text-xs text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light w-56">
-            <select id="err-level" class="bg-gray-50 border border-gray-200 rounded px-2 py-1 text-xs">
+            <select id="err-level" name="level" class="bg-gray-50 border border-gray-200 rounded px-2 py-1 text-xs">
                 <option value=""><?= __t('ui.tous_niveaux') ?></option>
                 <?php foreach ($levels as $lv): ?>
-                    <option value="<?= htmlspecialchars($lv, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($lv, ENT_QUOTES, 'UTF-8') ?></option>
+                    <option value="<?= htmlspecialchars($lv, ENT_QUOTES, 'UTF-8') ?>" <?= $lv === $fLevel ? 'selected' : '' ?>>
+                        <?= htmlspecialchars($lv, ENT_QUOTES, 'UTF-8') ?>
+                    </option>
                 <?php endforeach; ?>
             </select>
+            <button type="submit" class="btn btn-secondary"><?= __t('ui.filtrer') ?></button>
+        </form>
+        <div class="flex items-center gap-1">
+            <a class="btn <?= $sort === 'recent' ? 'btn-primary' : 'btn-secondary' ?>"
+               href="<?= htmlspecialchars($qs(['sort' => 'recent', 'p' => 1]), ENT_QUOTES, 'UTF-8') ?>"><?= __t('ui.error_monitor.sort_recent') ?></a>
+            <a class="btn <?= $sort === 'count' ? 'btn-primary' : 'btn-secondary' ?>"
+               href="<?= htmlspecialchars($qs(['sort' => 'count', 'p' => 1]), ENT_QUOTES, 'UTF-8') ?>"><?= __t('ui.error_monitor.sort_count') ?></a>
         </div>
     </div>
 
-    <?php if (empty($agg)): ?>
+    <?php if (empty($pageRows)): ?>
         <p class="text-gray-500 text-sm py-8 text-center italic">
             <?= __t('ui.error_monitor.no_errors_in_window') ?>
         </p>
     <?php else: ?>
+    <p class="text-[11px] text-gray-500 mb-3">
+        <?= htmlspecialchars(__t('ui.error_monitor.showing', [
+            'from'  => (($page - 1) * ERR_PER_PAGE) + 1,
+            'to'    => min($page * ERR_PER_PAGE, $totalGroups),
+            'total' => $totalGroups,
+        ]), ENT_QUOTES, 'UTF-8') ?>
+    </p>
     <div class="space-y-2" id="err-list">
-        <?php foreach ($agg as $row):
+        <?php foreach ($pageRows as $row):
             // Severity buckets, not raw level names — the level list is wider
             // than the CSS class list (Recoverable fatal error, Core warning…),
             // and unmapped levels used to render as unstyled grey.
@@ -269,9 +436,10 @@ require __DIR__ . '/../../includes/components/topbar.php';
                         <?php endif; ?>
                         <p class="text-[10px] text-gray-500 mt-1">
                             <?= __t('ui.de') ?>
-                            <span class="mono"><?= htmlspecialchars($row['first_seen'], ENT_QUOTES, 'UTF-8') ?></span>
+                            <span class="mono"><?= htmlspecialchars($fmtTs($row['first_seen']), ENT_QUOTES, 'UTF-8') ?></span>
                             &nbsp;→&nbsp;
-                            <span class="mono"><?= htmlspecialchars($row['last_seen'], ENT_QUOTES, 'UTF-8') ?></span>
+                            <span class="mono"><?= htmlspecialchars($fmtTs($row['last_seen']), ENT_QUOTES, 'UTF-8') ?></span>
+                            <span class="text-gray-400">(<?= htmlspecialchars(date_default_timezone_get(), ENT_QUOTES, 'UTF-8') ?>)</span>
                         </p>
                     </div>
                     <button type="button" onclick="event.preventDefault();event.stopPropagation();this.closest('.err-item').remove();"
@@ -304,6 +472,36 @@ require __DIR__ . '/../../includes/components/topbar.php';
             </details>
         <?php endforeach; ?>
     </div>
+
+    <?php if ($totalPages > 1): ?>
+    <nav class="flex items-center justify-center gap-1 mt-4 flex-wrap" aria-label="pagination">
+        <a class="btn btn-secondary <?= $page <= 1 ? 'pointer-events-none opacity-40' : '' ?>"
+           href="<?= htmlspecialchars($qs(['p' => max(1, $page - 1)]), ENT_QUOTES, 'UTF-8') ?>">&larr;</a>
+
+        <?php
+        // Window of page links around the current page, with ellipses, so a
+        // 400-group log doesn't render 400 pagination links either.
+        $from = max(1, $page - 2);
+        $to   = min($totalPages, $page + 2);
+        if ($from > 1): ?>
+            <a class="btn btn-secondary" href="<?= htmlspecialchars($qs(['p' => 1]), ENT_QUOTES, 'UTF-8') ?>">1</a>
+            <?php if ($from > 2): ?><span class="text-gray-400 px-1">…</span><?php endif; ?>
+        <?php endif; ?>
+
+        <?php for ($i = $from; $i <= $to; $i++): ?>
+            <a class="btn <?= $i === $page ? 'btn-primary' : 'btn-secondary' ?>"
+               href="<?= htmlspecialchars($qs(['p' => $i]), ENT_QUOTES, 'UTF-8') ?>"><?= $i ?></a>
+        <?php endfor; ?>
+
+        <?php if ($to < $totalPages): ?>
+            <?php if ($to < $totalPages - 1): ?><span class="text-gray-400 px-1">…</span><?php endif; ?>
+            <a class="btn btn-secondary" href="<?= htmlspecialchars($qs(['p' => $totalPages]), ENT_QUOTES, 'UTF-8') ?>"><?= $totalPages ?></a>
+        <?php endif; ?>
+
+        <a class="btn btn-secondary <?= $page >= $totalPages ? 'pointer-events-none opacity-40' : '' ?>"
+           href="<?= htmlspecialchars($qs(['p' => min($totalPages, $page + 1)]), ENT_QUOTES, 'UTF-8') ?>">&rarr;</a>
+    </nav>
+    <?php endif; ?>
     <?php endif; ?>
 </section>
 

@@ -130,8 +130,14 @@ try {
             'about'        => $_POST['about']        ?? '',
             'phone'        => $_POST['phone']        ?? '',
         ]);
+        // save() returns UserProfile::current(), which is snake_case. The
+        // camelCase 'displayName' only exists in jsPayload(). Reading it here
+        // raised "Undefined array key" — and because the warning printed
+        // BEFORE pReply() could call http_response_code(), every response from
+        // this endpoint was prefixed with warning text, so the JSON no longer
+        // parsed and the UI showed "Réponse inattendue du serveur."
         profAudit($db, $userId, 'Profile identity updated', [
-            'display_name' => $fresh['displayName'],
+            'display_name' => $fresh['display_name'],
         ]);
         profOk('Profil mis à jour.');
     }
