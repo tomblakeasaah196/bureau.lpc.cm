@@ -155,6 +155,8 @@ context that's already settled.
 | Sprint 7D | Visual pass on the redesigned shell | **Todo — acceptance gate.** Walk `docs/SHELL_VERIFY.md` after deploying. |
 | Sprint 7E | `quote.php` defaults back to the 4-page HTML proposal; 1-page dompdf moved behind `?pdf=1` + an "Offre commerciale" button | Done — see §5.6. Sprint 4 had hidden the 4-pager behind an `exit`. |
 | Sprint 7E | **Proposal Studio** — every string, logo and share message on the proposal made editable, FR + EN, no code change | Done — migration 030, `includes/functions/proposal_template.php`, `api/v1/proposal_template_controller.php`, `modules/crm/proposal_studio.php`, `assets/js/modules/crm-proposal_studio.js`. See §5.7. |
+| Sprint 7F | **Two CRM KPI cards were reporting 0 because their queries referenced columns that don't exist** | Fixed — `api/v1/fetch_crm_kpis.php`. See §5.8. |
+| Sprint 7F | KPI card drill-down + cross-page deep links with a return chip | Done — `api/v1/fetch_crm_kpi_detail.php`, `assets/js/lpc-deeplink.js`, `.lpc-back-chip`/`.lpc-filter-chip` in `lpc-shell.css`. |
 | Ship | Final zip + `deploy.sh` | Ready — see `scripts/ship-day.md`. |
 
 Update this table when you finish a phase item. It's the truth about where the revamp stands.
@@ -836,6 +838,61 @@ letterhead ("Ets. La Petite Cour", NIU, phone) is shared with invoices,
 BLs and bons de commande. Making *that* parametric is a separate
 company-identity setting, not a proposal setting — doing it here would
 have quietly changed every invoice too.
+
+### 5.8 KPI cards, deep links, and a lesson about `catch { $x = 0; }`
+
+Two of the three KPI cards on `modules/crm/clients.php` had never worked.
+
+- Financial debt queried `invoices.amount_paid`. **That column does not
+  exist** — not in the schema, not added by any migration. Payments live
+  in the `payments` table and only count at `status = 'validated'`.
+- Bottle debt queried `deliveries.expected_empties` /
+  `.returned_empties`. **Neither exists either.** Empties balances live in
+  `client_empties_ledger.quantity_owed`.
+
+Both queries threw on every request. Both were wrapped in
+`catch (PDOException $e) { $x = 0; }`, so both failures were converted
+into a number that looked like a fact: "0 FCFA", "0 Vides". A company
+with no receivables and a company whose receivables query is broken
+render identically. This sat in production indefinitely because there was
+nothing to notice.
+
+**The rule: never let a catch block substitute a plausible business
+value.** A KPI that cannot be computed must fail, not return zero. If a
+fallback is genuinely wanted, it has to be visibly distinct from a real
+result — "—" or "indisponible", never a number. The corrected endpoint
+has no catch around its queries at all.
+
+The formulas now match the ones already used by `invoices_controller.php`
+(AR ageing) and `cre_controller.php` (empties ledger), so the card and the
+page it links to cannot disagree.
+
+**Drill-down and deep links.** Each card is a `<button>` (not a `div` with
+an `onclick` — that is invisible to keyboard and assistive tech) opening a
+modal from `api/v1/fetch_crm_kpi_detail.php`. Rows deep-link to the page
+that can act on them, carrying
+`?client_id=…&client=…&from=crm_clients`.
+
+`assets/js/lpc-deeplink.js` (loaded globally by `head_assets.php`) reads
+those params, renders a "‹ Retour à …" chip plus a removable client-filter
+chip into the page's `.lpc-toolbar`, and narrows the relevant tables.
+
+Two things about it worth preserving:
+
+- **`from` is a KEY into a whitelist, never a URL.** Accepting a URL —
+  even a relative one — would make every page in the app an open
+  redirector: send someone `?from=//evil.example` and the app itself
+  renders the button that takes them there. An unrecognised key renders
+  no chip.
+- **Row filtering uses a `MutationObserver`, not a one-shot pass.** These
+  lists are fetched asynchronously and several re-render themselves after
+  an action. Filtering once would apply on first paint and then silently
+  stop, which looks exactly like the filter having been cleared.
+
+A page only needs `LPC.deeplink.arrive(['#tbody-id'])` to participate, and
+a `.lpc-toolbar` for the chips to land in — `empties_collection.php` has
+an intentionally empty one for exactly this (it collapses via
+`.lpc-toolbar:empty`, so it costs nothing when unused).
 
 ---
 

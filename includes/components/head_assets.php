@@ -82,6 +82,7 @@ $__i18n_payload = function_exists('lpc_i18n_js_payload')
 <script src="<?= lpc_asset('/assets/js/lpc-i18n.js') ?>" defer></script>
 <script src="<?= lpc_asset('/assets/js/lpc-modal.js') ?>" defer></script>
 <script src="<?= lpc_asset('/assets/js/lpc-a11y.js') ?>" defer></script>
+<script src="<?= lpc_asset('/assets/js/lpc-deeplink.js') ?>" defer></script>
 <?php
 // Auto-detect a stub tailwind.css and warn during development.
 $__css_path = __DIR__ . '/../../assets/css/tailwind.css';

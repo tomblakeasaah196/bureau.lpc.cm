@@ -23,6 +23,54 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
         /* Custom scrollbar for the modal */
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 4px; }
+
+        /* KPI cards are buttons now. They must LOOK clickable, or nobody will
+           discover the drill-down — the cards sat there inert for months. */
+        .lpc-kpi-card {
+            cursor: pointer;
+            transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+        }
+        .lpc-kpi-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--lpc-brand, #005A2B);
+            box-shadow: 0 10px 20px -10px rgba(0, 52, 26, .35);
+        }
+        .lpc-kpi-card:focus-visible {
+            outline: 2px solid var(--lpc-brand, #005A2B);
+            outline-offset: 3px;
+        }
+        .lpc-kpi-card .lpc-kpi-hint {
+            font-size: .625rem; font-weight: 700; letter-spacing: .06em;
+            text-transform: uppercase; color: #9ca3af; margin-top: .35rem;
+            opacity: 0; transition: opacity .15s ease;
+        }
+        .lpc-kpi-card:hover .lpc-kpi-hint,
+        .lpc-kpi-card:focus-visible .lpc-kpi-hint { opacity: 1; }
+
+        /* Drill-down modal */
+        .kpi-row {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 1rem; width: 100%; text-align: left;
+            padding: .7rem .9rem; border-radius: .6rem;
+            border: 1px solid transparent; background: transparent;
+            transition: background .12s, border-color .12s;
+        }
+        .kpi-row + .kpi-row { margin-top: .15rem; }
+        a.kpi-row:hover { background: #f9fafb; border-color: #e5e7eb; }
+        .kpi-row-name  { font-weight: 700; color: #111827; font-size: .875rem; }
+        .kpi-row-meta  { font-size: .6875rem; color: #6b7280; margin-top: .1rem; }
+        .kpi-row-value { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .kpi-overdue   { color: #b91c1c; }
+        .kpi-bar       { height: 4px; border-radius: 999px; background: #e5e7eb; margin-top: .4rem; overflow: hidden; }
+        .kpi-bar > i   { display: block; height: 100%; background: var(--lpc-brand, #005A2B); }
+        .kpi-stat      { display: flex; justify-content: space-between; padding: .45rem 0;
+                         border-bottom: 1px dashed #e5e7eb; font-size: .8125rem; }
+        .kpi-stat:last-child { border-bottom: 0; }
+        /* Was max-h-[60vh] — an arbitrary Tailwind value, and those are
+           compiled at build time. It was never in assets/css/tailwind.css, so
+           the modal body would have grown unbounded on a long debtor list and
+           pushed its own Fermer button off-screen. §5.5. */
+        .kpi-modal-scroll { max-height: 60vh; overflow-y: auto; }
     </style>
 <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
@@ -61,33 +109,36 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
         <main role="main" id="main" class="lpc-page">
         
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <div class="bg-white p-5 rounded-2xl border border-lpc-border shadow-sm flex items-center justify-between">
+            <button type="button" class="lpc-kpi-card bg-white p-5 rounded-2xl border border-lpc-border shadow-sm flex items-center justify-between w-full text-left" data-metric="clients" aria-haspopup="dialog">
                 <div>
                     <p class="text-xs font-bold text-gray-400 uppercase tracking-wider"><?php echo __t('ui.total_clients_actifs'); ?></p>
                     <h3 class="text-2xl font-black text-gray-900 mt-1" id="kpi-clients">...</h3>
+                    <p class="lpc-kpi-hint">Voir la répartition ›</p>
                 </div>
                 <div class="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                 </div>
-            </div>
-            <div class="bg-white p-5 rounded-2xl border border-lpc-border shadow-sm flex items-center justify-between">
+            </button>
+            <button type="button" class="lpc-kpi-card bg-white p-5 rounded-2xl border border-lpc-border shadow-sm flex items-center justify-between w-full text-left" data-metric="ar" aria-haspopup="dialog">
                 <div>
                     <p class="text-xs font-bold text-gray-400 uppercase tracking-wider"><?php echo __t('ui.dette_financi_re_ar'); ?></p>
                     <h3 class="text-2xl font-black text-red-600 mt-1" id="kpi-ar">...</h3>
+                    <p class="lpc-kpi-hint">Voir le détail ›</p>
                 </div>
                 <div class="w-12 h-12 bg-red-50 text-red-600 rounded-full flex items-center justify-center">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 </div>
-            </div>
-            <div class="bg-white p-5 rounded-2xl border border-lpc-border shadow-sm flex items-center justify-between">
+            </button>
+            <button type="button" class="lpc-kpi-card bg-white p-5 rounded-2xl border border-lpc-border shadow-sm flex items-center justify-between w-full text-left" data-metric="empties" aria-haspopup="dialog">
                 <div>
                     <p class="text-xs font-bold text-gray-400 uppercase tracking-wider"><?php echo __t('ui.dette_emballages_actifs'); ?></p>
                     <h3 class="text-2xl font-black text-amber-600 mt-1" id="kpi-bottles">...</h3>
+                    <p class="lpc-kpi-hint">Voir le détail ›</p>
                 </div>
                 <div class="w-12 h-12 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
                 </div>
-            </div>
+            </button>
         </div>
 
         <div class="bg-white rounded-2xl border border-lpc-border shadow-sm overflow-hidden">
@@ -140,6 +191,29 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
             </div>
         </div>
     </main>
+    </div>
+
+    <!-- KPI drill-down. Rendered by crm-clients.js; see openKpiModal(). -->
+    <div id="kpiModal" class="modal hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm px-4"
+         role="dialog" aria-modal="true" aria-labelledby="kpi-modal-title">
+        <div class="modal-content bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-gray-100">
+            <div class="bg-lpc-dark px-6 py-4 flex justify-between items-center text-white">
+                <div>
+                    <h3 class="font-bold text-lg" id="kpi-modal-title">Détail</h3>
+                    <p class="text-xs text-white/70 mt-0.5" id="kpi-modal-total"></p>
+                </div>
+                <button type="button" onclick="closeModal('kpiModal')" class="text-white/70 hover:text-white" aria-label="Fermer">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="p-5 kpi-modal-scroll custom-scrollbar" id="kpi-modal-body">
+                <p class="text-sm text-gray-400 text-center py-8">Chargement…</p>
+            </div>
+            <div class="px-5 py-3 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
+                <p class="text-[11px] text-gray-400" id="kpi-modal-foot"></p>
+                <button type="button" onclick="closeModal('kpiModal')" class="px-4 py-2 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-200 transition-colors">Fermer</button>
+            </div>
+        </div>
     </div>
 
     <div id="clientModal" class="modal hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 backdrop-blur-sm p-4">

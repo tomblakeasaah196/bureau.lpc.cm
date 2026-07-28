@@ -44,6 +44,13 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
 
     <div id="lpc-shell-main">
 
+        <!-- Deliberately empty. `.lpc-toolbar:empty` collapses to nothing
+             (lpc-shell.css), so this costs no space — it exists so
+             lpc-deeplink.js has somewhere to render the "Retour à …" and
+             client-filter chips when this page is reached from a deep link.
+             Order is fixed by §5.5: toolbar, then tabs, then main. -->
+        <div class="lpc-toolbar"></div>
+
         <nav class="lpc-tabs lpc-tabs-fill">
             <button onclick="switchTab('owed')" id="tab-owed" class="tab-btn flex-1 py-3 text-sm font-black text-lpc-dark border-b-[3px] border-lpc-dark text-center uppercase tracking-wider whitespace-nowrap px-4">
                 <i class="fas fa-balance-scale mr-1"></i> Dus

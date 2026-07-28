@@ -645,3 +645,16 @@
             filterTable('table-body-payments', query);
         }
     
+        /* ---------------------------------------------------------------------
+           Arrival from a deep link (Sprint 7F).
+           Reached as ?client_id=..&client=..&from=crm_clients from the CRM KPI
+           drill-down. lpc-deeplink.js renders the return + filter chips; we
+           just tell it which tables to narrow. Both registers are filtered, not
+           only invoices: arriving to chase a debt and seeing that client's
+           payments alongside is the point.
+           ------------------------------------------------------------------ */
+        document.addEventListener('DOMContentLoaded', function () {
+            if (window.LPC && LPC.deeplink) {
+                LPC.deeplink.arrive(['#table-body-invoices', '#table-body-payments']);
+            }
+        });

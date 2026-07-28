@@ -307,3 +307,192 @@
             }
         }
     
+        /* =====================================================================
+           KPI card drill-down (Sprint 7F)
+           ---------------------------------------------------------------------
+           Each card opens a modal breaking its number down per client, and each
+           row deep-links to the page that can actually do something about it.
+
+           Rows are built with createElement/textContent rather than innerHTML.
+           Client names are user input — a client called `<img onerror=...>` is
+           a perfectly legal thing to type into the Nouveau Client form, and
+           this modal is exactly where it would fire. README §6.4.
+           ===================================================================== */
+
+        var KPI_TITLES = {
+            clients: 'Répartition des clients',
+            ar:      'Dette financière par client',
+            empties: 'Emballages détenus par client'
+        };
+
+        function kpiFormat(value, unit) {
+            if (unit === 'fcfa')  return LPC.fmt.fcfa(value);
+            if (unit === 'vides') return LPC.fmt.int(value) + ' vides';
+            return LPC.fmt.int(value);
+        }
+
+        function kpiEl(tag, cls, text) {
+            var el = document.createElement(tag);
+            if (cls)  el.className = cls;
+            if (text != null) el.textContent = text;
+            return el;
+        }
+
+        function kpiEmpty(msg) {
+            var p = kpiEl('p', 'text-sm text-gray-400 text-center py-8', msg);
+            return p;
+        }
+
+        /** Breakdown + recent list for the "clients" metric. */
+        function renderClientsDetail(body, data) {
+            (data.breakdown || []).forEach(function (group) {
+                if (!group.rows || !group.rows.length) return;
+                var box = kpiEl('div', 'mb-5');
+                box.appendChild(kpiEl('p', 'text-xs font-bold text-gray-400 uppercase tracking-wider mb-2', group.heading));
+
+                var total = group.rows.reduce(function (a, r) { return a + Number(r.n); }, 0);
+                group.rows.forEach(function (r) {
+                    var line = kpiEl('div', 'kpi-stat');
+                    line.appendChild(kpiEl('span', 'font-bold text-gray-700', r.label));
+                    line.appendChild(kpiEl('span', 'text-gray-900 font-black', LPC.fmt.int(r.n)));
+                    box.appendChild(line);
+
+                    var bar = kpiEl('div', 'kpi-bar');
+                    var fill = document.createElement('i');
+                    fill.style.width = total ? Math.round((r.n / total) * 100) + '%' : '0%';
+                    bar.appendChild(fill);
+                    box.appendChild(bar);
+                });
+                body.appendChild(box);
+            });
+
+            if (data.recent && data.recent.length) {
+                body.appendChild(kpiEl('p', 'text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 mt-6', 'Derniers clients ajoutés'));
+                data.recent.forEach(function (c) {
+                    var row = kpiEl('div', 'kpi-row');
+                    var left = kpiEl('div');
+                    left.appendChild(kpiEl('div', 'kpi-row-name', c.name));
+                    left.appendChild(kpiEl('div', 'kpi-row-meta', [c.code, c.type].filter(Boolean).join(' · ')));
+                    row.appendChild(left);
+                    row.appendChild(kpiEl('div', 'kpi-row-meta', c.created));
+                    body.appendChild(row);
+                });
+            }
+        }
+
+        /** Per-client rows for the "ar" and "empties" metrics. */
+        function renderDebtDetail(body, data) {
+            if (!data.rows || !data.rows.length) {
+                body.appendChild(kpiEmpty(
+                    data.metric === 'ar'
+                        ? 'Aucune facture impayée. Rien à recouvrer.'
+                        : 'Aucun emballage en attente de retour.'
+                ));
+                return;
+            }
+
+            var max = data.rows.reduce(function (m, r) { return Math.max(m, Number(r.value)); }, 0);
+
+            data.rows.forEach(function (r) {
+                // An <a> rather than a div+onclick: middle-click and
+                // open-in-new-tab work, and it is reachable by keyboard.
+                var row = document.createElement('a');
+                row.className = 'kpi-row';
+                row.href = r.link;
+
+                var left = kpiEl('div', 'flex-1');
+                left.appendChild(kpiEl('div', 'kpi-row-name', r.name));
+
+                var meta = [];
+                if (r.code) meta.push(r.code);
+                if (data.metric === 'ar') {
+                    meta.push(r.invoice_count + ' facture(s)');
+                    if (r.oldest_due) meta.push('échéance ' + r.oldest_due);
+                } else {
+                    meta.push(r.product_count + ' référence(s)');
+                    if (r.last_move) meta.push('dernier mouvement ' + r.last_move);
+                }
+                var metaEl = kpiEl('div', 'kpi-row-meta', meta.join(' · '));
+                if (data.metric === 'ar' && r.overdue) {
+                    metaEl.classList.add('kpi-overdue');
+                    metaEl.textContent += ' · en retard';
+                }
+                left.appendChild(metaEl);
+
+                var bar = kpiEl('div', 'kpi-bar');
+                var fill = document.createElement('i');
+                fill.style.width = max ? Math.round((r.value / max) * 100) + '%' : '0%';
+                bar.appendChild(fill);
+                left.appendChild(bar);
+
+                row.appendChild(left);
+
+                var val = kpiEl('div', 'kpi-row-value', kpiFormat(r.value, data.unit));
+                if (data.metric === 'ar' && r.overdue) val.classList.add('kpi-overdue');
+                row.appendChild(val);
+
+                body.appendChild(row);
+            });
+        }
+
+        async function openKpiModal(metric) {
+            var body  = document.getElementById('kpi-modal-body');
+            var title = document.getElementById('kpi-modal-title');
+            var total = document.getElementById('kpi-modal-total');
+            var foot  = document.getElementById('kpi-modal-foot');
+
+            title.textContent = KPI_TITLES[metric] || 'Détail';
+            total.textContent = '';
+            foot.textContent  = '';
+            body.textContent  = '';
+            body.appendChild(kpiEmpty('Chargement…'));
+            openModal('kpiModal');
+
+            try {
+                var res  = await fetch('/api/v1/fetch_crm_kpi_detail.php?metric=' + encodeURIComponent(metric));
+                var data = await res.json();
+
+                if (data.status !== 'success') throw new Error(data.message || 'Erreur.');
+
+                title.textContent = data.title || KPI_TITLES[metric];
+                total.textContent = metric === 'clients'
+                    ? LPC.fmt.int(data.total) + ' client(s) actif(s)'
+                    : 'Total : ' + kpiFormat(data.total, data.unit);
+
+                body.textContent = '';
+                if (metric === 'clients') renderClientsDetail(body, data);
+                else                      renderDebtDetail(body, data);
+
+                if (data.rows && data.rows.length && data.target_label) {
+                    foot.textContent = 'Cliquez une ligne pour l’ouvrir dans ' + data.target_label + '.';
+                }
+            } catch (err) {
+                body.textContent = '';
+                body.appendChild(kpiEmpty('Impossible de charger le détail.'));
+                console.error('KPI detail failed', err);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('.lpc-kpi-card').forEach(function (card) {
+                card.addEventListener('click', function () {
+                    openKpiModal(card.dataset.metric);
+                });
+            });
+
+            // Escape closes the drill-down. The client modal predates this file
+            // and handles its own dismissal, so scope the handler to ours.
+            document.addEventListener('keydown', function (e) {
+                if (e.key !== 'Escape') return;
+                var m = document.getElementById('kpiModal');
+                if (m && !m.classList.contains('hidden')) closeModal('kpiModal');
+            });
+
+            // Backdrop click.
+            var kpiModal = document.getElementById('kpiModal');
+            if (kpiModal) {
+                kpiModal.addEventListener('click', function (e) {
+                    if (e.target === kpiModal) closeModal('kpiModal');
+                });
+            }
+        });

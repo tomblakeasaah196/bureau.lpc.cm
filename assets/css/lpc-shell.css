@@ -940,3 +940,60 @@ html.lpc-collapsed #lpc-topbar { left: var(--lpc-sidebar-w-collapsed); }
     .lpc-toolbar    { display: none !important; }
     .lpc-page       { padding: 0 !important; background: #fff !important; }
 }
+
+/* =========================================================================
+   Cross-page navigation chips (Sprint 7F)
+   Rendered by assets/js/lpc-deeplink.js into .lpc-toolbar when a page is
+   reached via a deep link. They are toolbar furniture, not page content —
+   §5.5 keeps page-specific controls out of the topbar, and these obey that
+   by living in the toolbar card alongside the page's own controls.
+   ========================================================================= */
+.lpc-back-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .45rem .85rem;
+    border-radius: 999px;
+    border: 1px solid var(--lpc-border);
+    background: var(--lpc-surface);
+    color: var(--lpc-ink-soft, #4b5563);
+    font-size: .8125rem;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: border-color .15s, color .15s, background .15s;
+}
+.lpc-back-chip:hover {
+    border-color: var(--lpc-brand);
+    color: var(--lpc-brand);
+    background: #fff;
+}
+
+.lpc-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .4rem .5rem .4rem .85rem;
+    border-radius: 999px;
+    border: 1px solid var(--lpc-brand);
+    background: rgba(0, 90, 43, .06);
+    color: var(--lpc-brand);
+    font-size: .8125rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.lpc-filter-chip button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.15rem;
+    height: 1.15rem;
+    border: 0;
+    border-radius: 999px;
+    background: var(--lpc-brand);
+    color: #fff;
+    font-size: .8rem;
+    line-height: 1;
+    cursor: pointer;
+}
+.lpc-filter-chip button:hover { background: #003d1d; }

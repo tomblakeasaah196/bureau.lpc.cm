@@ -322,3 +322,30 @@
             } catch(e) {}
         }
     
+        /* ---------------------------------------------------------------------
+           Arrival from a deep link (Sprint 7F).
+           Reached as ?client_id=..&client=..&from=crm_clients from the CRM
+           "Dette Emballages" drill-down. Narrow the owed-balances table to that
+           client and pre-select them in the collection form, so the next action
+           after "who owes me bottles?" is one click away.
+           ------------------------------------------------------------------ */
+        document.addEventListener('DOMContentLoaded', function () {
+            if (!window.LPC || !LPC.deeplink || !LPC.deeplink.hasFilter()) return;
+
+            LPC.deeplink.arrive(['#tbody-owed']);
+
+            // The client <select> is populated asynchronously by loadClients(),
+            // so wait for the option to exist rather than racing it. Give up
+            // after ~4s instead of polling forever on a client that was deleted.
+            var tries = 0;
+            var timer = setInterval(function () {
+                var sel = document.getElementById('client_id');
+                if (sel && sel.querySelector('option[value="' + LPC.deeplink.clientId + '"]')) {
+                    sel.value = String(LPC.deeplink.clientId);
+                    if (typeof loadSites === 'function') loadSites();
+                    clearInterval(timer);
+                } else if (++tries > 40) {
+                    clearInterval(timer);
+                }
+            }, 100);
+        });

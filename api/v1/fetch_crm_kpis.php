@@ -1,54 +1,84 @@
 <?php
+/**
+ * api/v1/fetch_crm_kpis.php
+ * -----------------------------------------------------------------------------
+ * The three KPI cards on modules/crm/clients.php.
+ *
+ * ── Sprint 7F fix ────────────────────────────────────────────────────────────
+ * Two of these three numbers were structurally incapable of being anything but
+ * zero, and had been since the file was written:
+ *
+ *   · Financial debt read `invoices.amount_paid`. There is no such column —
+ *     not in the schema, not added by any migration. Payments live in their own
+ *     `payments` table and only count once `status = 'validated'`.
+ *   · Bottle debt read `deliveries.expected_empties` / `.returned_empties`.
+ *     Neither column exists either; empties balances live in
+ *     `client_empties_ledger.quantity_owed`.
+ *
+ * Both queries therefore threw on every request, and both were wrapped in a
+ * `catch (PDOException) { $x = 0; }` that turned the failure into a plausible
+ * looking business fact. The cards read "0 FCFA" and "0 Vides", which is what a
+ * company with no receivables would also look like.
+ *
+ * The formulas below are not invented here — they are the ones already used by
+ * api/v1/invoices_controller.php (AR ageing, ~line 121) and
+ * api/v1/cre_controller.php (empties ledger). Reusing them keeps this card and
+ * the pages it deep-links into telling the same story.
+ *
+ * The catch blocks are gone on purpose. If a query breaks again this endpoint
+ * should fail loudly rather than quietly report that the company is owed
+ * nothing.
+ * -----------------------------------------------------------------------------
+ */
+
 require_once __DIR__ . '/../../includes/bootstrap.php';
+
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
+
 Rbac::requirePermission('crm.clients.view');
-// api/v1/fetch_crm_kpis.php
-header('Content-Type: application/json');
-
-require_once '../../includes/config/db.php';
-require_once '../../includes/classes/Database.php';
-
-if (!isset($_SESSION['user_id'])) {
-    http_response_code(401);
-    echo json_encode(['status' => 'error', 'message' => 'Unauthorized']); exit;
-}
 
 try {
     $db = Database::getInstance()->getConnection();
-    
-    // 1. Total Active Clients
-    $stmt1 = $db->query("SELECT COUNT(id) as total FROM clients WHERE status = 'active'");
-    $active_clients = $stmt1->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
 
-    // 2. Financial Debt (AR - Accounts Receivable)
-    $financial_debt = 0;
-    try {
-        $stmt2 = $db->query("SELECT SUM(total_amount - amount_paid) as ar_total FROM invoices WHERE status != 'paid'");
-        $financial_debt = $stmt2->fetch(PDO::FETCH_ASSOC)['ar_total'] ?? 0;
-    } catch (PDOException $e) {
-        $financial_debt = 0; 
-    }
+    // 1. Active clients.
+    $activeClients = (int) $db->query(
+        "SELECT COUNT(id) FROM clients WHERE status = 'active'"
+    )->fetchColumn();
 
-    // 3. Bottle Debt (Assets currently at client sites)
-    $bottle_debt = 0;
-    try {
-        $stmt3 = $db->query("SELECT SUM(expected_empties - returned_empties) as bottle_total FROM deliveries WHERE expected_empties > returned_empties");
-        $bottle_debt = $stmt3->fetch(PDO::FETCH_ASSOC)['bottle_total'] ?? 0;
-    } catch (PDOException $e) {
-        $bottle_debt = 0; 
-    }
+    // 2. Accounts receivable — invoiced minus validated payments.
+    //    Pending driver cash deliberately does NOT reduce the debt: it hasn't
+    //    been counted yet, so treating it as received would understate AR.
+    $financialDebt = (float) $db->query(
+        "SELECT COALESCE(SUM(
+                    i.total_amount - COALESCE((
+                        SELECT SUM(p.amount) FROM payments p
+                         WHERE p.invoice_id = i.id AND p.status = 'validated'
+                    ), 0)
+                ), 0)
+           FROM invoices i
+          WHERE i.status <> 'paid'"
+    )->fetchColumn();
+
+    // 3. Empties held by clients. quantity_owed is maintained by
+    //    sales_controller.php on dispatch and cre_controller.php on collection.
+    $bottleDebt = (int) $db->query(
+        "SELECT COALESCE(SUM(quantity_owed), 0)
+           FROM client_empties_ledger
+          WHERE quantity_owed > 0"
+    )->fetchColumn();
 
     echo json_encode([
         'status' => 'success',
-        'data' => [
-            'active_clients' => (int)$active_clients,
-            'financial_debt' => (float)$financial_debt,
-            'bottle_debt'    => (int)$bottle_debt
-        ]
-    ]);
+        'data'   => [
+            'active_clients' => $activeClients,
+            'financial_debt' => $financialDebt,
+            'bottle_debt'    => $bottleDebt,
+        ],
+    ], JSON_UNESCAPED_UNICODE);
 
-} catch (PDOException $e) {
+} catch (Throwable $e) {
+    error_log('fetch_crm_kpis: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['status' => 'error', 'message' => 'DB Error']);
+    echo json_encode(['status' => 'error', 'message' => 'Erreur de calcul des indicateurs.']);
 }
