@@ -208,8 +208,23 @@ chgrp -R nobody . 2>/dev/null && ok "chgrp -R nobody (web server group)" || warn
 chmod 600 .env 2>/dev/null                    && ok "chmod 600 .env"
 find includes -type d -exec chmod 750 {} \; 2>/dev/null && ok "chmod 750 includes/**/"
 find includes -type f -exec chmod 640 {} \; 2>/dev/null && ok "chmod 640 includes/**"
-find uploads  -type d -exec chmod 750 {} \; 2>/dev/null && ok "chmod 750 uploads/**/"
-find uploads  -type f -exec chmod 640 {} \; 2>/dev/null || :  # empty ok
+# uploads/ is 755/644, NOT 750/640 like includes/. The difference is that
+# includes/ is never fetched over HTTP, while every file under uploads/ is
+# served directly to the browser as a static asset.
+#
+# WHY THIS CHANGED (debugged 2026-07-28): uploads/ was 750 here, which relies
+# on the `chgrp -R nobody` above to let the web server in via group. That chgrp
+# is non-fatal and had silently been failing -- the tree was still group
+# `smartqaq` -- so nginx could not traverse into uploads/avatars/2026/07/ and
+# every avatar 403'd. Worse, this line re-applied 750 on EVERY deploy, so a
+# manual chmod fix survived only until the next push, and PHP's own mkdir()
+# mode was irrelevant because deploy overwrote it minutes later.
+#
+# 755 does not weaken anything: uploads/.htaccess denies execution of every
+# scriptable extension in this tree, which is the control that actually
+# matters. Directory permissions were never what stopped code running here.
+find uploads  -type d -exec chmod 755 {} \; 2>/dev/null && ok "chmod 755 uploads/**/ (web-served: must be traversable)"
+find uploads  -type f -exec chmod 644 {} \; 2>/dev/null || :  # empty ok
 find scripts  -type f -name "*.sh" -exec chmod 750 {} \; 2>/dev/null && ok "chmod 750 scripts/*.sh"
 # Sprint 5: cron scripts too (CLI-only PHP purge jobs).
 find scripts/cron -maxdepth 1 -type f -name "*.php" -exec chmod 750 {} \; 2>/dev/null && ok "chmod 750 scripts/cron/*.php"
