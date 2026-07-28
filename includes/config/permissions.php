@@ -48,6 +48,15 @@ $LPC_PERMISSIONS = [
         'crm.proposals.template'  => 'Modifier le modèle de proposition commerciale (Studio)',
     ],
 
+    // ---------------- Help Centre -----------------------------------------
+    // Only ONE permission here on purpose. Articles are gated on the module
+    // permission of the page they document (crm.clients.view, …) rather than on
+    // a parallel help.* family, so there is one answer to "who may see this"
+    // and it cannot drift. See migrations/032_help_center_schema.sql.
+    'help' => [
+        'help.manage'             => "Créer et modifier les articles du centre d'aide",
+    ],
+
     // ---------------- Sales & Deliveries ----------------------------------
     'sales' => [
         'sales.orders.view'       => 'Voir les commandes',

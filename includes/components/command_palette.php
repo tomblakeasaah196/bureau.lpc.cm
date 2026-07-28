@@ -69,6 +69,44 @@ foreach ($__actions as $__a) {
 }
 
 // -----------------------------------------------------------------------------
+// 2b. Help — article TITLES only (Sprint 7G).
+//
+// Titles ship inline so ⌘K answers instantly and offline, exactly like pages and
+// actions. BODY text is not here: it would multiply this payload by fifty on
+// every page load. Typing 3+ characters additionally queries
+// api/v1/help_controller.php?action=search, which does search bodies, and
+// lpc-palette.js merges those results under the same heading. Both paths are
+// RBAC-filtered by lpc_help_*(), so neither can surface an article the sidebar
+// wouldn't.
+//
+// lpc_help_ready() is false until migration 032 runs — the group simply doesn't
+// appear, and the palette behaves exactly as it did before this feature.
+// -----------------------------------------------------------------------------
+$__helpIcon = 'M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z';
+$__helpGroup = $en ? 'Help' : 'Aide';
+
+if (function_exists('lpc_help_ready') && lpc_help_ready()) {
+    foreach (lpc_help_palette_index($lang) as $__ha) {
+        $__index[] = [
+            'g' => $__helpGroup,
+            'l' => $__ha['title'],
+            'h' => $__ha['category'],
+            'u' => $__ha['url'] . '&lang=' . $lang,
+            'i' => $__helpIcon,
+            'm' => $en ? 'Article' : 'Article',
+        ];
+    }
+    $__index[] = [
+        'g' => $__helpGroup,
+        'l' => $en ? 'Open the help centre' : "Ouvrir le centre d'aide",
+        'h' => '',
+        'u' => '/modules/help/index.php?lang=' . $lang,
+        'i' => $__helpIcon,
+        'm' => '',
+    ];
+}
+
+// -----------------------------------------------------------------------------
 // 3. Account — always available to an authenticated user.
 // -----------------------------------------------------------------------------
 $__index[] = [
@@ -89,7 +127,10 @@ $__index[] = [
 ];
 
 $__paletteStrings = [
-    'placeholder' => $en ? 'Search pages and actions…' : 'Rechercher pages et actions…',
+    'placeholder' => $en ? 'Search pages, actions and help…' : 'Rechercher pages, actions et aide…',
+    'helpGroup'   => $__helpGroup,
+    'searching'   => $en ? 'Searching help…' : "Recherche dans l'aide…",
+    'helpEnabled' => (function_exists('lpc_help_ready') && lpc_help_ready()) ? 1 : 0,
     'recent'      => $en ? 'Recent'      : 'Récents',
     'noResults'   => $en ? 'No results'  : 'Aucun résultat',
     'navigate'    => $en ? 'navigate'    : 'naviguer',
@@ -130,5 +171,6 @@ $__paletteStrings = [
 // variable scope, so unsetting a generic name like $en or $item destroys the
 // including page's variable — that is exactly what broke
 // modules/notifications/index.php after the topbar was rendered.
-unset($__index, $__section, $__item, $__actions, $__a, $__plusIcon, $__paletteStrings, $__sectionLabel);
+unset($__index, $__section, $__item, $__actions, $__a, $__plusIcon, $__paletteStrings, $__sectionLabel,
+      $__helpIcon, $__helpGroup, $__ha);
 ?>

@@ -39,6 +39,11 @@
 if (!defined('LPC_BOOTSTRAPPED')) {
     require_once __DIR__ . '/../bootstrap.php';
 }
+// Help centre. Required here rather than inside the conditional below so that
+// lpc_help_ready() exists to BE tested — and so the ⌘K index in
+// command_palette.php can add its Help group without a second require.
+require_once __DIR__ . '/../functions/help.php';
+
 $lang         = $lang ?? (in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? ($_GET['lang'] ?? 'fr') : 'fr');
 $pageTitle    = $pageTitle    ?? '';
 $pageSubtitle = $pageSubtitle ?? '';
@@ -93,6 +98,19 @@ $__langUrl = function (string $to) use ($__base): string {
         </div>
     </div>
 
+    <!-- Help centre — beside the + on purpose: create and learn are the two
+         things a user reaches for that aren't tied to the current page. This is
+         a link, not a page-specific control, so it belongs here; the per-page
+         "?" lives in each page's own .lpc-toolbar (README §5.5). -->
+    <?php if (function_exists('lpc_help_ready') && lpc_help_ready()): ?>
+    <a href="/modules/help/index.php?lang=<?= $lang ?>"
+       class="lpc-help-topbar-btn lpc-focusable grid place-items-center w-9 h-9 rounded-[10px] bg-white/10 text-white/90 no-underline"
+       title="<?= $lang === 'en' ? 'Help centre' : "Centre d'aide" ?>"
+       aria-label="<?= $lang === 'en' ? 'Help centre' : "Centre d'aide" ?>">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z"/></svg>
+    </a>
+    <?php endif; ?>
+
     <!-- Notifications -->
     <div class="relative">
         <button type="button" id="lpc-notif-btn"
@@ -129,6 +147,11 @@ $__langUrl = function (string $to) use ($__base): string {
 // The palette markup + its RBAC-filtered index. Rendered once, right after the
 // bar that triggers it.
 require __DIR__ . '/command_palette.php';
+
+// The help drawer. Chrome only — the article is fetched on demand, so this adds
+// ~1 KB to a page, not the manual.
+require __DIR__ . '/help_drawer.php';
+
 unset($__base, $__langUrl);
 ?>
 <script src="<?= lpc_asset('/assets/js/lpc-topbar.js') ?>" defer></script>

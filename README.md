@@ -894,6 +894,78 @@ a `.lpc-toolbar` for the chips to land in — `empties_collection.php` has
 an intentionally empty one for exactly this (it collapses via
 `.lpc-toolbar:empty`, so it costs nothing when unused).
 
+### 5.9 The Help Centre — articles are data, gated by module permissions
+
+Sprint 7G. Same reasoning as §5.7: documentation that lives in code goes
+stale at the speed of the deploy pipeline, so it lives in the database and
+is edited from a page.
+
+```
+help_categories ─┬─ help_articles ─┬─ help_article_bodies   (one row per lang)
+                 │                 └─ help_article_anchors  (page → article)
+                 │
+                 └─ includes/functions/help.php     ← the only reader
+                          ├─ lpc_help_article($slug, $lang)
+                          ├─ lpc_help_search($q, $lang)
+                          ├─ lpc_help_markdown($md)      restricted MD → HTML
+                          └─ lpc_help_link($anchorKey)   the toolbar "?" button
+                                  │
+      ┌───────────────────────────┼────────────────────────────┐
+      │                           │                            │
+ modules/help/          includes/components/         modules/admin/
+ index.php, article.php  help_drawer.php (⇢ topbar)   help_articles.php
+```
+
+**Four surfaces, one source of truth:**
+
+| Surface | Where | Opens |
+| --- | --- | --- |
+| Topbar `?`, beside the `+` | every page | the full centre |
+| Toolbar `?` | that page's `.lpc-toolbar` | the drawer, on that page's article |
+| ⌘K | palette | article titles inline, bodies via the API |
+| Admin editor | `modules/admin/help_articles.php` | authoring, FR + EN side by side |
+
+Rules, in rough order of how much trouble ignoring one causes:
+
+- **An article is gated on an EXISTING module permission**, held in
+  `help_articles.required_permission` — `crm.clients.view`, never a parallel
+  `help.crm.view`. An article is therefore visible to exactly whoever can open
+  the page it documents, there is nothing to grant, and the two answers to "who
+  may see this" cannot drift apart. `NULL` means any authenticated user.
+  `help.manage` (the right to *write* articles) is the only new permission, and
+  migration 032 grants it with an explicit `role_permissions` row — see the
+  warning in migration 031 about permissions that are created and never granted.
+- **`lpc_help_visible()` is the only gate, and every read path calls it.**
+  `lpc_help_all_articles()` / `lpc_help_all_categories()` deliberately skip it
+  and are only ever called behind `Rbac::requirePermission('help.manage')`.
+- **A missing article and a forbidden article return the same 404.**
+  Distinguishing them turns the help centre into a directory of the features a
+  reader is not cleared for.
+- **The per-page "?" goes in the page's own `.lpc-toolbar`, never the topbar**
+  (§5.5). `echo lpc_help_link('crm.clients', $lang);` — it returns `''` when the
+  anchor has no readable article, so the call is safe to add before the content
+  exists. The topbar's `?` is not page-specific: it opens the centre as a whole.
+- **Bodies are restricted Markdown rendered by `lpc_help_markdown()`, which
+  escapes the input *before* emitting a single tag.** Tags in the output can only
+  come from its own whitelist; `[x](javascript:…)` and `//evil.tld` degrade to
+  plain text. Never add a client-side Markdown renderer — the admin preview
+  deliberately round-trips through the server for exactly this reason.
+- **The permission field in the editor is a `<select>` fed from
+  `includes/config/permissions.php`, and the API re-validates against the same
+  catalogue.** A typo'd permission name makes `Rbac::hasPermission()` false for
+  everyone, hiding the article company-wide with no error anywhere.
+- **`lpc_help_ready()` is false until migration 032 runs**, and every entry point
+  checks it. Code may safely be deployed ahead of its migration, in that order:
+  the buttons hide themselves rather than linking to a page that fatals. The
+  help link sits in the shared topbar, so an unguarded fatal here would take
+  down every page in the ERP, not just this feature.
+
+Adding help for a module: write the articles in the editor, set **Documents this
+page** to the module's path (the anchor key is derived from it, never typed), add
+`echo lpc_help_link('<module>.<page>', $lang);` to that page's toolbar. No
+migration needed. `migrations/033_help_crm_articles.sql` is the worked example —
+22 articles across CRM and the Studio, FR and EN.
+
 ---
 
 ## 6. Security — non-negotiables

@@ -145,6 +145,12 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                 class="text-sm font-bold text-red-600 hover:text-red-700 transition-colors">
             Tout réinitialiser
         </button>
+
+        <?php
+        // Help for this page. Empty string until migration 033 seeds the
+        // Studio articles, so this line is safe to ship first.
+        echo lpc_help_link('crm.proposal_studio', $lang);
+        ?>
     </div>
 
     <nav class="lpc-tabs" role="tablist" aria-label="Sections du modèle">

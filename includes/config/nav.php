@@ -118,6 +118,11 @@ $CATALOGUE = [
   'admin_roles'    => ['href'=>'/modules/admin/roles.php',                       'icon'=>$I['shield'],    'permission'=>'admin.roles.view',             'label_fr'=>'Rôles & Permissions',     'label_en'=>'Roles & Permissions'],
   'admin_errors'   => ['href'=>'/modules/admin/error_monitor.php',               'icon'=>$I['signal'],    'permission'=>'admin.errors.view',            'label_fr'=>"Journal d'Erreurs",       'label_en'=>'Error Monitor'],
   'admin_settings' => ['href'=>'/modules/settings/index.php',                    'icon'=>$I['cog'],       'permission'=>'admin.settings.view',          'label_fr'=>'Paramètres',              'label_en'=>'Settings'],
+  // The help EDITOR only. The help centre itself is reached from the "?" in the
+  // topbar and is open to every authenticated user, so it has no catalogue entry
+  // — an entry needs a permission, and inventing one would create a second,
+  // drifting answer to "who may read the manual". See modules/help/index.php.
+  'admin_help'     => ['href'=>'/modules/admin/help_articles.php',               'icon'=>$I['book'],      'permission'=>'help.manage',                  'label_fr'=>"Centre d'aide",           'label_en'=>'Help Centre'],
 ];
 
 // -----------------------------------------------------------------------------
@@ -167,6 +172,7 @@ $PROFILES = [
       ['ref'=>'admin_settings', 'label_fr'=>'Paramètres Système & Audit','label_en'=>'System Settings & Audit'],
       ['ref'=>'admin_roles',    'label_fr'=>'Rôles & Permissions',      'label_en'=>'Roles & Permissions'],
       ['ref'=>'admin_errors',   'label_fr'=>"Journal d'Erreurs",        'label_en'=>'Error Monitor'],
+      ['ref'=>'admin_help',     'label_fr'=>"Centre d'Aide (articles)", 'label_en'=>'Help Centre (articles)'],
     ]],
   ],
 

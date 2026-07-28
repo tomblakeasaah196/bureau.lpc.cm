@@ -1,0 +1,640 @@
+/* assets/css/lpc-help.css
+ * -----------------------------------------------------------------------------
+ * Bureau LPC ERP — Help Centre (Sprint 7G).
+ *
+ * Covers three surfaces:
+ *   1. the toolbar "?" button and the slide-over drawer  (present on every page)
+ *   2. the full help centre  (modules/help/index.php, article.php)
+ *   3. the rendered article body  (.lpc-help-prose — output of lpc_help_markdown)
+ *
+ * Loaded by head_assets.php AFTER lpc-shell.css, and it only defines `.lpc-help-*`
+ * classes, so it cannot collide with the shell. Every colour comes from the
+ * shell's :root variables — this file introduces no new palette, on purpose:
+ * the help centre should look like the ERP, not like a docs site bolted on.
+ *
+ * The drawer is a <dialog>-shaped div rather than a real <dialog> because
+ * lpc-modal.js already owns focus trapping across the app and Safari's dialog
+ * support was still uneven when the shell was written.
+ * -----------------------------------------------------------------------------
+ */
+
+/* ============================================================================
+   1. TOOLBAR BUTTON
+   ========================================================================== */
+
+.lpc-help-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    height: 44px;
+    padding: 0 .85rem;
+    border-radius: var(--lpc-radius, 14px);
+    border: 1px solid var(--lpc-border, #E6EAEE);
+    background: var(--lpc-surface, #fff);
+    color: var(--lpc-ink-soft, #667085);
+    font-size: .8125rem;
+    font-weight: 700;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color .15s, border-color .15s, background .15s, transform .15s;
+}
+.lpc-help-btn:hover {
+    color: var(--lpc-accent-on-light, #005A2B);
+    border-color: var(--lpc-accent-on-light, #005A2B);
+    background: #F3F8F4;
+    transform: translateY(-1px);
+}
+.lpc-help-btn svg { flex: none; }
+
+/* Below 768px the toolbar is tight — the icon carries the meaning on its own. */
+@media (max-width: 767px) {
+    .lpc-help-btn { padding: 0; width: 44px; justify-content: center; }
+    .lpc-help-btn-label { display: none; }
+}
+
+/* Pin help to the trailing edge of the toolbar. `margin-left:auto` on the
+   button itself would fight `.lpc-toolbar-lead`; this is scoped to help only. */
+.lpc-toolbar > .lpc-help-btn { margin-left: auto; }
+
+/* The topbar "?" — sits beside the + and must read as chrome, not as content.
+   Mirrors .lpc-icon-btn so the three round buttons stay visually identical. */
+.lpc-help-topbar-btn {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--lpc-radius-sm, 10px);
+    background: var(--lpc-chrome-fill, rgba(255,255,255,.08));
+    color: var(--lpc-chrome-ink, #fff);
+    border: 0;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+}
+.lpc-help-topbar-btn:hover {
+    background: var(--lpc-chrome-fill-hi, rgba(255,255,255,.16));
+    color: var(--lpc-accent-on-dark, #8CC63F);
+}
+
+/* ============================================================================
+   2. SLIDE-OVER DRAWER
+   ========================================================================== */
+
+#lpc-help-drawer[hidden] { display: none; }
+
+#lpc-help-drawer {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;              /* above the shell (100) and below the palette */
+    display: flex;
+    justify-content: flex-end;
+    background: rgba(16, 24, 40, .38);
+    backdrop-filter: blur(2px);
+    animation: lpc-help-fade .16s ease-out;
+}
+@keyframes lpc-help-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.lpc-help-panel {
+    width: min(560px, 100%);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--lpc-surface, #fff);
+    box-shadow: -24px 0 48px -24px rgba(16, 24, 40, .45);
+    animation: lpc-help-slide .22s cubic-bezier(.22, .61, .36, 1);
+}
+@keyframes lpc-help-slide { from { transform: translateX(24px); opacity: .4; } to { transform: none; opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+    #lpc-help-drawer, .lpc-help-panel { animation: none; }
+}
+
+.lpc-help-panel-head {
+    flex: none;
+    padding: 1.1rem 1.4rem .9rem;
+    background: linear-gradient(180deg,
+                var(--lpc-chrome-top, #00341A) 0%,
+                var(--lpc-chrome-bottom, #005A2B) 100%);
+    color: var(--lpc-chrome-ink, #fff);
+    display: flex;
+    align-items: flex-start;
+    gap: .9rem;
+}
+.lpc-help-panel-eyebrow {
+    font-size: .625rem;
+    font-weight: 800;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--lpc-accent-on-dark, #8CC63F);
+}
+.lpc-help-panel-title {
+    margin: .2rem 0 0;
+    font-size: 1.0625rem;
+    font-weight: 800;
+    line-height: 1.3;
+}
+.lpc-help-panel-close {
+    flex: none;
+    width: 32px; height: 32px;
+    display: grid; place-items: center;
+    border: 0; border-radius: var(--lpc-radius-sm, 10px);
+    background: var(--lpc-chrome-fill, rgba(255,255,255,.08));
+    color: inherit; cursor: pointer;
+}
+.lpc-help-panel-close:hover { background: var(--lpc-chrome-fill-hi, rgba(255,255,255,.16)); }
+
+.lpc-help-panel-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 1.4rem;
+}
+.lpc-help-panel-foot {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: .8rem 1.4rem;
+    border-top: 1px solid var(--lpc-border, #E6EAEE);
+    background: var(--lpc-surface-sunken, #F7F9FA);
+    font-size: .8125rem;
+}
+.lpc-help-panel-foot a {
+    color: var(--lpc-accent-on-light, #005A2B);
+    font-weight: 700;
+    text-decoration: none;
+}
+.lpc-help-panel-foot a:hover { text-decoration: underline; }
+
+.lpc-help-skeleton {
+    height: 12px; border-radius: 6px;
+    background: linear-gradient(90deg, #EEF1F4 25%, #F7F9FA 50%, #EEF1F4 75%);
+    background-size: 200% 100%;
+    animation: lpc-help-shimmer 1.1s infinite linear;
+    margin-bottom: .7rem;
+}
+.lpc-help-skeleton:nth-child(3n) { width: 70%; }
+@keyframes lpc-help-shimmer { to { background-position: -200% 0; } }
+
+/* ============================================================================
+   3. HELP CENTRE PAGE
+   ========================================================================== */
+
+.lpc-help-hero {
+    border-radius: var(--lpc-radius, 14px);
+    padding: 2.25rem 2rem;
+    background: linear-gradient(135deg,
+                var(--lpc-chrome-top, #00341A) 0%,
+                var(--lpc-chrome-bottom, #005A2B) 100%);
+    color: #fff;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 1.75rem;
+}
+/* A single soft accent bloom. Decorative, so it must not affect layout. */
+.lpc-help-hero::after {
+    content: '';
+    position: absolute;
+    right: -80px; top: -110px;
+    width: 300px; height: 300px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(140,198,63,.30) 0%, transparent 68%);
+    pointer-events: none;
+}
+.lpc-help-hero h1 {
+    margin: 0;
+    font-size: clamp(1.5rem, 2.6vw, 2rem);
+    font-weight: 900;
+    letter-spacing: -.02em;
+}
+.lpc-help-hero p {
+    margin: .5rem 0 0;
+    max-width: 46rem;
+    color: rgba(255,255,255,.72);
+    font-size: .9375rem;
+}
+
+.lpc-help-searchbox {
+    position: relative;
+    margin-top: 1.5rem;
+    max-width: 40rem;
+}
+.lpc-help-searchbox input {
+    width: 100%;
+    height: 52px;
+    padding: 0 3rem 0 3rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.22);
+    background: rgba(255,255,255,.12);
+    color: #fff;
+    font-size: .9375rem;
+    font-weight: 500;
+}
+.lpc-help-searchbox input::placeholder { color: rgba(255,255,255,.55); }
+.lpc-help-searchbox input:focus {
+    outline: none;
+    border-color: var(--lpc-accent-on-dark, #8CC63F);
+    box-shadow: var(--lpc-ring, 0 0 0 3px rgba(140,198,63,.35));
+    background: rgba(255,255,255,.18);
+}
+.lpc-help-searchbox svg {
+    position: absolute;
+    left: 1.1rem; top: 50%;
+    transform: translateY(-50%);
+    width: 20px; height: 20px;
+    color: rgba(255,255,255,.6);
+    pointer-events: none;
+}
+.lpc-help-searchbox kbd {
+    position: absolute;
+    right: 1rem; top: 50%;
+    transform: translateY(-50%);
+    font: 700 .625rem/1 Inter, system-ui, sans-serif;
+    padding: .3rem .45rem;
+    border-radius: 6px;
+    background: rgba(255,255,255,.14);
+    color: rgba(255,255,255,.7);
+}
+
+.lpc-help-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1.15rem;
+}
+
+.lpc-help-card {
+    display: flex;
+    flex-direction: column;
+    gap: .55rem;
+    padding: 1.35rem;
+    border-radius: var(--lpc-radius, 14px);
+    border: 1px solid var(--lpc-border, #E6EAEE);
+    background: var(--lpc-surface, #fff);
+    box-shadow: var(--lpc-shadow-card, 0 1px 2px rgba(16,24,40,.04));
+    text-decoration: none;
+    color: inherit;
+    position: relative;
+    overflow: hidden;
+    transition: transform .15s, box-shadow .15s, border-color .15s;
+}
+/* Brand rail on the leading edge, matching .lpc-toolbar's. */
+.lpc-help-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: linear-gradient(180deg,
+                var(--lpc-accent-on-light, #005A2B),
+                var(--lpc-brand-light, #8CC63F));
+    opacity: 0;
+    transition: opacity .15s;
+}
+.lpc-help-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--lpc-accent-on-light, #005A2B);
+    box-shadow: 0 12px 24px -14px rgba(0,52,26,.4);
+}
+.lpc-help-card:hover::before { opacity: 1; }
+
+.lpc-help-card-icon {
+    width: 42px; height: 42px;
+    display: grid; place-items: center;
+    border-radius: 12px;
+    background: #EEF6EE;
+    color: var(--lpc-accent-on-light, #005A2B);
+}
+.lpc-help-card-icon svg { width: 22px; height: 22px; }
+.lpc-help-card h3 {
+    margin: 0;
+    font-size: .9375rem;
+    font-weight: 800;
+    color: var(--lpc-ink, #111827);
+}
+.lpc-help-card p {
+    margin: 0;
+    font-size: .8125rem;
+    line-height: 1.55;
+    color: var(--lpc-ink-soft, #667085);
+}
+.lpc-help-card-count {
+    margin-top: auto;
+    padding-top: .5rem;
+    font-size: .6875rem;
+    font-weight: 800;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--lpc-ink-mute, #98A2B3);
+}
+
+/* Article list inside a category */
+.lpc-help-list { display: flex; flex-direction: column; gap: .5rem; }
+.lpc-help-row {
+    display: flex;
+    align-items: center;
+    gap: .9rem;
+    padding: .9rem 1.1rem;
+    border-radius: var(--lpc-radius-sm, 10px);
+    border: 1px solid var(--lpc-border, #E6EAEE);
+    background: var(--lpc-surface, #fff);
+    text-decoration: none;
+    color: inherit;
+    transition: border-color .12s, background .12s, transform .12s;
+}
+.lpc-help-row:hover {
+    border-color: var(--lpc-accent-on-light, #005A2B);
+    background: #FAFCFA;
+    transform: translateX(2px);
+}
+.lpc-help-row-title { font-weight: 700; font-size: .875rem; color: var(--lpc-ink, #111827); }
+.lpc-help-row-sum   { font-size: .75rem; color: var(--lpc-ink-soft, #667085); margin-top: .12rem; }
+.lpc-help-row-chev  { margin-left: auto; color: var(--lpc-ink-mute, #98A2B3); flex: none; }
+
+.lpc-help-section-title {
+    font-size: .6875rem;
+    font-weight: 800;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--lpc-ink-mute, #98A2B3);
+    margin: 2rem 0 .85rem;
+}
+.lpc-help-section-title:first-child { margin-top: 0; }
+
+/* FAQ accordion */
+.lpc-help-faq {
+    border: 1px solid var(--lpc-border, #E6EAEE);
+    border-radius: var(--lpc-radius-sm, 10px);
+    background: var(--lpc-surface, #fff);
+    overflow: hidden;
+}
+.lpc-help-faq + .lpc-help-faq { margin-top: .5rem; }
+.lpc-help-faq summary {
+    cursor: pointer;
+    list-style: none;
+    padding: .95rem 1.1rem;
+    font-weight: 700;
+    font-size: .875rem;
+    color: var(--lpc-ink, #111827);
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+}
+.lpc-help-faq summary::-webkit-details-marker { display: none; }
+.lpc-help-faq summary::after {
+    content: '';
+    margin-left: auto;
+    width: 8px; height: 8px;
+    border-right: 2px solid var(--lpc-ink-mute, #98A2B3);
+    border-bottom: 2px solid var(--lpc-ink-mute, #98A2B3);
+    transform: rotate(45deg);
+    transition: transform .15s;
+}
+.lpc-help-faq[open] summary::after { transform: rotate(-135deg); }
+.lpc-help-faq[open] summary { border-bottom: 1px solid var(--lpc-border, #E6EAEE); }
+.lpc-help-faq-body { padding: 1rem 1.1rem 1.2rem; }
+
+/* Breadcrumb */
+.lpc-help-crumbs {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    font-size: .75rem;
+    color: var(--lpc-ink-mute, #98A2B3);
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+.lpc-help-crumbs a { color: var(--lpc-ink-soft, #667085); text-decoration: none; font-weight: 600; }
+.lpc-help-crumbs a:hover { color: var(--lpc-accent-on-light, #005A2B); }
+
+/* Article layout: body + sticky ToC */
+.lpc-help-article-wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 220px;
+    gap: 2.5rem;
+    align-items: start;
+}
+@media (max-width: 1023px) {
+    .lpc-help-article-wrap { grid-template-columns: minmax(0, 1fr); }
+    .lpc-help-toc { display: none; }
+}
+.lpc-help-toc {
+    position: sticky;
+    top: calc(var(--lpc-topbar-h, 68px) + 1.5rem);
+    font-size: .8125rem;
+}
+.lpc-help-toc-title {
+    font-size: .625rem; font-weight: 800; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--lpc-ink-mute, #98A2B3);
+    margin-bottom: .6rem;
+}
+.lpc-help-toc a {
+    display: block;
+    padding: .3rem 0 .3rem .75rem;
+    border-left: 2px solid var(--lpc-border, #E6EAEE);
+    color: var(--lpc-ink-soft, #667085);
+    text-decoration: none;
+    line-height: 1.4;
+}
+.lpc-help-toc a:hover {
+    color: var(--lpc-accent-on-light, #005A2B);
+    border-left-color: var(--lpc-accent-on-light, #005A2B);
+}
+.lpc-help-toc a[data-level="2"] { padding-left: 1.5rem; font-size: .75rem; }
+
+/* The FR-fallback notice. Deliberately quiet — informative, not an error. */
+.lpc-help-fallback {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    padding: .7rem .95rem;
+    border-radius: var(--lpc-radius-sm, 10px);
+    border: 1px solid #FDE68A;
+    background: #FFFBEB;
+    color: #92400E;
+    font-size: .8125rem;
+    font-weight: 600;
+    margin-bottom: 1.25rem;
+}
+.lpc-help-fallback svg { flex: none; width: 18px; height: 18px; }
+
+.lpc-help-empty {
+    padding: 3rem 1.5rem;
+    text-align: center;
+    color: var(--lpc-ink-soft, #667085);
+    font-size: .875rem;
+}
+
+/* ============================================================================
+   4. PROSE — output of lpc_help_markdown()
+   ========================================================================== */
+
+.lpc-help-prose {
+    font-size: .9375rem;
+    line-height: 1.72;
+    color: #374151;
+    max-width: 44rem;
+}
+.lpc-help-prose > *:first-child { margin-top: 0; }
+.lpc-help-prose p { margin: 0 0 1.05rem; }
+.lpc-help-prose h2 {
+    margin: 2.1rem 0 .8rem;
+    font-size: 1.1875rem;
+    font-weight: 800;
+    color: var(--lpc-ink, #111827);
+    letter-spacing: -.01em;
+    scroll-margin-top: calc(var(--lpc-topbar-h, 68px) + 1rem);
+}
+.lpc-help-prose h3 {
+    margin: 1.7rem 0 .6rem;
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--lpc-ink, #111827);
+    scroll-margin-top: calc(var(--lpc-topbar-h, 68px) + 1rem);
+}
+.lpc-help-prose h4 { margin: 1.4rem 0 .5rem; font-size: .875rem; font-weight: 800; color: #374151; }
+.lpc-help-prose ul, .lpc-help-prose ol { margin: 0 0 1.05rem; padding-left: 1.3rem; }
+.lpc-help-prose li { margin-bottom: .4rem; }
+.lpc-help-prose li::marker { color: var(--lpc-accent-on-light, #005A2B); font-weight: 700; }
+.lpc-help-prose strong { color: var(--lpc-ink, #111827); font-weight: 700; }
+.lpc-help-prose code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .8125em;
+    padding: .12em .38em;
+    border-radius: 5px;
+    background: #F1F5F3;
+    color: #05502A;
+    border: 1px solid #E1EAE4;
+}
+.lpc-help-prose pre.lpc-help-code {
+    margin: 0 0 1.05rem;
+    padding: .95rem 1.1rem;
+    border-radius: var(--lpc-radius-sm, 10px);
+    background: #0F241A;
+    color: #D6E9DC;
+    overflow-x: auto;
+    font-size: .8125rem;
+    line-height: 1.6;
+}
+.lpc-help-prose pre.lpc-help-code code {
+    background: none; border: 0; padding: 0; color: inherit; font-size: inherit;
+}
+.lpc-help-prose hr.lpc-help-rule {
+    border: 0;
+    border-top: 1px solid var(--lpc-border, #E6EAEE);
+    margin: 1.9rem 0;
+}
+.lpc-help-prose a.lpc-help-link {
+    color: var(--lpc-accent-on-light, #005A2B);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.lpc-help-table-wrap { overflow-x: auto; margin: 0 0 1.15rem; }
+.lpc-help-prose table.lpc-help-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .8125rem;
+    border: 1px solid var(--lpc-border, #E6EAEE);
+    border-radius: var(--lpc-radius-sm, 10px);
+    overflow: hidden;
+}
+.lpc-help-prose .lpc-help-table th {
+    text-align: left;
+    padding: .6rem .8rem;
+    background: var(--lpc-surface-sunken, #F7F9FA);
+    font-weight: 800;
+    font-size: .6875rem;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--lpc-ink-soft, #667085);
+    border-bottom: 1px solid var(--lpc-border, #E6EAEE);
+}
+.lpc-help-prose .lpc-help-table td {
+    padding: .6rem .8rem;
+    border-bottom: 1px solid var(--lpc-border, #E6EAEE);
+    vertical-align: top;
+}
+.lpc-help-prose .lpc-help-table tr:last-child td { border-bottom: 0; }
+
+.lpc-help-callout {
+    margin: 0 0 1.15rem;
+    padding: .85rem 1.05rem;
+    border-radius: var(--lpc-radius-sm, 10px);
+    border-left: 3px solid;
+    font-size: .875rem;
+    line-height: 1.6;
+}
+.lpc-help-callout--note    { background: #F1F5F9; border-color: #64748B; color: #334155; }
+.lpc-help-callout--tip     { background: #EEF6EE; border-color: var(--lpc-accent-on-light, #005A2B); color: #14532D; }
+.lpc-help-callout--warning { background: #FFFBEB; border-color: #D97706; color: #92400E; }
+.lpc-help-callout--danger  { background: #FEF2F2; border-color: #DC2626; color: #991B1B; }
+
+/* ============================================================================
+   5. ADMIN EDITOR
+   ========================================================================== */
+
+.lpc-help-editor-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.25rem;
+}
+@media (max-width: 1023px) { .lpc-help-editor-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.lpc-help-editor-pane {
+    border: 1px solid var(--lpc-border, #E6EAEE);
+    border-radius: var(--lpc-radius, 14px);
+    background: var(--lpc-surface, #fff);
+    overflow: hidden;
+}
+.lpc-help-editor-pane header {
+    padding: .7rem 1rem;
+    background: var(--lpc-surface-sunken, #F7F9FA);
+    border-bottom: 1px solid var(--lpc-border, #E6EAEE);
+    font-size: .6875rem;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--lpc-ink-soft, #667085);
+    display: flex; align-items: center; gap: .5rem;
+}
+.lpc-help-editor-pane .lpc-help-lang-tag {
+    padding: .12rem .4rem;
+    border-radius: 999px;
+    background: var(--lpc-accent-on-light, #005A2B);
+    color: #fff;
+    font-size: .625rem;
+}
+.lpc-help-editor-pane textarea {
+    width: 100%;
+    min-height: 380px;
+    border: 0;
+    padding: 1rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .8125rem;
+    line-height: 1.65;
+    resize: vertical;
+}
+.lpc-help-editor-pane textarea:focus { outline: none; box-shadow: inset var(--lpc-ring, 0 0 0 3px rgba(140,198,63,.35)); }
+.lpc-help-editor-pane input[type="text"] {
+    width: 100%;
+    border: 0;
+    border-bottom: 1px solid var(--lpc-border, #E6EAEE);
+    padding: .7rem 1rem;
+    font-size: .875rem;
+    font-weight: 700;
+}
+.lpc-help-editor-pane input[type="text"]:focus { outline: none; background: #FAFCFA; }
+
+.lpc-help-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    padding: .18rem .5rem;
+    border-radius: 999px;
+    font-size: .625rem;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+.lpc-help-badge--on   { background: #EEF6EE; color: #14532D; }
+.lpc-help-badge--off  { background: #F1F5F9; color: #64748B; }
+.lpc-help-badge--perm { background: #EFF6FF; color: #1E40AF; font-family: ui-monospace, monospace; text-transform: none; letter-spacing: 0; }

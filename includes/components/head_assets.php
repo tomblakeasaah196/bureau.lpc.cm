@@ -15,6 +15,7 @@
  *   2. FontAwesome 6.4.0                         — self-hosted, SRI-pinned
  *   3. assets/css/tailwind.css                   — utilities first
  *   4. assets/css/lpc-shell.css                  — the shell LAST, so it wins
+ *   4b. assets/css/lpc-help.css                  — help centre; .lpc-help-* only
  *   5. the sidebar-collapse pre-paint snippet    — before first paint, no flash
  *   6. window.LPC bootstrap payload (lang + i18n)
  *   7. lpc-dom / lpc-i18n / lpc-modal / lpc-a11y — core JS, deferred
@@ -74,6 +75,9 @@ $__i18n_payload = function_exists('lpc_i18n_js_payload')
 
 <link rel="stylesheet" href="<?= lpc_asset('/assets/css/tailwind.css') ?>">
 <link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-shell.css') ?>">
+<!-- Help centre. After the shell, and it only defines .lpc-help-* selectors, so
+     it extends the chrome rather than competing with it. -->
+<link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-help.css') ?>">
 
 <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
 

@@ -104,6 +104,14 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
                 </svg>
             </a>
             <?php endif; ?>
+
+            <?php
+            // Help for THIS page. Renders nothing if no article is anchored to
+            // 'crm.clients' or the reader may not see it, so it is safe to
+            // deploy ahead of the content migration. README §5.5: page-specific,
+            // therefore it belongs in this toolbar and not in the topbar.
+            echo lpc_help_link('crm.clients', $lang);
+            ?>
         </div>
 
         <main role="main" id="main" class="lpc-page">

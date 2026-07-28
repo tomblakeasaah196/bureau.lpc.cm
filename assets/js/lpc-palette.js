@@ -4,13 +4,25 @@
  * Bureau LPC ERP — ⌘K / Ctrl+K command palette.
  *
  * Index comes from #lpc-palette-data, built server-side and already filtered by
- * RBAC (see includes/components/command_palette.php). This file never fetches
- * and never invents destinations — it can only navigate to entries the server
- * decided the user may see.
+ * RBAC (see includes/components/command_palette.php). Pages, actions and help
+ * article TITLES are all in that payload, so the palette answers instantly.
  *
  * Matching is a small subsequence-with-word-boundary-bonus scorer: typing "gl"
  * finds "Grand Livre", "fact" finds "Facturation & AR". Recent choices are kept
  * in localStorage per browser.
+ *
+ * SPRINT 7G — the one fetch this file makes
+ * -----------------------------------------
+ * At 3+ characters it also queries api/v1/help_controller.php?action=search,
+ * which searches article BODIES (too large to inline on every page load), and
+ * merges the hits under the Help group. Two properties are preserved:
+ *
+ *   · The endpoint filters by RBAC server-side through lpc_help_search(), so
+ *     the rule "the palette can only reach what the sidebar could" still holds.
+ *     This file continues to invent no destinations of its own.
+ *   · Local results render immediately and are never blocked on the network.
+ *     Remote hits are appended when they arrive, and a stale response from an
+ *     earlier keystroke is discarded by sequence number.
  * -----------------------------------------------------------------------------
  */
 (function () {
@@ -19,11 +31,19 @@
     var RECENT_KEY = 'lpc.palette.recent';
     var RECENT_MAX = 5;
 
+    // Live help search: only past this length, and only after the user pauses.
+    var HELP_MIN_CHARS = 3;
+    var HELP_DEBOUNCE  = 200;
+
     var root, input, results, trigger;
     var ITEMS = [];
     var S = {};
     var view = [];          // currently rendered entries
     var cursor = 0;
+
+    var helpTimer = null;
+    var helpSeq   = 0;      // discards responses that arrive out of order
+    var helpCache = {};     // query → results; help text is static per session
 
     // ---------------------------------------------------------------- data
     function loadData() {
@@ -102,6 +122,75 @@
             .sort(function (a, b) { return b.s - a.s; })
             .slice(0, 40)
             .map(function (r) { return r.it; });
+    }
+
+    // --------------------------------------------------------- live help search
+    var HELP_ICON = 'M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z';
+
+    function lang() {
+        try { return (window.LPC && window.LPC.lang) || document.documentElement.lang || 'fr'; }
+        catch (e) { return 'fr'; }
+    }
+
+    /** Merge remote help hits into a local result list, dropping duplicates. */
+    function merge(local, remote) {
+        var seen = {};
+        local.forEach(function (it) { seen[it.u] = true; });
+        var out = local.slice();
+        remote.forEach(function (r) {
+            var u = r.url + '&lang=' + encodeURIComponent(lang());
+            if (seen[u] || seen[r.url]) return;
+            out.push({
+                g: S.helpGroup || 'Help',
+                l: r.title,
+                h: r.category || '',
+                u: u,
+                i: HELP_ICON,
+                m: ''
+            });
+        });
+
+        // Cluster by group, preserving both the order groups first appeared in
+        // and the order of items within each. Without this, a help article that
+        // scored well locally sits mid-list and a second "Aide" heading appears
+        // at the bottom for the remote hits — the same group, printed twice.
+        var order = [], buckets = {};
+        out.forEach(function (it) {
+            if (!buckets[it.g]) { buckets[it.g] = []; order.push(it.g); }
+            buckets[it.g].push(it);
+        });
+        return order.reduce(function (acc, g) { return acc.concat(buckets[g]); }, []);
+    }
+
+    /**
+     * Body-text search, debounced. Only ever ADDS to what is already on screen:
+     * if the network is slow or down, the palette behaves exactly as it did
+     * before this existed.
+     */
+    function queueHelp(q) {
+        clearTimeout(helpTimer);
+        if (!S.helpEnabled || q.length < HELP_MIN_CHARS) return;
+
+        if (helpCache[q]) { render(merge(search(q), helpCache[q])); return; }
+
+        helpTimer = setTimeout(function () {
+            var mine = ++helpSeq;
+            fetch('/api/v1/help_controller.php?action=search&q=' + encodeURIComponent(q) +
+                  '&lang=' + encodeURIComponent(lang()) + '&limit=6', {
+                credentials: 'same-origin',
+                headers: { 'Accept': 'application/json' }
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (mine !== helpSeq) return;              // a newer keystroke won
+                if (input.value.trim() !== q) return;      // the user moved on
+                var hits = (j && j.results) || [];
+                helpCache[q] = hits;
+                if (!hits.length) return;                  // nothing to add — leave the list alone
+                render(merge(search(q), hits));
+            })
+            .catch(function () { /* offline: local results already rendered */ });
+        }, HELP_DEBOUNCE);
     }
 
     // ------------------------------------------------------------- rendering
@@ -256,7 +345,11 @@
             else if (e.key === 'Tab')       { e.preventDefault(); move(cursor + (e.shiftKey ? -1 : 1)); }
         });
 
-        input.addEventListener('input', function () { render(search(input.value.trim())); });
+        input.addEventListener('input', function () {
+            var q = input.value.trim();
+            render(search(q));      // local, synchronous — never wait on the network
+            queueHelp(q);           // remote body matches, appended if and when they land
+        });
 
         // Click the scrim (but not the panel) to dismiss.
         root.addEventListener('click', function (e) { if (e.target === root) close(); });
