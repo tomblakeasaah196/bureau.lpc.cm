@@ -132,6 +132,19 @@ ON DUPLICATE KEY UPDATE sort_order = VALUES(sort_order);
 
 -- =============================================================================
 -- 4. BODIES — French
+-- -----------------------------------------------------------------------------
+-- EVERY COLUMN OF THE FIRST SELECT IN A UNION MUST CARRY AN EXPLICIT ALIAS.
+-- MySQL names the columns of a derived table after the FIRST branch of the
+-- UNION, and an unaliased column is named after its own literal value. The
+-- first version of this file aliased slug/title/summary/kw but not the body,
+-- so the derived table had a column literally named after the opening
+-- paragraph of the first article, and the outer `SELECT x.body` failed with
+--
+--     SQLSTATE[42S22]: Column not found: 1054 Unknown column 'x.body'
+--
+-- The trap is that it is invisible on inspection — the 21 other branches read
+-- perfectly, and only the first one decides the column names. If you add a
+-- column here, alias it in the first SELECT or this breaks again.
 -- =============================================================================
 
 INSERT INTO help_article_bodies (article_id, lang, title, summary, keywords, body_md)
@@ -163,7 +176,7 @@ De haut en bas :
 
 ## Ce qui n'est pas sur cette page
 
-Les commandes, les bons de livraison et les factures vivent dans **Ventes** et **Comptabilité**. La Base Clients s'arrête au devis : c'est la frontière entre l'avant-vente et l'exécution."
+Les commandes, les bons de livraison et les factures vivent dans **Ventes** et **Comptabilité**. La Base Clients s'arrête au devis : c'est la frontière entre l'avant-vente et l'exécution." AS body
 
 UNION ALL SELECT 'lire-les-trois-indicateurs',
  'Lire les trois indicateurs',
@@ -701,7 +714,7 @@ Top to bottom:
 
 ## What is not on this page
 
-Orders, delivery notes and invoices live in **Sales** and **Accounting**. The Clients page stops at the quote — the boundary between pre-sales and execution."
+Orders, delivery notes and invoices live in **Sales** and **Accounting**. The Clients page stops at the quote — the boundary between pre-sales and execution." AS body
 
 UNION ALL SELECT 'lire-les-trois-indicateurs',
  'Reading the three indicators',
