@@ -11,124 +11,37 @@
         // 1. GLOBAL STATE
         let apiData = null;
         let currentLang = 'fr'; // Default
-        const currentUrl = window.location.href; // The public link to the quote
+        // The public link to the quote. Built from the token alone rather than
+        // window.location.href: this page can be reached with &html=1 (legacy
+        // debug param) or other transient query state, and none of that belongs
+        // in a link pasted into a client's WhatsApp or inbox.
+        const currentUrl = (function () {
+            const token = new URLSearchParams(window.location.search).get('token') || '';
+            const base  = window.location.origin + window.location.pathname;
+            return token ? base + '?token=' + encodeURIComponent(token) : base;
+        })();
 
-        // 2. BILINGUAL DICTIONARY (Functions used for dynamic text)
-        const dictionary = {
-            en: {
-                btn_pdf: "Generate PDF", btn_email: "Email", btn_whatsapp: "WhatsApp",
-                cover_title: "Commercial Proposal", cover_subtitle: "Corporate Hydration Solutions",
-                cover_prepared_for: "Prepared For:", cover_prepared_by: "Prepared By",
-                meta_ref: "Reference", meta_date: "Date", meta_validity: "Validity", meta_days: "Days from issue date",
-                header_p2: "Profile & Context", header_p3: "Commercial Offer", header_p4: "Terms & Signatures",
-                
-                sec1_title: "1. Executive Summary",
-                sec1_p1: "The health, well-being, and productivity of your workforce depend on premium hydration. LA PETITE COUR is pleased to submit this formal proposal to become your preferred partner for natural mineral water supply.",
-                sec1_p2: "Our approach rests on three pillars: impeccable water quality (ANOR certified), state-of-the-art logistics ensuring zero stock-outs, and dedicated corporate customer service.",
-                
-                sec2_title: "2. About La Petite Cour",
-                sec2_intro: "LA PETITE COUR specializes in the supply and distribution of premium drinking water, designed specifically for professional environments. We have designed a flexible and scalable offer, adapted to the reality of offices, coworking spaces, workshops, shops, and public establishments.",
-                sec2_services: "Our services include:",
-                sec2_l1: "Installation, maintenance, and monitoring of distribution equipment",
-                sec2_l2: "Personalized and responsive customer service",
-                sec2_l3: "Eco-responsible solutions promoting recycling and reducing the environmental footprint",
-                sec2_l4: "Inventory management and volume adaptation based on your workforce evolution ",
-                sec2_body: "Driven by a mission to redefine B2B distribution in Cameroon, LA PETITE COUR is an authorized corporate distributor for Sources du Pays, exclusively supplying the Supermont and Opur brands to professional environments.",
-                
-                sec2_gamme_title: "Our Products & Equipment",
-                sec2_gamme_1: "Reusable bottles (10L, 20L) for water dispensers.",
-                sec2_gamme_2: "Individual bottles (33cl, 50cl, 1L, 1.5L).",
-                sec2_gamme_3: "Refrigerated, ambient, and contactless water dispensers.",
-                sec2_gamme_4: "Accessories (recyclable cups, stands, maintenance kits).",
-
-                sec2_av_title: "Corporate Advantages",
-                sec2_av_1_title: "Health & Well-being",
-                sec2_av_1_desc: "Proper hydration improves focus and workplace efficiency.",
-                sec2_av_2_title: "Brand Image",
-                sec2_av_2_desc: "A well-equipped workspace enhances your employer brand.",
-
-                sec2_b1_title: "Multimodal Logistics", sec2_b1_desc: "Anti-UV trucks and tricycles for rapid delivery, even in dense urban zones.",
-                sec2_b2_title: "Buffer Stock", sec2_b2_desc: "Dedicated storage capacity to mitigate potential factory shortages.",
-                sec2_b3_title: "Dedicated Support", sec2_b3_desc: "Single point of contact, regular audits, and technical maintenance of equipment.",
-                sec2_clients: "They Trust Us",
-                
-                sec3_title: "3. Offer Details & Pricing",
-                tbl_desc: "Product Description", tbl_qty: "Est. Monthly Qty", tbl_price: "Unit Price", tbl_total: "Total Price",
-                tbl_grand: "Estimated Monthly Total (FCFA):",
-                tbl_note: "* Note: Actual billing will be based on signed delivery notes (BL). Prices are in CFA Francs.",
-                
-                sec4_title: "4. Service Level Agreement (SLA)",
-                sla_freq: "Delivery Frequency", sla_buffer: "Allocated Buffer Stock", sla_weeks: "Weeks",
-                sla_pay: "Payment Terms", sla_empties: "Empties Management", sla_validity: "Offer Validity",
-                
-                sec5_title: "5. General Terms of Service",
-                tc_1_title: "Article 1: Eco-Responsible Packaging.", tc_1_body: "As part of our environmental commitment, 10L and 20L bottles are reusable and provided for your convenience. To ensure a smooth rotation, we apply a 1-for-1 exchange principle. We rely on our collaborative partnership for the proper care of these containers.",
-                tc_2_title: "Article 2: Equipment Maintenance.", tc_2_body: "To guarantee impeccable hygiene, bottles must contain only water. In the event of loss or significant damage to a container, replacement fees at the current rate may be applied to help us maintain a high-quality fleet.",
-                tc_3_title: "Article 3: Invoicing and Flexibility.", tc_3_body: "Invoicing is based on delivery notes (BL) validated by your team. We grant standard payment terms (as detailed in the SLA) to facilitate your accounting. Regular, joint monitoring helps avoid delays that could impact service fluidity.",
-                tc_4_title: "Article 4: Transparency and Scalability.", tc_4_body: "Our pricing policy is designed to be transparent and competitive. Rates may benefit from a sliding scale based on your evolving volumes and the duration of our collaboration. There are absolutely no hidden fees.",
-                tc_5_title: "Article 5: Setup and Service Continuity.", tc_5_body: "Our logistics team adapts to your schedule to ensure deliveries do not disrupt your operations. Our technicians handle installation, regular dispenser maintenance, and guarantee maximum responsiveness to prevent any stock-outs.",
-                tc_6_title: "Article 6: Satisfaction Commitment.", tc_6_body: "Your satisfaction is at the heart of our approach. A dedicated advisor is assigned to analyze your needs, adjust volumes, and intervene rapidly for any specific requests. We guarantee the prompt replacement of any defective equipment.",
-                
-                sig_lpc: "For La Petite Cour:", sig_role_lpc: "Sales Department", sig_prep: "Prepared By:", 
-                sig_client: "Agreed & Accepted (The Client):", sig_date_client: "Date & Stamp:"
-            },
-            fr: {
-                btn_pdf: "Générer PDF", btn_email: "Email", btn_whatsapp: "WhatsApp",
-                cover_title: "Proposition Commerciale", cover_subtitle: "Solutions d'Hydratation d'Entreprise",
-                cover_prepared_for: "Préparé pour :", cover_prepared_by: "Préparé par",
-                meta_ref: "Référence", meta_date: "Date", meta_validity: "Validité", meta_days: "Jours à compter de l'émission",
-                header_p2: "Profil & Contexte", header_p3: "Offre Commerciale", header_p4: "Conditions & Signatures",
-                
-                sec1_title: "1. Résumé Exécutif",
-                sec1_p1: "La santé, le bien-être et la productivité de vos collaborateurs dépendent d'une hydratation de qualité supérieure. LA PETITE COUR a le plaisir de vous soumettre cette proposition formelle pour devenir votre partenaire privilégié en approvisionnement d'eau minérale naturelle.",
-                sec1_p2: "Notre approche repose sur trois piliers : une qualité d'eau irréprochable (certifiée ANOR), une logistique de pointe garantissant zéro rupture de stock, et un service client dédié aux comptes corporatifs.",
-                
-                sec2_title: "2. À Propos de La Petite Cour",
-                sec2_intro: "LA PETITE COUR se spécialise dans la fourniture et la distribution d'eau potable de première qualité, destinée spécifiquement aux milieux professionnels. Nous avons conçu une offre flexible et évolutive, adaptée à la réalité des bureaux, espaces de coworking, ateliers, commerces et établissements recevant du public.",
-                sec2_services: "Nos services incluent :",
-                sec2_l1: "L'installation, la maintenance et le suivi des équipements de distribution",
-                sec2_l2: "Un service à la clientèle personnalisé et réactif",
-                sec2_l3: "Des solutions écoresponsables favorisant le recyclage et la réduction de l'empreinte environnementale",
-                sec2_l4: "La gestion des stocks et l'adaptation des volumes en fonction de l'évolution de vos effectifs",
-                sec2_body: "Avec pour mission de redéfinir la distribution B2B au Cameroun, LA PETITE COUR est distributeur corporate agréé par Sources du Pays, dédié exclusivement à la fourniture des marques Supermont et Opur aux professionnels.",
-                
-                sec2_gamme_title: "Notre Gamme & Équipements",
-                sec2_gamme_1: "Bonbonnes consignées (10L, 20L) pour distributeurs",
-                sec2_gamme_2: "Bouteilles individuelles (33cl, 50cl, 1L, 1.5L)",
-                sec2_gamme_3: "Fontaines réfrigérées, tempérées et systèmes sans contact",
-                sec2_gamme_4: "Accessoires (gobelets recyclables, supports, kits d'entretien)",
-
-                sec2_av_title: "Avantages pour votre Entreprise",
-                sec2_av_1_title: "Santé et Bien-être",
-                sec2_av_1_desc: "Une bonne hydratation améliore la concentration et l'efficacité.",
-                sec2_av_2_title: "Image et Attractivité",
-                sec2_av_2_desc: "Un espace bien équipé valorise votre marque employeur.",
-
-                sec2_b1_title: "Logistique Multimodale", sec2_b1_desc: "Camions anti-UV et tricycles pour une livraison rapide, même en zone dense.",
-                sec2_b2_title: "Stock Tampon", sec2_b2_desc: "Capacité de stockage dédiée pour pallier aux éventuelles pénuries d'usine.",
-                sec2_b3_title: "Accompagnement Dédié", sec2_b3_desc: "Conseiller unique, audits réguliers et maintenance technique de vos équipements.",
-                sec2_clients: "Ils nous font confiance",
-                
-                sec3_title: "3. Détails de l'Offre et Tarification",
-                tbl_desc: "Désignation du Produit", tbl_qty: "Qté (Mensuelle)", tbl_price: "Prix Unitaire", tbl_total: "Prix Total",
-                tbl_grand: "Montant Total Mensuel Estimé (FCFA) :",
-                tbl_note: "* Note : La facturation réelle se fera sur la base des bons de livraison (BL) signés. Les prix sont exprimés en Francs CFA.",
-                
-                sec4_title: "4. Accord de Niveau de Service (SLA)",
-                sla_freq: "Fréq. de Livraison", sla_buffer: "Stock de Sécurité Alloué", sla_weeks: "Semaines",
-                sla_pay: "Modalités de Paiement", sla_empties: "Gestion des Emballages (Vides)", sla_validity: "Validité de l'Offre",
-                
-                sec5_title: "5. Conditions Générales de Service",
-                tc_1_title: "Article 1 : Gestion Écoresponsable des Emballages.", tc_1_body: "Dans le cadre de notre démarche environnementale, les bonbonnes de 10L et 20L sont réutilisables et mises à votre disposition. Pour assurer une rotation fluide, nous appliquons un principe d'échange (1 vide pour 1 plein). Nous comptons sur notre partenariat pour le bon soin de ces contenants.",
-                tc_2_title: "Article 2 : Maintien du Parc Matériel.", tc_2_body: "Afin de garantir une hygiène irréprochable, les bonbonnes ne doivent contenir que de l'eau. En cas de perte ou de détérioration majeure d'un contenant, des frais de remplacement au tarif en vigueur pourront être appliqués afin d'assurer le renouvellement qualitatif de notre flotte.",
-                tc_3_title: "Article 3 : Facturation et Souplesse.", tc_3_body: "La facturation s'effectue sur la base des bons de livraison (BL) dûment validés par vos équipes. Nous accordons des délais de paiement standards (précisés dans le SLA) pour faciliter votre comptabilité. Un suivi régulier et conjoint permet d'éviter tout retard pouvant impacter la fluidité du service.",
-                tc_4_title: "Article 4 : Transparence et Évolutivité.", tc_4_body: "Notre politique tarifaire est conçue pour être transparente et compétitive. Les tarifs peuvent bénéficier d'une dégressivité selon l'évolution de vos volumes et la durée de notre collaboration. Absolument aucun frais caché n'est appliqué.",
-                tc_5_title: "Article 5 : Installation et Continuité.", tc_5_body: "Notre service logistique s'adapte à vos horaires pour garantir des livraisons sans perturbation de votre activité. Nos techniciens assurent l'installation, l'entretien régulier des fontaines et une réactivité maximale pour vous éviter toute rupture de stock.",
-                tc_6_title: "Article 6 : Engagement de Satisfaction.", tc_6_body: "Votre satisfaction est au cœur de notre démarche. Un conseiller dédié vous est affecté pour analyser vos besoins, ajuster les volumes et intervenir rapidement en cas de requête spécifique. Nous garantissons le remplacement immédiat de tout équipement défectueux.",                
-                sig_lpc: "Pour La Petite Cour :", sig_role_lpc: "Le Responsable Commerciale", sig_prep: "Préparé par :",
-                sig_client: "Bon pour Accord (Le Client) :", sig_date_client: "Date et Cachet :"
+        // 2. BILINGUAL CONTENT — supplied by the server, editable in
+        //    modules/crm/proposal_studio.php (table proposal_template_settings).
+        //
+        //    This used to be a ~130-line hardcoded object. Every wording change
+        //    meant a commit and a deploy, and the same strings also existed in
+        //    the PHP template, so the two drifted. Both now read the one source.
+        //
+        //    If the JSON block is missing (very old cached HTML), we degrade to
+        //    an empty dictionary: the server-rendered French text already in the
+        //    DOM stays put and only the EN toggle stops working. Never blank.
+        const dictionary = (function () {
+            var el = document.getElementById('lpc-proposal-template');
+            if (!el) return { fr: {}, en: {} };
+            try {
+                var parsed = JSON.parse(el.textContent);
+                return { fr: parsed.fr || {}, en: parsed.en || {} };
+            } catch (e) {
+                console.error('proposal template payload unreadable', e);
+                return { fr: {}, en: {} };
             }
-        };
+        })();
 
         // SLA Translation Mapper
         const slaTranslations = {
@@ -240,6 +153,25 @@
             document.getElementById('dyn_total_amount').innerText = formatCurrency(p.total_amount);
         }
 
+        // ---- Template helpers ---------------------------------------------
+        /** One template string in the language currently displayed. */
+        function t(key) {
+            const d = dictionary[currentLang] || dictionary.fr || {};
+            return d[key] || (dictionary.fr && dictionary.fr[key]) || '';
+        }
+
+        /**
+         * Substitute {contact} {reference} {link} {sender} in a share message.
+         * Unknown placeholders are left alone rather than blanked, so a typo in
+         * the Studio is visible to whoever made it instead of quietly deleting
+         * half a sentence in front of a client.
+         */
+        function fillTemplate(tpl, vars) {
+            return Object.keys(vars).reduce(function (acc, k) {
+                return acc.split('{' + k + '}').join(vars[k] == null ? '' : vars[k]);
+            }, tpl || '');
+        }
+
         // 5. MODAL LOGIC & SHARING
         function updateModals() {
             if(!apiData) return;
@@ -253,15 +185,31 @@
             if(phone && !phone.startsWith('237')) phone = '237' + phone; 
             document.getElementById('input_wa_phone').value = phone;
             
-            const waText = `Bonjour ${c.contact_name || ''},\n\nVoici le lien sécurisé vers la proposition commerciale de La Petite Cour (${p.reference}).\n\nLien : ${currentUrl}\n\nN'hésitez pas si vous avez des questions.\n\nCordialement,\n${u.name}`;
-            document.getElementById('input_wa_body').value = waText;
+            document.getElementById('input_wa_body').value =
+                fillTemplate(t('share_wa_body'), {
+                    contact:   c.contact_name || '',
+                    reference: p.reference,
+                    link:      currentUrl,
+                    sender:    u.name
+                });
 
             // Email
             document.getElementById('input_email_to').value = c.email || '';
-            document.getElementById('input_email_subject').value = `Proposition Commerciale : ${c.company_name} / La Petite Cour`;
+            document.getElementById('input_email_subject').value =
+                fillTemplate(t('share_email_subject'), {
+                    contact:   c.company_name || c.contact_name || '',
+                    reference: p.reference,
+                    link:      currentUrl,
+                    sender:    u.name
+                });
             
-            const emailText = `Bonjour ${c.contact_name || 'Madame, Monsieur'},\n\nVeuillez trouver via le lien sécurisé ci-dessous notre proposition commerciale technique et financière concernant l'approvisionnement en eau minérale de vos locaux.\n\n📄 Consulter le Devis en ligne : ${currentUrl}\n\n(Note: Vous pouvez télécharger le document en PDF directement depuis ce lien).\n\nNous restons à votre entière disposition pour tout échange technique ou commercial.\n\nCordialement,\n\n${u.name}\nLa Petite Cour`;
-            document.getElementById('input_email_body').value = emailText;
+document.getElementById('input_email_body').value =
+                fillTemplate(t('share_email_body'), {
+                    contact:   c.contact_name || 'Madame, Monsieur',
+                    reference: p.reference,
+                    link:      currentUrl,
+                    sender:    u.name
+                });
         }
 
         function openModal(id) { document.getElementById(id).classList.add('active'); }
@@ -297,11 +245,14 @@
             }
 
             // Translate all static elements
+            // textContent, never innerHTML: these strings are editable from the
+            // Proposal Studio, which makes them stored user input. README §6.4.
+            // A missing key leaves the server-rendered text in place rather
+            // than blanking the element.
             document.querySelectorAll('[data-i18n]').forEach(el => {
                 const key = el.getAttribute('data-i18n');
-                if (dictionary[lang][key]) {
-                    el.innerHTML = dictionary[lang][key]; // innerHTML allows bold tags inside translation strings
-                }
+                const val = dictionary[lang] && dictionary[lang][key];
+                if (val) { el.textContent = val; }
             });
         }
 

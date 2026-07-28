@@ -89,6 +89,7 @@ $CATALOGUE = [
   'dash_driver'    => ['href'=>'/modules/dashboard/views/driver_dashboard.php',  'icon'=>$I['truck'],     'permission'=>'dashboard.driver.view',        'label_fr'=>'Chauffeur',               'label_en'=>'Driver'],
 
   'crm_clients'    => ['href'=>'/modules/crm/clients.php',                       'icon'=>$I['users'],     'permission'=>'crm.clients.view',             'label_fr'=>'Base Clients',            'label_en'=>'Clients'],
+  'crm_studio'     => ['href'=>'/modules/crm/proposal_studio.php',               'icon'=>$I['clipboard'], 'permission'=>'crm.proposals.template',       'label_fr'=>'Studio Proposition',      'label_en'=>'Proposal Studio'],
   'sales_orders'   => ['href'=>'/modules/sales/orders.php',                      'icon'=>$I['cart'],      'permission'=>'sales.orders.view',            'label_fr'=>'Commandes & Dispatch',    'label_en'=>'Orders & Dispatch'],
 
   'inv_procure'    => ['href'=>'/modules/inventory/procurement.php',             'icon'=>$I['archive'],   'permission'=>'inventory.procurement.view',   'label_fr'=>'Bons de Commande',        'label_en'=>'Purchase Orders'],
@@ -140,6 +141,7 @@ $PROFILES = [
     ]],
     ['heading_fr'=>'Commerce & CRM', 'heading_en'=>'Commerce & CRM', 'items'=>[
       ['ref'=>'crm_clients',    'label_fr'=>'Base Clients & Devis',     'label_en'=>'Clients & Quotes'],
+      ['ref'=>'crm_studio',     'label_fr'=>'Studio Proposition',       'label_en'=>'Proposal Studio'],
       ['ref'=>'sales_orders',   'label_fr'=>'Ventes & Commandes',       'label_en'=>'Sales & Orders'],
     ]],
     ['heading_fr'=>'Logistique & Stock', 'heading_en'=>'Logistics & Stock', 'items'=>[

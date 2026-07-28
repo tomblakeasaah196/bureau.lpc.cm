@@ -153,6 +153,8 @@ context that's already settled.
 | Sprint 7D | Defensive fallbacks on the topbar | Done — Tailwind fallback classes plus hard `width`/`height` attributes on every topbar SVG. They lose to the real stylesheet on every property, so they only govern how the bar degrades if the CSS is ever missing. |
 | Sprint 7D | `verify.sh` guard against bare asset URLs | Done — the deploy now fails if any template reintroduces an unversioned `/assets/` URL. |
 | Sprint 7D | Visual pass on the redesigned shell | **Todo — acceptance gate.** Walk `docs/SHELL_VERIFY.md` after deploying. |
+| Sprint 7E | `quote.php` defaults back to the 4-page HTML proposal; 1-page dompdf moved behind `?pdf=1` + an "Offre commerciale" button | Done — see §5.6. Sprint 4 had hidden the 4-pager behind an `exit`. |
+| Sprint 7E | **Proposal Studio** — every string, logo and share message on the proposal made editable, FR + EN, no code change | Done — migration 030, `includes/functions/proposal_template.php`, `api/v1/proposal_template_controller.php`, `modules/crm/proposal_studio.php`, `assets/js/modules/crm-proposal_studio.js`. See §5.7. |
 | Ship | Final zip + `deploy.sh` | Ready — see `scripts/ship-day.md`. |
 
 Update this table when you finish a phase item. It's the truth about where the revamp stands.
@@ -236,6 +238,10 @@ bureau.lpc.cm/                     ← app root = Apache document root
 │   │                                  sign_bl, sign_cre, print_cre, payslip (NEW Sprint 4)
 │   │                                  All render server-side PDFs via PdfRenderer by default;
 │   │                                  pass ?html=1 for the legacy HTML view (debug only).
+│   │                                  EXCEPTION — quote.php is inverted: it defaults to its
+│   │                                  4-page HTML proposal (that page is the client-facing
+│   │                                  deliverable) and serves the one-page dompdf "offre
+│   │                                  commerciale" only on ?pdf=1. See §5.6.
 │   └── auth/                          password_manager
 │
 ├── includes/                      Server-only PHP (deny-listed at the URL level).
@@ -682,6 +688,116 @@ Rules:
   its SVGs.** They lose to the real stylesheet on every property, so they change
   nothing when things are healthy — they only stop the bar rendering as
   400px-tall icons and raw text if `lpc-shell.css` ever fails to arrive.
+
+### 5.6 `quote.php` renders HTML by default — this is deliberate
+
+Sprint 4 put every `public/documents/*.php` file behind
+`lpc_serve_document_pdf()`, which streams a dompdf render and `exit`s.
+For `quote.php` that was wrong, and it silently killed a shipped feature
+for ~3 months: the file still contained a full 4-page HTML proposal
+(cover, profil & contexte, offre + SLA, conditions + signatures) with a
+FR/EN toggle and WhatsApp/email share modals, but the `exit` above it
+meant none of it ever rendered. Sales links sent by WhatsApp started
+landing on a bare one-page PDF instead.
+
+The distinction that was missed: for invoices, BLs and bons de commande
+the PDF **is** the document. For a quote, the HTML page **is** the
+document — it's what the prospect opens from a WhatsApp link, reads in
+their own language, and exports themselves. The PDF is a condensed
+by-product.
+
+So `quote.php` inverts the rule:
+
+```php
+if (($_GET['pdf'] ?? '') === '1') {
+    lpc_serve_document_pdf('quote');   // exits after streaming
+}
+// …otherwise fall through to the 4-page HTML proposal
+```
+
+- Bare `quote.php?token=…` → the 4-page proposal. **This is what share links must use.**
+- `quote.php?token=…&pdf=1` → the one-page dompdf "offre commerciale",
+  reachable from the `#btn-offer` button in the page's own nav.
+- `&html=1` still works but is now a no-op; it survives only so old links
+  don't break.
+
+The gate lives in `quote.php`, not in `document_pdf.php`, so no other
+document type is affected. If you add a document whose HTML view is the
+real deliverable, copy this pattern rather than editing the dispatcher.
+
+**Share links are built from the token, never `window.location.href`**
+(`assets/js/modules/documents-quote.js`). The page is reachable with
+`&html=1` / `&pdf=1` appended, and neither belongs in a URL pasted into a
+client's inbox.
+
+### 5.7 The Proposal Studio — proposal copy is data, not code
+
+Every string on the 4-page proposal used to exist **twice**: once in the
+HTML of `public/documents/quote.php`, once in a ~130-line `dictionary`
+object in `assets/js/modules/documents-quote.js`. Changing one sentence
+meant editing both, committing, pushing and deploying — and because
+nothing enforced that the two copies matched, they drifted (one FR string
+had even acquired a U+FFFD corruption in the JS copy that the HTML did
+not have).
+
+All of it now lives in `proposal_template_settings` (migration 030) and
+is edited from `modules/crm/proposal_studio.php` — reachable from the
+gear button beside "Nouveau Client" on `modules/crm/clients.php`, and
+from the sidebar.
+
+```
+proposal_template_settings   ← the values (FR + EN in the same row)
+        │
+        ├─ includes/functions/proposal_template.php   ← the only reader
+        │        ├─ lpc_proposal_text($key, $lang)    server-side render
+        │        ├─ lpc_proposal_dictionary()         → JSON → the browser
+        │        └─ lpc_proposal_logos()              the page-2 logo strip
+        │
+        ├─ public/documents/quote.php                 renders FR server-side
+        ├─ assets/js/modules/documents-quote.js       swaps FR/EN client-side
+        └─ modules/crm/proposal_studio.php            the editor
+```
+
+Rules for anyone touching this:
+
+- **`lpc_proposal_defaults()` is the schema.** A key that isn't in it
+  cannot be saved (the controller rejects unknown keys) and won't appear
+  in the studio. Adding a field = add it to `lpc_proposal_defaults()`
+  *and* to a new migration's seed. The two are checked against each other
+  by the verification query at the bottom of migration 030.
+- **Everything falls back.** Missing table, missing row, blank value, DB
+  down — every accessor degrades to the hardcoded 28 July 2026 string. A
+  client-facing document must never render with a hole in it because
+  somebody cleared a field. The single exception is `lpc_proposal_logos()`,
+  where blank deliberately means "hide this slot" — that is the only way
+  to show fewer than six reference logos without a code change.
+- **French is rendered server-side, English is swapped in by JS.** The
+  first paint, the print stylesheet and html2canvas' PDF capture all need
+  real text in the DOM, not placeholders. `setLang()` then replaces it
+  from the same values.
+- **`setLang()` uses `textContent`, not `innerHTML`.** It used to use
+  `innerHTML` "so translations can contain bold tags". The moment these
+  strings became editable from a web form they became stored user input,
+  and §6.4 applies. If rich text is ever genuinely needed, whitelist
+  specific tags server-side — do not reopen `innerHTML`.
+- **The two JSON `<script>` blocks carry `JSON_HEX_TAG` and friends.**
+  Without them a template value containing `</script>` closes the block
+  and executes whatever follows. This is load-bearing, not style.
+- **SVG upload is deliberately refused.** An SVG is an XML document that
+  can carry `<script>`, and these files render inside a page we serve to
+  clients. PNG / JPEG / WebP only, re-encoded through GD by `Uploads`.
+  The six *seeded* logos are still SVGs shipped in `assets/img/` — those
+  are code-owned and fine; it's uploads that are constrained.
+- **`crm.proposals.template` is not `crm.proposals.create`.** Writing one
+  devis and rewriting the contract terms every future client signs are
+  different levels of authority. Granted to admin's `*` only by default.
+
+Known boundary: the one-page dompdf export (`?pdf=1`) still uses the
+generic document template in `includes/functions/document_pdf.php`, whose
+letterhead ("Ets. La Petite Cour", NIU, phone) is shared with invoices,
+BLs and bons de commande. Making *that* parametric is a separate
+company-identity setting, not a proposal setting — doing it here would
+have quietly changed every invoice too.
 
 ---
 

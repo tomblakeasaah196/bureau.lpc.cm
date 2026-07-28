@@ -45,6 +45,7 @@ $LPC_PERMISSIONS = [
         'crm.clients.convert'     => 'Convertir prospect → client actif',
         'crm.proposals.view'      => 'Voir les propositions/devis',
         'crm.proposals.create'    => 'Créer un devis',
+        'crm.proposals.template'  => 'Modifier le modèle de proposition commerciale (Studio)',
     ],
 
     // ---------------- Sales & Deliveries ----------------------------------
