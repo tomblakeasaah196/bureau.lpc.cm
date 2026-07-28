@@ -34,27 +34,34 @@ jobs:
           SSH_USER:        ${{ secrets.DEPLOY_SSH_USER }}
           SSH_PORT:        ${{ secrets.DEPLOY_SSH_PORT }}
         run: |
-          set -e
-
-          # --- Temporary diagnostics -------------------------------------------
-          # The first real run failed silently (exit 1, zero output) before this
-          # was added -- most likely one of the 4 secrets is empty/misnamed, since
-          # that's the one failure mode quiet enough to produce no visible error.
-          # None of this prints the actual private key content. Remove this block
-          # once a deploy succeeds.
-          echo "SSH_HOST = [$SSH_HOST]"
-          echo "SSH_PORT = [$SSH_PORT]"
-          echo "SSH_USER = [$SSH_USER]"
-          echo "SSH_PRIVATE_KEY length = ${#SSH_PRIVATE_KEY} chars"
-          echo "SSH_PRIVATE_KEY first line = $(echo "$SSH_PRIVATE_KEY" | head -1)"
-          # -----------------------------------------------------------------------
+          # --- Temporary diagnostics -- set -e deliberately OFF here so every ---
+          # line runs regardless of what fails, and we capture each exit code
+          # explicitly instead of letting the script die silently. GitHub masks
+          # the raw value of anything sourced from `secrets.*` (that's why the
+          # last run showed [***] for host/port/user too, not just the key) --
+          # but lengths and exit codes are just numbers, never masked, so this
+          # gets through no matter what. Remove this whole block once a deploy
+          # actually succeeds.
+          echo "SSH_HOST length = ${#SSH_HOST}"
+          echo "SSH_PORT length = ${#SSH_PORT}"
+          echo "SSH_USER length = ${#SSH_USER}"
+          echo "SSH_PRIVATE_KEY length = ${#SSH_PRIVATE_KEY}"
 
           mkdir -p ~/.ssh
+          echo "mkdir exit code: $?"
+
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          echo "write key exit code: $?"
+
           chmod 600 ~/.ssh/deploy_key
-          # stderr no longer thrown away -- a bad host/port now prints the real reason.
+          echo "chmod exit code: $?"
+
           ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
-          echo "known_hosts now has $(wc -l < ~/.ssh/known_hosts) line(s)"
+          echo "ssh-keyscan exit code: $?"
+          echo "known_hosts now has $(wc -l < ~/.ssh/known_hosts 2>/dev/null || echo 0) line(s)"
+
+          echo "--- end diagnostics -- resuming normal strict mode below ---"
+          set -e
 
           # rsync isn't available on the target host (shared cPanel, no root
           # to install it) -- tar + scp needs nothing beyond ssh itself on
