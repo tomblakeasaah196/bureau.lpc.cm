@@ -69,6 +69,7 @@ if (empty($token)) {
     <script src="/assets/js/lpc-dom.js"></script>
     <!-- Sprint 5: signature-canvas PNG downscaler before POST. -->
     <script src="/assets/js/lpc-image-compress.js"></script>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
 <body class="font-sans text-gray-800 antialiased flex flex-col items-center justify-center min-h-screen p-4">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>

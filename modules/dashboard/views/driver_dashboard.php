@@ -23,6 +23,7 @@ $initials = strtoupper(substr($display_name, 0, 2));
         /* Prevents pull-to-refresh on mobile apps to make it feel native */
         body { overscroll-behavior-y: none; }
     </style>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
 <body class="bg-lpc-bg font-sans text-gray-800 antialiased flex flex-col h-screen overflow-hidden">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>

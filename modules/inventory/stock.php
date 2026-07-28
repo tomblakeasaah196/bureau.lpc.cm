@@ -18,8 +18,9 @@ $user_role = $_SESSION['user_role'];
     <!-- Sprint 5: shared paginator + escape helpers. -->
     <script src="/assets/js/lpc-dom.js"></script>
     <script src="/assets/js/lpc-paginator.js"></script>
+    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 
-    
     <style>
         .tab-content { display: none; }
         .tab-content.active { display: flex; animation: fadeIn 0.3s ease-out forwards; }
@@ -27,30 +28,20 @@ $user_role = $_SESSION['user_role'];
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
     </style>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
 <body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
-    <?php require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php'; ?>
+    <?php
+    $pageTitle    = 'Stock & Emballages';
+    $pageSubtitle = "Gestion simplifiée de l'entrepôt";
+    require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
+    require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
+    ?>
 
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        
-        <header class="bg-white border-b border-gray-200 px-8 py-5 flex justify-between items-center shrink-0 z-20 shadow-sm">
-            <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-lpc-dark rounded-xl flex items-center justify-center text-white shadow-lg">
-                    <i class="fas fa-boxes text-xl"></i>
-                </div>
-                <div>
-                    <h1 class="text-2xl font-black text-gray-900 tracking-tight">Stock & Emballages</h1>
-                    <p class="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1">Gestion simplifiée de l'entrepôt</p>
-                </div>
-            </div>
-            <div class="text-right hidden md:block border-l border-gray-200 pl-6">
-                <p class="text-sm font-black text-gray-900 leading-none"><?php echo htmlspecialchars($_SESSION['user_name']); ?></p>
-                <p class="text-[10px] font-bold text-lpc-light uppercase mt-1.5 tracking-wider"><?php echo htmlspecialchars($user_role); ?></p>
-            </div>
-        </header>
+    <div id="lpc-shell-main">
 
         <nav class="bg-white border-b border-gray-200 px-8 flex items-center gap-8 shrink-0 overflow-x-auto shadow-sm z-10">
             <button onclick="switchTab('stock')" class="tab-link py-4 border-b-[3px] border-lpc-dark text-lpc-dark font-black text-sm uppercase tracking-wider whitespace-nowrap" id="tab-stock">
@@ -340,5 +331,6 @@ $user_role = $_SESSION['user_role'];
     </div>
 
     <script src="/assets/js/modules/inventory-stock.js" defer></script>
+    <script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

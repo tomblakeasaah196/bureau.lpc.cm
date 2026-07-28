@@ -10,24 +10,24 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Master Data Hub | LPC ERP</title>
-    <link rel="stylesheet" href="/assets/css/tailwind.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <?php require __DIR__ . '/../../includes/components/head_assets.php'; ?>
     <!-- Sprint 5: client-side avatar compression before upload. -->
     <script src="/assets/js/lpc-image-compress.js" defer></script>
+    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
 <body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
-    <?php require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php'; ?>
+    <?php
+    $pageTitle    = 'Master Data Hub';
+    $pageSubtitle = 'Gestion des Référentiels';
+    require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
+    require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
+    ?>
 
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header class="bg-white border-b border-gray-200 px-8 py-5 flex justify-between items-center shrink-0 z-10 shadow-sm">
-            <div>
-                <h1 class="text-2xl font-black text-gray-900">Master Data Hub</h1>
-                <p class="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1">Gestion des Référentiels</p>
-            </div>
-        </header>
+    <div id="lpc-shell-main">
 
         <nav class="bg-white border-b border-gray-200 px-8 flex items-center gap-8 shrink-0 overflow-x-auto" id="mdm-tabs"></nav>
 
@@ -70,6 +70,7 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
         </div>
     </div>
 
-    <script src="/assets/js/modules/admin-master_data.js" defer></script>
+    <script src="/assets/js/modules/admin-master_data.js?v=<?= @filemtime($_SERVER['DOCUMENT_ROOT'] . '/assets/js/modules/admin-master_data.js') ?>" defer></script>
+    <script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

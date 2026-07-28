@@ -31,39 +31,35 @@ $user_role = $_SESSION['user_role'];
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .kpi-card:hover { transform: translateY(-2px); transition: transform 0.2s ease-in-out; cursor: pointer; }
     </style>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
+    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
 <body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
-    <?php require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php'; ?>
+    <?php
+    $pageTitle    = 'Rapports Consolidés';
+    $pageSubtitle = 'Vue Dirigeant';
+    require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
+    require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
+    ?>
 
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        
-        <header class="bg-white border-b border-gray-200 px-8 py-5 flex justify-between items-center shrink-0 z-20 shadow-sm relative">
-            <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-dash-dark rounded-xl flex items-center justify-center text-white shadow-lg">
-                    <i class="fas fa-chart-line text-xl"></i>
-                </div>
-                <div>
-                    <h1 class="text-2xl font-black text-gray-900 tracking-tight">Rapports Consolidés</h1>
-                    <p class="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1">Vue Dirigeant - <span id="view_period_label">YTD (Année en cours)</span></p>
-                </div>
+    <div id="lpc-shell-main">
+        <div class="bg-white border-b border-gray-200 px-8 py-2.5 shrink-0 shadow-sm flex items-center justify-end gap-4">
+            <p class="text-xs text-gray-400 font-bold uppercase tracking-widest mr-auto md:mr-0">Vue Dirigeant - <span id="view_period_label">YTD (Année en cours)</span></p>
+            <div class="bg-gray-100 p-1.5 rounded-lg border border-gray-200 flex items-center shadow-inner">
+                <label class="text-[10px] font-black text-gray-500 uppercase px-2">Période:</label>
+                <select id="timeframe_filter" onchange="loadDashboardData()" class="bg-white border border-gray-300 rounded text-sm font-black text-dash-dark px-3 py-1 outline-none focus:ring-2 focus:ring-dash-highlight">
+                    <option value="YTD" selected>YTD (Depuis Janvier)</option>
+                    <option value="MTD">MTD (Mois en cours)</option>
+                </select>
             </div>
-            
-            <div class="flex items-center gap-4">
-                <div class="bg-gray-100 p-1.5 rounded-lg border border-gray-200 flex items-center shadow-inner">
-                    <label class="text-[10px] font-black text-gray-500 uppercase px-2">Période:</label>
-                    <select id="timeframe_filter" onchange="loadDashboardData()" class="bg-white border border-gray-300 rounded text-sm font-black text-dash-dark px-3 py-1 outline-none focus:ring-2 focus:ring-dash-highlight">
-                        <option value="YTD" selected>YTD (Depuis Janvier)</option>
-                        <option value="MTD">MTD (Mois en cours)</option>
-                    </select>
-                </div>
-                <button onclick="exportDashboardToPDF()" class="bg-rose-600 hover:bg-rose-700 text-white px-5 py-2.5 rounded-xl font-black text-xs shadow-md transition-all flex items-center gap-2">
-                    <i class="fas fa-file-pdf"></i> Exporter PDF
-                </button>
-            </div>
-        </header>
+            <button onclick="exportDashboardToPDF()" class="bg-rose-600 hover:bg-rose-700 text-white px-5 py-2.5 rounded-xl font-black text-xs shadow-md transition-all flex items-center gap-2">
+                <i class="fas fa-file-pdf"></i> Exporter PDF
+            </button>
+        </div>
 
         <main role="main" id="dashboard-content" class="flex-1 overflow-y-auto p-8 relative bg-slate-50"><a id="main" tabindex="-1" class="sr-only">Contenu principal</a>
             
@@ -203,5 +199,6 @@ $user_role = $_SESSION['user_role'];
     </div>
 
     <script src="/assets/js/modules/analytics-reports.js" defer></script>
+<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

@@ -1,0 +1,62 @@
+/* assets/css/lpc-shell.css
+ * -----------------------------------------------------------------------------
+ * Bureau LPC ERP -- app shell layout (fixed sidebar + fixed inset topbar).
+ * Plain CSS on purpose, not Tailwind utilities: this ships without needing
+ * `npm run build:css` re-run, since tonight's workflow is direct file copy,
+ * not a full repackage. Link this AFTER tailwind.css on every shell page.
+ * -----------------------------------------------------------------------------
+ */
+:root {
+    --lpc-sidebar-w: 288px;
+    --lpc-sidebar-w-collapsed: 76px;
+    --lpc-topbar-h: 64px;
+}
+
+#lpc-sidebar {
+    transition: width 0.18s ease;
+}
+html.lpc-collapsed #lpc-sidebar {
+    width: var(--lpc-sidebar-w-collapsed) !important;
+}
+html.lpc-collapsed #lpc-sidebar .lpc-logo-text,
+html.lpc-collapsed #lpc-sidebar .lpc-label,
+html.lpc-collapsed #lpc-sidebar .lpc-sidebar-heading,
+html.lpc-collapsed #lpc-sidebar .lpc-user-text {
+    display: none;
+}
+html.lpc-collapsed #lpc-sidebar .lpc-nav-link {
+    justify-content: center;
+}
+html.lpc-collapsed #lpc-sidebar .lpc-user-card {
+    justify-content: center;
+}
+
+#lpc-topbar {
+    position: fixed;
+    top: 0;
+    left: var(--lpc-sidebar-w);
+    right: 0;
+    height: var(--lpc-topbar-h);
+    z-index: 30;
+    transition: left 0.18s ease;
+}
+html.lpc-collapsed #lpc-topbar {
+    left: var(--lpc-sidebar-w-collapsed);
+}
+
+#lpc-shell-main {
+    margin-left: var(--lpc-sidebar-w);
+    padding-top: var(--lpc-topbar-h);
+    min-height: 100vh;
+    transition: margin-left 0.18s ease;
+}
+html.lpc-collapsed #lpc-shell-main {
+    margin-left: var(--lpc-sidebar-w-collapsed);
+}
+
+/* Below lg (1024px): existing off-canvas sidebar behavior wins outright --
+   collapse-to-icons is a desktop-only affordance. */
+@media (max-width: 1023px) {
+    #lpc-topbar { left: 0 !important; }
+    #lpc-shell-main { margin-left: 0 !important; }
+}

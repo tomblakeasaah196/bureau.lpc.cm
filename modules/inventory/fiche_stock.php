@@ -28,34 +28,32 @@ $user_role = $_SESSION['user_role'];
         .toggle-checkbox:checked { right: 0; border-color: #005A2B; }
         .toggle-checkbox:checked + .toggle-label { background-color: #005A2B; }
     </style>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
+    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
 <body class="bg-lpc-bg font-sans text-gray-800 antialiased flex h-screen overflow-hidden">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
-    <?php require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php'; ?>
+    <?php
+    $pageTitle    = 'Fiche de Stock';
+    $pageSubtitle = 'Analyse des flux et valorisation';
+    require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
+    require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
+    ?>
 
-    <div class="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        
-        <header class="bg-white border-b border-gray-200 px-8 py-5 flex justify-between items-center shrink-0 shadow-sm sticky top-0 z-20">
-            <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-lpc-dark rounded-xl flex items-center justify-center text-white shadow-lg"><i class="fas fa-clipboard-list text-xl"></i></div>
-                <div>
-                    <h1 class="text-2xl font-black text-gray-900 tracking-tight">Fiche de Stock</h1>
-                    <p class="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1">Analyse des flux et valorisation</p>
+    <div id="lpc-shell-main">
+        <div class="bg-white border-b border-gray-200 px-8 py-2.5 shrink-0 shadow-sm flex items-center justify-end">
+            <div class="flex items-center gap-3 bg-gray-50 px-4 py-2 rounded-xl border border-gray-200">
+                <span class="text-xs font-bold" id="lbl-phys">Unités (Qté)</span>
+                <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                    <input type="checkbox" name="toggle" id="view-toggle" onchange="toggleViewMode()" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out z-10"/>
+                    <label for="view-toggle" class="toggle-label block overflow-hidden h-5 rounded-full bg-gray-300 cursor-pointer transition-colors duration-200 ease-in-out"></label>
                 </div>
+                <span class="text-xs font-bold text-gray-400" id="lbl-fin">Valeur (FCFA)</span>
             </div>
-            <div class="flex items-center gap-6">
-                <div class="flex items-center gap-3 bg-gray-50 px-4 py-2 rounded-xl border border-gray-200">
-                    <span class="text-xs font-bold" id="lbl-phys">Unités (Qté)</span>
-                    <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
-                        <input type="checkbox" name="toggle" id="view-toggle" onchange="toggleViewMode()" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out z-10"/>
-                        <label for="view-toggle" class="toggle-label block overflow-hidden h-5 rounded-full bg-gray-300 cursor-pointer transition-colors duration-200 ease-in-out"></label>
-                    </div>
-                    <span class="text-xs font-bold text-gray-400" id="lbl-fin">Valeur (FCFA)</span>
-                </div>
-            </div>
-        </header>
+        </div>
 
         <main role="main" id="main" class="p-8 space-y-6">
             
@@ -93,5 +91,6 @@ $user_role = $_SESSION['user_role'];
     </div>
 
     <script src="/assets/js/modules/inventory-fiche_stock.js" defer></script>
+<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

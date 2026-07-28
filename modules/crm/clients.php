@@ -25,6 +25,9 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 4px; }
     </style>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
+    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
 <body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
@@ -32,20 +35,16 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
 
     <div id="sidebar-overlay" class="fixed inset-0 bg-black/50 z-40 hidden lg:hidden backdrop-blur-sm transition-opacity" onclick="toggleSidebar()"></div>
 
-    <?php require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php'; ?>
+    <?php
+    $pageTitle    = __t('ui.base_clients_devis');
+    $pageSubtitle = __t('ui.g_rez_vos_clients_b2b_b2c_et_g_n_rez_des');
+    require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
+    require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
+    ?>
 
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-        
-        <header class="bg-white border-b border-lpc-border px-4 md:px-6 py-4 flex justify-between items-center shrink-0 z-10">
-            <div class="flex items-center">
-                <button onclick="toggleSidebar()" class="lg:hidden p-2 mr-3 rounded-md text-gray-400 hover:text-lpc-dark focus:outline-none transition-colors">
-                    <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
-                </button>
-                <div>
-                    <h1 class="text-xl md:text-2xl font-extrabold text-gray-900"><?php echo __t('ui.base_clients_devis'); ?></h1>
-                    <p class="text-sm text-gray-500 font-medium mt-1 hidden sm:block"><?php echo __t('ui.g_rez_vos_clients_b2b_b2c_et_g_n_rez_des'); ?></p>
-                </div>
-            </div>
+    <div id="lpc-shell-main">
+
+        <header class="bg-white border-b border-lpc-border px-4 md:px-6 py-3 flex justify-end items-center shrink-0 z-10">
             <button onclick="openNewClientModal()" class="bg-lpc-dark hover:bg-[#004722] text-white px-4 md:px-5 py-2.5 rounded-xl font-bold shadow-md transition-all flex items-center shrink-0">
                 <svg class="w-5 h-5 md:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                 <span class="hidden md:inline"><?php echo __t('ui.nouveau_client'); ?></span>
@@ -345,5 +344,6 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
     </div>
 
     <script src="/assets/js/modules/crm-clients.js" defer></script>
+    <script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

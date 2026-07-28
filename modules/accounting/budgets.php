@@ -36,40 +36,35 @@ $user_role = $_SESSION['user_role'];
         
         .progress-bar-striped { background-image: linear-gradient(45deg, rgba(255,255,255,.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.15) 50%, rgba(255,255,255,.15) 75%, transparent 75%, transparent); background-size: 1rem 1rem; }
     </style>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
+    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
 <body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
-    <?php require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php'; ?>
+    <?php
+    $pageTitle    = 'Contrôle de Gestion';
+    $pageSubtitle = 'Budget, Performance & Reporting IFRS/OHADA';
+    require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
+    require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
+    ?>
 
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        
-        <header class="bg-white border-b border-gray-200 px-8 py-5 flex justify-between items-center shrink-0 z-20 shadow-sm relative">
-            <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-finance-dark rounded-xl flex items-center justify-center text-white shadow-lg">
-                    <i class="fas fa-chart-pie text-xl"></i>
-                </div>
-                <div>
-                    <h1 class="text-2xl font-black text-gray-900 tracking-tight">Contrôle de Gestion</h1>
-                    <p class="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1">Budget, Performance & Reporting IFRS/OHADA</p>
-                </div>
+    <div id="lpc-shell-main">
+        <div class="bg-white border-b border-gray-200 px-8 py-2.5 shrink-0 shadow-sm flex items-center justify-end gap-4">
+            <div class="bg-gray-100 p-1.5 rounded-lg border border-gray-200 flex items-center shadow-inner">
+                <label class="text-[10px] font-black text-gray-500 uppercase px-2">Exercice:</label>
+                <select id="global_year_filter" onchange="refreshAllTabs()" class="bg-white border border-gray-300 rounded text-sm font-black text-finance-dark px-3 py-1 outline-none focus:ring-2 focus:ring-finance-highlight">
+                    <option value="2026" selected>2026</option>
+                    <option value="2025">2025</option>
+                </select>
             </div>
-            
-            <div class="flex items-center gap-4">
-                <div class="bg-gray-100 p-1.5 rounded-lg border border-gray-200 flex items-center shadow-inner">
-                    <label class="text-[10px] font-black text-gray-500 uppercase px-2">Exercice:</label>
-                    <select id="global_year_filter" onchange="refreshAllTabs()" class="bg-white border border-gray-300 rounded text-sm font-black text-finance-dark px-3 py-1 outline-none focus:ring-2 focus:ring-finance-highlight">
-                        <option value="2026" selected>2026</option>
-                        <option value="2025">2025</option>
-                    </select>
-                </div>
 
-                <button onclick="generateReportPDF()" class="bg-finance-dark hover:bg-black text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2">
-                    <i class="fas fa-file-pdf"></i> Exporter Rapport
-                </button>
-            </div>
-        </header>
+            <button onclick="generateReportPDF()" class="bg-finance-dark hover:bg-black text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2">
+                <i class="fas fa-file-pdf"></i> Exporter Rapport
+            </button>
+        </div>
 
         <nav class="bg-white border-b border-gray-200 px-8 flex items-center gap-8 shrink-0 overflow-x-auto shadow-sm z-10">
             <button onclick="switchTab('dashboard')" class="tab-link py-4 border-b-[3px] border-finance-highlight text-finance-dark font-black text-sm uppercase tracking-wider whitespace-nowrap" id="tab-dashboard">
@@ -411,5 +406,6 @@ $user_role = $_SESSION['user_role'];
 
 
     <script src="/assets/js/modules/accounting-budgets.js" defer></script>
+    <script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

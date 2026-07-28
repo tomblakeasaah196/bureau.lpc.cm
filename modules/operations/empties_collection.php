@@ -28,27 +28,24 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
         .tab-content { display: none; }
         .tab-content.active { display: block; animation: slideUp 0.3s ease-out forwards; }
     </style>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
+    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
 <body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
+    <?php
+    $pageTitle    = 'Consignes & Vides';
+    $pageSubtitle = 'Suivi, CRE & Vente Recyclage';
+    ?>
     <div class="hidden md:block">
         <?php require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php'; ?>
     </div>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php'; ?>
 
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        
-        <header class="bg-lpc-dark text-white px-6 py-4 flex justify-between items-center shrink-0 shadow-md z-20">
-            <div class="flex items-center gap-3">
-                <button class="md:hidden text-white text-xl"><i class="fas fa-bars"></i></button>
-                <div>
-                    <h1 class="text-lg font-black tracking-tight">Consignes & Vides</h1>
-                    <p class="text-[10px] font-bold uppercase tracking-widest text-green-200">Suivi, CRE & Vente Recyclage</p>
-                </div>
-            </div>
-            <div class="text-right"><i class="fas fa-wine-bottle text-2xl text-green-300"></i></div>
-        </header>
+    <div id="lpc-shell-main">
 
         <div class="bg-white border-b border-gray-200 flex shrink-0 shadow-sm overflow-x-auto">
             <button onclick="switchTab('owed')" id="tab-owed" class="tab-btn flex-1 py-3 text-sm font-black text-lpc-dark border-b-[3px] border-lpc-dark text-center uppercase tracking-wider whitespace-nowrap px-4">
@@ -315,5 +312,6 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
     </div>
 
     <script src="/assets/js/modules/operations-empties_collection.js" defer></script>
+<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

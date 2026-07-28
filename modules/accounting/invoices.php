@@ -22,8 +22,9 @@ $user_role = $_SESSION['user_role'];
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
     <script src="/assets/vendor/chartjs/chart.umd.min.js" integrity="sha384-G436+Z2nlA8+PNoeRvWdxKbvOf8E/y+lYxqht2iBwNHTQDV5CJr3+AGVj8fGZi5t" crossorigin="anonymous"></script>
+    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 
-    
 
     <style>
         /* Base Resets & Scrollbars */
@@ -52,31 +53,23 @@ $user_role = $_SESSION['user_role'];
         /* Table enhancements */
         th { position: sticky; top: 0; background-color: #f8fafc; z-index: 10; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
     </style>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
 <body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
-    <?php 
-    $sidebar_path = $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
-    if(file_exists($sidebar_path)) require_once $sidebar_path; 
+    <?php
+    $pageTitle    = 'Facturation & Créances';
+    $pageSubtitle = 'Accounts Receivable (AR) & OHADA';
+    require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
+    require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     ?>
 
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        
-        <header class="bg-white border-b border-gray-200 px-8 py-5 flex justify-between items-center shrink-0 z-20 shadow-sm glass-panel">
-            <div class="flex items-center gap-5">
-                <div class="w-14 h-14 bg-gradient-to-br from-gray-900 to-gray-700 rounded-2xl flex items-center justify-center text-white shadow-lg transform hover:scale-105 transition-transform">
-                    <i class="fas fa-file-invoice-dollar text-2xl"></i>
-                </div>
-                <div>
-                    <h1 class="text-2xl font-black text-gray-900 tracking-tight">Facturation & Créances</h1>
-                    <p class="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1 flex items-center gap-2">
-                        <span class="w-2 h-2 rounded-full bg-lpc-light"></span> Accounts Receivable (AR) & OHADA
-                    </p>
-                </div>
-            </div>
-            
+    <div id="lpc-shell-main">
+
+        <header class="bg-white border-b border-gray-200 px-8 py-3 flex justify-end items-center shrink-0 z-20 shadow-sm glass-panel">
+
             <div class="flex items-center gap-6">
                 <button onclick="switchTab('invoices_payments')" id="global-cash-alert" class="hidden items-center gap-2 bg-amber-100 text-amber-800 px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider pulse-alert border border-amber-300 transition-all hover:bg-amber-200 shadow-sm">
                     <i class="fas fa-money-bill-wave"></i> <span id="cash-alert-count">0</span> Caisse en Attente
@@ -500,5 +493,6 @@ $user_role = $_SESSION['user_role'];
     <div id="toast-container" class="fixed bottom-5 right-5 z-[9999] flex flex-col gap-3"></div>
 
     <script src="/assets/js/modules/accounting-invoices.js" defer></script>
+    <script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

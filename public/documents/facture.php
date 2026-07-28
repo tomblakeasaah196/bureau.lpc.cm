@@ -76,6 +76,7 @@ lpc_serve_document_pdf('invoice');
         .status-unpaid { border: 2px solid #EF4444; color: #EF4444; background: #FEF2F2; }
     </style>
     <script src="/assets/js/lpc-dom.js"></script>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
 <body class="min-h-screen flex flex-col font-sans antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>

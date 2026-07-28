@@ -25,26 +25,22 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
     </style>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
+    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
 <body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
-    <?php require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php'; ?>
+    <?php
+    $pageTitle    = 'Security & Settings';
+    $pageSubtitle = 'Configuration & Audits Système';
+    require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
+    require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
+    ?>
 
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-        
-        <header class="bg-white border-b border-gray-200 px-8 py-5 flex justify-between items-center shrink-0 z-10 shadow-sm">
-            <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-gray-900 rounded-xl flex items-center justify-center text-white font-bold shadow-inner">
-                    <i class="fas fa-shield-alt text-xl"></i>
-                </div>
-                <div>
-                    <h1 class="text-2xl font-black text-gray-900 tracking-tight">Security & Settings</h1>
-                    <p class="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1">Configuration & Audits Système</p>
-                </div>
-            </div>
-        </header>
+    <div id="lpc-shell-main">
 
         <nav class="bg-white border-b border-gray-200 px-8 flex items-center gap-8 shrink-0 overflow-x-auto" id="settings-tabs">
             <button onclick="switchTab('users')" class="tab-link py-4 border-b-2 border-gray-900 text-gray-900 font-black text-sm uppercase tracking-wider transition-all" id="tab-users">
@@ -110,5 +106,6 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
     </div>
 
     <script src="/assets/js/modules/settings-index.js" defer></script>
+<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

@@ -49,41 +49,36 @@ $user_role = $_SESSION['user_role'];
         .clickable-row:hover { background-color: #f8fafc; }
         .clickable-row td:first-child:hover { color: #4f46e5; text-decoration: underline; }
     </style>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
+    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
 <body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
-    <?php require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php'; ?>
+    <?php
+    $pageTitle    = 'États Financiers';
+    $pageSubtitle = 'Bilan, Résultat & Clôture (N vs N-1)';
+    require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
+    require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
+    ?>
 
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        
-        <header class="bg-white border-b border-gray-200 px-8 py-5 flex justify-between items-center shrink-0 z-20 shadow-sm relative">
-            <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-fin-dark rounded-xl flex items-center justify-center text-white shadow-lg">
-                    <i class="fas fa-chart-pie text-xl"></i>
-                </div>
-                <div>
-                    <h1 class="text-2xl font-black text-gray-900 tracking-tight">États Financiers</h1>
-                    <p class="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1">Bilan, Résultat & Clôture (N vs N-1)</p>
-                </div>
+    <div id="lpc-shell-main">
+        <div class="bg-white border-b border-gray-200 px-8 py-2.5 shrink-0 shadow-sm flex items-center justify-end gap-6">
+            <div class="hidden md:block text-right border-r border-gray-200 pr-6" id="tax_indicator_panel">
+                <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Simulation IS vs AIR (5.5%)</p>
+                <p class="text-sm font-black text-emerald-600" id="tax_status_text">Chargement...</p>
             </div>
-            
-            <div class="flex items-center gap-6">
-                <div class="hidden md:block text-right border-r border-gray-200 pr-6" id="tax_indicator_panel">
-                    <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Simulation IS vs AIR (5.5%)</p>
-                    <p class="text-sm font-black text-emerald-600" id="tax_status_text">Chargement...</p>
-                </div>
 
-                <div class="bg-gray-100 p-1.5 rounded-lg border border-gray-200 flex items-center shadow-inner">
-                    <label class="text-[10px] font-black text-gray-500 uppercase px-2">Exercice N:</label>
-                    <select id="report_year" onchange="fetchFinancials()" class="bg-white border border-gray-300 rounded text-sm font-black text-fin-dark px-3 py-1 outline-none focus:ring-2 focus:ring-fin-highlight">
-                        <option value="2026" selected>2026 (En cours)</option>
-                        <option value="2025">2025 (Clôturé)</option>
-                    </select>
-                </div>
+            <div class="bg-gray-100 p-1.5 rounded-lg border border-gray-200 flex items-center shadow-inner">
+                <label class="text-[10px] font-black text-gray-500 uppercase px-2">Exercice N:</label>
+                <select id="report_year" onchange="fetchFinancials()" class="bg-white border border-gray-300 rounded text-sm font-black text-fin-dark px-3 py-1 outline-none focus:ring-2 focus:ring-fin-highlight">
+                    <option value="2026" selected>2026 (En cours)</option>
+                    <option value="2025">2025 (Clôturé)</option>
+                </select>
             </div>
-        </header>
+        </div>
 
         <nav class="bg-white border-b border-gray-200 px-8 flex items-center justify-between shrink-0 overflow-x-auto shadow-sm z-10">
             <div class="flex gap-8">
@@ -337,5 +332,6 @@ $user_role = $_SESSION['user_role'];
     </div>
 
     <script src="/assets/js/modules/accounting-reports.js" defer></script>
+<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

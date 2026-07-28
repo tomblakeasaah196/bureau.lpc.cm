@@ -24,63 +24,38 @@ $initials = strtoupper(substr($display_name, 0, 2));
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     
     
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
+    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
 <body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
-    <div id="sidebar-overlay" class="fixed inset-0 bg-black/50 z-40 hidden lg:hidden backdrop-blur-sm transition-opacity" onclick="toggleSidebar()"></div>
+    <?php
+    $pageTitle    = __t('ui.centre_d_op_rations');
+    $pageSubtitle = 'Direction des Opérations';
+    require_once '../../../includes/components/ops_sidebar.php';
+    require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
+    ?>
 
-    <?php require_once '../../../includes/components/ops_sidebar.php'; ?>
-
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header class="bg-lpc-surface shadow-sm h-20 flex items-center justify-between px-6 z-10 border-b border-gray-100 shrink-0">
-            <div class="flex items-center">
-                <button onclick="toggleSidebar()" class="lg:hidden p-2 mr-2 rounded-md text-gray-400 hover:text-lpc-dark focus:outline-none transition-colors">
-                    <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+    <div id="lpc-shell-main">
+        <div class="bg-lpc-surface shadow-sm px-6 py-2.5 border-b border-gray-100 shrink-0 flex items-center justify-end gap-3">
+            <div id="custom-date-ui" class="hidden flex items-center space-x-2 bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
+                <input type="date" id="start-date" class="text-sm text-gray-700 bg-transparent border-none focus:ring-0 p-1.5 cursor-pointer">
+                <span class="text-gray-400 text-sm">au</span>
+                <input type="date" id="end-date" class="text-sm text-gray-700 bg-transparent border-none focus:ring-0 p-1.5 cursor-pointer">
+                <button onclick="applyCustomDates()" class="bg-lpc-light hover:bg-green-500 text-white p-1.5 rounded-md transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                 </button>
-                <h1 class="text-2xl font-bold text-gray-800 hidden sm:block"><?php echo __t('ui.centre_d_op_rations'); ?></h1>
             </div>
 
-            <div class="flex items-center space-x-3">
-                <div class="relative group cursor-pointer mr-2 hidden md:block">
-                 <button class="p-2 bg-gray-50 text-gray-500 rounded-full hover:bg-gray-100 hover:text-lpc-dark transition-colors relative focus:outline-none">
-                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
-                     <span class="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-500 rounded-full border border-white"></span>
-                 </button>
-                 <div class="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 overflow-hidden">
-                     <div class="p-4 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
-                         <h3 class="text-sm font-bold text-gray-800"><?php echo __t('ui.notifications'); ?></h3>
-                     </div>
-                     <div id="notification-list" class="max-h-64 overflow-y-auto">
-                         <a href="/modules/sales/orders.php#dispatch" class="block p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                             <p class="text-xs text-gray-800 font-medium">Nouveau BL validé (PROMETAL).</p>
-                             <p class="text-[10px] text-amber-500 mt-1 font-bold">À Dispatcher</p>
-                         </a>
-                     </div>
-                 </div>
-             </div>
-                <div id="custom-date-ui" class="hidden flex items-center space-x-2 bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
-                    <input type="date" id="start-date" class="text-sm text-gray-700 bg-transparent border-none focus:ring-0 p-1.5 cursor-pointer">
-                    <span class="text-gray-400 text-sm">au</span>
-                    <input type="date" id="end-date" class="text-sm text-gray-700 bg-transparent border-none focus:ring-0 p-1.5 cursor-pointer">
-                    <button onclick="applyCustomDates()" class="bg-lpc-light hover:bg-green-500 text-white p-1.5 rounded-md transition-colors">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                    </button>
-                </div>
-
-                <select id="period-selector" onchange="handlePeriodChange()" class="hidden md:block bg-white border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-2 focus:ring-lpc-light focus:border-lpc-light p-2.5 font-medium shadow-sm cursor-pointer transition-shadow">
-                    <option value="today" selected><?php echo __t('ui.aujourd_hui'); ?></option>
-                    <option value="month"><?php echo __t('ui.ce_mois'); ?></option>
-                    <option value="custom"><?php echo __t('ui.personnalis'); ?></option>
-                </select>
-                
-                <a href="/api/v1/auth.php?logout=true" class="bg-red-50 hover:bg-red-100 text-red-600 p-2.5 rounded-lg flex items-center transition-colors shadow-sm text-sm font-medium">
-                    <svg class="w-4 h-4 mr-0 md:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
-                    <span class="hidden md:block"><?php echo __t('ui.d_connexion'); ?></span>
-                </a>
-            </div>
-        </header>
+            <select id="period-selector" onchange="handlePeriodChange()" class="hidden md:block bg-white border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-2 focus:ring-lpc-light focus:border-lpc-light p-2.5 font-medium shadow-sm cursor-pointer transition-shadow">
+                <option value="today" selected><?php echo __t('ui.aujourd_hui'); ?></option>
+                <option value="month"><?php echo __t('ui.ce_mois'); ?></option>
+                <option value="custom"><?php echo __t('ui.personnalis'); ?></option>
+            </select>
+        </div>
 
         <main role="main" id="main" class="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
             
@@ -168,5 +143,6 @@ $initials = strtoupper(substr($display_name, 0, 2));
     </div>
 
     <script src="/assets/js/modules/dashboard-ops.js" defer></script>
+<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

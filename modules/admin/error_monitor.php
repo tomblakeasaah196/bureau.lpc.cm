@@ -105,14 +105,20 @@ body{background:#051A0F;color:#eee;font-family:Inter,sans-serif;min-height:100vh
 details > summary{cursor:pointer;list-style:none}
 details > summary::-webkit-details-marker{display:none}
 </style>
+<script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+<link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
 <body class="flex min-h-screen">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
-<?php require __DIR__ . '/../../includes/components/sidebar.php'; ?>
+<?php
+require __DIR__ . '/../../includes/components/sidebar.php';
+require __DIR__ . '/../../includes/components/topbar.php';
+?>
 
-<main role="main" id="main" class="flex-1 p-6 lg:p-8 overflow-y-auto">
+<div id="lpc-shell-main">
+<main role="main" id="main" class="p-6 lg:p-8 overflow-y-auto">
 
 <header class="flex items-start justify-between gap-4 mb-6">
     <div>
@@ -265,10 +271,12 @@ details > summary::-webkit-details-marker{display:none}
 <?php endif; ?>
 
 </main>
+</div>
 
 <script src="/assets/js/modules/admin-error_monitor.js" defer></script>
 
 <?= Rbac::jsBootstrap() ?>
 <script src="/assets/js/lpc-rbac.js" defer></script>
+<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

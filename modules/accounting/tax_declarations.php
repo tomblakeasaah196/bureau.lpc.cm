@@ -37,33 +37,21 @@ $user_role = $_SESSION['user_role'] ?? 'user';
     .st-paid  { background: #dcfce7; color: #166534; }
     .amt { font-variant-numeric: tabular-nums; }
 </style>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
+    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
 <body class="bg-slate-50 font-sans text-gray-800 flex h-screen overflow-hidden">
 
 <?php
+$pageTitle    = 'Déclarations Fiscales & Sociales';
+$pageSubtitle = 'DGI · CNPS · Commune — Cameroun 2026';
 $sidebar_path = $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
 if (file_exists($sidebar_path)) require_once $sidebar_path;
+require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 ?>
 
-<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-
-    <header class="bg-white border-b border-gray-200 px-8 py-5 flex justify-between items-center shrink-0 shadow-sm">
-        <div class="flex items-center gap-5">
-            <div class="w-14 h-14 bg-gradient-to-br from-emerald-700 to-emerald-500 rounded-2xl flex items-center justify-center text-white shadow-lg">
-                <i class="fas fa-landmark text-2xl"></i>
-            </div>
-            <div>
-                <h1 class="text-2xl font-black text-gray-900 tracking-tight">Déclarations Fiscales & Sociales</h1>
-                <p class="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1 flex items-center gap-2">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span> DGI · CNPS · Commune — Cameroun 2026
-                </p>
-            </div>
-        </div>
-        <div class="text-right">
-            <p class="text-sm font-black text-gray-900"><?= htmlspecialchars($_SESSION['user_name'] ?? 'Utilisateur') ?></p>
-            <p class="text-[10px] font-bold text-emerald-600 uppercase mt-1"><?= htmlspecialchars($user_role) ?></p>
-        </div>
-    </header>
+<div id="lpc-shell-main">
 
     <nav class="bg-white border-b border-gray-200 px-8 flex items-center gap-8 shrink-0 shadow-sm">
         <button onclick="switchTab('dashboard')"   id="tab-dashboard"   class="tab-link py-4 border-b-[3px] border-emerald-600 text-emerald-700 font-black text-sm uppercase tracking-wider"><i class="fas fa-chart-line mr-2"></i>Échéances</button>
@@ -218,5 +206,6 @@ if (file_exists($sidebar_path)) require_once $sidebar_path;
 
 <script type="application/json" id="lpc-page-data"><?= json_encode(['v1' => htmlspecialchars(TaxEngine::settings()["tax_regime"] ?? "reel"),'v2' => (float) (TaxEngine::settings()["air_rate"] ?? 0.022),'v3' => (float) (TaxEngine::settings()["tva_rate"] ?? 0.1925),'v4' => (float) (TaxEngine::settings()["cit_rate"] ?? 0.33),'v5' => htmlspecialchars(TaxEngine::settings()["cnps_group"] ?? "A"),'v6' => htmlspecialchars(TaxEngine::settings()["niu"] ?? "—")], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
 <script src="/assets/js/modules/accounting-tax_declarations.js" defer></script>
+<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

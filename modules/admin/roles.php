@@ -39,14 +39,21 @@ input[type=checkbox]{accent-color:#8CC63F;width:1rem;height:1rem}
 .btn-danger:hover{background:rgba(239,68,68,.25)}
 .btn:disabled{opacity:.4;cursor:not-allowed}
 </style>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
+    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
 <body class="flex min-h-screen">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
-<?php require __DIR__ . '/../../includes/components/sidebar.php'; ?>
+<?php
+require __DIR__ . '/../../includes/components/sidebar.php';
+require __DIR__ . '/../../includes/components/topbar.php';
+?>
 
-<main role="main" id="main" class="flex-1 p-6 lg:p-8 overflow-y-auto">
+<div id="lpc-shell-main">
+<main role="main" id="main" class="p-6 lg:p-8 overflow-y-auto">
 
     <header class="flex items-start justify-between gap-4 mb-6">
         <div>
@@ -110,6 +117,7 @@ input[type=checkbox]{accent-color:#8CC63F;width:1rem;height:1rem}
     </div>
 
 </main>
+</div>
 
 <!-- CREATE / RENAME ROLE MODAL -->
 <div id="modal-role" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
@@ -133,5 +141,6 @@ input[type=checkbox]{accent-color:#8CC63F;width:1rem;height:1rem}
 
 <script type="application/json" id="lpc-page-data"><?= json_encode(['v1' => (bool) ($canEdit),'v2' => (bool) ($canCreate),'v3' => (bool) ($canDelete),'v4' => $lang,'v5' => __t('ui.utilisateurs'),'v6' => __t('ui.tout'),'v7' => __t('ui.aucun')], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
 <script src="/assets/js/modules/admin-roles.js" defer></script>
+<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

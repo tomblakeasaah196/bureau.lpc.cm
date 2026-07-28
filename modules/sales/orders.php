@@ -28,30 +28,22 @@ $user_role = $_SESSION['user_role'];
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
     </style>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
+    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
 <body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
-    <?php require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php'; ?>
+    <?php
+    $pageTitle    = 'Ventes & Dispatch';
+    $pageSubtitle = 'Gestion des Commandes et Logistique de Sortie';
+    require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
+    require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
+    ?>
 
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-        
-        <header class="bg-white border-b border-gray-200 px-8 py-5 flex justify-between items-center shrink-0 z-20 shadow-sm">
-            <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-gray-900 rounded-xl flex items-center justify-center text-white shadow-lg">
-                    <i class="fas fa-file-invoice-dollar text-xl"></i>
-                </div>
-                <div>
-                    <h1 class="text-2xl font-black text-gray-900 tracking-tight">Ventes & Dispatch</h1>
-                    <p class="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1">Gestion des Commandes et Logistique de Sortie</p>
-                </div>
-            </div>
-            <div class="text-right hidden md:block">
-                <p class="text-sm font-black text-gray-900 leading-none"><?= htmlspecialchars($_SESSION['user_name'] ?? '', ENT_QUOTES, 'UTF-8') ?></p>
-                <p class="text-[10px] font-bold text-lpc-light uppercase mt-1"><?= htmlspecialchars($user_role ?? '', ENT_QUOTES, 'UTF-8') ?></p>
-            </div>
-        </header>
+    <div id="lpc-shell-main">
 
         <nav class="bg-white border-b border-gray-200 px-8 flex items-center gap-8 shrink-0">
             <button onclick="switchTab('orders')" class="tab-link py-4 border-b-2 border-lpc-dark text-lpc-dark font-black text-sm uppercase tracking-wider transition-all" id="tab-orders">
@@ -284,5 +276,6 @@ $user_role = $_SESSION['user_role'];
 
 
     <script src="/assets/js/modules/sales-orders.js" defer></script>
+    <script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

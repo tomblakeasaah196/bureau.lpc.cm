@@ -31,33 +31,22 @@ $user_role = $_SESSION['user_role'];
         .seamless-input { background: transparent; border: 1px solid transparent; width: 100%; outline: none; transition: all 0.2s; }
         .seamless-input:focus, .seamless-input:hover { border-bottom: 1px solid #8CC63F; background: #F9FAFB; }
     </style>
+    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
+    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
 <body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
-    <?php require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php'; ?>
+    <?php
+    $pageTitle    = 'Achats & Dépenses';
+    $pageSubtitle = 'Gestion des Approvisionnements et Frais Généraux';
+    require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
+    require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
+    ?>
 
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-        
-        <header class="bg-white border-b border-gray-200 px-8 py-5 flex justify-between items-center shrink-0 z-10 shadow-sm">
-            <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-lpc-dark rounded-xl flex items-center justify-center text-white font-bold shadow-inner">
-                    <i class="fas fa-shopping-cart text-xl"></i>
-                </div>
-                <div>
-                    <h1 class="text-2xl font-black text-gray-900 tracking-tight">Achats & Dépenses</h1>
-                    <p class="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1">Gestion des Approvisionnements et Frais Généraux</p>
-                </div>
-            </div>
-            
-            <div class="flex items-center gap-4">
-                <div class="text-right hidden md:block">
-                    <p class="text-sm font-black text-gray-900 leading-none"><?php echo htmlspecialchars($_SESSION['user_name']); ?></p>
-                    <p class="text-[10px] font-bold text-lpc-light uppercase mt-1"><?php echo htmlspecialchars($user_role); ?></p>
-                </div>
-            </div>
-        </header>
+    <div id="lpc-shell-main">
 
         <nav class="bg-white border-b border-gray-200 px-8 flex items-center gap-8 shrink-0 overflow-x-auto" id="procurement-tabs">
             <button onclick="switchTab('inventory')" class="tab-link py-4 border-b-2 border-lpc-dark text-lpc-dark font-black text-sm uppercase tracking-wider transition-all" id="tab-inventory">
@@ -344,5 +333,6 @@ $user_role = $_SESSION['user_role'];
 
 
     <script src="/assets/js/modules/inventory-procurement.js" defer></script>
+<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>
