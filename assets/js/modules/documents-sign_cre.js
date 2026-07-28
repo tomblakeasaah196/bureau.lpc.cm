@@ -198,7 +198,7 @@ async function processPayload(payload) {
                     <i class="fas fa-check-circle text-6xl text-green-500 mb-2"></i>
                     <h2 class="text-xl font-black text-gray-900">Document Enregistré !</h2>
                     <p class="text-sm text-gray-500 font-medium pb-4">Merci. La transaction a été cryptée et validée.</p>
-                    ${payload.action === 'sign_cre' ? `<a href="/print_cre.php?token=${token}" target="_blank" class="inline-block bg-lpc-dark text-white px-6 py-3 rounded-xl font-black text-sm shadow-md w-full"><i class="fas fa-file-pdf mr-2"></i> Télécharger le Reçu PDF</a>` : ''}
+                    ${LPC.raw(payload.action === 'sign_cre' ? `<a href="/print_cre.php?token=${LPC.escapeHtml(token)}" target="_blank" class="inline-block bg-lpc-dark text-white px-6 py-3 rounded-xl font-black text-sm shadow-md w-full"><i class="fas fa-file-pdf mr-2"></i> Télécharger le Reçu PDF</a>` : '')}
                 </div>`;
         } else {
             LPC.modal.alert((result && result.message) || 'Erreur.');

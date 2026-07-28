@@ -234,13 +234,13 @@
             let prodOptions = '<option value="">Choisir un produit...</option>';
             // Note: In Sales, we look at client-specific pricing. If metaData includes custom prices, we handle it via backend. For UI, we use base_price as fallback.
             metaData.products.forEach(p => {
-                prodOptions += `<option value="${p.id}" data-price="${p.base_price}">${p.name} (${p.format || ''})</option>`;
+                prodOptions += LPC.html`<option value="${p.id}" data-price="${p.base_price}">${p.name} (${p.format || ''})</option>`;
             });
 
             const tr = document.createElement('tr');
             tr.className = "item-row hover:bg-gray-100 transition-colors";
             tr.innerHTML = LPC.html`
-                <td class="p-1 border-r border-gray-100"><select class="so-prod-select seamless-input p-2 font-bold text-gray-800" onchange="autoFillPrice(this, ${rowId})" required>${prodOptions}</select></td>
+                <td class="p-1 border-r border-gray-100"><select class="so-prod-select seamless-input p-2 font-bold text-gray-800" onchange="autoFillPrice(this, ${rowId})" required>${LPC.raw(prodOptions)}</select></td>
                 <td class="p-1 border-r border-gray-100"><input type="number" class="so-qty seamless-input p-2 text-center font-bold text-gray-900" value="1" min="1" oninput="calcRow(${rowId})" id="qty_${rowId}" required></td>
                 <td class="p-1 border-r border-gray-100"><input type="number" class="so-price seamless-input p-2 text-right font-bold text-gray-900" value="0" min="0" oninput="calcRow(${rowId})" id="price_${rowId}" required></td>
                 <td class="p-1 border-r border-gray-100 text-right pr-4 font-black text-gray-900" id="total_${rowId}">0</td>

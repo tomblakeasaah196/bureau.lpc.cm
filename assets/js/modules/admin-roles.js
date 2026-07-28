@@ -80,16 +80,16 @@ function renderRoles() {
             <div class="flex items-center gap-2 p-3">
                 <button onclick="selectRole(${r.id})" class="flex-1 text-left">
                     <div class="font-medium text-gray-900 flex items-center gap-2">
-                        ${escapeHtml(r.name)}
-                        ${isSys ? '<span class="chip text-emerald-700">système</span>' : ''}
+                        ${r.name}
+                        ${LPC.raw(isSys ? '<span class="chip text-emerald-700">système</span>' : '')}
                     </div>
                     <div class="text-[11px] text-gray-500 mt-0.5">
                         ${r.user_count} window.PAGE_DATA.v5
                         &middot; ${r.perm_count} permissions
                     </div>
                 </button>
-                ${(!isSys && CAN_EDIT) ? `<button onclick="openRenameRoleModal(${r.id}, '${escapeAttr(r.name)}')" title="Renommer" class="text-gray-500 hover:text-gray-900 p-1" aria-label="Renommer">✎</button>` : ''}
-                ${(!isSys && CAN_DELETE) ? `<button onclick="deleteRole(${r.id}, '${escapeAttr(r.name)}')" title="Supprimer" class="text-red-400/70 hover:text-red-400 p-1" aria-label="Supprimer">🗑</button>` : ''}
+                ${LPC.raw((!isSys && CAN_EDIT) ? `<button onclick="openRenameRoleModal(${r.id}, '${escapeAttr(r.name)}')" title="Renommer" class="text-gray-500 hover:text-gray-900 p-1" aria-label="Renommer">✎</button>` : '')}
+                ${LPC.raw((!isSys && CAN_DELETE) ? `<button onclick="deleteRole(${r.id}, '${escapeAttr(r.name)}')" title="Supprimer" class="text-red-400/70 hover:text-red-400 p-1" aria-label="Supprimer">🗑</button>` : '')}
             </div>`;
         ul.appendChild(li);
     });
@@ -131,17 +131,17 @@ function renderMatrix(grouped) {
         sec.innerHTML = LPC.html`
             <div class="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200">
                 <div class="flex items-center gap-2">
-                    <span class="text-xs font-semibold uppercase tracking-widest text-emerald-300">${escapeHtml(mod)}</span>
+                    <span class="text-xs font-semibold uppercase tracking-widest text-emerald-300">${mod}</span>
                     <span class="text-[10px] text-gray-500" data-count>${grantedInMod}/${perms.length}</span>
                 </div>
-                ${CAN_EDIT ? `
+                ${LPC.raw(CAN_EDIT ? `
                 <div class="flex gap-2 text-[11px]">
                     <button onclick="moduleToggle('${escapeAttr(mod)}', true)"  class="text-emerald-300 hover:underline">window.PAGE_DATA.v6</button>
                     <button onclick="moduleToggle('${escapeAttr(mod)}', false)" class="text-gray-500 hover:underline">window.PAGE_DATA.v7</button>
-                </div>` : ''}
+                </div>` : '')}
             </div>
             <div class="divide-y divide-gray-200">
-                ${perms.map(p => `
+                ${LPC.raw(perms.map(p => `
                     <label class="perm-row flex items-start gap-3 px-4 py-2 cursor-pointer" data-perm="${escapeAttr(p.name)}">
                         <input type="checkbox" ${p.granted ? 'checked':''} ${disabled}
                                data-perm-name="${escapeAttr(p.name)}"
@@ -151,7 +151,7 @@ function renderMatrix(grouped) {
                             <code class="text-[10px] text-gray-500">${escapeHtml(p.name)}</code>
                         </div>
                     </label>
-                `).join('')}
+                `).join(''))}
             </div>`;
         body.appendChild(sec);
     });

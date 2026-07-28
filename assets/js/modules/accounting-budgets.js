@@ -158,7 +158,7 @@
                         </td>
                         <td class="py-3 px-4 text-right font-black border-r border-gray-200 bg-gray-50/50">${fmt(l.annual_amount)}</td>
                         <td class="py-3 px-4 text-right font-black border-r border-gray-200 text-finance-dark bg-finance-highlight/5">${fmt(l.total_actual)}</td>
-                        <td class="py-3 px-4 text-right border-r border-gray-200">${varianceHtml}</td>
+                        <td class="py-3 px-4 text-right border-r border-gray-200">${LPC.raw(varianceHtml)}</td>
                         <td class="py-3 px-4 text-center border-r border-gray-100">${fmt(l.m01)}</td>
                         <td class="py-3 px-4 text-center border-r border-gray-100">${fmt(l.m02)}</td>
                         <td class="py-3 px-4 text-center border-r border-gray-100">${fmt(l.m03)}</td>

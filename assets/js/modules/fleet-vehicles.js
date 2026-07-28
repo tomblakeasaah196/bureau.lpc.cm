@@ -207,7 +207,7 @@
                         <td class="py-4 px-6 font-bold text-gray-700 text-xs">${v.make_model || '-'}</td>
                         <td class="py-4 px-6 text-gray-500 text-xs font-bold uppercase tracking-wider"><i class="fas ${typeIcon} mr-1"></i> ${v.type}</td>
                         <td class="py-4 px-6 text-right font-black text-blue-700">${fmt(v.current_odometer)} Km</td>
-                        <td class="py-4 px-6 text-center">${badge}</td>
+                        <td class="py-4 px-6 text-center">${LPC.raw(badge)}</td>
                         <td class="py-4 px-6 text-right">
                             <button onclick="editVehicle(${v.id})" class="text-gray-500 hover:text-gray-900 bg-gray-100 p-2.5 rounded-xl transition-colors"><i class="fas fa-pen"></i></button>
                         </td>

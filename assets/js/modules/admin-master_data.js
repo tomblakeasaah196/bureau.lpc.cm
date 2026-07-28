@@ -158,7 +158,7 @@
                 tr += `
                     <td class="py-4 px-6 text-right whitespace-nowrap">
                         <button onclick="openModal(${pk})" class="text-blue-500 hover:text-blue-700 bg-blue-50 p-2 rounded-lg mr-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></button>
-                        ${currentModule !== 'pricing' ? `<button onclick="toggleStatus(${pk}, ${statusFlag})" class="${statusFlag ? 'text-red-500 bg-red-50' : 'text-green-500 bg-green-50'} p-2 rounded-lg"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg></button>` : ''}
+                        ${LPC.raw(currentModule !== 'pricing' ? `<button onclick="toggleStatus(${pk}, ${statusFlag})" class="${statusFlag ? 'text-red-500 bg-red-50' : 'text-green-500 bg-green-50'} p-2 rounded-lg"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg></button>` : '')}
                     </td></tr>`;
                 tbody.innerHTML += tr;
             });
@@ -184,19 +184,19 @@
                 let inputHTML = '';
 
                 if (field.type === 'select') {
-                    const opts = field.options.map(o => `<option value="${o.v}" ${value === o.v ? 'selected' : ''}>${o.l}</option>`).join('');
-                    inputHTML = `<select required id="f_${field.name}" name="${field.name}" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-light">${opts}</select>`;
+                    const opts = field.options.map(o => LPC.html`<option value="${o.v}" ${value === o.v ? 'selected' : ''}>${o.l}</option>`).join('');
+                    inputHTML = LPC.html`<select required id="f_${field.name}" name="${field.name}" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-light">${LPC.raw(opts)}</select>`;
                 } else if (field.type === 'dynamic_select') {
-                    const opts = (metaData[field.source] || []).map(o => `<option value="${o.id}" ${value == o.id ? 'selected' : ''}>${o.name}</option>`).join('');
-                    inputHTML = `<select required id="f_${field.name}" name="${field.name}" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-light"><option value="">Sélectionner...</option>${opts}</select>`;
+                    const opts = (metaData[field.source] || []).map(o => LPC.html`<option value="${o.id}" ${value == o.id ? 'selected' : ''}>${o.name}</option>`).join('');
+                    inputHTML = LPC.html`<select required id="f_${field.name}" name="${field.name}" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-light"><option value="">Sélectionner...</option>${LPC.raw(opts)}</select>`;
                 } else if (field.type === 'file') {
-                    inputHTML = `<input type="file" id="f_${field.name}" name="${field.name}" accept="image/*" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-sm font-medium outline-none">`;
-                    if(value) inputHTML += `<p class="text-[10px] text-gray-500 mt-1">Fichier actuel: ${value.split('/').pop()}</p>`;
+                    inputHTML = LPC.html`<input type="file" id="f_${field.name}" name="${field.name}" accept="image/*" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-sm font-medium outline-none">`;
+                    if(value) inputHTML += LPC.html`<p class="text-[10px] text-gray-500 mt-1">Fichier actuel: ${value.split('/').pop()}</p>`;
                 } else {
-                    inputHTML = `<input required type="${field.type}" id="f_${field.name}" name="${field.name}" value="${value}" ${currentModule==='pricing' && id && field.name.includes('id') ? 'readonly' : ''} class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-light">`;
+                    inputHTML = LPC.html`<input required type="${field.type}" id="f_${field.name}" name="${field.name}" value="${value}" ${currentModule==='pricing' && id && field.name.includes('id') ? 'readonly' : ''} class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-light">`;
                 }
 
-                form.innerHTML += LPC.html`<div class="${field.width}"><label class="block text-[10px] font-black uppercase text-gray-500 mb-1.5 ml-1">${field.label}</label>${inputHTML}</div>`;
+                form.innerHTML += LPC.html`<div class="${field.width}"><label class="block text-[10px] font-black uppercase text-gray-500 mb-1.5 ml-1">${field.label}</label>${LPC.raw(inputHTML)}</div>`;
             });
 
             document.getElementById('mdmModal').classList.remove('hidden');

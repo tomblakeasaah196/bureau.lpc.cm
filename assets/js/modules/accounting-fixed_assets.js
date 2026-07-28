@@ -148,7 +148,7 @@
                         <td class="py-3 px-6 text-right text-asset-highlight font-bold">-${fmt(a.accumulated_depr)}</td>
                         <td class="py-3 px-6 text-right font-black bg-gray-50/50">${fmt(vnc)}</td>
                         <td class="py-3 px-6 text-right">
-                            ${!isZero ? `<button onclick="openDisposalWizard(${a.id}, '${a.name}', ${vnc})" class="text-rose-500 hover:text-rose-700 bg-rose-50 px-2 py-1 rounded text-xs font-bold border border-rose-200" title="Céder ou Rebut" aria-label="Céder ou Rebut">Céder</button>` : '-'}
+                            ${LPC.raw(!isZero ? `<button onclick="openDisposalWizard(${a.id}, '${LPC.escapeHtml(a.name)}', ${vnc})" class="text-rose-500 hover:text-rose-700 bg-rose-50 px-2 py-1 rounded text-xs font-bold border border-rose-200" title="Céder ou Rebut" aria-label="Céder ou Rebut">Céder</button>` : '-')}
                         </td>
                     </tr>`;
             });

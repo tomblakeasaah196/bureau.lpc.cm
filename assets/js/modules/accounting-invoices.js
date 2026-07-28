@@ -367,7 +367,7 @@
                         <td class="py-4 px-6 text-xs font-bold text-gray-500">${new Date(pay.payment_date).toLocaleDateString('fr-FR')}</td>
                         <td class="py-4 px-6 font-black text-gray-900">${pay.reference}</td>
                         <td class="py-4 px-6 font-bold text-gray-700 text-xs">${pay.client_name}</td>
-                        <td class="py-4 px-6 text-[10px] font-black tracking-wide text-blue-600">${pay.invoice_ref || '<span class="text-purple-500 italic px-2 py-0.5 bg-purple-50 rounded">Avance Libre</span>'}</td>
+                        <td class="py-4 px-6 text-[10px] font-black tracking-wide text-blue-600">${pay.invoice_ref ? pay.invoice_ref : LPC.raw('<span class="text-purple-500 italic px-2 py-0.5 bg-purple-50 rounded">Avance Libre</span>')}</td>
                         <td class="py-4 px-6 text-right font-black text-emerald-600">${LPC.fmt.int(pay.amount)} F</td>
                         <td class="py-4 px-6 text-center">${LPC.raw(mBadge)}</td>
                         <td class="py-4 px-6 text-center flex justify-center items-center h-full">${LPC.raw(sBadge)} ${LPC.raw(actionBtn)}</td>

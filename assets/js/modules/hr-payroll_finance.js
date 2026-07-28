@@ -109,8 +109,8 @@
                         <td class="py-3 px-6 text-xs font-bold text-gray-500">${a.request_date}</td>
                         <td class="py-3 px-6 text-sm font-black text-gray-800">${a.employee_name}</td>
                         <td class="py-3 px-6 text-right text-sm font-black text-pay-dark">${fmt(a.amount)} F</td>
-                        <td class="py-3 px-6 text-center">${statusBadge}</td>
-                        <td class="py-3 px-6 text-right">${actions}</td>
+                        <td class="py-3 px-6 text-center">${LPC.raw(statusBadge)}</td>
+                        <td class="py-3 px-6 text-right">${LPC.raw(actions)}</td>
                     </tr>`;
             });
 

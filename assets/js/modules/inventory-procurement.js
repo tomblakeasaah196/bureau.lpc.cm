@@ -403,7 +403,7 @@
             
             let prodOptions = '<option value="">Choisir un produit...</option>';
             metaData.products.forEach(p => {
-                prodOptions += `<option value="${p.id}" data-price="${p.base_price}">${p.name} (${p.format || 'Standard'})</option>`;
+                prodOptions += LPC.html`<option value="${p.id}" data-price="${p.base_price}">${p.name} (${p.format || 'Standard'})</option>`;
             });
 
             const tr = document.createElement('tr');
@@ -411,7 +411,7 @@
             tr.innerHTML = LPC.html`
                 <td class="p-1 border-r border-gray-100">
                     <select class="po-prod-select seamless-input p-2 font-bold text-gray-800" onchange="autoFillPrice(this, ${rowId})" required>
-                        ${prodOptions}
+                        ${LPC.raw(prodOptions)}
                     </select>
                 </td>
                 <td class="p-1 border-r border-gray-100">

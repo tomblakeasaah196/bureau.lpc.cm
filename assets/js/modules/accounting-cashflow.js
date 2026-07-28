@@ -199,12 +199,12 @@
             else {
                 panel.className = "p-5 rounded-xl border border-blue-200 bg-blue-50 mt-4";
                 let clientOpts = '<option value="">-- Sélectionner le client ayant trop payé --</option>';
-                globalData.clients.forEach(c => clientOpts += `<option value="${c.id}">${c.name}</option>`);
+                globalData.clients.forEach(c => clientOpts += LPC.html`<option value="${c.id}">${c.name}</option>`);
 
                 panel.innerHTML = LPC.html`
                     <p class="font-black text-blue-800 text-sm flex items-center gap-2 mb-3"><i class="fas fa-info-circle text-lg"></i> Surplus Détecté : +${fmt(variance)} F</p>
                     <select id="rt_overage_client" class="w-full bg-white border border-blue-200 rounded-lg p-2 text-xs font-bold text-gray-700 outline-none focus:ring-2 focus:ring-blue-500 mb-1">
-                        ${clientOpts}
+                        ${LPC.raw(clientOpts)}
                     </select>
                     <p class="text-[9px] text-blue-600 font-bold mt-1">Sera crédité sur le portefeuille de ce client (Avoir).</p>`;
                 btn.className = "w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-xl font-black text-sm shadow-xl transition-all mt-4 flex justify-center items-center gap-2";
@@ -346,7 +346,7 @@
                         <td class="py-4 px-6 text-right">${amtOut}</td>
                         <td class="py-4 px-6 text-xs text-gray-600">${t.description}</td>
                         <td class="py-4 px-6 text-right">
-                            ${!isRec ? `<button onclick="openEditRequest(${t.id}, ${t.amount})" class="text-rose-500 hover:text-rose-700 bg-rose-50 p-1.5 rounded-lg transition-colors" title="Demander une correction (Admin)" aria-label="Demander une correction (Admin)"><i class="fas fa-pen-nib"></i></button>` : '<span class="text-[9px] text-emerald-600 font-black uppercase"><i class="fas fa-lock mr-1"></i>Verrouillé</span>'}
+                            ${LPC.raw(!isRec ? `<button onclick="openEditRequest(${t.id}, ${t.amount})" class="text-rose-500 hover:text-rose-700 bg-rose-50 p-1.5 rounded-lg transition-colors" title="Demander une correction (Admin)" aria-label="Demander une correction (Admin)"><i class="fas fa-pen-nib"></i></button>` : '<span class="text-[9px] text-emerald-600 font-black uppercase"><i class="fas fa-lock mr-1"></i>Verrouillé</span>')}
                         </td>
                     </tr>`;
             });

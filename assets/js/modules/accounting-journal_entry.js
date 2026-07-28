@@ -75,7 +75,7 @@
                     childrenHtml = `<p class="text-xs text-gray-400 italic py-2 pl-4">Aucun compte auxiliaire configuré.</p>`;
                 } else {
                     children.forEach(c => {
-                        childrenHtml += `
+                        childrenHtml += LPC.html`
                             <div class="flex items-center justify-between py-2 pl-4 border-l-2 border-gray-200 ml-2 hover:bg-blue-50/50 rounded-r-lg group">
                                 <div class="flex items-center gap-3">
                                     <span class="font-mono text-sm font-black text-acc-highlight bg-blue-100 px-2 py-0.5 rounded">${c.code}</span>
@@ -98,7 +98,7 @@
                             </div>
                         </div>
                         <div class="p-2">
-                            ${childrenHtml}
+                            ${LPC.raw(childrenHtml)}
                         </div>
                     </div>`;
             });
@@ -135,7 +135,7 @@
                 
                 let linesHtml = '';
                 entry.lines.forEach(l => {
-                    linesHtml += `<div class="flex justify-between text-[10px] border-b border-gray-50 py-1 last:border-0">
+                    linesHtml += LPC.html`<div class="flex justify-between text-[10px] border-b border-gray-50 py-1 last:border-0">
                         <span class="w-32 font-mono text-gray-500">${l.account_code}</span>
                         <span class="w-24 text-right ${l.debit > 0 ? 'text-emerald-600 font-black' : 'text-gray-300'}">${l.debit > 0 ? fmt(l.debit) : '-'}</span>
                         <span class="w-24 text-right ${l.credit > 0 ? 'text-rose-600 font-black' : 'text-gray-300'}">${l.credit > 0 ? fmt(l.credit) : '-'}</span>
@@ -148,7 +148,7 @@
                         <td class="py-4 px-6 text-xs text-gray-600 font-bold">${entry.date}<br><span class="text-[10px] text-acc-highlight">${entry.reference}</span></td>
                         <td class="py-4 px-6 text-xs font-bold text-gray-800 max-w-[200px] truncate">${entry.description}</td>
                         <td class="py-4 px-6 bg-gray-50/50">
-                            ${linesHtml}
+                            ${LPC.raw(linesHtml)}
                         </td>
                         <td class="py-4 px-6 text-center">
                             <span class="bg-amber-100 text-amber-800 px-2 py-1 rounded text-[9px] font-black uppercase"><i class="fas fa-hourglass-half mr-1"></i>Brouillard</span>
@@ -188,7 +188,7 @@
             if(!window.accOptionsCache) {
                 let opts = '<option value="">-- Compte --</option>';
                 globalData.accounts.forEach(a => {
-                    opts += `<option value="${a.id}">${a.code} - ${a.name}</option>`;
+                    opts += LPC.html`<option value="${a.id}">${a.code} - ${a.name}</option>`;
                 });
                 window.accOptionsCache = opts;
             }
@@ -209,7 +209,7 @@
             tr.innerHTML = LPC.html`
                 <td class="py-2 px-4">
                     <select class="wiz-acc-select w-full bg-transparent border border-gray-300 rounded p-2 text-xs font-bold outline-none focus:border-acc-highlight" required>
-                        ${window.accOptionsCache || '<option value="">Chargement...</option>'}
+                        ${LPC.raw(window.accOptionsCache || '<option value="">Chargement...</option>')}
                     </select>
                 </td>
                 <td class="py-2 px-4">

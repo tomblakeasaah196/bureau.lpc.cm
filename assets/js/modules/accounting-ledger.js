@@ -102,7 +102,7 @@
 
                         tbody.innerHTML += LPC.html`
                             <tr class="${rowClass} ${anomalyClass}">
-                                <td class="py-2 px-4 pl-12"><span class="font-mono text-gray-500 mr-2">${aux.code}</span> ${iconHtml}${aux.name}</td>
+                                <td class="py-2 px-4 pl-12"><span class="font-mono text-gray-500 mr-2">${aux.code}</span> ${LPC.raw(iconHtml)}${aux.name}</td>
                                 <td class="py-2 px-4 text-right">${aux.ouv_d > 0 ? fmt(aux.ouv_d) : '-'}</td>
                                 <td class="py-2 px-4 text-right">${aux.ouv_c > 0 ? fmt(aux.ouv_c) : '-'}</td>
                                 <td class="py-2 px-4 text-right">${aux.mvt_d > 0 ? fmt(aux.mvt_d) : '-'}</td>
@@ -211,13 +211,13 @@
                             let soldePrefix = runningBalance >= 0 ? 'D ' : 'C ';
 
                             // Interactive Link (Answer 6B) - Clicking Reference theoretically opens the entry
-                            let refHtml = `<a href="#" onclick="LPC.modal.alert('Ouverture de la pièce: ${l.reference}')" class="text-rev-highlight hover:underline font-bold">${l.reference}</a>`;
+                            let refHtml = LPC.html`<a href="#" onclick="LPC.modal.alert('Ouverture de la pièce: ${l.reference}')" class="text-rev-highlight hover:underline font-bold">${l.reference}</a>`;
 
                             tbody.innerHTML += LPC.html`
                                 <tr class="hover:bg-gray-50 border-b border-gray-100">
                                     <td class="py-2 px-4">${l.date}</td>
                                     <td class="py-2 px-4 font-black text-gray-400">${l.journal_code}</td>
-                                    <td class="py-2 px-4 text-[10px]">${refHtml}</td>
+                                    <td class="py-2 px-4 text-[10px]">${LPC.raw(refHtml)}</td>
                                     <td class="py-2 px-4 truncate max-w-[200px] text-gray-600" title="${l.description}">${l.description}</td>
                                     <td class="py-2 px-4 text-center">
                                         <input type="text" maxlength="2" value="${l.lettrage || ''}" onchange="saveLettrage(${l.id}, this.value)" class="lettrage-input bg-amber-50 border border-amber-200 rounded text-amber-800 outline-none focus:ring-1 focus:ring-amber-500">

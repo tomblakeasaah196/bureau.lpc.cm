@@ -102,7 +102,7 @@
                     // Main Product Row (Clickable)
                     tbody.innerHTML += LPC.html`
                         <tr class="hover:bg-blue-50/30 border-b border-gray-50 cursor-pointer transition-colors" onclick="toggleDrillDown(${p.id})">
-                            <td class="py-3 px-6 font-black text-gray-800"><i class="fas fa-caret-right text-gray-300 mr-2 text-xs" id="caret-${p.id}"></i> ${p.name} ${viewMode === 'financial' ? `<span class="text-[9px] text-gray-400 ml-2 font-mono">CUMP: ${LPC.fmt.int(cump)} F</span>` : ''}</td>
+                            <td class="py-3 px-6 font-black text-gray-800"><i class="fas fa-caret-right text-gray-300 mr-2 text-xs" id="caret-${p.id}"></i> ${p.name} ${LPC.raw(viewMode === 'financial' ? `<span class="text-[9px] text-gray-400 ml-2 font-mono">CUMP: ${LPC.fmt.int(cump)} F</span>` : '')}</td>
                             <td class="py-3 px-6 text-center font-bold text-blue-600 bg-blue-50/20">${format(inVal)}</td>
                             <td class="py-3 px-6 text-center font-bold text-rose-600 bg-rose-50/20">${format(outVal)}</td>
                             <td class="py-3 px-6 text-right font-black ${netColor}">${netSign}${format(net)}</td>
