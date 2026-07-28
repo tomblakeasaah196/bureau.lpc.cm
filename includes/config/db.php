@@ -66,6 +66,16 @@ if (!empty($__error_log)) {
 // ----------------------------------------------------------------------------
 if (session_status() === PHP_SESSION_NONE) {
     $__cookie_name = env('SESSION_COOKIE_NAME', 'lpc_session');
+
+    // This deliberately stays on .env rather than reading
+    // `sec_session_timeout_min`: Prefs::load() needs a DB connection, and this
+    // block runs before session_start() while Database is still being wired up.
+    //
+    // It is a CEILING, not the policy. The authoritative inactivity timeout is
+    // the preference, enforced in bootstrap.php. But the cookie cannot outlive
+    // this value, so SESSION_LIFETIME_MINUTES must be >= the preference or
+    // users get logged out early by cookie expiry no matter what the settings
+    // UI says. Keep it at or above the max the UI allows (480).
     $__lifetime    = (int) env('SESSION_LIFETIME_MINUTES', 30) * 60;
 
     session_name($__cookie_name);

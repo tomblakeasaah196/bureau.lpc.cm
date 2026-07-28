@@ -34,11 +34,34 @@ module.exports = {
         extend: {
             colors: {
                 lpc: {
+                    // Brand pair. Fixed hex on purpose: the green IS the brand
+                    // and is identical in both themes, so binding it to a
+                    // variable would only add indirection.
                     dark:    '#005A2B',
                     light:   '#8CC63F',
-                    bg:      '#F5F7FA',
-                    surface: '#FFFFFF',
-                    border:  '#E5E7EB',
+
+                    // Neutral trio. These were fixed hex — #F5F7FA / #FFFFFF /
+                    // #E5E7EB — which meant `bg-lpc-surface` compiled to literal
+                    // white and a card wearing it stayed white in dark mode,
+                    // even though the *name* promised it followed the theme.
+                    // That was the single most misleading thing in the palette:
+                    // the KPI cards on the exec dashboard use bg-lpc-surface,
+                    // read as theme-aware, and were not.
+                    //
+                    // They now defer to the shell variables, which is where the
+                    // light/dark values actually live (lpc-shell.css §10.2), so
+                    // the token means what it says. The fallbacks keep the old
+                    // colours if this stylesheet is ever loaded without the
+                    // shell — public/documents/* does exactly that.
+                    //
+                    // No slash-opacity utility uses these three (checked across
+                    // all 87 module pages), so plain var() is safe here; the
+                    // rgb(var(--x) / <alpha-value>) channel-splitting dance is
+                    // not needed and would make the shell variables unusable in
+                    // ordinary CSS.
+                    bg:      'var(--lpc-page-bg, #F5F7FA)',
+                    surface: 'var(--lpc-surface, #FFFFFF)',
+                    border:  'var(--lpc-border, #E5E7EB)',
                 },
 
                 // ---------------------------------------------------------------

@@ -1,0 +1,1509 @@
+/* assets/css/lpc-theme.css
+ * -----------------------------------------------------------------------------
+ * Bureau LPC ERP — THE DARK-MODE BRIDGE.
+ *
+ * GENERATED FILE. Source of truth: scripts/build_theme_css.py
+ * Regenerate with:  python3 scripts/build_theme_css.py
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS FILE EXISTS
+ * ---------------------------------------------------------------------------
+ * lpc-shell.css already has a complete, correct theme system: every shell
+ * surface reads a CSS variable, and html[data-lpc-theme="dark"] redefines those
+ * variables. The shell chrome, cards, tables, tabs and modals invert perfectly.
+ *
+ * The module pages do not. They were authored before the shell existed and
+ * paint themselves with literal Tailwind utilities — 1,583 occurrences of
+ * `bg-white`, `text-gray-900`, `border-gray-200` and friends across 43 files,
+ * plus more injected at runtime by 14 module JS files. Those utilities compile
+ * to fixed hex values, so they stayed light while everything around them went
+ * dark. That is the "partially dark" dark mode: a dark page background with
+ * white KPI cards floating on it.
+ *
+ * lpc-shell.css names this in section 10.2 as a KNOWN GAP, to be closed by
+ * migrating pages to var(--lpc-surface) "as they are touched". Two years of
+ * being touched later, 43 files still have not been. This file closes it in one
+ * move instead: under html[data-lpc-theme="dark"] ONLY, the hardcoded light
+ * utilities are re-pointed at the same shell variables the migration would have
+ * used. A page migrated by hand tomorrow gets the identical result; it just
+ * stops needing to be.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT THIS FILE DELIBERATELY DOES NOT DO
+ * ---------------------------------------------------------------------------
+ *   · It emits NOTHING in light mode. Every rule is nested under the dark
+ *     attribute, so light mode renders byte-identical to before this file
+ *     existed. Reverting it is deleting one <link>.
+ *
+ *   · It does not touch `text-white`, `bg-white/5`, `border-white/10` or any
+ *     other slash-opacity utility. Those are the sidebar and topbar's own
+ *     palette — the green L-frame is the brand and does not invert (shell
+ *     §10.2). Auditing the six chrome components confirmed they use ONLY
+ *     text-white and opacity variants, which is why an unscoped remap is safe
+ *     here; §9 re-asserts the chrome anyway, so a future edit that drops a
+ *     `bg-white` into the sidebar cannot punch a white hole in it.
+ *
+ *   · It does not restyle saturated fills (bg-blue-600, bg-red-500 …). Those
+ *     are buttons and badges that already carry white text and read correctly
+ *     on either background.
+ *
+ * ---------------------------------------------------------------------------
+ * VARIANT COVERAGE
+ * ---------------------------------------------------------------------------
+ * Every utility below is emitted in four forms — base, hover:, focus: and
+ * group-hover: — because those are the three variant prefixes the codebase
+ * actually pairs with colour utilities (76 hover:bg-gray-*, 28 focus:ring-*,
+ * 4 group-hover:text-*). No responsive colour variants exist in the source, so
+ * none are generated.
+ *
+ * Specificity: html[data-lpc-theme="dark"] .foo = (0,2,1) vs Tailwind's
+ * (0,1,0). It wins without !important, and stays beatable by anything more
+ * specific a page legitimately needs.
+ * ----------------------------------------------------------------------------
+ */
+
+/* ===========================================================================
+   1. Extra surface steps
+   ---------------------------------------------------------------------------
+   The shell defines --lpc-surface and --lpc-surface-sunken. Module pages use a
+   third and fourth step (bg-gray-100 / bg-gray-200 as chip and well fills, and
+   bg-gray-800/900 as *deliberately dark* elements on a light page). Dark mode
+   needs those to keep separating from each other, so two more steps are
+   derived here rather than invented per rule.
+
+   --lpc-surface-raised is LIGHTER than --lpc-surface on purpose: an element
+   that was near-black to stand out on white has to become lighter than its
+   surroundings to stand out on near-black. Mapping bg-gray-900 to another dark
+   value is how "dark mode" turns a contrast-y badge into an invisible one.
+   ========================================================================= */
+html[data-lpc-theme="dark"] {
+    --lpc-surface-chip:   #1C2823;
+    --lpc-surface-well:   #223029;
+    --lpc-surface-raised: #2A3A32;
+    --lpc-border-strong:  #33453B;
+}
+
+/* ===========================================================================
+   2. Neutral surfaces
+   ========================================================================= */
+html[data-lpc-theme="dark"] .bg-white { background-color: var(--lpc-surface); }
+html[data-lpc-theme="dark"] .hover\:bg-white:hover { background-color: var(--lpc-surface); }
+html[data-lpc-theme="dark"] .focus\:bg-white:focus { background-color: var(--lpc-surface); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-white { background-color: var(--lpc-surface); }
+html[data-lpc-theme="dark"] .bg-lpc-surface { background-color: var(--lpc-surface); }
+html[data-lpc-theme="dark"] .hover\:bg-lpc-surface:hover { background-color: var(--lpc-surface); }
+html[data-lpc-theme="dark"] .focus\:bg-lpc-surface:focus { background-color: var(--lpc-surface); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-lpc-surface { background-color: var(--lpc-surface); }
+html[data-lpc-theme="dark"] .bg-lpc-bg { background-color: var(--lpc-page-bg); }
+html[data-lpc-theme="dark"] .hover\:bg-lpc-bg:hover { background-color: var(--lpc-page-bg); }
+html[data-lpc-theme="dark"] .focus\:bg-lpc-bg:focus { background-color: var(--lpc-page-bg); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-lpc-bg { background-color: var(--lpc-page-bg); }
+html[data-lpc-theme="dark"] .bg-gray-50 { background-color: var(--lpc-surface-sunken); }
+html[data-lpc-theme="dark"] .hover\:bg-gray-50:hover { background-color: var(--lpc-surface-sunken); }
+html[data-lpc-theme="dark"] .focus\:bg-gray-50:focus { background-color: var(--lpc-surface-sunken); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-gray-50 { background-color: var(--lpc-surface-sunken); }
+html[data-lpc-theme="dark"] .bg-slate-50 { background-color: var(--lpc-surface-sunken); }
+html[data-lpc-theme="dark"] .hover\:bg-slate-50:hover { background-color: var(--lpc-surface-sunken); }
+html[data-lpc-theme="dark"] .focus\:bg-slate-50:focus { background-color: var(--lpc-surface-sunken); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-slate-50 { background-color: var(--lpc-surface-sunken); }
+html[data-lpc-theme="dark"] .bg-gray-100 { background-color: var(--lpc-surface-chip); }
+html[data-lpc-theme="dark"] .hover\:bg-gray-100:hover { background-color: var(--lpc-surface-chip); }
+html[data-lpc-theme="dark"] .focus\:bg-gray-100:focus { background-color: var(--lpc-surface-chip); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-gray-100 { background-color: var(--lpc-surface-chip); }
+html[data-lpc-theme="dark"] .bg-slate-100 { background-color: var(--lpc-surface-chip); }
+html[data-lpc-theme="dark"] .hover\:bg-slate-100:hover { background-color: var(--lpc-surface-chip); }
+html[data-lpc-theme="dark"] .focus\:bg-slate-100:focus { background-color: var(--lpc-surface-chip); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-slate-100 { background-color: var(--lpc-surface-chip); }
+html[data-lpc-theme="dark"] .bg-gray-200 { background-color: var(--lpc-surface-well); }
+html[data-lpc-theme="dark"] .hover\:bg-gray-200:hover { background-color: var(--lpc-surface-well); }
+html[data-lpc-theme="dark"] .focus\:bg-gray-200:focus { background-color: var(--lpc-surface-well); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-gray-200 { background-color: var(--lpc-surface-well); }
+html[data-lpc-theme="dark"] .bg-gray-300 { background-color: var(--lpc-surface-well); }
+html[data-lpc-theme="dark"] .hover\:bg-gray-300:hover { background-color: var(--lpc-surface-well); }
+html[data-lpc-theme="dark"] .focus\:bg-gray-300:focus { background-color: var(--lpc-surface-well); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-gray-300 { background-color: var(--lpc-surface-well); }
+html[data-lpc-theme="dark"] .bg-gray-400 { background-color: var(--lpc-surface-raised); }
+html[data-lpc-theme="dark"] .hover\:bg-gray-400:hover { background-color: var(--lpc-surface-raised); }
+html[data-lpc-theme="dark"] .focus\:bg-gray-400:focus { background-color: var(--lpc-surface-raised); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-gray-400 { background-color: var(--lpc-surface-raised); }
+html[data-lpc-theme="dark"] .bg-gray-800 { background-color: var(--lpc-surface-raised); }
+html[data-lpc-theme="dark"] .hover\:bg-gray-800:hover { background-color: var(--lpc-surface-raised); }
+html[data-lpc-theme="dark"] .focus\:bg-gray-800:focus { background-color: var(--lpc-surface-raised); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-gray-800 { background-color: var(--lpc-surface-raised); }
+html[data-lpc-theme="dark"] .bg-gray-900 { background-color: var(--lpc-surface-raised); }
+html[data-lpc-theme="dark"] .hover\:bg-gray-900:hover { background-color: var(--lpc-surface-raised); }
+html[data-lpc-theme="dark"] .focus\:bg-gray-900:focus { background-color: var(--lpc-surface-raised); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-gray-900 { background-color: var(--lpc-surface-raised); }
+
+/* ---------------------------------------------------------------------------
+   Inverted islands.
+
+   bg-gray-800 / bg-gray-900 elements were near-black boxes on a white page —
+   dark toolbars, code samples, contrast-y badges. §2 maps them to
+   --lpc-surface-raised, which is LIGHTER than the surrounding card so they keep
+   standing out. But their internal muted text was chosen for a near-black box,
+   and --lpc-ink-mute on --lpc-surface-raised measures 2.97:1 — below the 3.0
+   floor, and the only neutral pairing in this file that fails.
+
+   Darkening --lpc-surface-raised to fix it would collapse the separation from
+   --lpc-surface (1.39:1 down to 1.21:1) and defeat the point of the raised step,
+   so the text steps up instead: inside a raised island, mute resolves to soft.
+   That measures 5.25:1 — comfortably AA — and costs nothing anywhere else,
+   because the rule cannot match outside one of these islands.
+   ------------------------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-gray-800 .text-gray-300,
+html[data-lpc-theme="dark"] .bg-gray-800 .text-gray-400,
+html[data-lpc-theme="dark"] .bg-gray-800 .text-gray-500 { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .bg-gray-900 .text-gray-300,
+html[data-lpc-theme="dark"] .bg-gray-900 .text-gray-400,
+html[data-lpc-theme="dark"] .bg-gray-900 .text-gray-500 { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .bg-gray-400 .text-gray-300,
+html[data-lpc-theme="dark"] .bg-gray-400 .text-gray-400,
+html[data-lpc-theme="dark"] .bg-gray-400 .text-gray-500 { color: var(--lpc-ink-soft); }
+
+/* Fractional white/near-black fills used as scrims and hover washes INSIDE the
+   workspace. The slash-opacity chrome utilities are excluded (see header); what
+   is left are page-level washes, and on a dark surface a white wash at 50-90%
+   is a flashbang. They invert to a dark wash of the same weight. */
+html[data-lpc-theme="dark"] .bg-white/90 { background-color: color-mix(in srgb, var(--lpc-surface) 90%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-white/90:hover { background-color: color-mix(in srgb, var(--lpc-surface) 90%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-white/90:focus { background-color: color-mix(in srgb, var(--lpc-surface) 90%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-white/90 { background-color: color-mix(in srgb, var(--lpc-surface) 90%, transparent); }
+html[data-lpc-theme="dark"] .bg-gray-50/80 { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 80%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-gray-50/80:hover { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 80%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-gray-50/80:focus { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 80%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-gray-50/80 { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 80%, transparent); }
+html[data-lpc-theme="dark"] .bg-gray-50/60 { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 60%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-gray-50/60:hover { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 60%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-gray-50/60:focus { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 60%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-gray-50/60 { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 60%, transparent); }
+html[data-lpc-theme="dark"] .bg-gray-50/50 { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 50%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-gray-50/50:hover { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 50%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-gray-50/50:focus { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 50%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-gray-50/50 { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 50%, transparent); }
+
+/* ===========================================================================
+   3. Ink
+   ---------------------------------------------------------------------------
+   Tailwind's neutral ramp is collapsed onto the shell's three ink levels
+   rather than inverted shade-for-shade. text-gray-900 and text-gray-800 are
+   both "the primary text on this card"; giving them two slightly different
+   off-whites preserves an accident of authoring, not an intent.
+
+   text-gray-400 is the largest single utility in the codebase (556 uses) and
+   is almost always a label or an icon, so it lands on --lpc-ink-mute; on white
+   it was already the faintest step and it stays the faintest step.
+   ========================================================================= */
+html[data-lpc-theme="dark"] .text-gray-900 { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .hover\:text-gray-900:hover { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .focus\:text-gray-900:focus { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-gray-900 { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .text-gray-800 { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .hover\:text-gray-800:hover { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .focus\:text-gray-800:focus { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-gray-800 { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .text-gray-700 { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .hover\:text-gray-700:hover { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .focus\:text-gray-700:focus { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-gray-700 { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .text-gray-600 { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .hover\:text-gray-600:hover { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .focus\:text-gray-600:focus { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-gray-600 { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .text-gray-500 { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .hover\:text-gray-500:hover { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .focus\:text-gray-500:focus { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-gray-500 { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .text-gray-400 { color: var(--lpc-ink-mute); }
+html[data-lpc-theme="dark"] .hover\:text-gray-400:hover { color: var(--lpc-ink-mute); }
+html[data-lpc-theme="dark"] .focus\:text-gray-400:focus { color: var(--lpc-ink-mute); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-gray-400 { color: var(--lpc-ink-mute); }
+html[data-lpc-theme="dark"] .text-gray-300 { color: var(--lpc-ink-mute); }
+html[data-lpc-theme="dark"] .hover\:text-gray-300:hover { color: var(--lpc-ink-mute); }
+html[data-lpc-theme="dark"] .focus\:text-gray-300:focus { color: var(--lpc-ink-mute); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-gray-300 { color: var(--lpc-ink-mute); }
+html[data-lpc-theme="dark"] .text-slate-900 { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .hover\:text-slate-900:hover { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .focus\:text-slate-900:focus { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-slate-900 { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .text-slate-800 { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .hover\:text-slate-800:hover { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .focus\:text-slate-800:focus { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-slate-800 { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .text-slate-700 { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .hover\:text-slate-700:hover { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .focus\:text-slate-700:focus { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-slate-700 { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .text-slate-600 { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .hover\:text-slate-600:hover { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .focus\:text-slate-600:focus { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-slate-600 { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .text-slate-500 { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .hover\:text-slate-500:hover { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .focus\:text-slate-500:focus { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-slate-500 { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .text-slate-400 { color: var(--lpc-ink-mute); }
+html[data-lpc-theme="dark"] .hover\:text-slate-400:hover { color: var(--lpc-ink-mute); }
+html[data-lpc-theme="dark"] .focus\:text-slate-400:focus { color: var(--lpc-ink-mute); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-slate-400 { color: var(--lpc-ink-mute); }
+html[data-lpc-theme="dark"] .text-lpc-dark { color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .hover\:text-lpc-dark:hover { color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .focus\:text-lpc-dark:focus { color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-lpc-dark { color: var(--lpc-accent-on-light); }
+
+/* text-black is only ever "maximum contrast against the page". That is
+   --lpc-ink here, not #000 on #0F1512. */
+html[data-lpc-theme="dark"] .text-black { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .hover\:text-black:hover { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .focus\:text-black:focus { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-black { color: var(--lpc-ink); }
+
+/* Placeholders track the mute step so an empty input does not read as a
+   filled one. */
+html[data-lpc-theme="dark"] ::placeholder { color: var(--lpc-ink-mute); opacity: 1; }
+
+/* ===========================================================================
+   4. Borders, dividers and rings
+   ---------------------------------------------------------------------------
+   Same collapse as the ink ramp: gray-100/200/300 are one hairline as far as
+   intent goes. `divide-*` is included because Tailwind implements it as
+   border-color on the non-first child, and 46 divide-gray-100 rows would
+   otherwise stay light-grey and stripe every dark table.
+   ========================================================================= */
+html[data-lpc-theme="dark"] .border-gray-50 { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .hover\:border-gray-50:hover { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .focus\:border-gray-50:focus { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-gray-50 { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .border-gray-100 { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .hover\:border-gray-100:hover { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .focus\:border-gray-100:focus { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-gray-100 { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .border-gray-200 { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .hover\:border-gray-200:hover { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .focus\:border-gray-200:focus { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-gray-200 { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .border-gray-300 { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .hover\:border-gray-300:hover { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .focus\:border-gray-300:focus { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-gray-300 { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .border-gray-400 { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .hover\:border-gray-400:hover { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .focus\:border-gray-400:focus { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-gray-400 { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .border-gray-700 { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .hover\:border-gray-700:hover { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .focus\:border-gray-700:focus { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-gray-700 { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .border-gray-800 { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .hover\:border-gray-800:hover { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .focus\:border-gray-800:focus { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-gray-800 { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .border-gray-900 { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .hover\:border-gray-900:hover { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .focus\:border-gray-900:focus { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-gray-900 { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .border-slate-200 { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .hover\:border-slate-200:hover { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .focus\:border-slate-200:focus { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-slate-200 { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .border-lpc-border { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .hover\:border-lpc-border:hover { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .focus\:border-lpc-border:focus { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-lpc-border { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .border-white { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .hover\:border-white:hover { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .focus\:border-white:focus { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-white { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .divide-gray-50 > :not([hidden]) ~ :not([hidden]) { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color: var(--lpc-border); }
+
+/* Focus rings. ring-gray-900 / ring-gray-800 were "a dark ring on a light
+   field"; on a dark field they vanish, so they take the accent instead — which
+   is also what the shell's own focus treatment uses. */
+html[data-lpc-theme="dark"] .ring-gray-900 { --tw-ring-color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .hover\:ring-gray-900:hover { --tw-ring-color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .focus\:ring-gray-900:focus { --tw-ring-color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:ring-gray-900 { --tw-ring-color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .ring-gray-800 { --tw-ring-color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .hover\:ring-gray-800:hover { --tw-ring-color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .focus\:ring-gray-800:focus { --tw-ring-color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:ring-gray-800 { --tw-ring-color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .ring-gray-300 { --tw-ring-color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .hover\:ring-gray-300:hover { --tw-ring-color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .focus\:ring-gray-300:focus { --tw-ring-color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:ring-gray-300 { --tw-ring-color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .ring-gray-200 { --tw-ring-color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .hover\:ring-gray-200:hover { --tw-ring-color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .focus\:ring-gray-200:focus { --tw-ring-color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:ring-gray-200 { --tw-ring-color: var(--lpc-accent-on-light); }
+
+/* ===========================================================================
+   5. Tinted status chips
+   ---------------------------------------------------------------------------
+   The pattern all over the app is a -50 or -100 tinted pill with -700/-800
+   text: "Action requise" in red, "Performance globale" in blue, "Objectif: 80%"
+   in green. Those tints are 95%-lightness colours — on a dark card each one is
+   a bright white-ish rectangle, which is the most visible half of the bug in
+   the screenshot.
+
+   Each is rebuilt rather than remapped to a neutral, because the colour is
+   load-bearing: red means action required. The tint becomes the same hue mixed
+   INTO the card surface at low strength, and the text moves up the ramp to the
+   -300/-400 shade so it clears 4.5:1 against that tint.
+
+   Saturated fills (-500 and darker) are untouched: they already carry white
+   text and work on either background.
+   ========================================================================= */
+/* --- amber ------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-amber-50 { background-color: color-mix(in srgb, #f59e0b 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-amber-50:hover { background-color: color-mix(in srgb, #f59e0b 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-amber-50:focus { background-color: color-mix(in srgb, #f59e0b 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-amber-50 { background-color: color-mix(in srgb, #f59e0b 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-amber-100 { background-color: color-mix(in srgb, #f59e0b 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-amber-100:hover { background-color: color-mix(in srgb, #f59e0b 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-amber-100:focus { background-color: color-mix(in srgb, #f59e0b 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-amber-100 { background-color: color-mix(in srgb, #f59e0b 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-amber-200 { background-color: color-mix(in srgb, #f59e0b 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-amber-200:hover { background-color: color-mix(in srgb, #f59e0b 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-amber-200:focus { background-color: color-mix(in srgb, #f59e0b 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-amber-200 { background-color: color-mix(in srgb, #f59e0b 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .border-amber-50 { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-amber-50:hover { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-amber-50:focus { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-amber-50 { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-amber-100 { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-amber-100:hover { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-amber-100:focus { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-amber-100 { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-amber-200 { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-amber-200:hover { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-amber-200:focus { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-amber-200 { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-amber-300 { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-amber-300:hover { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-amber-300:focus { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-amber-300 { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-amber-600 { color: #fcd34d; }
+html[data-lpc-theme="dark"] .hover\:text-amber-600:hover { color: #fcd34d; }
+html[data-lpc-theme="dark"] .focus\:text-amber-600:focus { color: #fcd34d; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-amber-600 { color: #fcd34d; }
+html[data-lpc-theme="dark"] .text-amber-700 { color: #fcd34d; }
+html[data-lpc-theme="dark"] .hover\:text-amber-700:hover { color: #fcd34d; }
+html[data-lpc-theme="dark"] .focus\:text-amber-700:focus { color: #fcd34d; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-amber-700 { color: #fcd34d; }
+html[data-lpc-theme="dark"] .text-amber-800 { color: #fcd34d; }
+html[data-lpc-theme="dark"] .hover\:text-amber-800:hover { color: #fcd34d; }
+html[data-lpc-theme="dark"] .focus\:text-amber-800:focus { color: #fcd34d; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-amber-800 { color: #fcd34d; }
+html[data-lpc-theme="dark"] .text-amber-900 { color: #fcd34d; }
+html[data-lpc-theme="dark"] .hover\:text-amber-900:hover { color: #fcd34d; }
+html[data-lpc-theme="dark"] .focus\:text-amber-900:focus { color: #fcd34d; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-amber-900 { color: #fcd34d; }
+html[data-lpc-theme="dark"] .text-amber-400 { color: #fbbf24; }
+html[data-lpc-theme="dark"] .hover\:text-amber-400:hover { color: #fbbf24; }
+html[data-lpc-theme="dark"] .focus\:text-amber-400:focus { color: #fbbf24; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-amber-400 { color: #fbbf24; }
+html[data-lpc-theme="dark"] .text-amber-500 { color: #fbbf24; }
+html[data-lpc-theme="dark"] .hover\:text-amber-500:hover { color: #fbbf24; }
+html[data-lpc-theme="dark"] .focus\:text-amber-500:focus { color: #fbbf24; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-amber-500 { color: #fbbf24; }
+
+/* --- blue ------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-blue-50 { background-color: color-mix(in srgb, #3b82f6 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-blue-50:hover { background-color: color-mix(in srgb, #3b82f6 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-blue-50:focus { background-color: color-mix(in srgb, #3b82f6 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-blue-50 { background-color: color-mix(in srgb, #3b82f6 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-blue-100 { background-color: color-mix(in srgb, #3b82f6 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-blue-100:hover { background-color: color-mix(in srgb, #3b82f6 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-blue-100:focus { background-color: color-mix(in srgb, #3b82f6 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-blue-100 { background-color: color-mix(in srgb, #3b82f6 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-blue-200 { background-color: color-mix(in srgb, #3b82f6 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-blue-200:hover { background-color: color-mix(in srgb, #3b82f6 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-blue-200:focus { background-color: color-mix(in srgb, #3b82f6 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-blue-200 { background-color: color-mix(in srgb, #3b82f6 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .border-blue-50 { border-color: color-mix(in srgb, #3b82f6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-blue-50:hover { border-color: color-mix(in srgb, #3b82f6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-blue-50:focus { border-color: color-mix(in srgb, #3b82f6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-blue-50 { border-color: color-mix(in srgb, #3b82f6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-blue-100 { border-color: color-mix(in srgb, #3b82f6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-blue-100:hover { border-color: color-mix(in srgb, #3b82f6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-blue-100:focus { border-color: color-mix(in srgb, #3b82f6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-blue-100 { border-color: color-mix(in srgb, #3b82f6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-blue-200 { border-color: color-mix(in srgb, #3b82f6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-blue-200:hover { border-color: color-mix(in srgb, #3b82f6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-blue-200:focus { border-color: color-mix(in srgb, #3b82f6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-blue-200 { border-color: color-mix(in srgb, #3b82f6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-blue-300 { border-color: color-mix(in srgb, #3b82f6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-blue-300:hover { border-color: color-mix(in srgb, #3b82f6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-blue-300:focus { border-color: color-mix(in srgb, #3b82f6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-blue-300 { border-color: color-mix(in srgb, #3b82f6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-blue-600 { color: #93c5fd; }
+html[data-lpc-theme="dark"] .hover\:text-blue-600:hover { color: #93c5fd; }
+html[data-lpc-theme="dark"] .focus\:text-blue-600:focus { color: #93c5fd; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-blue-600 { color: #93c5fd; }
+html[data-lpc-theme="dark"] .text-blue-700 { color: #93c5fd; }
+html[data-lpc-theme="dark"] .hover\:text-blue-700:hover { color: #93c5fd; }
+html[data-lpc-theme="dark"] .focus\:text-blue-700:focus { color: #93c5fd; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-blue-700 { color: #93c5fd; }
+html[data-lpc-theme="dark"] .text-blue-800 { color: #93c5fd; }
+html[data-lpc-theme="dark"] .hover\:text-blue-800:hover { color: #93c5fd; }
+html[data-lpc-theme="dark"] .focus\:text-blue-800:focus { color: #93c5fd; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-blue-800 { color: #93c5fd; }
+html[data-lpc-theme="dark"] .text-blue-900 { color: #93c5fd; }
+html[data-lpc-theme="dark"] .hover\:text-blue-900:hover { color: #93c5fd; }
+html[data-lpc-theme="dark"] .focus\:text-blue-900:focus { color: #93c5fd; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-blue-900 { color: #93c5fd; }
+html[data-lpc-theme="dark"] .text-blue-400 { color: #60a5fa; }
+html[data-lpc-theme="dark"] .hover\:text-blue-400:hover { color: #60a5fa; }
+html[data-lpc-theme="dark"] .focus\:text-blue-400:focus { color: #60a5fa; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-blue-400 { color: #60a5fa; }
+html[data-lpc-theme="dark"] .text-blue-500 { color: #60a5fa; }
+html[data-lpc-theme="dark"] .hover\:text-blue-500:hover { color: #60a5fa; }
+html[data-lpc-theme="dark"] .focus\:text-blue-500:focus { color: #60a5fa; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-blue-500 { color: #60a5fa; }
+
+/* --- cyan ------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-cyan-50 { background-color: color-mix(in srgb, #06b6d4 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-cyan-50:hover { background-color: color-mix(in srgb, #06b6d4 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-cyan-50:focus { background-color: color-mix(in srgb, #06b6d4 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-cyan-50 { background-color: color-mix(in srgb, #06b6d4 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-cyan-100 { background-color: color-mix(in srgb, #06b6d4 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-cyan-100:hover { background-color: color-mix(in srgb, #06b6d4 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-cyan-100:focus { background-color: color-mix(in srgb, #06b6d4 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-cyan-100 { background-color: color-mix(in srgb, #06b6d4 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-cyan-200 { background-color: color-mix(in srgb, #06b6d4 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-cyan-200:hover { background-color: color-mix(in srgb, #06b6d4 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-cyan-200:focus { background-color: color-mix(in srgb, #06b6d4 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-cyan-200 { background-color: color-mix(in srgb, #06b6d4 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .border-cyan-50 { border-color: color-mix(in srgb, #06b6d4 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-cyan-50:hover { border-color: color-mix(in srgb, #06b6d4 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-cyan-50:focus { border-color: color-mix(in srgb, #06b6d4 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-cyan-50 { border-color: color-mix(in srgb, #06b6d4 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-cyan-100 { border-color: color-mix(in srgb, #06b6d4 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-cyan-100:hover { border-color: color-mix(in srgb, #06b6d4 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-cyan-100:focus { border-color: color-mix(in srgb, #06b6d4 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-cyan-100 { border-color: color-mix(in srgb, #06b6d4 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-cyan-200 { border-color: color-mix(in srgb, #06b6d4 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-cyan-200:hover { border-color: color-mix(in srgb, #06b6d4 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-cyan-200:focus { border-color: color-mix(in srgb, #06b6d4 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-cyan-200 { border-color: color-mix(in srgb, #06b6d4 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-cyan-300 { border-color: color-mix(in srgb, #06b6d4 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-cyan-300:hover { border-color: color-mix(in srgb, #06b6d4 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-cyan-300:focus { border-color: color-mix(in srgb, #06b6d4 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-cyan-300 { border-color: color-mix(in srgb, #06b6d4 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-cyan-600 { color: #67e8f9; }
+html[data-lpc-theme="dark"] .hover\:text-cyan-600:hover { color: #67e8f9; }
+html[data-lpc-theme="dark"] .focus\:text-cyan-600:focus { color: #67e8f9; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-cyan-600 { color: #67e8f9; }
+html[data-lpc-theme="dark"] .text-cyan-700 { color: #67e8f9; }
+html[data-lpc-theme="dark"] .hover\:text-cyan-700:hover { color: #67e8f9; }
+html[data-lpc-theme="dark"] .focus\:text-cyan-700:focus { color: #67e8f9; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-cyan-700 { color: #67e8f9; }
+html[data-lpc-theme="dark"] .text-cyan-800 { color: #67e8f9; }
+html[data-lpc-theme="dark"] .hover\:text-cyan-800:hover { color: #67e8f9; }
+html[data-lpc-theme="dark"] .focus\:text-cyan-800:focus { color: #67e8f9; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-cyan-800 { color: #67e8f9; }
+html[data-lpc-theme="dark"] .text-cyan-900 { color: #67e8f9; }
+html[data-lpc-theme="dark"] .hover\:text-cyan-900:hover { color: #67e8f9; }
+html[data-lpc-theme="dark"] .focus\:text-cyan-900:focus { color: #67e8f9; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-cyan-900 { color: #67e8f9; }
+html[data-lpc-theme="dark"] .text-cyan-400 { color: #22d3ee; }
+html[data-lpc-theme="dark"] .hover\:text-cyan-400:hover { color: #22d3ee; }
+html[data-lpc-theme="dark"] .focus\:text-cyan-400:focus { color: #22d3ee; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-cyan-400 { color: #22d3ee; }
+html[data-lpc-theme="dark"] .text-cyan-500 { color: #22d3ee; }
+html[data-lpc-theme="dark"] .hover\:text-cyan-500:hover { color: #22d3ee; }
+html[data-lpc-theme="dark"] .focus\:text-cyan-500:focus { color: #22d3ee; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-cyan-500 { color: #22d3ee; }
+
+/* --- emerald ------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-emerald-50 { background-color: color-mix(in srgb, #10b981 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-emerald-50:hover { background-color: color-mix(in srgb, #10b981 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-emerald-50:focus { background-color: color-mix(in srgb, #10b981 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-emerald-50 { background-color: color-mix(in srgb, #10b981 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-emerald-100 { background-color: color-mix(in srgb, #10b981 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-emerald-100:hover { background-color: color-mix(in srgb, #10b981 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-emerald-100:focus { background-color: color-mix(in srgb, #10b981 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-emerald-100 { background-color: color-mix(in srgb, #10b981 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-emerald-200 { background-color: color-mix(in srgb, #10b981 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-emerald-200:hover { background-color: color-mix(in srgb, #10b981 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-emerald-200:focus { background-color: color-mix(in srgb, #10b981 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-emerald-200 { background-color: color-mix(in srgb, #10b981 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .border-emerald-50 { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-emerald-50:hover { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-emerald-50:focus { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-emerald-50 { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-emerald-100 { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-emerald-100:hover { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-emerald-100:focus { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-emerald-100 { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-emerald-200 { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-emerald-200:hover { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-emerald-200:focus { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-emerald-200 { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-emerald-300 { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-emerald-300:hover { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-emerald-300:focus { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-emerald-300 { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-emerald-600 { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .hover\:text-emerald-600:hover { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .focus\:text-emerald-600:focus { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-emerald-600 { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .text-emerald-700 { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .hover\:text-emerald-700:hover { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .focus\:text-emerald-700:focus { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-emerald-700 { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .text-emerald-800 { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .hover\:text-emerald-800:hover { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .focus\:text-emerald-800:focus { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-emerald-800 { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .text-emerald-900 { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .hover\:text-emerald-900:hover { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .focus\:text-emerald-900:focus { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-emerald-900 { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .text-emerald-400 { color: #34d399; }
+html[data-lpc-theme="dark"] .hover\:text-emerald-400:hover { color: #34d399; }
+html[data-lpc-theme="dark"] .focus\:text-emerald-400:focus { color: #34d399; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-emerald-400 { color: #34d399; }
+html[data-lpc-theme="dark"] .text-emerald-500 { color: #34d399; }
+html[data-lpc-theme="dark"] .hover\:text-emerald-500:hover { color: #34d399; }
+html[data-lpc-theme="dark"] .focus\:text-emerald-500:focus { color: #34d399; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-emerald-500 { color: #34d399; }
+
+/* --- green ------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-green-50 { background-color: color-mix(in srgb, #22c55e 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-green-50:hover { background-color: color-mix(in srgb, #22c55e 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-green-50:focus { background-color: color-mix(in srgb, #22c55e 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-green-50 { background-color: color-mix(in srgb, #22c55e 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-green-100 { background-color: color-mix(in srgb, #22c55e 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-green-100:hover { background-color: color-mix(in srgb, #22c55e 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-green-100:focus { background-color: color-mix(in srgb, #22c55e 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-green-100 { background-color: color-mix(in srgb, #22c55e 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-green-200 { background-color: color-mix(in srgb, #22c55e 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-green-200:hover { background-color: color-mix(in srgb, #22c55e 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-green-200:focus { background-color: color-mix(in srgb, #22c55e 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-green-200 { background-color: color-mix(in srgb, #22c55e 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .border-green-50 { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-green-50:hover { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-green-50:focus { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-green-50 { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-green-100 { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-green-100:hover { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-green-100:focus { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-green-100 { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-green-200 { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-green-200:hover { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-green-200:focus { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-green-200 { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-green-300 { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-green-300:hover { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-green-300:focus { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-green-300 { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-green-600 { color: #86efac; }
+html[data-lpc-theme="dark"] .hover\:text-green-600:hover { color: #86efac; }
+html[data-lpc-theme="dark"] .focus\:text-green-600:focus { color: #86efac; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-green-600 { color: #86efac; }
+html[data-lpc-theme="dark"] .text-green-700 { color: #86efac; }
+html[data-lpc-theme="dark"] .hover\:text-green-700:hover { color: #86efac; }
+html[data-lpc-theme="dark"] .focus\:text-green-700:focus { color: #86efac; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-green-700 { color: #86efac; }
+html[data-lpc-theme="dark"] .text-green-800 { color: #86efac; }
+html[data-lpc-theme="dark"] .hover\:text-green-800:hover { color: #86efac; }
+html[data-lpc-theme="dark"] .focus\:text-green-800:focus { color: #86efac; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-green-800 { color: #86efac; }
+html[data-lpc-theme="dark"] .text-green-900 { color: #86efac; }
+html[data-lpc-theme="dark"] .hover\:text-green-900:hover { color: #86efac; }
+html[data-lpc-theme="dark"] .focus\:text-green-900:focus { color: #86efac; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-green-900 { color: #86efac; }
+html[data-lpc-theme="dark"] .text-green-400 { color: #4ade80; }
+html[data-lpc-theme="dark"] .hover\:text-green-400:hover { color: #4ade80; }
+html[data-lpc-theme="dark"] .focus\:text-green-400:focus { color: #4ade80; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-green-400 { color: #4ade80; }
+html[data-lpc-theme="dark"] .text-green-500 { color: #4ade80; }
+html[data-lpc-theme="dark"] .hover\:text-green-500:hover { color: #4ade80; }
+html[data-lpc-theme="dark"] .focus\:text-green-500:focus { color: #4ade80; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-green-500 { color: #4ade80; }
+
+/* --- indigo ------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-indigo-50 { background-color: color-mix(in srgb, #6366f1 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-indigo-50:hover { background-color: color-mix(in srgb, #6366f1 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-indigo-50:focus { background-color: color-mix(in srgb, #6366f1 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-indigo-50 { background-color: color-mix(in srgb, #6366f1 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-indigo-100 { background-color: color-mix(in srgb, #6366f1 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-indigo-100:hover { background-color: color-mix(in srgb, #6366f1 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-indigo-100:focus { background-color: color-mix(in srgb, #6366f1 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-indigo-100 { background-color: color-mix(in srgb, #6366f1 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-indigo-200 { background-color: color-mix(in srgb, #6366f1 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-indigo-200:hover { background-color: color-mix(in srgb, #6366f1 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-indigo-200:focus { background-color: color-mix(in srgb, #6366f1 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-indigo-200 { background-color: color-mix(in srgb, #6366f1 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .border-indigo-50 { border-color: color-mix(in srgb, #6366f1 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-indigo-50:hover { border-color: color-mix(in srgb, #6366f1 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-indigo-50:focus { border-color: color-mix(in srgb, #6366f1 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-indigo-50 { border-color: color-mix(in srgb, #6366f1 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-indigo-100 { border-color: color-mix(in srgb, #6366f1 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-indigo-100:hover { border-color: color-mix(in srgb, #6366f1 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-indigo-100:focus { border-color: color-mix(in srgb, #6366f1 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-indigo-100 { border-color: color-mix(in srgb, #6366f1 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-indigo-200 { border-color: color-mix(in srgb, #6366f1 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-indigo-200:hover { border-color: color-mix(in srgb, #6366f1 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-indigo-200:focus { border-color: color-mix(in srgb, #6366f1 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-indigo-200 { border-color: color-mix(in srgb, #6366f1 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-indigo-300 { border-color: color-mix(in srgb, #6366f1 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-indigo-300:hover { border-color: color-mix(in srgb, #6366f1 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-indigo-300:focus { border-color: color-mix(in srgb, #6366f1 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-indigo-300 { border-color: color-mix(in srgb, #6366f1 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-indigo-600 { color: #a5b4fc; }
+html[data-lpc-theme="dark"] .hover\:text-indigo-600:hover { color: #a5b4fc; }
+html[data-lpc-theme="dark"] .focus\:text-indigo-600:focus { color: #a5b4fc; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-indigo-600 { color: #a5b4fc; }
+html[data-lpc-theme="dark"] .text-indigo-700 { color: #a5b4fc; }
+html[data-lpc-theme="dark"] .hover\:text-indigo-700:hover { color: #a5b4fc; }
+html[data-lpc-theme="dark"] .focus\:text-indigo-700:focus { color: #a5b4fc; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-indigo-700 { color: #a5b4fc; }
+html[data-lpc-theme="dark"] .text-indigo-800 { color: #a5b4fc; }
+html[data-lpc-theme="dark"] .hover\:text-indigo-800:hover { color: #a5b4fc; }
+html[data-lpc-theme="dark"] .focus\:text-indigo-800:focus { color: #a5b4fc; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-indigo-800 { color: #a5b4fc; }
+html[data-lpc-theme="dark"] .text-indigo-900 { color: #a5b4fc; }
+html[data-lpc-theme="dark"] .hover\:text-indigo-900:hover { color: #a5b4fc; }
+html[data-lpc-theme="dark"] .focus\:text-indigo-900:focus { color: #a5b4fc; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-indigo-900 { color: #a5b4fc; }
+html[data-lpc-theme="dark"] .text-indigo-400 { color: #818cf8; }
+html[data-lpc-theme="dark"] .hover\:text-indigo-400:hover { color: #818cf8; }
+html[data-lpc-theme="dark"] .focus\:text-indigo-400:focus { color: #818cf8; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-indigo-400 { color: #818cf8; }
+html[data-lpc-theme="dark"] .text-indigo-500 { color: #818cf8; }
+html[data-lpc-theme="dark"] .hover\:text-indigo-500:hover { color: #818cf8; }
+html[data-lpc-theme="dark"] .focus\:text-indigo-500:focus { color: #818cf8; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-indigo-500 { color: #818cf8; }
+
+/* --- lime ------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-lime-50 { background-color: color-mix(in srgb, #84cc16 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-lime-50:hover { background-color: color-mix(in srgb, #84cc16 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-lime-50:focus { background-color: color-mix(in srgb, #84cc16 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-lime-50 { background-color: color-mix(in srgb, #84cc16 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-lime-100 { background-color: color-mix(in srgb, #84cc16 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-lime-100:hover { background-color: color-mix(in srgb, #84cc16 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-lime-100:focus { background-color: color-mix(in srgb, #84cc16 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-lime-100 { background-color: color-mix(in srgb, #84cc16 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-lime-200 { background-color: color-mix(in srgb, #84cc16 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-lime-200:hover { background-color: color-mix(in srgb, #84cc16 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-lime-200:focus { background-color: color-mix(in srgb, #84cc16 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-lime-200 { background-color: color-mix(in srgb, #84cc16 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .border-lime-50 { border-color: color-mix(in srgb, #84cc16 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-lime-50:hover { border-color: color-mix(in srgb, #84cc16 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-lime-50:focus { border-color: color-mix(in srgb, #84cc16 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-lime-50 { border-color: color-mix(in srgb, #84cc16 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-lime-100 { border-color: color-mix(in srgb, #84cc16 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-lime-100:hover { border-color: color-mix(in srgb, #84cc16 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-lime-100:focus { border-color: color-mix(in srgb, #84cc16 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-lime-100 { border-color: color-mix(in srgb, #84cc16 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-lime-200 { border-color: color-mix(in srgb, #84cc16 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-lime-200:hover { border-color: color-mix(in srgb, #84cc16 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-lime-200:focus { border-color: color-mix(in srgb, #84cc16 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-lime-200 { border-color: color-mix(in srgb, #84cc16 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-lime-300 { border-color: color-mix(in srgb, #84cc16 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-lime-300:hover { border-color: color-mix(in srgb, #84cc16 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-lime-300:focus { border-color: color-mix(in srgb, #84cc16 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-lime-300 { border-color: color-mix(in srgb, #84cc16 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-lime-600 { color: #bef264; }
+html[data-lpc-theme="dark"] .hover\:text-lime-600:hover { color: #bef264; }
+html[data-lpc-theme="dark"] .focus\:text-lime-600:focus { color: #bef264; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-lime-600 { color: #bef264; }
+html[data-lpc-theme="dark"] .text-lime-700 { color: #bef264; }
+html[data-lpc-theme="dark"] .hover\:text-lime-700:hover { color: #bef264; }
+html[data-lpc-theme="dark"] .focus\:text-lime-700:focus { color: #bef264; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-lime-700 { color: #bef264; }
+html[data-lpc-theme="dark"] .text-lime-800 { color: #bef264; }
+html[data-lpc-theme="dark"] .hover\:text-lime-800:hover { color: #bef264; }
+html[data-lpc-theme="dark"] .focus\:text-lime-800:focus { color: #bef264; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-lime-800 { color: #bef264; }
+html[data-lpc-theme="dark"] .text-lime-900 { color: #bef264; }
+html[data-lpc-theme="dark"] .hover\:text-lime-900:hover { color: #bef264; }
+html[data-lpc-theme="dark"] .focus\:text-lime-900:focus { color: #bef264; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-lime-900 { color: #bef264; }
+html[data-lpc-theme="dark"] .text-lime-400 { color: #a3e635; }
+html[data-lpc-theme="dark"] .hover\:text-lime-400:hover { color: #a3e635; }
+html[data-lpc-theme="dark"] .focus\:text-lime-400:focus { color: #a3e635; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-lime-400 { color: #a3e635; }
+html[data-lpc-theme="dark"] .text-lime-500 { color: #a3e635; }
+html[data-lpc-theme="dark"] .hover\:text-lime-500:hover { color: #a3e635; }
+html[data-lpc-theme="dark"] .focus\:text-lime-500:focus { color: #a3e635; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-lime-500 { color: #a3e635; }
+
+/* --- orange ------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-orange-50 { background-color: color-mix(in srgb, #f97316 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-orange-50:hover { background-color: color-mix(in srgb, #f97316 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-orange-50:focus { background-color: color-mix(in srgb, #f97316 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-orange-50 { background-color: color-mix(in srgb, #f97316 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-orange-100 { background-color: color-mix(in srgb, #f97316 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-orange-100:hover { background-color: color-mix(in srgb, #f97316 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-orange-100:focus { background-color: color-mix(in srgb, #f97316 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-orange-100 { background-color: color-mix(in srgb, #f97316 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-orange-200 { background-color: color-mix(in srgb, #f97316 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-orange-200:hover { background-color: color-mix(in srgb, #f97316 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-orange-200:focus { background-color: color-mix(in srgb, #f97316 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-orange-200 { background-color: color-mix(in srgb, #f97316 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .border-orange-50 { border-color: color-mix(in srgb, #f97316 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-orange-50:hover { border-color: color-mix(in srgb, #f97316 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-orange-50:focus { border-color: color-mix(in srgb, #f97316 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-orange-50 { border-color: color-mix(in srgb, #f97316 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-orange-100 { border-color: color-mix(in srgb, #f97316 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-orange-100:hover { border-color: color-mix(in srgb, #f97316 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-orange-100:focus { border-color: color-mix(in srgb, #f97316 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-orange-100 { border-color: color-mix(in srgb, #f97316 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-orange-200 { border-color: color-mix(in srgb, #f97316 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-orange-200:hover { border-color: color-mix(in srgb, #f97316 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-orange-200:focus { border-color: color-mix(in srgb, #f97316 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-orange-200 { border-color: color-mix(in srgb, #f97316 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-orange-300 { border-color: color-mix(in srgb, #f97316 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-orange-300:hover { border-color: color-mix(in srgb, #f97316 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-orange-300:focus { border-color: color-mix(in srgb, #f97316 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-orange-300 { border-color: color-mix(in srgb, #f97316 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-orange-600 { color: #fdba74; }
+html[data-lpc-theme="dark"] .hover\:text-orange-600:hover { color: #fdba74; }
+html[data-lpc-theme="dark"] .focus\:text-orange-600:focus { color: #fdba74; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-orange-600 { color: #fdba74; }
+html[data-lpc-theme="dark"] .text-orange-700 { color: #fdba74; }
+html[data-lpc-theme="dark"] .hover\:text-orange-700:hover { color: #fdba74; }
+html[data-lpc-theme="dark"] .focus\:text-orange-700:focus { color: #fdba74; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-orange-700 { color: #fdba74; }
+html[data-lpc-theme="dark"] .text-orange-800 { color: #fdba74; }
+html[data-lpc-theme="dark"] .hover\:text-orange-800:hover { color: #fdba74; }
+html[data-lpc-theme="dark"] .focus\:text-orange-800:focus { color: #fdba74; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-orange-800 { color: #fdba74; }
+html[data-lpc-theme="dark"] .text-orange-900 { color: #fdba74; }
+html[data-lpc-theme="dark"] .hover\:text-orange-900:hover { color: #fdba74; }
+html[data-lpc-theme="dark"] .focus\:text-orange-900:focus { color: #fdba74; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-orange-900 { color: #fdba74; }
+html[data-lpc-theme="dark"] .text-orange-400 { color: #fb923c; }
+html[data-lpc-theme="dark"] .hover\:text-orange-400:hover { color: #fb923c; }
+html[data-lpc-theme="dark"] .focus\:text-orange-400:focus { color: #fb923c; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-orange-400 { color: #fb923c; }
+html[data-lpc-theme="dark"] .text-orange-500 { color: #fb923c; }
+html[data-lpc-theme="dark"] .hover\:text-orange-500:hover { color: #fb923c; }
+html[data-lpc-theme="dark"] .focus\:text-orange-500:focus { color: #fb923c; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-orange-500 { color: #fb923c; }
+
+/* --- pink ------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-pink-50 { background-color: color-mix(in srgb, #ec4899 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-pink-50:hover { background-color: color-mix(in srgb, #ec4899 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-pink-50:focus { background-color: color-mix(in srgb, #ec4899 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-pink-50 { background-color: color-mix(in srgb, #ec4899 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-pink-100 { background-color: color-mix(in srgb, #ec4899 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-pink-100:hover { background-color: color-mix(in srgb, #ec4899 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-pink-100:focus { background-color: color-mix(in srgb, #ec4899 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-pink-100 { background-color: color-mix(in srgb, #ec4899 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-pink-200 { background-color: color-mix(in srgb, #ec4899 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-pink-200:hover { background-color: color-mix(in srgb, #ec4899 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-pink-200:focus { background-color: color-mix(in srgb, #ec4899 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-pink-200 { background-color: color-mix(in srgb, #ec4899 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .border-pink-50 { border-color: color-mix(in srgb, #ec4899 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-pink-50:hover { border-color: color-mix(in srgb, #ec4899 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-pink-50:focus { border-color: color-mix(in srgb, #ec4899 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-pink-50 { border-color: color-mix(in srgb, #ec4899 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-pink-100 { border-color: color-mix(in srgb, #ec4899 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-pink-100:hover { border-color: color-mix(in srgb, #ec4899 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-pink-100:focus { border-color: color-mix(in srgb, #ec4899 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-pink-100 { border-color: color-mix(in srgb, #ec4899 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-pink-200 { border-color: color-mix(in srgb, #ec4899 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-pink-200:hover { border-color: color-mix(in srgb, #ec4899 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-pink-200:focus { border-color: color-mix(in srgb, #ec4899 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-pink-200 { border-color: color-mix(in srgb, #ec4899 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-pink-300 { border-color: color-mix(in srgb, #ec4899 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-pink-300:hover { border-color: color-mix(in srgb, #ec4899 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-pink-300:focus { border-color: color-mix(in srgb, #ec4899 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-pink-300 { border-color: color-mix(in srgb, #ec4899 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-pink-600 { color: #f9a8d4; }
+html[data-lpc-theme="dark"] .hover\:text-pink-600:hover { color: #f9a8d4; }
+html[data-lpc-theme="dark"] .focus\:text-pink-600:focus { color: #f9a8d4; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-pink-600 { color: #f9a8d4; }
+html[data-lpc-theme="dark"] .text-pink-700 { color: #f9a8d4; }
+html[data-lpc-theme="dark"] .hover\:text-pink-700:hover { color: #f9a8d4; }
+html[data-lpc-theme="dark"] .focus\:text-pink-700:focus { color: #f9a8d4; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-pink-700 { color: #f9a8d4; }
+html[data-lpc-theme="dark"] .text-pink-800 { color: #f9a8d4; }
+html[data-lpc-theme="dark"] .hover\:text-pink-800:hover { color: #f9a8d4; }
+html[data-lpc-theme="dark"] .focus\:text-pink-800:focus { color: #f9a8d4; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-pink-800 { color: #f9a8d4; }
+html[data-lpc-theme="dark"] .text-pink-900 { color: #f9a8d4; }
+html[data-lpc-theme="dark"] .hover\:text-pink-900:hover { color: #f9a8d4; }
+html[data-lpc-theme="dark"] .focus\:text-pink-900:focus { color: #f9a8d4; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-pink-900 { color: #f9a8d4; }
+html[data-lpc-theme="dark"] .text-pink-400 { color: #f472b6; }
+html[data-lpc-theme="dark"] .hover\:text-pink-400:hover { color: #f472b6; }
+html[data-lpc-theme="dark"] .focus\:text-pink-400:focus { color: #f472b6; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-pink-400 { color: #f472b6; }
+html[data-lpc-theme="dark"] .text-pink-500 { color: #f472b6; }
+html[data-lpc-theme="dark"] .hover\:text-pink-500:hover { color: #f472b6; }
+html[data-lpc-theme="dark"] .focus\:text-pink-500:focus { color: #f472b6; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-pink-500 { color: #f472b6; }
+
+/* --- purple ------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-purple-50 { background-color: color-mix(in srgb, #a855f7 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-purple-50:hover { background-color: color-mix(in srgb, #a855f7 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-purple-50:focus { background-color: color-mix(in srgb, #a855f7 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-purple-50 { background-color: color-mix(in srgb, #a855f7 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-purple-100 { background-color: color-mix(in srgb, #a855f7 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-purple-100:hover { background-color: color-mix(in srgb, #a855f7 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-purple-100:focus { background-color: color-mix(in srgb, #a855f7 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-purple-100 { background-color: color-mix(in srgb, #a855f7 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-purple-200 { background-color: color-mix(in srgb, #a855f7 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-purple-200:hover { background-color: color-mix(in srgb, #a855f7 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-purple-200:focus { background-color: color-mix(in srgb, #a855f7 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-purple-200 { background-color: color-mix(in srgb, #a855f7 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .border-purple-50 { border-color: color-mix(in srgb, #a855f7 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-purple-50:hover { border-color: color-mix(in srgb, #a855f7 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-purple-50:focus { border-color: color-mix(in srgb, #a855f7 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-purple-50 { border-color: color-mix(in srgb, #a855f7 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-purple-100 { border-color: color-mix(in srgb, #a855f7 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-purple-100:hover { border-color: color-mix(in srgb, #a855f7 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-purple-100:focus { border-color: color-mix(in srgb, #a855f7 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-purple-100 { border-color: color-mix(in srgb, #a855f7 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-purple-200 { border-color: color-mix(in srgb, #a855f7 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-purple-200:hover { border-color: color-mix(in srgb, #a855f7 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-purple-200:focus { border-color: color-mix(in srgb, #a855f7 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-purple-200 { border-color: color-mix(in srgb, #a855f7 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-purple-300 { border-color: color-mix(in srgb, #a855f7 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-purple-300:hover { border-color: color-mix(in srgb, #a855f7 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-purple-300:focus { border-color: color-mix(in srgb, #a855f7 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-purple-300 { border-color: color-mix(in srgb, #a855f7 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-purple-600 { color: #d8b4fe; }
+html[data-lpc-theme="dark"] .hover\:text-purple-600:hover { color: #d8b4fe; }
+html[data-lpc-theme="dark"] .focus\:text-purple-600:focus { color: #d8b4fe; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-purple-600 { color: #d8b4fe; }
+html[data-lpc-theme="dark"] .text-purple-700 { color: #d8b4fe; }
+html[data-lpc-theme="dark"] .hover\:text-purple-700:hover { color: #d8b4fe; }
+html[data-lpc-theme="dark"] .focus\:text-purple-700:focus { color: #d8b4fe; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-purple-700 { color: #d8b4fe; }
+html[data-lpc-theme="dark"] .text-purple-800 { color: #d8b4fe; }
+html[data-lpc-theme="dark"] .hover\:text-purple-800:hover { color: #d8b4fe; }
+html[data-lpc-theme="dark"] .focus\:text-purple-800:focus { color: #d8b4fe; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-purple-800 { color: #d8b4fe; }
+html[data-lpc-theme="dark"] .text-purple-900 { color: #d8b4fe; }
+html[data-lpc-theme="dark"] .hover\:text-purple-900:hover { color: #d8b4fe; }
+html[data-lpc-theme="dark"] .focus\:text-purple-900:focus { color: #d8b4fe; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-purple-900 { color: #d8b4fe; }
+html[data-lpc-theme="dark"] .text-purple-400 { color: #c084fc; }
+html[data-lpc-theme="dark"] .hover\:text-purple-400:hover { color: #c084fc; }
+html[data-lpc-theme="dark"] .focus\:text-purple-400:focus { color: #c084fc; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-purple-400 { color: #c084fc; }
+html[data-lpc-theme="dark"] .text-purple-500 { color: #c084fc; }
+html[data-lpc-theme="dark"] .hover\:text-purple-500:hover { color: #c084fc; }
+html[data-lpc-theme="dark"] .focus\:text-purple-500:focus { color: #c084fc; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-purple-500 { color: #c084fc; }
+
+/* --- red ------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-red-50 { background-color: color-mix(in srgb, #ef4444 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-red-50:hover { background-color: color-mix(in srgb, #ef4444 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-red-50:focus { background-color: color-mix(in srgb, #ef4444 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-red-50 { background-color: color-mix(in srgb, #ef4444 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-red-100 { background-color: color-mix(in srgb, #ef4444 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-red-100:hover { background-color: color-mix(in srgb, #ef4444 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-red-100:focus { background-color: color-mix(in srgb, #ef4444 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-red-100 { background-color: color-mix(in srgb, #ef4444 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-red-200 { background-color: color-mix(in srgb, #ef4444 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-red-200:hover { background-color: color-mix(in srgb, #ef4444 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-red-200:focus { background-color: color-mix(in srgb, #ef4444 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-red-200 { background-color: color-mix(in srgb, #ef4444 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .border-red-50 { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-red-50:hover { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-red-50:focus { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-red-50 { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-red-100 { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-red-100:hover { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-red-100:focus { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-red-100 { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-red-200 { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-red-200:hover { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-red-200:focus { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-red-200 { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-red-300 { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-red-300:hover { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-red-300:focus { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-red-300 { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-red-600 { color: #fca5a5; }
+html[data-lpc-theme="dark"] .hover\:text-red-600:hover { color: #fca5a5; }
+html[data-lpc-theme="dark"] .focus\:text-red-600:focus { color: #fca5a5; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-red-600 { color: #fca5a5; }
+html[data-lpc-theme="dark"] .text-red-700 { color: #fca5a5; }
+html[data-lpc-theme="dark"] .hover\:text-red-700:hover { color: #fca5a5; }
+html[data-lpc-theme="dark"] .focus\:text-red-700:focus { color: #fca5a5; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-red-700 { color: #fca5a5; }
+html[data-lpc-theme="dark"] .text-red-800 { color: #fca5a5; }
+html[data-lpc-theme="dark"] .hover\:text-red-800:hover { color: #fca5a5; }
+html[data-lpc-theme="dark"] .focus\:text-red-800:focus { color: #fca5a5; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-red-800 { color: #fca5a5; }
+html[data-lpc-theme="dark"] .text-red-900 { color: #fca5a5; }
+html[data-lpc-theme="dark"] .hover\:text-red-900:hover { color: #fca5a5; }
+html[data-lpc-theme="dark"] .focus\:text-red-900:focus { color: #fca5a5; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-red-900 { color: #fca5a5; }
+html[data-lpc-theme="dark"] .text-red-400 { color: #f87171; }
+html[data-lpc-theme="dark"] .hover\:text-red-400:hover { color: #f87171; }
+html[data-lpc-theme="dark"] .focus\:text-red-400:focus { color: #f87171; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-red-400 { color: #f87171; }
+html[data-lpc-theme="dark"] .text-red-500 { color: #f87171; }
+html[data-lpc-theme="dark"] .hover\:text-red-500:hover { color: #f87171; }
+html[data-lpc-theme="dark"] .focus\:text-red-500:focus { color: #f87171; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-red-500 { color: #f87171; }
+
+/* --- rose ------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-rose-50 { background-color: color-mix(in srgb, #f43f5e 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-rose-50:hover { background-color: color-mix(in srgb, #f43f5e 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-rose-50:focus { background-color: color-mix(in srgb, #f43f5e 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-rose-50 { background-color: color-mix(in srgb, #f43f5e 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-rose-100 { background-color: color-mix(in srgb, #f43f5e 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-rose-100:hover { background-color: color-mix(in srgb, #f43f5e 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-rose-100:focus { background-color: color-mix(in srgb, #f43f5e 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-rose-100 { background-color: color-mix(in srgb, #f43f5e 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-rose-200 { background-color: color-mix(in srgb, #f43f5e 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-rose-200:hover { background-color: color-mix(in srgb, #f43f5e 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-rose-200:focus { background-color: color-mix(in srgb, #f43f5e 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-rose-200 { background-color: color-mix(in srgb, #f43f5e 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .border-rose-50 { border-color: color-mix(in srgb, #f43f5e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-rose-50:hover { border-color: color-mix(in srgb, #f43f5e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-rose-50:focus { border-color: color-mix(in srgb, #f43f5e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-rose-50 { border-color: color-mix(in srgb, #f43f5e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-rose-100 { border-color: color-mix(in srgb, #f43f5e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-rose-100:hover { border-color: color-mix(in srgb, #f43f5e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-rose-100:focus { border-color: color-mix(in srgb, #f43f5e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-rose-100 { border-color: color-mix(in srgb, #f43f5e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-rose-200 { border-color: color-mix(in srgb, #f43f5e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-rose-200:hover { border-color: color-mix(in srgb, #f43f5e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-rose-200:focus { border-color: color-mix(in srgb, #f43f5e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-rose-200 { border-color: color-mix(in srgb, #f43f5e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-rose-300 { border-color: color-mix(in srgb, #f43f5e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-rose-300:hover { border-color: color-mix(in srgb, #f43f5e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-rose-300:focus { border-color: color-mix(in srgb, #f43f5e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-rose-300 { border-color: color-mix(in srgb, #f43f5e 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-rose-600 { color: #fda4af; }
+html[data-lpc-theme="dark"] .hover\:text-rose-600:hover { color: #fda4af; }
+html[data-lpc-theme="dark"] .focus\:text-rose-600:focus { color: #fda4af; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-rose-600 { color: #fda4af; }
+html[data-lpc-theme="dark"] .text-rose-700 { color: #fda4af; }
+html[data-lpc-theme="dark"] .hover\:text-rose-700:hover { color: #fda4af; }
+html[data-lpc-theme="dark"] .focus\:text-rose-700:focus { color: #fda4af; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-rose-700 { color: #fda4af; }
+html[data-lpc-theme="dark"] .text-rose-800 { color: #fda4af; }
+html[data-lpc-theme="dark"] .hover\:text-rose-800:hover { color: #fda4af; }
+html[data-lpc-theme="dark"] .focus\:text-rose-800:focus { color: #fda4af; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-rose-800 { color: #fda4af; }
+html[data-lpc-theme="dark"] .text-rose-900 { color: #fda4af; }
+html[data-lpc-theme="dark"] .hover\:text-rose-900:hover { color: #fda4af; }
+html[data-lpc-theme="dark"] .focus\:text-rose-900:focus { color: #fda4af; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-rose-900 { color: #fda4af; }
+html[data-lpc-theme="dark"] .text-rose-400 { color: #fb7185; }
+html[data-lpc-theme="dark"] .hover\:text-rose-400:hover { color: #fb7185; }
+html[data-lpc-theme="dark"] .focus\:text-rose-400:focus { color: #fb7185; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-rose-400 { color: #fb7185; }
+html[data-lpc-theme="dark"] .text-rose-500 { color: #fb7185; }
+html[data-lpc-theme="dark"] .hover\:text-rose-500:hover { color: #fb7185; }
+html[data-lpc-theme="dark"] .focus\:text-rose-500:focus { color: #fb7185; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-rose-500 { color: #fb7185; }
+
+/* --- sky ------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-sky-50 { background-color: color-mix(in srgb, #0ea5e9 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-sky-50:hover { background-color: color-mix(in srgb, #0ea5e9 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-sky-50:focus { background-color: color-mix(in srgb, #0ea5e9 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-sky-50 { background-color: color-mix(in srgb, #0ea5e9 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-sky-100 { background-color: color-mix(in srgb, #0ea5e9 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-sky-100:hover { background-color: color-mix(in srgb, #0ea5e9 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-sky-100:focus { background-color: color-mix(in srgb, #0ea5e9 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-sky-100 { background-color: color-mix(in srgb, #0ea5e9 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-sky-200 { background-color: color-mix(in srgb, #0ea5e9 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-sky-200:hover { background-color: color-mix(in srgb, #0ea5e9 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-sky-200:focus { background-color: color-mix(in srgb, #0ea5e9 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-sky-200 { background-color: color-mix(in srgb, #0ea5e9 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .border-sky-50 { border-color: color-mix(in srgb, #0ea5e9 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-sky-50:hover { border-color: color-mix(in srgb, #0ea5e9 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-sky-50:focus { border-color: color-mix(in srgb, #0ea5e9 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-sky-50 { border-color: color-mix(in srgb, #0ea5e9 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-sky-100 { border-color: color-mix(in srgb, #0ea5e9 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-sky-100:hover { border-color: color-mix(in srgb, #0ea5e9 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-sky-100:focus { border-color: color-mix(in srgb, #0ea5e9 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-sky-100 { border-color: color-mix(in srgb, #0ea5e9 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-sky-200 { border-color: color-mix(in srgb, #0ea5e9 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-sky-200:hover { border-color: color-mix(in srgb, #0ea5e9 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-sky-200:focus { border-color: color-mix(in srgb, #0ea5e9 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-sky-200 { border-color: color-mix(in srgb, #0ea5e9 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-sky-300 { border-color: color-mix(in srgb, #0ea5e9 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-sky-300:hover { border-color: color-mix(in srgb, #0ea5e9 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-sky-300:focus { border-color: color-mix(in srgb, #0ea5e9 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-sky-300 { border-color: color-mix(in srgb, #0ea5e9 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-sky-600 { color: #7dd3fc; }
+html[data-lpc-theme="dark"] .hover\:text-sky-600:hover { color: #7dd3fc; }
+html[data-lpc-theme="dark"] .focus\:text-sky-600:focus { color: #7dd3fc; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-sky-600 { color: #7dd3fc; }
+html[data-lpc-theme="dark"] .text-sky-700 { color: #7dd3fc; }
+html[data-lpc-theme="dark"] .hover\:text-sky-700:hover { color: #7dd3fc; }
+html[data-lpc-theme="dark"] .focus\:text-sky-700:focus { color: #7dd3fc; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-sky-700 { color: #7dd3fc; }
+html[data-lpc-theme="dark"] .text-sky-800 { color: #7dd3fc; }
+html[data-lpc-theme="dark"] .hover\:text-sky-800:hover { color: #7dd3fc; }
+html[data-lpc-theme="dark"] .focus\:text-sky-800:focus { color: #7dd3fc; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-sky-800 { color: #7dd3fc; }
+html[data-lpc-theme="dark"] .text-sky-900 { color: #7dd3fc; }
+html[data-lpc-theme="dark"] .hover\:text-sky-900:hover { color: #7dd3fc; }
+html[data-lpc-theme="dark"] .focus\:text-sky-900:focus { color: #7dd3fc; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-sky-900 { color: #7dd3fc; }
+html[data-lpc-theme="dark"] .text-sky-400 { color: #38bdf8; }
+html[data-lpc-theme="dark"] .hover\:text-sky-400:hover { color: #38bdf8; }
+html[data-lpc-theme="dark"] .focus\:text-sky-400:focus { color: #38bdf8; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-sky-400 { color: #38bdf8; }
+html[data-lpc-theme="dark"] .text-sky-500 { color: #38bdf8; }
+html[data-lpc-theme="dark"] .hover\:text-sky-500:hover { color: #38bdf8; }
+html[data-lpc-theme="dark"] .focus\:text-sky-500:focus { color: #38bdf8; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-sky-500 { color: #38bdf8; }
+
+/* --- teal ------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-teal-50 { background-color: color-mix(in srgb, #14b8a6 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-teal-50:hover { background-color: color-mix(in srgb, #14b8a6 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-teal-50:focus { background-color: color-mix(in srgb, #14b8a6 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-teal-50 { background-color: color-mix(in srgb, #14b8a6 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-teal-100 { background-color: color-mix(in srgb, #14b8a6 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-teal-100:hover { background-color: color-mix(in srgb, #14b8a6 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-teal-100:focus { background-color: color-mix(in srgb, #14b8a6 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-teal-100 { background-color: color-mix(in srgb, #14b8a6 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-teal-200 { background-color: color-mix(in srgb, #14b8a6 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-teal-200:hover { background-color: color-mix(in srgb, #14b8a6 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-teal-200:focus { background-color: color-mix(in srgb, #14b8a6 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-teal-200 { background-color: color-mix(in srgb, #14b8a6 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .border-teal-50 { border-color: color-mix(in srgb, #14b8a6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-teal-50:hover { border-color: color-mix(in srgb, #14b8a6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-teal-50:focus { border-color: color-mix(in srgb, #14b8a6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-teal-50 { border-color: color-mix(in srgb, #14b8a6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-teal-100 { border-color: color-mix(in srgb, #14b8a6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-teal-100:hover { border-color: color-mix(in srgb, #14b8a6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-teal-100:focus { border-color: color-mix(in srgb, #14b8a6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-teal-100 { border-color: color-mix(in srgb, #14b8a6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-teal-200 { border-color: color-mix(in srgb, #14b8a6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-teal-200:hover { border-color: color-mix(in srgb, #14b8a6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-teal-200:focus { border-color: color-mix(in srgb, #14b8a6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-teal-200 { border-color: color-mix(in srgb, #14b8a6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-teal-300 { border-color: color-mix(in srgb, #14b8a6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-teal-300:hover { border-color: color-mix(in srgb, #14b8a6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-teal-300:focus { border-color: color-mix(in srgb, #14b8a6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-teal-300 { border-color: color-mix(in srgb, #14b8a6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-teal-600 { color: #5eead4; }
+html[data-lpc-theme="dark"] .hover\:text-teal-600:hover { color: #5eead4; }
+html[data-lpc-theme="dark"] .focus\:text-teal-600:focus { color: #5eead4; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-teal-600 { color: #5eead4; }
+html[data-lpc-theme="dark"] .text-teal-700 { color: #5eead4; }
+html[data-lpc-theme="dark"] .hover\:text-teal-700:hover { color: #5eead4; }
+html[data-lpc-theme="dark"] .focus\:text-teal-700:focus { color: #5eead4; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-teal-700 { color: #5eead4; }
+html[data-lpc-theme="dark"] .text-teal-800 { color: #5eead4; }
+html[data-lpc-theme="dark"] .hover\:text-teal-800:hover { color: #5eead4; }
+html[data-lpc-theme="dark"] .focus\:text-teal-800:focus { color: #5eead4; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-teal-800 { color: #5eead4; }
+html[data-lpc-theme="dark"] .text-teal-900 { color: #5eead4; }
+html[data-lpc-theme="dark"] .hover\:text-teal-900:hover { color: #5eead4; }
+html[data-lpc-theme="dark"] .focus\:text-teal-900:focus { color: #5eead4; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-teal-900 { color: #5eead4; }
+html[data-lpc-theme="dark"] .text-teal-400 { color: #2dd4bf; }
+html[data-lpc-theme="dark"] .hover\:text-teal-400:hover { color: #2dd4bf; }
+html[data-lpc-theme="dark"] .focus\:text-teal-400:focus { color: #2dd4bf; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-teal-400 { color: #2dd4bf; }
+html[data-lpc-theme="dark"] .text-teal-500 { color: #2dd4bf; }
+html[data-lpc-theme="dark"] .hover\:text-teal-500:hover { color: #2dd4bf; }
+html[data-lpc-theme="dark"] .focus\:text-teal-500:focus { color: #2dd4bf; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-teal-500 { color: #2dd4bf; }
+
+/* --- violet ------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-violet-50 { background-color: color-mix(in srgb, #8b5cf6 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-violet-50:hover { background-color: color-mix(in srgb, #8b5cf6 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-violet-50:focus { background-color: color-mix(in srgb, #8b5cf6 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-violet-50 { background-color: color-mix(in srgb, #8b5cf6 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-violet-100 { background-color: color-mix(in srgb, #8b5cf6 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-violet-100:hover { background-color: color-mix(in srgb, #8b5cf6 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-violet-100:focus { background-color: color-mix(in srgb, #8b5cf6 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-violet-100 { background-color: color-mix(in srgb, #8b5cf6 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-violet-200 { background-color: color-mix(in srgb, #8b5cf6 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-violet-200:hover { background-color: color-mix(in srgb, #8b5cf6 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-violet-200:focus { background-color: color-mix(in srgb, #8b5cf6 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-violet-200 { background-color: color-mix(in srgb, #8b5cf6 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .border-violet-50 { border-color: color-mix(in srgb, #8b5cf6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-violet-50:hover { border-color: color-mix(in srgb, #8b5cf6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-violet-50:focus { border-color: color-mix(in srgb, #8b5cf6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-violet-50 { border-color: color-mix(in srgb, #8b5cf6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-violet-100 { border-color: color-mix(in srgb, #8b5cf6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-violet-100:hover { border-color: color-mix(in srgb, #8b5cf6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-violet-100:focus { border-color: color-mix(in srgb, #8b5cf6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-violet-100 { border-color: color-mix(in srgb, #8b5cf6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-violet-200 { border-color: color-mix(in srgb, #8b5cf6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-violet-200:hover { border-color: color-mix(in srgb, #8b5cf6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-violet-200:focus { border-color: color-mix(in srgb, #8b5cf6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-violet-200 { border-color: color-mix(in srgb, #8b5cf6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-violet-300 { border-color: color-mix(in srgb, #8b5cf6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-violet-300:hover { border-color: color-mix(in srgb, #8b5cf6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-violet-300:focus { border-color: color-mix(in srgb, #8b5cf6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-violet-300 { border-color: color-mix(in srgb, #8b5cf6 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-violet-600 { color: #c4b5fd; }
+html[data-lpc-theme="dark"] .hover\:text-violet-600:hover { color: #c4b5fd; }
+html[data-lpc-theme="dark"] .focus\:text-violet-600:focus { color: #c4b5fd; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-violet-600 { color: #c4b5fd; }
+html[data-lpc-theme="dark"] .text-violet-700 { color: #c4b5fd; }
+html[data-lpc-theme="dark"] .hover\:text-violet-700:hover { color: #c4b5fd; }
+html[data-lpc-theme="dark"] .focus\:text-violet-700:focus { color: #c4b5fd; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-violet-700 { color: #c4b5fd; }
+html[data-lpc-theme="dark"] .text-violet-800 { color: #c4b5fd; }
+html[data-lpc-theme="dark"] .hover\:text-violet-800:hover { color: #c4b5fd; }
+html[data-lpc-theme="dark"] .focus\:text-violet-800:focus { color: #c4b5fd; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-violet-800 { color: #c4b5fd; }
+html[data-lpc-theme="dark"] .text-violet-900 { color: #c4b5fd; }
+html[data-lpc-theme="dark"] .hover\:text-violet-900:hover { color: #c4b5fd; }
+html[data-lpc-theme="dark"] .focus\:text-violet-900:focus { color: #c4b5fd; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-violet-900 { color: #c4b5fd; }
+html[data-lpc-theme="dark"] .text-violet-400 { color: #a78bfa; }
+html[data-lpc-theme="dark"] .hover\:text-violet-400:hover { color: #a78bfa; }
+html[data-lpc-theme="dark"] .focus\:text-violet-400:focus { color: #a78bfa; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-violet-400 { color: #a78bfa; }
+html[data-lpc-theme="dark"] .text-violet-500 { color: #a78bfa; }
+html[data-lpc-theme="dark"] .hover\:text-violet-500:hover { color: #a78bfa; }
+html[data-lpc-theme="dark"] .focus\:text-violet-500:focus { color: #a78bfa; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-violet-500 { color: #a78bfa; }
+
+/* --- yellow ------------------------------------------------------- */
+html[data-lpc-theme="dark"] .bg-yellow-50 { background-color: color-mix(in srgb, #eab308 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-yellow-50:hover { background-color: color-mix(in srgb, #eab308 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-yellow-50:focus { background-color: color-mix(in srgb, #eab308 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-yellow-50 { background-color: color-mix(in srgb, #eab308 14%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-yellow-100 { background-color: color-mix(in srgb, #eab308 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-yellow-100:hover { background-color: color-mix(in srgb, #eab308 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-yellow-100:focus { background-color: color-mix(in srgb, #eab308 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-yellow-100 { background-color: color-mix(in srgb, #eab308 22%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .bg-yellow-200 { background-color: color-mix(in srgb, #eab308 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .hover\:bg-yellow-200:hover { background-color: color-mix(in srgb, #eab308 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .focus\:bg-yellow-200:focus { background-color: color-mix(in srgb, #eab308 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-yellow-200 { background-color: color-mix(in srgb, #eab308 30%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .border-yellow-50 { border-color: color-mix(in srgb, #eab308 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-yellow-50:hover { border-color: color-mix(in srgb, #eab308 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-yellow-50:focus { border-color: color-mix(in srgb, #eab308 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-yellow-50 { border-color: color-mix(in srgb, #eab308 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-yellow-100 { border-color: color-mix(in srgb, #eab308 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-yellow-100:hover { border-color: color-mix(in srgb, #eab308 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-yellow-100:focus { border-color: color-mix(in srgb, #eab308 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-yellow-100 { border-color: color-mix(in srgb, #eab308 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-yellow-200 { border-color: color-mix(in srgb, #eab308 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-yellow-200:hover { border-color: color-mix(in srgb, #eab308 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-yellow-200:focus { border-color: color-mix(in srgb, #eab308 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-yellow-200 { border-color: color-mix(in srgb, #eab308 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-yellow-300 { border-color: color-mix(in srgb, #eab308 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-yellow-300:hover { border-color: color-mix(in srgb, #eab308 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-yellow-300:focus { border-color: color-mix(in srgb, #eab308 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-yellow-300 { border-color: color-mix(in srgb, #eab308 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-yellow-600 { color: #fde047; }
+html[data-lpc-theme="dark"] .hover\:text-yellow-600:hover { color: #fde047; }
+html[data-lpc-theme="dark"] .focus\:text-yellow-600:focus { color: #fde047; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-yellow-600 { color: #fde047; }
+html[data-lpc-theme="dark"] .text-yellow-700 { color: #fde047; }
+html[data-lpc-theme="dark"] .hover\:text-yellow-700:hover { color: #fde047; }
+html[data-lpc-theme="dark"] .focus\:text-yellow-700:focus { color: #fde047; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-yellow-700 { color: #fde047; }
+html[data-lpc-theme="dark"] .text-yellow-800 { color: #fde047; }
+html[data-lpc-theme="dark"] .hover\:text-yellow-800:hover { color: #fde047; }
+html[data-lpc-theme="dark"] .focus\:text-yellow-800:focus { color: #fde047; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-yellow-800 { color: #fde047; }
+html[data-lpc-theme="dark"] .text-yellow-900 { color: #fde047; }
+html[data-lpc-theme="dark"] .hover\:text-yellow-900:hover { color: #fde047; }
+html[data-lpc-theme="dark"] .focus\:text-yellow-900:focus { color: #fde047; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-yellow-900 { color: #fde047; }
+html[data-lpc-theme="dark"] .text-yellow-400 { color: #facc15; }
+html[data-lpc-theme="dark"] .hover\:text-yellow-400:hover { color: #facc15; }
+html[data-lpc-theme="dark"] .focus\:text-yellow-400:focus { color: #facc15; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-yellow-400 { color: #facc15; }
+html[data-lpc-theme="dark"] .text-yellow-500 { color: #facc15; }
+html[data-lpc-theme="dark"] .hover\:text-yellow-500:hover { color: #facc15; }
+html[data-lpc-theme="dark"] .focus\:text-yellow-500:focus { color: #facc15; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-yellow-500 { color: #facc15; }
+
+
+/* ===========================================================================
+   6. Form controls
+   ---------------------------------------------------------------------------
+   @tailwindcss/forms sets background-color:#fff and border-color:#6b7280 in a
+   BASE layer, on element selectors rather than classes. A page that never
+   writes `bg-white` on its <input> still gets a white input, so remapping the
+   utility in §2 is not enough — the element rules have to be answered directly.
+   ========================================================================= */
+html[data-lpc-theme="dark"] [type="text"],
+html[data-lpc-theme="dark"] [type="email"],
+html[data-lpc-theme="dark"] [type="url"],
+html[data-lpc-theme="dark"] [type="password"],
+html[data-lpc-theme="dark"] [type="number"],
+html[data-lpc-theme="dark"] [type="date"],
+html[data-lpc-theme="dark"] [type="datetime-local"],
+html[data-lpc-theme="dark"] [type="month"],
+html[data-lpc-theme="dark"] [type="search"],
+html[data-lpc-theme="dark"] [type="tel"],
+html[data-lpc-theme="dark"] [type="time"],
+html[data-lpc-theme="dark"] [type="week"],
+html[data-lpc-theme="dark"] [multiple],
+html[data-lpc-theme="dark"] textarea,
+html[data-lpc-theme="dark"] select {
+    background-color: var(--lpc-surface-sunken);
+    border-color: var(--lpc-border-strong);
+    color: var(--lpc-ink);
+}
+html[data-lpc-theme="dark"] [type="text"]:focus,
+html[data-lpc-theme="dark"] [type="email"]:focus,
+html[data-lpc-theme="dark"] [type="url"]:focus,
+html[data-lpc-theme="dark"] [type="password"]:focus,
+html[data-lpc-theme="dark"] [type="number"]:focus,
+html[data-lpc-theme="dark"] [type="date"]:focus,
+html[data-lpc-theme="dark"] [type="datetime-local"]:focus,
+html[data-lpc-theme="dark"] [type="month"]:focus,
+html[data-lpc-theme="dark"] [type="search"]:focus,
+html[data-lpc-theme="dark"] [type="tel"]:focus,
+html[data-lpc-theme="dark"] [type="time"]:focus,
+html[data-lpc-theme="dark"] [type="week"]:focus,
+html[data-lpc-theme="dark"] [multiple]:focus,
+html[data-lpc-theme="dark"] textarea:focus,
+html[data-lpc-theme="dark"] select:focus {
+    border-color: var(--lpc-accent-on-light);
+    --tw-ring-color: var(--lpc-accent-on-light);
+}
+
+/* The forms plugin draws the <select> chevron as an inline SVG data URI with a
+   hardcoded #6b7280 stroke, baked into a background-image. It is not a colour
+   property, so nothing above reaches it — at 4.6:1 on the old white field it
+   was fine and on the dark field it is nearly gone. Redrawn here in the mute
+   ink colour. */
+html[data-lpc-theme="dark"] select:not([multiple]):not([size]) { background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236F8378' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e"); }
+
+/* Native date/time pickers render their calendar glyph as a dark bitmap. The
+   filter is the only hook browsers expose for it. color-scheme:dark (set by
+   the shell) handles the popup itself. */
+html[data-lpc-theme="dark"] ::-webkit-calendar-picker-indicator { filter: invert(1) opacity(.65); }
+
+/* Chrome's autofill paints an opaque yellow field with an inset shadow that
+   ignores background-color. The long inset shadow is the standard way to
+   repaint it, and -webkit-text-fill-color the only way to recolour its text. */
+html[data-lpc-theme="dark"] input:-webkit-autofill,
+html[data-lpc-theme="dark"] input:-webkit-autofill:hover,
+html[data-lpc-theme="dark"] input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px var(--lpc-surface-sunken) inset;
+    -webkit-text-fill-color: var(--lpc-ink);
+    caret-color: var(--lpc-ink);
+}
+
+/* ===========================================================================
+   7. Elevation
+   ---------------------------------------------------------------------------
+   Tailwind's shadows are black at 10-25% alpha: on a near-black page they are
+   invisible, so every card loses its edge and the layout goes flat. Dark UIs
+   conventionally carry elevation with a lighter surface plus a hairline rather
+   than a drop shadow, so the shadow is deepened AND a top highlight is added.
+   ========================================================================= */
+html[data-lpc-theme="dark"] .shadow-sm { --tw-shadow: 0 1px 2px rgba(0,0,0,.45); box-shadow: 0 1px 2px rgba(0,0,0,.45); }
+html[data-lpc-theme="dark"] .hover\:shadow-sm:hover { --tw-shadow: 0 1px 2px rgba(0,0,0,.45); box-shadow: 0 1px 2px rgba(0,0,0,.45); }
+html[data-lpc-theme="dark"] .focus\:shadow-sm:focus { --tw-shadow: 0 1px 2px rgba(0,0,0,.45); box-shadow: 0 1px 2px rgba(0,0,0,.45); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:shadow-sm { --tw-shadow: 0 1px 2px rgba(0,0,0,.45); box-shadow: 0 1px 2px rgba(0,0,0,.45); }
+html[data-lpc-theme="dark"] .shadow { --tw-shadow: 0 1px 3px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4); box-shadow: 0 1px 3px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4); }
+html[data-lpc-theme="dark"] .hover\:shadow:hover { --tw-shadow: 0 1px 3px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4); box-shadow: 0 1px 3px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4); }
+html[data-lpc-theme="dark"] .focus\:shadow:focus { --tw-shadow: 0 1px 3px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4); box-shadow: 0 1px 3px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:shadow { --tw-shadow: 0 1px 3px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4); box-shadow: 0 1px 3px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4); }
+html[data-lpc-theme="dark"] .shadow-md { --tw-shadow: 0 4px 8px -2px rgba(0,0,0,.55), 0 2px 4px -2px rgba(0,0,0,.45); box-shadow: 0 4px 8px -2px rgba(0,0,0,.55), 0 2px 4px -2px rgba(0,0,0,.45); }
+html[data-lpc-theme="dark"] .hover\:shadow-md:hover { --tw-shadow: 0 4px 8px -2px rgba(0,0,0,.55), 0 2px 4px -2px rgba(0,0,0,.45); box-shadow: 0 4px 8px -2px rgba(0,0,0,.55), 0 2px 4px -2px rgba(0,0,0,.45); }
+html[data-lpc-theme="dark"] .focus\:shadow-md:focus { --tw-shadow: 0 4px 8px -2px rgba(0,0,0,.55), 0 2px 4px -2px rgba(0,0,0,.45); box-shadow: 0 4px 8px -2px rgba(0,0,0,.55), 0 2px 4px -2px rgba(0,0,0,.45); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:shadow-md { --tw-shadow: 0 4px 8px -2px rgba(0,0,0,.55), 0 2px 4px -2px rgba(0,0,0,.45); box-shadow: 0 4px 8px -2px rgba(0,0,0,.55), 0 2px 4px -2px rgba(0,0,0,.45); }
+html[data-lpc-theme="dark"] .shadow-lg { --tw-shadow: 0 10px 20px -4px rgba(0,0,0,.6), 0 4px 8px -4px rgba(0,0,0,.5); box-shadow: 0 10px 20px -4px rgba(0,0,0,.6), 0 4px 8px -4px rgba(0,0,0,.5); }
+html[data-lpc-theme="dark"] .hover\:shadow-lg:hover { --tw-shadow: 0 10px 20px -4px rgba(0,0,0,.6), 0 4px 8px -4px rgba(0,0,0,.5); box-shadow: 0 10px 20px -4px rgba(0,0,0,.6), 0 4px 8px -4px rgba(0,0,0,.5); }
+html[data-lpc-theme="dark"] .focus\:shadow-lg:focus { --tw-shadow: 0 10px 20px -4px rgba(0,0,0,.6), 0 4px 8px -4px rgba(0,0,0,.5); box-shadow: 0 10px 20px -4px rgba(0,0,0,.6), 0 4px 8px -4px rgba(0,0,0,.5); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:shadow-lg { --tw-shadow: 0 10px 20px -4px rgba(0,0,0,.6), 0 4px 8px -4px rgba(0,0,0,.5); box-shadow: 0 10px 20px -4px rgba(0,0,0,.6), 0 4px 8px -4px rgba(0,0,0,.5); }
+html[data-lpc-theme="dark"] .shadow-xl { --tw-shadow: 0 20px 32px -8px rgba(0,0,0,.65), 0 8px 12px -6px rgba(0,0,0,.5); box-shadow: 0 20px 32px -8px rgba(0,0,0,.65), 0 8px 12px -6px rgba(0,0,0,.5); }
+html[data-lpc-theme="dark"] .hover\:shadow-xl:hover { --tw-shadow: 0 20px 32px -8px rgba(0,0,0,.65), 0 8px 12px -6px rgba(0,0,0,.5); box-shadow: 0 20px 32px -8px rgba(0,0,0,.65), 0 8px 12px -6px rgba(0,0,0,.5); }
+html[data-lpc-theme="dark"] .focus\:shadow-xl:focus { --tw-shadow: 0 20px 32px -8px rgba(0,0,0,.65), 0 8px 12px -6px rgba(0,0,0,.5); box-shadow: 0 20px 32px -8px rgba(0,0,0,.65), 0 8px 12px -6px rgba(0,0,0,.5); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:shadow-xl { --tw-shadow: 0 20px 32px -8px rgba(0,0,0,.65), 0 8px 12px -6px rgba(0,0,0,.5); box-shadow: 0 20px 32px -8px rgba(0,0,0,.65), 0 8px 12px -6px rgba(0,0,0,.5); }
+html[data-lpc-theme="dark"] .shadow-2xl { --tw-shadow: 0 26px 56px -12px rgba(0,0,0,.72); box-shadow: 0 26px 56px -12px rgba(0,0,0,.72); }
+html[data-lpc-theme="dark"] .hover\:shadow-2xl:hover { --tw-shadow: 0 26px 56px -12px rgba(0,0,0,.72); box-shadow: 0 26px 56px -12px rgba(0,0,0,.72); }
+html[data-lpc-theme="dark"] .focus\:shadow-2xl:focus { --tw-shadow: 0 26px 56px -12px rgba(0,0,0,.72); box-shadow: 0 26px 56px -12px rgba(0,0,0,.72); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:shadow-2xl { --tw-shadow: 0 26px 56px -12px rgba(0,0,0,.72); box-shadow: 0 26px 56px -12px rgba(0,0,0,.72); }
+
+/* ===========================================================================
+   8. Modal scrims
+   ---------------------------------------------------------------------------
+   Modals are direct children of <body>, OUTSIDE #lpc-shell-main, which is why
+   this file is not simply scoped to the workspace container. Their panels are
+   `bg-white` and are already handled by §2; the scrims are darkened further so
+   a dark modal still separates from the dark page behind it.
+   ========================================================================= */
+html[data-lpc-theme="dark"] .bg-gray-900/50 { background-color: rgba(0, 0, 0, .62); }
+html[data-lpc-theme="dark"] .hover\:bg-gray-900/50:hover { background-color: rgba(0, 0, 0, .62); }
+html[data-lpc-theme="dark"] .focus\:bg-gray-900/50:focus { background-color: rgba(0, 0, 0, .62); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-gray-900/50 { background-color: rgba(0, 0, 0, .62); }
+html[data-lpc-theme="dark"] .bg-gray-900/60 { background-color: rgba(0, 0, 0, .68); }
+html[data-lpc-theme="dark"] .hover\:bg-gray-900/60:hover { background-color: rgba(0, 0, 0, .68); }
+html[data-lpc-theme="dark"] .focus\:bg-gray-900/60:focus { background-color: rgba(0, 0, 0, .68); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-gray-900/60 { background-color: rgba(0, 0, 0, .68); }
+html[data-lpc-theme="dark"] .bg-gray-900/70 { background-color: rgba(0, 0, 0, .74); }
+html[data-lpc-theme="dark"] .hover\:bg-gray-900/70:hover { background-color: rgba(0, 0, 0, .74); }
+html[data-lpc-theme="dark"] .focus\:bg-gray-900/70:focus { background-color: rgba(0, 0, 0, .74); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-gray-900/70 { background-color: rgba(0, 0, 0, .74); }
+html[data-lpc-theme="dark"] .bg-gray-900/80 { background-color: rgba(0, 0, 0, .80); }
+html[data-lpc-theme="dark"] .hover\:bg-gray-900/80:hover { background-color: rgba(0, 0, 0, .80); }
+html[data-lpc-theme="dark"] .focus\:bg-gray-900/80:focus { background-color: rgba(0, 0, 0, .80); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-gray-900/80 { background-color: rgba(0, 0, 0, .80); }
+html[data-lpc-theme="dark"] .bg-gray-900/90 { background-color: rgba(0, 0, 0, .88); }
+html[data-lpc-theme="dark"] .hover\:bg-gray-900/90:hover { background-color: rgba(0, 0, 0, .88); }
+html[data-lpc-theme="dark"] .focus\:bg-gray-900/90:focus { background-color: rgba(0, 0, 0, .88); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-gray-900/90 { background-color: rgba(0, 0, 0, .88); }
+html[data-lpc-theme="dark"] .bg-black/50 { background-color: rgba(0, 0, 0, .62); }
+html[data-lpc-theme="dark"] .hover\:bg-black/50:hover { background-color: rgba(0, 0, 0, .62); }
+html[data-lpc-theme="dark"] .focus\:bg-black/50:focus { background-color: rgba(0, 0, 0, .62); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-black/50 { background-color: rgba(0, 0, 0, .62); }
+
+/* ===========================================================================
+   9. Chrome exclusion — the last word
+   ---------------------------------------------------------------------------
+   The green L-frame does not invert. Today it uses only text-white and
+   slash-opacity fills, none of which this file touches, so this section is
+   currently a no-op. It is here so it STAYS a no-op: the day someone drops a
+   plain `bg-white` divider into the sidebar, §2 would otherwise repaint it
+   --lpc-surface and punch a hole in the brand frame. Three extra ID-specificity
+   rules are cheaper than that bug.
+   ========================================================================= */
+html[data-lpc-theme="dark"] #lpc-sidebar .bg-white  { background-color: #fff; }
+html[data-lpc-theme="dark"] #lpc-sidebar .text-white { color: #fff; }
+html[data-lpc-theme="dark"] #lpc-sidebar [class*="border-white"] { border-color: rgba(255,255,255,.12); }
+html[data-lpc-theme="dark"] #lpc-topbar .bg-white  { background-color: #fff; }
+html[data-lpc-theme="dark"] #lpc-topbar .text-white { color: #fff; }
+html[data-lpc-theme="dark"] #lpc-topbar [class*="border-white"] { border-color: rgba(255,255,255,.12); }
+
+/* ===========================================================================
+   10. Typography plugin
+   ---------------------------------------------------------------------------
+   .prose hardcodes near-black headings and body text. The plugin ships
+   `prose-invert` for exactly this, but it has to be applied per element in the
+   markup; pointing the variables at the shell ink applies it everywhere.
+   ========================================================================= */
+html[data-lpc-theme="dark"] .prose {
+    --tw-prose-body: var(--lpc-ink-soft);
+    --tw-prose-headings: var(--lpc-ink);
+    --tw-prose-lead: var(--lpc-ink-soft);
+    --tw-prose-links: var(--lpc-accent-on-light);
+    --tw-prose-bold: var(--lpc-ink);
+    --tw-prose-counters: var(--lpc-ink-soft);
+    --tw-prose-bullets: var(--lpc-border);
+    --tw-prose-quotes: var(--lpc-ink);
+    --tw-prose-quote-borders: var(--lpc-border);
+    --tw-prose-captions: var(--lpc-ink-soft);
+    --tw-prose-code: var(--lpc-ink);
+    --tw-prose-pre-code: var(--lpc-ink-soft);
+    --tw-prose-th-borders: var(--lpc-border);
+    --tw-prose-td-borders: var(--lpc-border);
+    --tw-prose-pre-bg: var(--lpc-surface-sunken);
+}
+
+/* ===========================================================================
+   11. Media
+   ---------------------------------------------------------------------------
+   Logos and signatures in this app are dark artwork on a transparent or white
+   ground — invisible on a dark card. Rather than ship a second asset set, the
+   two known cases opt in with .lpc-invert-on-dark. Photographs and uploaded
+   documents must NOT be filtered, which is why this is opt-in by class and not
+   a blanket img rule.
+   ========================================================================= */
+html[data-lpc-theme="dark"] .lpc-invert-on-dark { filter: invert(1) hue-rotate(180deg); }
+
+/* ===========================================================================
+   12. Hand-written components in src/input.css
+   ---------------------------------------------------------------------------
+   These are not Tailwind utilities, so nothing above reaches them: they are
+   component classes compiled INTO tailwind.css from assets/css/src/input.css,
+   with literal hex values from before the theme existed.
+
+   lpc-shell.css §10.8 already fixed exactly one of them — .lpc-modal — but
+   scoped to `:has(.lpc-account)`, i.e. the account dialog only, because at the
+   time that was the only modal anyone had checked in dark mode. Every OTHER
+   .lpc-modal in the app (confirm dialogs, prompts, the whole LPC.modal API)
+   kept its #fff. The scope is widened to all of them here; the account rule in
+   the shell stays where it is and simply becomes redundant rather than wrong.
+   ========================================================================= */
+html[data-lpc-theme="dark"] .lpc-modal {
+    background: var(--lpc-surface);
+    color: var(--lpc-ink);
+}
+html[data-lpc-theme="dark"] .lpc-modal-title { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .lpc-modal-body  { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .lpc-modal-label { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .lpc-modal-input {
+    background: var(--lpc-surface-sunken);
+    border-color: var(--lpc-border-strong);
+    color: var(--lpc-ink);
+}
+html[data-lpc-theme="dark"] .lpc-modal-btn--secondary {
+    background: var(--lpc-surface-chip);
+    color: var(--lpc-ink);
+    border-color: var(--lpc-border-strong);
+}
+html[data-lpc-theme="dark"] .lpc-modal-btn--secondary:hover { background: var(--lpc-surface-well); }
+
+/* The <dialog> backdrop and the non-<dialog> fallback overlay are one visual
+   element expressed twice, so they are darkened together or the two modal code
+   paths stop matching. */
+html[data-lpc-theme="dark"] .lpc-modal-dialog::backdrop,
+html[data-lpc-theme="dark"] .lpc-modal-fallback .lpc-modal-backdrop { background: rgba(0, 0, 0, .68); }
+
+/* .seamless-input is the inline-editable table cell in sales/orders and
+   invoicing. Its hover/focus wash is #F9FAFB — a white flash on a dark row,
+   on the one control the user is actively typing into. */
+html[data-lpc-theme="dark"] .seamless-input:focus,
+html[data-lpc-theme="dark"] .seamless-input:hover { background: var(--lpc-surface-well); }
+
+/* .reconciled-row carries !important in input.css, so this has to as well.
+   The mint-green fill becomes a low-strength green tint on the row surface;
+   the 0.8 opacity that made "reconciled" read as receded on white makes it
+   read as unreadable on dark, so the receding is done with ink colour
+   instead and the opacity is dropped. */
+html[data-lpc-theme="dark"] .reconciled-row {
+    background-color: color-mix(in srgb, #10b981 16%, var(--lpc-surface)) !important;
+    color: #6ee7b7 !important;
+    opacity: 1;
+}
+
+/* .scrollbar-thin thumbs are #cbd5e1 — a light grey bar on a dark track. */
+html[data-lpc-theme="dark"] .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--lpc-surface-raised); }
+
+/* ===========================================================================
+   13. Help centre
+   ---------------------------------------------------------------------------
+   lpc-help.css is ~90% variable-driven already, which is why the help drawer
+   is nearly right in dark mode. What is left is the decorative tints its
+   author wrote as literals because no variable expressed "faint brand-green
+   wash": the section headers, the callouts and the badges. Those are the
+   patches that stay light when the drawer is opened over a dark page.
+   ========================================================================= */
+html[data-lpc-theme="dark"] .lpc-help-btn:hover,
+html[data-lpc-theme="dark"] .lpc-help-card-icon { background: color-mix(in srgb, var(--lpc-accent-on-light) 16%, var(--lpc-surface)); }
+html[data-lpc-theme="dark"] .lpc-help-row:hover { background: var(--lpc-surface-sunken); }
+html[data-lpc-theme="dark"] .lpc-help-prose code {
+    background: var(--lpc-surface-chip);
+    border-color: var(--lpc-border-strong);
+    color: var(--lpc-ink);
+}
+html[data-lpc-theme="dark"] .lpc-help-fallback {
+    background: color-mix(in srgb, #f59e0b 16%, var(--lpc-surface));
+    border-color: color-mix(in srgb, #f59e0b 45%, var(--lpc-border));
+    color: #fcd34d;
+}
+html[data-lpc-theme="dark"] .lpc-help-badge--on  { background: color-mix(in srgb, #10b981 18%, var(--lpc-surface)); color: #6ee7b7; }
+html[data-lpc-theme="dark"] .lpc-help-badge--off { background: var(--lpc-surface-chip); color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .lpc-help-badge--perm { background: color-mix(in srgb, #3b82f6 18%, var(--lpc-surface)); color: #93c5fd; }
+html[data-lpc-theme="dark"] .lpc-help-callout--note    { background: var(--lpc-surface-chip); border-color: #64748B; color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .lpc-help-callout--tip     { background: color-mix(in srgb, var(--lpc-accent-on-light) 14%, var(--lpc-surface)); color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .lpc-help-callout--warning { background: color-mix(in srgb, #f59e0b 16%, var(--lpc-surface)); border-color: #D97706; color: #fcd34d; }
+html[data-lpc-theme="dark"] .lpc-help-callout--danger  { background: color-mix(in srgb, #ef4444 16%, var(--lpc-surface)); border-color: #DC2626; color: #fca5a5; }
+
+/* The skeleton shimmer is a light-grey gradient; on a dark panel it reads as
+   content that has finished loading rather than content that is still on its
+   way, which is the one thing a skeleton must not do. */
+html[data-lpc-theme="dark"] .lpc-help-skeleton { background: linear-gradient(90deg, var(--lpc-surface-chip) 25%, var(--lpc-surface-well) 50%, var(--lpc-surface-chip) 75%); }
+
+/* Printed output is always on white paper, so the dark theme is dropped
+   wholesale for print rather than fixed rule by rule. */
+@media print {
+    html[data-lpc-theme="dark"] { color-scheme: light; }
+}

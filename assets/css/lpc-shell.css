@@ -1059,11 +1059,17 @@ html[data-lpc-accent="rose"] {
         "dark" ever need rules. That keeps this block from being duplicated
         inside a prefers-color-scheme query.
 
-        KNOWN GAP: module pages that hardcode Tailwind's `bg-white` /
-        `text-gray-900` instead of the shell variables will stay light in dark
-        mode. Those pages are being migrated to var(--lpc-surface) as they are
-        touched; the shell chrome, cards, tables, tabs and modals below are
-        already variable-driven.
+        THE KNOWN GAP IS CLOSED. This block used to end with a note that module
+        pages hardcoding Tailwind's `bg-white` / `text-gray-900` would stay light
+        in dark mode, and that they were "being migrated to var(--lpc-surface) as
+        they are touched". 1,583 of those utilities across 43 files were still
+        there, which is what made dark mode look half-applied — a dark page with
+        white cards on it.
+
+        They are now remapped onto these same variables by assets/css/lpc-theme.css,
+        which loads after this file. Nothing here changed; the workspace simply
+        no longer has holes in it. See that file's header for the reasoning, and
+        scripts/build_theme_css.py to regenerate it.
    ------------------------------------------------------------------------- */
 html[data-lpc-theme="dark"] {
     --lpc-page-bg:        #0F1512;

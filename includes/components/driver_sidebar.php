@@ -80,7 +80,10 @@ $initials = strtoupper(substr($user_name, 0, 2));
         document.onscroll = resetTimer;
 
         function logout() {
-            alert("Votre session a expiré pour cause d'inactivité (30 minutes).");
+            // Duration interpolated from the same preference that drives the
+            // timer above — the literal "30 minutes" here used to survive any
+            // change to sec_session_timeout_min and tell drivers the wrong number.
+            alert("Votre session a expiré pour cause d'inactivité (<?= (int) round(Prefs::sessionTimeoutMs() / 60000) ?> minutes).");
             window.location.href = '/api/v1/auth.php?logout=true';
         }
 

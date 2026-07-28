@@ -39,6 +39,23 @@ fi
 echo "[build-assets] building assets/css/tailwind.css..."
 npx tailwindcss -i ./assets/css/src/input.css -o ./assets/css/tailwind.css --minify
 
+# assets/css/lpc-theme.css is generated too — it is the dark-mode bridge, and it
+# encodes decisions (which utilities map to which shell variable) that are far
+# too repetitive to maintain by hand. Regenerated here so a build can never ship
+# a tailwind.css and an lpc-theme.css that disagree.
+#
+# The generator asserts that every selector it produces is scoped to
+# html[data-lpc-theme="dark"] and exits non-zero if not, so `set -e` above turns
+# a rule that would leak into light mode into a failed build rather than a
+# surprise in production.
+if command -v python3 >/dev/null 2>&1; then
+    echo "[build-assets] generating assets/css/lpc-theme.css..."
+    python3 scripts/build_theme_css.py
+else
+    echo "[build-assets] WARNING: python3 not found — assets/css/lpc-theme.css NOT regenerated."
+    echo "[build-assets]          The committed copy will be used. Install Python 3 to rebuild it."
+fi
+
 SIZE=$(wc -c < assets/css/tailwind.css)
 echo "[build-assets] done. tailwind.css = ${SIZE} bytes"
 

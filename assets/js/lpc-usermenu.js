@@ -139,8 +139,31 @@
             concrete = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
                 ? 'dark' : 'light';
         }
+        var previous = html.getAttribute('data-lpc-theme');
         html.setAttribute('data-lpc-theme', concrete);
         html.setAttribute('data-lpc-theme-pref', pref);
+
+        // Announce the change so the parts of the UI that CSS cannot reach can
+        // follow it. Right now that means <canvas> charts (lpc-chart-theme.js),
+        // which resolve their colours in JS at construction time and would
+        // otherwise keep the palette they were built with until a full reload.
+        //
+        // Fired only on an actual light<->dark transition: switching the
+        // preference from "dark" to "system" on a machine already in dark mode
+        // changes data-lpc-theme-pref but nothing visual, and repainting every
+        // chart for that would be a visible stutter for no reason.
+        if (previous !== concrete) {
+            try {
+                document.dispatchEvent(new CustomEvent('lpc:themechange', {
+                    detail: { theme: concrete, preference: pref }
+                }));
+            } catch (e) {
+                // CustomEvent constructor is unavailable on a couple of the
+                // older site tablets. Personalisation must never throw into the
+                // page, and a chart keeping its old palette until reload is a
+                // survivable outcome; a broken account menu is not.
+            }
+        }
     }
 
     function applyAccent(a)  { html.setAttribute('data-lpc-accent', a); }

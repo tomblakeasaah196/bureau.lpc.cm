@@ -16,9 +16,11 @@
  *   3. assets/css/tailwind.css                   — utilities first
  *   4. assets/css/lpc-shell.css                  — the shell LAST, so it wins
  *   4b. assets/css/lpc-help.css                  — help centre; .lpc-help-* only
+ *   4c. assets/css/lpc-theme.css                 — dark-mode bridge; dark only
  *   5. the sidebar-collapse pre-paint snippet    — before first paint, no flash
  *   6. window.LPC bootstrap payload (lang + i18n)
  *   7. lpc-dom / lpc-i18n / lpc-modal / lpc-a11y — core JS, deferred
+ *   7b. lpc-chart-theme.js                       — themes <canvas> charts
  *
  * Every local URL goes through lpc_asset() so it carries ?v=<mtime>. Do NOT add
  * bare <link href="/assets/..."> tags to pages — see includes/functions/assets.php
@@ -78,6 +80,21 @@ $__i18n_payload = function_exists('lpc_i18n_js_payload')
 <!-- Help centre. After the shell, and it only defines .lpc-help-* selectors, so
      it extends the chrome rather than competing with it. -->
 <link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-help.css') ?>">
+<!-- Dark-mode bridge. LAST, because it has to beat both Tailwind's utilities
+     and the two stylesheets above on equal specificity, and it is the only one
+     of the four that is allowed to.
+
+     Every rule inside is nested under html[data-lpc-theme="dark"], so in light
+     mode this file contributes exactly nothing — it is inert weight (12 KB
+     gzipped) and light mode renders identically with or without it. Deleting
+     this one line is the complete rollback.
+
+     It is NOT loaded conditionally on the current theme, deliberately: the
+     theme can change client-side (the account menu's Clair/Sombre toggle, and
+     the OS switching at sunset while the preference is "system"), and a
+     conditional <link> would mean the first toggle of a session repaints the
+     page against a stylesheet the browser has not fetched yet. -->
+<link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-theme.css') ?>">
 
 <?php
 // ---------------------------------------------------------------------------
@@ -139,6 +156,12 @@ $__pre = $__prof_ready ? [
 <script src="<?= lpc_asset('/assets/js/lpc-modal.js') ?>" defer></script>
 <script src="<?= lpc_asset('/assets/js/lpc-a11y.js') ?>" defer></script>
 <script src="<?= lpc_asset('/assets/js/lpc-deeplink.js') ?>" defer></script>
+<!-- CSS stops at the edge of a <canvas>, so charts are themed in JS. Deferred
+     like the rest, which puts it before every page's own deferred module script
+     in document order — so the Chart.defaults it sets are already in place when
+     those scripts construct their charts. Harmless on the ~16 pages with no
+     charts: it finds no Chart global and exits. -->
+<script src="<?= lpc_asset('/assets/js/lpc-chart-theme.js') ?>" defer></script>
 <?php
 // Auto-detect a stub tailwind.css and warn during development.
 $__css_path = __DIR__ . '/../../assets/css/tailwind.css';

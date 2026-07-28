@@ -42,6 +42,12 @@ $__nav = lpc_nav_sections($lang);
 <aside id="lpc-sidebar"
        role="navigation"
        aria-label="<?= htmlspecialchars(__t('ui.a11y.main_nav')) ?>"
+       <?php /* Hoisted for assets/js/lpc-sidebar.js, which owns the idle
+                auto-logout timer. CSP is `script-src 'self'`, so the value
+                travels as a data attribute rather than an inline <script>.
+                Source of truth is `sec_session_timeout_min` — the same
+                preference bootstrap.php enforces server-side. */ ?>
+       data-lpc-session-timeout-ms="<?= (int) Prefs::sessionTimeoutMs() ?>"
        class="fixed top-0 left-0 z-40 w-72 h-screen bg-white/5 backdrop-blur-2xl border-r border-white/10
               transform -translate-x-full lg:translate-x-0 transition-transform duration-300 flex flex-col">
 

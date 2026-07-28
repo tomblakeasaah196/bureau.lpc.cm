@@ -201,7 +201,10 @@
                     scales: {
                         y: { 
                             beginAtZero: true, 
-                            grid: { color: '#f1f5f9', drawBorder: false },
+                            // `color` dropped (was '#f1f5f9'); it comes from
+                            // Chart.defaults via lpc-chart-theme.js so it
+                            // follows the theme.
+                            grid: { drawBorder: false },
                             ticks: { font: { family: 'Inter', size: 10 }, color: '#94a3b8' }
                         },
                         x: { 

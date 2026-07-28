@@ -111,7 +111,11 @@
                             responsive: true, maintainAspectRatio: false,
                             plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } } },
                             scales: {
-                                y: { beginAtZero: true, grid: { borderDash: [4, 4], color: '#E5E7EB' } },
+                                // No `color` here on purpose: it was '#E5E7EB',
+                                // which stayed light-grey in dark mode. The grid
+                                // colour now comes from Chart.defaults, which
+                                // lpc-chart-theme.js binds to --lpc-border.
+                                y: { beginAtZero: true, grid: { borderDash: [4, 4] } },
                                 x: { grid: { display: false } }
                             }
                         }

@@ -59,8 +59,21 @@
     })();
 
     // Session inactivity auto-logout after N minutes.
+    //
+    // The duration is NOT hardcoded here. It is hoisted from
+    // `data-lpc-session-timeout-ms` on #lpc-sidebar, which sidebar.php renders
+    // from the `sec_session_timeout_min` preference (Paramètres -> Préférences
+    // -> Sécurité) — the same preference bootstrap.php enforces server-side.
+    //
+    // Before Sprint 8 this was `const LIMIT_MIN = 30`, so raising the timeout
+    // in the settings UI had no effect on admin pages: the browser logged the
+    // user out at 30 minutes regardless of what the server was willing to
+    // allow. The two must stay in step; read the attribute, never a literal.
     (function () {
-        const LIMIT_MIN = 30;
+        const sbEl     = document.getElementById('lpc-sidebar');
+        const attrMs   = sbEl ? parseInt(sbEl.getAttribute('data-lpc-session-timeout-ms'), 10) : NaN;
+        // Fallback matches Prefs FALLBACKS['sec_session_timeout_min'] (30 min).
+        const LIMIT_MS = (Number.isFinite(attrMs) && attrMs > 0) ? attrMs : 30 * 60 * 1000;
         let t;
         async function warnAndLogout() {
             if (window.LPC && LPC.modal && LPC.modal.alert) {
@@ -70,7 +83,7 @@
             }
             window.location.href = '/api/v1/auth.php?logout=true';
         }
-        function reset() { clearTimeout(t); t = setTimeout(warnAndLogout, LIMIT_MIN * 60 * 1000); }
+        function reset() { clearTimeout(t); t = setTimeout(warnAndLogout, LIMIT_MS); }
         ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'].forEach(function (ev) {
             window.addEventListener(ev, reset, { passive: true });
         });
