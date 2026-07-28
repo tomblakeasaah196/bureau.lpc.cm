@@ -531,6 +531,5 @@ $user_role = $_SESSION['user_role'];
     <div id="toast-container" class="fixed bottom-5 right-5 z-[9999] flex flex-col gap-3"></div>
 
     <script src="/assets/js/modules/fleet-vehicles.js" defer></script>
-<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

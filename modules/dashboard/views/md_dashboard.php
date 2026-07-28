@@ -111,6 +111,5 @@ $initials = strtoupper(substr($display_name, 0, 2));
 
     <script type="application/json" id="lpc-page-data"><?= json_encode(['v1' => __t('ui.r_alis'),'v2' => __t('ui.cible_mensuelle')], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
 <script src="/assets/js/modules/dashboard-md.js" defer></script>
-<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

@@ -206,6 +206,5 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 
 <script type="application/json" id="lpc-page-data"><?= json_encode(['v1' => htmlspecialchars(TaxEngine::settings()["tax_regime"] ?? "reel"),'v2' => (float) (TaxEngine::settings()["air_rate"] ?? 0.022),'v3' => (float) (TaxEngine::settings()["tva_rate"] ?? 0.1925),'v4' => (float) (TaxEngine::settings()["cit_rate"] ?? 0.33),'v5' => htmlspecialchars(TaxEngine::settings()["cnps_group"] ?? "A"),'v6' => htmlspecialchars(TaxEngine::settings()["niu"] ?? "—")], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
 <script src="/assets/js/modules/accounting-tax_declarations.js" defer></script>
-<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

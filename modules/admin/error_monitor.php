@@ -266,6 +266,5 @@ require __DIR__ . '/../../includes/components/topbar.php';
 
 <?= Rbac::jsBootstrap() ?>
 <script src="/assets/js/lpc-rbac.js" defer></script>
-<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

@@ -19,7 +19,10 @@ Do these once per page as you walk section C.
 | A4 | No page has an empty bar holding dead space, and no control floats with white space above it and no container around it | The clients.php symptom |
 | A5 | Nothing is clipped by its own container — check the widest control on the page | The md_dashboard period-selector symptom |
 | A6 | Scroll to the very bottom: content is reachable, nothing is cut off | 22 pages were `body{h-screen;overflow-hidden}`; long pages clipped |
+| A6b | **Sidebar stays put while the page scrolls** — it must not move at all, and content must start immediately under the topbar, not below the sidebar | The legacy per-role sidebars were `lg:static`; this was the post-deploy break |
+| A6c | Sidebar is the dark green rail with the LPC logo, nav grouped under headings, and a **collapse chevron** in its top-right corner | 22 pages used to render a legacy sidebar with no collapse control at all |
 | A7 | Sidebar user card + logout are visible and not overlapping at the top of the page **and** after scrolling to the bottom | Explicit requirement |
+| A7b | If the nav is taller than the viewport, **only the nav scrolls** — the logo header and the user card stay pinned | `min-height:0` on the nav flex item |
 | A8 | Collapse the sidebar (chevron, top-right of the sidebar header): sidebar → 76px icons-only, topbar + content reflow, chevron flips. Reload — state persists | `lpc-shell.js` + `localStorage` |
 | A9 | Page background is the same grey (`#F5F7FA`) as every other page — no page is white, none is `slate-50`, none is `#F3F4F6` | 6 different backgrounds before |
 | A10 | Browser console: no new errors | The tab JS toggles class names; confirm nothing was renamed out from under it |

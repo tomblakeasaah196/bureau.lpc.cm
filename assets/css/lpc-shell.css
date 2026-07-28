@@ -84,11 +84,47 @@ html.lpc-collapsed #lpc-shell-main {
 
 /* ===========================================================================
    2. Sidebar
+   ---------------------------------------------------------------------------
+   Position, size and colour are declared HERE rather than left to utility
+   classes on the <aside>. Reason: the legacy per-role sidebars carried
+   `lg:static`, which only looked right because the old <body> was
+   `display:flex`. The moment the shell moved to document flow, a statically
+   positioned sidebar dropped into block flow and pushed every page's content
+   down below it. The shell owns this now, so it cannot drift again.
    ========================================================================= */
 #lpc-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 40;
+    width: var(--lpc-sidebar-w);
     height: 100vh;
     height: 100dvh;          /* mobile browsers with a dynamic toolbar */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;        /* the nav inside is the only scrolling part */
+
+    /* Dark nav rail against the light workspace. `sidebar.php` was authored as
+       `bg-white/5` for a dark-bodied page; on the light shell that renders as
+       near-white with unreadable white text. */
+    background: #01421F;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.12);
+
     transition: width 0.18s ease, transform 0.3s ease;
+}
+/* The nav list is the only scrolling part; the header and the user card stay
+   pinned. `min-height:0` is the load-bearing bit — without it a flex item
+   refuses to shrink below its content height, so the nav grows, the user card
+   gets pushed past the bottom edge, and nothing scrolls. */
+#lpc-sidebar > .flex-1 {
+    min-height: 0;
+    overscroll-behavior: contain;
+}
+#lpc-sidebar > .flex-1::-webkit-scrollbar { width: 6px; }
+#lpc-sidebar > .flex-1::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 3px;
 }
 html.lpc-collapsed #lpc-sidebar {
     width: var(--lpc-sidebar-w-collapsed) !important;

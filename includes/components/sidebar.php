@@ -145,6 +145,18 @@ $nav = require __DIR__ . '/../config/nav.php';
 <script src="/assets/js/lpc-rbac.js"    defer></script>
 <script src="/assets/js/lpc-sidebar.js" defer></script>
 <?php
+// The collapse-to-icons toggle lives in lpc-shell.js. It used to be included
+// per-page, which meant it was present on only some pages (dead toggle on the
+// rest) and would have double-bound its click handler had a page included it
+// twice — two handlers = two toggles per click = no visible change. Loading it
+// here, from the one component that renders the toggle button, makes it exactly
+// once per page by construction. Guarded so a stray per-page tag is a no-op.
+if (!defined('LPC_SHELL_JS_EMITTED')) {
+    define('LPC_SHELL_JS_EMITTED', true);
+    echo '<script src="/assets/js/lpc-shell.js" defer></script>' . "\n";
+}
+?>
+<?php
 // Free scope-local temporaries
 unset($__parts, $__i1, $__i2, $nav, $visible, $section, $item, $label, $active, $currentPath);
 ?>

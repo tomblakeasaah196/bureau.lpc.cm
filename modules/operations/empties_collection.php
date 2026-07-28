@@ -312,6 +312,5 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
     </div>
 
     <script src="/assets/js/modules/operations-empties_collection.js" defer></script>
-<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

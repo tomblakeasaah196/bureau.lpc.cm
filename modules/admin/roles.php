@@ -135,6 +135,5 @@ require __DIR__ . '/../../includes/components/topbar.php';
 
 <script type="application/json" id="lpc-page-data"><?= json_encode(['v1' => (bool) ($canEdit),'v2' => (bool) ($canCreate),'v3' => (bool) ($canDelete),'v4' => $lang,'v5' => __t('ui.utilisateurs'),'v6' => __t('ui.tout'),'v7' => __t('ui.aucun')], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
 <script src="/assets/js/modules/admin-roles.js" defer></script>
-<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

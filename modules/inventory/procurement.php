@@ -333,6 +333,5 @@ $user_role = $_SESSION['user_role'];
 
 
     <script src="/assets/js/modules/inventory-procurement.js" defer></script>
-<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

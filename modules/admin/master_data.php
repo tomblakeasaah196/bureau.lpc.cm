@@ -71,6 +71,5 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
     </div>
 
     <script src="/assets/js/modules/admin-master_data.js?v=<?= @filemtime($_SERVER['DOCUMENT_ROOT'] . '/assets/js/modules/admin-master_data.js') ?>" defer></script>
-    <script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

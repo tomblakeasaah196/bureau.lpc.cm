@@ -112,6 +112,55 @@ a page-level `<style>` block with bespoke `.glass` / `.chip` / `.btn` rules,
 against 22 light pages. Per the user's decision these are being converted to the
 light theme.
 
+## Finding 7 — the sidebar was never actually unified (found only after deploying)
+
+**This is the finding that mattered most, and static review missed it because I
+trusted the README instead of the code.**
+
+The README stated the four role-specific sidebar files were "now thin wrappers
+around `sidebar.php`". They were not. `admin_sidebar.php` was 187 lines —
+*longer* than the canonical `sidebar.php` — and contained a complete second
+sidebar:
+
+- `id="sidebar"`, not `#lpc-sidebar`, so **none** of the shared shell CSS, and
+  none of the collapse-to-icons behaviour, ever applied to it
+- a hardcoded nav list that ignored `includes/config/nav.php` and RBAC entirely
+- its own duplicated 30-minute auto-logout using a raw `alert()`, despite
+  `assets/js/lpc-sidebar.js` already owning that properly via `LPC.modal`
+- **`lg:static`** on the `<aside>`
+
+`finance_sidebar.php` and `ops_sidebar.php` were the same file with a different
+nav list. Include counts across the 24 wired pages:
+
+| Sidebar actually rendered | Pages |
+|---|---|
+| legacy `admin_sidebar.php` | 20 |
+| legacy `finance_sidebar.php` | 1 (finance_dashboard) |
+| legacy `ops_sidebar.php` | 1 (ops_dashboard) |
+| canonical `sidebar.php` | **2** (roles, error_monitor) |
+
+So the "unified, permission-driven, collapsible sidebar" was live on 2 of 24
+pages. The collapse toggle never existed on the other 22.
+
+`lg:static` is what turned this into a visible break. On desktop the legacy
+sidebar was **statically positioned**, and it only looked correct because the old
+`<body>` was `display:flex` — it sat as a flex sibling of the content. The moment
+Finding 1's fix moved `<body>` to document flow, a static 288px-wide `<aside>`
+became a normal block: it took the full column, and `#lpc-shell-main` (with its
+`margin-left: 288px`) started *below* it. Result on almost every page: an empty
+white viewport on load, then a sidebar that scrolls away with the page, then the
+page content beginning far below the fold.
+
+Compounding it: `lpc-shell.js` — which wires the collapse button — was tagged
+per-page, present on some pages and absent on others.
+
+### Lesson
+
+Two of this fix's three root causes were things the README asserted were already
+done. Sprint 7C's own §0 rows and §5.5 conventions are written to be checkable
+against the code, and the false wrapper claim in §12 is now annotated rather than
+just corrected, so the next person doesn't repeat the cycle.
+
 ---
 
 ## Fix

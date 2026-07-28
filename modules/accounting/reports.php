@@ -330,6 +330,5 @@ $user_role = $_SESSION['user_role'];
     </div>
 
     <script src="/assets/js/modules/accounting-reports.js" defer></script>
-<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

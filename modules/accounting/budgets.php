@@ -84,7 +84,14 @@ $user_role = $_SESSION['user_role'];
             </button>
         </nav>
 
-        <main role="main" id="main" class="lpc-page lpc-page-col relative" id="report-container">
+        <!-- Two ids were declared on this element (`main` + `report-container`);
+             the duplicate was invalid HTML and the second was ignored, so
+             generateReportPDF()'s getElementById('report-container') resolved to
+             null and the PDF export threw. Same fix as analytics/reports.php:
+             the element keeps the id the JS needs, and the skip-link target
+             becomes an offscreen anchor. -->
+        <main role="main" id="report-container" class="lpc-page lpc-page-col relative">
+            <a id="main" tabindex="-1" class="lpc-sr-only">Contenu principal</a>
 
             <div id="content-dashboard" class="tab-content active flex-col h-full gap-6">
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-6 shrink-0">
@@ -406,6 +413,5 @@ $user_role = $_SESSION['user_role'];
 
 
     <script src="/assets/js/modules/accounting-budgets.js" defer></script>
-    <script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

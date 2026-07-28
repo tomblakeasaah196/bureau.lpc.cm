@@ -143,6 +143,5 @@ $initials = strtoupper(substr($display_name, 0, 2));
     </div>
 
     <script src="/assets/js/modules/dashboard-ops.js" defer></script>
-<script src="/assets/js/lpc-shell.js" defer></script>
 </body>
 </html>

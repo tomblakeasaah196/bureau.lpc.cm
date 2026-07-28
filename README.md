@@ -139,6 +139,9 @@ context that's already settled.
 | Sprint 7C | Kill the legacy `flex h-screen overflow-hidden` body model (22 pages) | Done — the shell CSS assumes document-flow with a fixed sidebar/topbar; the old full-height flex model pinned `#lpc-shell-main` to 100vh and clipped everything below the fold. |
 | Sprint 7C | Restore the 9 dead brand colour tokens | Done — `lpc.surface`, `lpc.border` and the `finance/rev/acc/pay/dash/asset/fin` accent pairs were referenced by 11 pages (and by the tab-switching JS) but never existed in the built CSS, so active-tab underlines rendered grey. Added to `tailwind.config.js`, all mapped onto the one LPC brand pair, Tailwind rebuilt. |
 | Sprint 7C | `admin/roles.php` + `admin/error_monitor.php` dark theme → shared light theme | Done — they were the only two pages on `#051A0F`; also dropped their in-page `<h1>` that duplicated the shared topbar title. |
+| Sprint 7C | **Actually unify the sidebar** — `admin/finance/ops_sidebar.php` were never wrappers | Done — they contained a full legacy sidebar (`id="sidebar"`, hardcoded nav, `lg:static`), so 22 of 24 pages were running it instead of `sidebar.php`. Now real one-line wrappers. `#lpc-sidebar` position/size/colour is declared in `lpc-shell.css` rather than left to utility classes so it can't drift again. |
+| Sprint 7C | `lpc-shell.js` loaded exactly once, from `sidebar.php` | Done — it was tagged per-page, so the collapse toggle was dead on the pages that lacked it and would have double-bound (two toggles per click = no-op) on any page that had it twice. |
+| Sprint 7C | Fix duplicate `id` on `accounting/budgets.php`'s `<main>` | Done — `id="main"` and `id="report-container"` were both declared; the second was ignored, so "Exporter Rapport" threw on a null element. |
 | Sprint 7C | Visual pass on the live site (before/after screenshots, all 24 pages) | **Todo — this is the acceptance gate.** Walk `docs/SHELL_VERIFY.md` in a browser after deploying. |
 | Ship | Final zip + `deploy.sh` | Ready — see `scripts/ship-day.md`. |
 
@@ -758,7 +761,11 @@ A: Add a new module group to `permissions.php` and a new section to `nav.php`. S
 - **`docs/archive/db_backup_lpc.sql`, `ddl_only.sql`, `error_log`** — pre-revamp artifacts kept for the audit. Excluded from the deploy zip.
 - **`includes/functions/helpers.php`** — legacy translation stub. Being replaced by a proper i18n loader in Sprint 3.
 - **`includes/classes/Auth.php`, `Accounting.php`, `includes/config/constants.php`** — empty stubs left from the original scaffolding. Safe to delete once nothing `require`s them.
-- **The 4 role-specific sidebar files** (`admin_sidebar.php`, `driver_sidebar.php`, `finance_sidebar.php`, `ops_sidebar.php`) — now thin wrappers around `sidebar.php`. Existing pages keep including them by name; new pages should include `sidebar.php` directly.
+- **The 4 role-specific sidebar files** (`admin_sidebar.php`, `driver_sidebar.php`, `finance_sidebar.php`, `ops_sidebar.php`).
+  - `admin_sidebar.php`, `finance_sidebar.php` and `ops_sidebar.php` are **genuinely** thin wrappers around `sidebar.php` as of 28 July 2026 (Sprint 7C).
+  - ⚠️ **This entry previously claimed they had been wrappers since Sprint 1. That was false, and it cost a whole debugging cycle.** Until Sprint 7C all three contained a complete second sidebar implementation — `id="sidebar"` instead of `#lpc-sidebar`, a hardcoded nav list that ignored `nav.php` and RBAC entirely, a duplicated 30-minute auto-logout script, and `lg:static`. Because 22 of the 24 shell-wired pages included one of them, the "unified sidebar" was in practice running on only 2 pages, and none of the shared `#lpc-sidebar` CSS or the collapse toggle applied to the other 22. If you are reading this file to understand the current state, verify claims against the code — that is what this line is here to remind you to do.
+  - `driver_sidebar.php` is still a standalone legacy sidebar. That's deliberate: `driver_dashboard.php` is a separate mobile-first UI outside the shell.
+  - New pages should include `sidebar.php` directly.
 
 ---
 
