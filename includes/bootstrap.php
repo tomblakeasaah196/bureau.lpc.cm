@@ -79,6 +79,11 @@ Rbac::init();
 //     translation stub that lived in includes/functions/helpers.php.
 require_once __DIR__ . '/functions/i18n.php';
 
+// Cache-busted asset URLs — lpc_asset(). Must be available to every template
+// that emits a <link> or <script>. See includes/functions/assets.php for why
+// unversioned asset paths broke production on 28 July 2026.
+require_once __DIR__ . '/functions/assets.php';
+
 // 5b. Tag the DB session with the current user id so migration 007's
 //     AFTER INSERT/UPDATE/DELETE triggers can record WHO made a change.
 //     Silently degrades if DB isn't reachable — audit rows still land with

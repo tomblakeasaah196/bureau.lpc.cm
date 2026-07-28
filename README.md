@@ -148,6 +148,10 @@ context that's already settled.
 | Sprint 7D | Page controls out of the chrome | Done — `.lpc-toolbar` is a floating branded card in the workspace, `.lpc-tabs` a floating segmented control. Page-specific controls are now forbidden in the topbar (§5.5). |
 | Sprint 7D | ⌘K / Ctrl+K command palette | Done — `includes/components/command_palette.php` + `assets/js/lpc-palette.js`. Index built server-side from `nav.php` and RBAC-filtered, so the palette can never reach a page the sidebar would hide. Scope is pages + actions; record search deferred (needs a unified search endpoint). Replaces the topbar's old fake search input, which was wired to nothing. |
 | Sprint 7D | Notifications: real panel + full page | Done — severity-sorted popover with a count badge, plus `modules/notifications/index.php` grouping alerts by severity. Both read the one existing `notifications_controller.php`, so the SQL is not duplicated. No "mark as read" by design: these are live computed conditions, not stored messages. |
+| Sprint 7D | **Cache-busted asset URLs** (`lpc_asset()`) | Done — `.htaccess` caches CSS/JS 7 days and all 54 asset URLs were unversioned, so the Sprint 7D shell deployed correctly but browsers kept the old `lpc-shell.css`; the new markup depended on it, so the app rendered as giant SVGs and bare text, and a hard refresh did not clear it. Every local CSS/JS URL now carries `?v=<mtime>` via `includes/functions/assets.php`. |
+| Sprint 7D | `head_assets.php` owns all shell CSS/JS | Done — pages no longer link stylesheets. Fixes three latent ordering bugs: `accounting/invoices.php` and `inventory/stock.php` required `head_assets` *after* their own `lpc-shell.css` link (so Tailwind loaded last and beat the shell), and `admin/error_monitor.php` never required it at all (no i18n payload, no modal system, no FontAwesome). |
+| Sprint 7D | Defensive fallbacks on the topbar | Done — Tailwind fallback classes plus hard `width`/`height` attributes on every topbar SVG. They lose to the real stylesheet on every property, so they only govern how the bar degrades if the CSS is ever missing. |
+| Sprint 7D | `verify.sh` guard against bare asset URLs | Done — the deploy now fails if any template reintroduces an unversioned `/assets/` URL. |
 | Sprint 7D | Visual pass on the redesigned shell | **Todo — acceptance gate.** Walk `docs/SHELL_VERIFY.md` after deploying. |
 | Ship | Final zip + `deploy.sh` | Ready — see `scripts/ship-day.md`. |
 
@@ -652,6 +656,32 @@ Rules:
 - **New brand colour token?** Add it to `tailwind.config.js` *and* run
   `npm run build:css`, then commit the rebuilt `assets/css/tailwind.css`. A class
   that isn't in the config renders as nothing, silently.
+- **Never hand-write a `/assets/...` URL.** Every local stylesheet and script
+  goes through `lpc_asset()` so it carries `?v=<mtime>`:
+
+  ```php
+  <link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-shell.css') ?>">
+  <script src="<?= lpc_asset('/assets/js/modules/foo.js') ?>" defer></script>
+  ```
+
+  `.htaccess` caches CSS/JS for 7 days, so a bare URL means returning browsers
+  keep the old file after a correct deploy. That is exactly what made the shell
+  redesign look catastrophically broken in production on 28 July 2026, and a hard
+  refresh did **not** clear it. `scripts/verify.sh` now fails the deploy if any
+  bare `/assets/` URL reappears.
+- **Pages do not link CSS at all.** `head_assets.php` emits fonts, FontAwesome,
+  `tailwind.css`, then `lpc-shell.css` (last, so the shell wins), the
+  sidebar-collapse pre-paint snippet, and the core JS. Include it as the final
+  line inside `<head>`, after any page-specific `<style>`:
+
+  ```php
+      <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
+      </head>
+  ```
+- **Keep the topbar's Tailwind fallbacks and the `width`/`height` attributes on
+  its SVGs.** They lose to the real stylesheet on every property, so they change
+  nothing when things are healthy — they only stop the bar rendering as
+  400px-tall icons and raw text if `lpc-shell.css` ever fails to arrive.
 
 ---
 

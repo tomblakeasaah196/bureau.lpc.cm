@@ -22,7 +22,7 @@ if ($token === '' || strlen($token) < 32 || strlen($token) > 128) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title><?= __t('ui.nouveau_mot_de_passe') ?> | Bureau LPC</title>
-<link rel="stylesheet" href="/assets/css/tailwind.css">
+<link rel="stylesheet" href="<?= lpc_asset('/assets/css/tailwind.css') ?>">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
 
@@ -83,8 +83,8 @@ body{background:#051A0F;color:#eee;min-height:100vh;font-family:Inter,sans-serif
 </div>
 
 <?= Rbac::jsBootstrap() ?>
-<script src="/assets/js/lpc-dom.js"  defer></script>
-<script src="/assets/js/lpc-rbac.js" defer></script>
-<script src="/assets/js/modules/auth-password_reset.js" defer></script>
+<script src="<?= lpc_asset('/assets/js/lpc-dom.js') ?>"  defer></script>
+<script src="<?= lpc_asset('/assets/js/lpc-rbac.js') ?>" defer></script>
+<script src="<?= lpc_asset('/assets/js/modules/auth-password_reset.js') ?>" defer></script>
 </body>
 </html>

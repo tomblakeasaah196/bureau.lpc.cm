@@ -149,6 +149,29 @@ else
     # Not a hard failure — some cPanel setups short-circuit OPTIONS via mod_security.
 fi
 
+# 5. Cache-busting guard.
+#    Every local CSS/JS URL in a template must go through lpc_asset() so it
+#    carries ?v=<mtime>. A bare /assets/... URL means returning browsers can be
+#    served a stale file for up to the 7-day Expires window set in .htaccess —
+#    which is exactly how the shell redesign of 28 July 2026 appeared broken in
+#    production after a correct deploy. See includes/functions/assets.php.
+BARE_ASSETS=$(grep -rn --include='*.php' \
+    -e 'href="/assets/css/' -e "href='/assets/css/" \
+    -e 'src="/assets/js/'   -e "src='/assets/js/" \
+    modules/ includes/ public/ index.php 2>/dev/null \
+    | grep -v 'includes/functions/assets.php' | wc -l | tr -d ' ')
+if [ "$BARE_ASSETS" = "0" ]; then
+    echo -e "  ${G}✓${N} all local css/js URLs are cache-busted via lpc_asset()"
+else
+    echo -e "  ${R}✗${N} ${BARE_ASSETS} bare /assets/ URL(s) bypass lpc_asset() — stale-cache risk:"
+    grep -rn --include='*.php' \
+        -e 'href="/assets/css/' -e "href='/assets/css/" \
+        -e 'src="/assets/js/'   -e "src='/assets/js/" \
+        modules/ includes/ public/ index.php 2>/dev/null \
+        | grep -v 'includes/functions/assets.php' | sed 's/^/      /'
+    FAIL=$((FAIL+1))
+fi
+
 echo
 if [ $FAIL -eq 0 ]; then
     echo -e "  ${G}All checks passed.${N}"

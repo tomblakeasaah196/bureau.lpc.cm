@@ -11,7 +11,6 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo __t('ui.base_clients_devis'); ?> | LPC ERP</title>
     
-    <link rel="stylesheet" href="/assets/css/tailwind.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     
     
@@ -25,9 +24,7 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 4px; }
     </style>
-    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
-    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
-    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
+<?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
 <body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
@@ -341,6 +338,6 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
         </div>
     </div>
 
-    <script src="/assets/js/modules/crm-clients.js" defer></script>
+    <script src="<?= lpc_asset('/assets/js/modules/crm-clients.js') ?>" defer></script>
 </body>
 </html>

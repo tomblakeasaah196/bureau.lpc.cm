@@ -12,14 +12,11 @@ $user_role = $_SESSION['user_role'];
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stock & Emballages | LPC ERP</title>
     
-    <link rel="stylesheet" href="/assets/css/tailwind.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
     <!-- Sprint 5: shared paginator + escape helpers. -->
-    <script src="/assets/js/lpc-dom.js"></script>
-    <script src="/assets/js/lpc-paginator.js"></script>
-    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
-    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
+    <script src="<?= lpc_asset('/assets/js/lpc-dom.js') ?>"></script>
+    <script src="<?= lpc_asset('/assets/js/lpc-paginator.js') ?>"></script>
 
     <style>
         .tab-content { display: none; }
@@ -28,7 +25,7 @@ $user_role = $_SESSION['user_role'];
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
     </style>
-    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
+<?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
 <body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
@@ -330,6 +327,6 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
-    <script src="/assets/js/modules/inventory-stock.js" defer></script>
+    <script src="<?= lpc_asset('/assets/js/modules/inventory-stock.js') ?>" defer></script>
 </body>
 </html>

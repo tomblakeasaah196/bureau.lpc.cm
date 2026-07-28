@@ -21,7 +21,7 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $lang == 'fr' ? 'Connexion' : 'Login'; ?> | Bureau LPC</title>
     
-    <link rel="stylesheet" href="/assets/css/tailwind.css">
+    <link rel="stylesheet" href="<?= lpc_asset('/assets/css/tailwind.css') ?>">
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     

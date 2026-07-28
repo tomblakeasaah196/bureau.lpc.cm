@@ -141,9 +141,13 @@ $nav = require __DIR__ . '/../config/nav.php';
 
 <!-- Bootstrap the JS RBAC helper with the current user's permission set -->
 <?= Rbac::jsBootstrap() ?>
-<script src="/assets/js/lpc-dom.js"     defer></script>
-<script src="/assets/js/lpc-rbac.js"    defer></script>
-<script src="/assets/js/lpc-sidebar.js" defer></script>
+<?php
+// lpc-dom.js is already emitted by head_assets.php — not repeated here.
+// Every URL goes through lpc_asset() so it carries ?v=<mtime>; see
+// includes/functions/assets.php for why bare asset paths are forbidden.
+?>
+<script src="<?= lpc_asset('/assets/js/lpc-rbac.js') ?>"    defer></script>
+<script src="<?= lpc_asset('/assets/js/lpc-sidebar.js') ?>" defer></script>
 <?php
 // The collapse-to-icons toggle lives in lpc-shell.js. It used to be included
 // per-page, which meant it was present on only some pages (dead toggle on the
@@ -153,7 +157,7 @@ $nav = require __DIR__ . '/../config/nav.php';
 // once per page by construction. Guarded so a stray per-page tag is a no-op.
 if (!defined('LPC_SHELL_JS_EMITTED')) {
     define('LPC_SHELL_JS_EMITTED', true);
-    echo '<script src="/assets/js/lpc-shell.js" defer></script>' . "\n";
+    echo '<script src="' . lpc_asset('/assets/js/lpc-shell.js') . '" defer></script>' . "\n";
 }
 ?>
 <?php

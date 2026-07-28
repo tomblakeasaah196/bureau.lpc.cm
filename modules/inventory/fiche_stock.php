@@ -11,7 +11,6 @@ $user_role = $_SESSION['user_role'];
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fiche de Stock | LPC ERP</title>
-    <link rel="stylesheet" href="/assets/css/tailwind.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
     <script src="/assets/vendor/chartjs/chart.umd.min.js" integrity="sha384-G436+Z2nlA8+PNoeRvWdxKbvOf8E/y+lYxqht2iBwNHTQDV5CJr3+AGVj8fGZi5t" crossorigin="anonymous"></script>
@@ -28,9 +27,7 @@ $user_role = $_SESSION['user_role'];
         .toggle-checkbox:checked { right: 0; border-color: #005A2B; }
         .toggle-checkbox:checked + .toggle-label { background-color: #005A2B; }
     </style>
-    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
-    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
-    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
+<?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
 <body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
@@ -90,6 +87,6 @@ $user_role = $_SESSION['user_role'];
         </main>
     </div>
 
-    <script src="/assets/js/modules/inventory-fiche_stock.js" defer></script>
+    <script src="<?= lpc_asset('/assets/js/modules/inventory-fiche_stock.js') ?>" defer></script>
 </body>
 </html>

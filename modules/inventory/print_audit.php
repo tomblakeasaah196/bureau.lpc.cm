@@ -50,7 +50,7 @@ try {
 <head>
     <meta charset="UTF-8">
     <title>Inventaire - <?php echo htmlspecialchars($report['reference']); ?></title>
-    <link rel="stylesheet" href="/assets/css/tailwind.css">
+    <link rel="stylesheet" href="<?= lpc_asset('/assets/css/tailwind.css') ?>">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
     
@@ -177,7 +177,7 @@ try {
     </div>
 
     <script type="application/json" id="lpc-page-data"><?= json_encode(['v1' => $report['reference']], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
-<script src="/assets/js/modules/inventory-print_audit.js" defer></script>
+<script src="<?= lpc_asset('/assets/js/modules/inventory-print_audit.js') ?>" defer></script>
 </main>
 </body>
 </html>

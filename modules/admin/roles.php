@@ -21,7 +21,6 @@ $canDelete= Rbac::hasPermission('admin.roles.delete');
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title><?= __t('ui.r_les_permissions') ?> | Bureau LPC</title>
-<link rel="stylesheet" href="/assets/css/tailwind.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
 <style>
@@ -38,9 +37,7 @@ input[type=checkbox]{accent-color:#005A2B;width:1rem;height:1rem}
 .btn-danger:hover{background:#FEE2E2}
 .btn:disabled{opacity:.45;cursor:not-allowed}
 </style>
-    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
-    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
-    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
+<?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
 <body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
@@ -134,6 +131,6 @@ require __DIR__ . '/../../includes/components/topbar.php';
 <div id="toast" class="fixed bottom-6 right-6 z-50 hidden px-4 py-3 rounded-lg text-sm font-medium"></div>
 
 <script type="application/json" id="lpc-page-data"><?= json_encode(['v1' => (bool) ($canEdit),'v2' => (bool) ($canCreate),'v3' => (bool) ($canDelete),'v4' => $lang,'v5' => __t('ui.utilisateurs'),'v6' => __t('ui.tout'),'v7' => __t('ui.aucun')], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
-<script src="/assets/js/modules/admin-roles.js" defer></script>
+<script src="<?= lpc_asset('/assets/js/modules/admin-roles.js') ?>" defer></script>
 </body>
 </html>

@@ -161,6 +161,65 @@ done. Sprint 7C's own §0 rows and §5.5 conventions are written to be checkable
 against the code, and the false wrapper claim in §12 is now annotated rather than
 just corrected, so the next person doesn't repeat the cycle.
 
+## Finding 8 — a correct deploy that the browser refused to see
+
+After the Sprint 7D redesign shipped, production rendered with a transparent
+topbar, ~400px-tall SVG icons overlapping the KPI cards, and "Rechercher
+partout… Ctrl K" / "FR EN" as unstyled text. **A hard refresh did not fix it.**
+
+Diagnosis:
+
+1. Fetching `https://bureau.lpc.cm/assets/css/lpc-shell.css` directly returned
+   the **new** file. So the deploy was fine.
+2. `.htaccess:163` — `ExpiresByType text/css "access plus 7 days"`, and the same
+   for JS.
+3. Every asset URL was unversioned: 29 hard-coded
+   `href="/assets/css/tailwind.css"` and 25 `href="/assets/css/lpc-shell.css"`.
+
+So the browser had a 7-day-cached `lpc-shell.css` and no reason to re-fetch it.
+
+The confirming detail: the screenshot showed **"Ctrl K"**. Only the new
+`lpc-palette.js` writes that string, and being a brand-new filename it had never
+been cached. New JS ran; old CSS didn't.
+
+Why it degraded catastrophically rather than merely looking dated: the previous
+topbar carried Tailwind fallbacks (`bg-white border-b border-gray-200`) and sized
+its icons with `w-4 h-4` / `w-5 h-5` on the SVGs themselves. The redesign moved
+all of that into `lpc-shell.css` for a single source of truth — correct in
+principle, but it left the markup with **no fallback at all**, so a missing
+stylesheet meant no background, no icon sizing and no control styling.
+
+Three latent bugs surfaced while fixing this, all the same fragility:
+
+| Page | Problem |
+|---|---|
+| `accounting/invoices.php` | required `head_assets.php` (which links Tailwind) at line 56, *after* its own `lpc-shell.css` at line 26 — so Tailwind loaded last and beat the shell on equal specificity |
+| `inventory/stock.php` | same inversion (shell at 22, `head_assets` at 31) |
+| `admin/error_monitor.php` | never required `head_assets.php` at all — no i18n payload, no `LPC.modal`, no FontAwesome |
+
+### Fix
+
+- `includes/functions/assets.php` — `lpc_asset()` appends `?v=<filemtime>`.
+  Deploys are file copies, so mtime moves whenever content does, and the URL
+  change obliges every cache (browser, host, edge) to re-fetch. Correctness no
+  longer depends on cache behaviour outside our control.
+- `head_assets.php` is now the only place shell CSS/JS is referenced, emitted in
+  a fixed order with `lpc-shell.css` last. All 25 pages just require it as the
+  final line of `<head>`, which makes the ordering correct by construction and
+  fixes the three bugs above.
+- The topbar regained Tailwind fallbacks and hard `width`/`height` attributes on
+  its SVGs. Presentational attributes sit below every CSS rule in the cascade and
+  the fallback classes lose to the `#lpc-topbar` ID rules, so neither can fight
+  the real stylesheet — they only decide how gracefully it degrades.
+- `scripts/verify.sh` fails the deploy if any bare `/assets/` URL reappears.
+
+### Lesson
+
+Moving styling into a single shared stylesheet removes duplication but converts
+that stylesheet into a hard dependency. If the markup has no fallback, any
+delivery failure — cache, CDN, a typo'd path — becomes total rather than
+cosmetic. Version the URL *and* keep a cheap fallback.
+
 ---
 
 ## Fix

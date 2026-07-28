@@ -21,7 +21,7 @@ $prefCode = htmlspecialchars($_SESSION['employee_code'] ?? '', ENT_QUOTES, 'UTF-
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title><?= __t('ui.s_curit_du_compte') ?> | Bureau LPC</title>
-<link rel="stylesheet" href="/assets/css/tailwind.css">
+<link rel="stylesheet" href="<?= lpc_asset('/assets/css/tailwind.css') ?>">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
 
@@ -150,8 +150,8 @@ input[type=checkbox]{accent-color:#8CC63F}
 </div>
 
 <?= Rbac::jsBootstrap() ?>
-<script src="/assets/js/lpc-dom.js"  defer></script>
-<script src="/assets/js/lpc-rbac.js" defer></script>
-<script src="/assets/js/modules/auth-password_manager.js?v=<?= @filemtime(__DIR__ . '/../../assets/js/modules/auth-password_manager.js') ?>" defer></script>
+<script src="<?= lpc_asset('/assets/js/lpc-dom.js') ?>"  defer></script>
+<script src="<?= lpc_asset('/assets/js/lpc-rbac.js') ?>" defer></script>
+<script src="<?= lpc_asset('/assets/js/modules/auth-password_manager.js') ?>" defer></script>
 </body>
 </html>

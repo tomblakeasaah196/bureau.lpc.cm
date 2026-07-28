@@ -14,7 +14,7 @@ $initials = strtoupper(substr($display_name, 0, 2));
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title><?php echo __t('ui.mes_tourn_es'); ?> | LPC ERP</title>
     
-    <link rel="stylesheet" href="/assets/css/tailwind.css">
+    <link rel="stylesheet" href="<?= lpc_asset('/assets/css/tailwind.css') ?>">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
     
@@ -207,6 +207,6 @@ $initials = strtoupper(substr($display_name, 0, 2));
     </div>
 
     <script type="application/json" id="lpc-page-data"><?= json_encode(['v1' => $lang], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
-<script src="/assets/js/modules/dashboard-driver.js" defer></script>
+<script src="<?= lpc_asset('/assets/js/modules/dashboard-driver.js') ?>" defer></script>
 </body>
 </html>

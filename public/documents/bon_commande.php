@@ -14,7 +14,7 @@ lpc_serve_document_pdf('po');
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     
-    <link rel="stylesheet" href="/assets/css/tailwind.css">
+    <link rel="stylesheet" href="<?= lpc_asset('/assets/css/tailwind.css') ?>">
     
 
     <script src="/assets/vendor/html2canvas/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
@@ -61,7 +61,7 @@ lpc_serve_document_pdf('po');
         .po-table th { border-bottom: 2px solid #1F2937; }
         .po-table td { border-bottom: 1px solid #E5E7EB; }
     </style>
-    <script src="/assets/js/lpc-dom.js"></script>
+    <script src="<?= lpc_asset('/assets/js/lpc-dom.js') ?>"></script>
     <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
 <body class="min-h-screen flex flex-col font-sans antialiased">
@@ -257,6 +257,6 @@ lpc_serve_document_pdf('po');
         </div>
     </div>
 
-    <script src="/assets/js/modules/documents-bon_commande.js" defer></script>
+    <script src="<?= lpc_asset('/assets/js/modules/documents-bon_commande.js') ?>" defer></script>
 </body>
 </html>

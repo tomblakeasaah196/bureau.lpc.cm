@@ -25,7 +25,6 @@ $user_role = $_SESSION['user_role'] ?? 'user';
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Déclarations Fiscales | LPC ERP</title>
-<link rel="stylesheet" href="/assets/css/tailwind.css">
 <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css">
 <style>
     .tab-content { display: none; }
@@ -37,9 +36,7 @@ $user_role = $_SESSION['user_role'] ?? 'user';
     .st-paid  { background: #dcfce7; color: #166534; }
     .amt { font-variant-numeric: tabular-nums; }
 </style>
-    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
-    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
-    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
+<?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
 <body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 
@@ -205,6 +202,6 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 </div>
 
 <script type="application/json" id="lpc-page-data"><?= json_encode(['v1' => htmlspecialchars(TaxEngine::settings()["tax_regime"] ?? "reel"),'v2' => (float) (TaxEngine::settings()["air_rate"] ?? 0.022),'v3' => (float) (TaxEngine::settings()["tva_rate"] ?? 0.1925),'v4' => (float) (TaxEngine::settings()["cit_rate"] ?? 0.33),'v5' => htmlspecialchars(TaxEngine::settings()["cnps_group"] ?? "A"),'v6' => htmlspecialchars(TaxEngine::settings()["niu"] ?? "—")], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
-<script src="/assets/js/modules/accounting-tax_declarations.js" defer></script>
+<script src="<?= lpc_asset('/assets/js/modules/accounting-tax_declarations.js') ?>" defer></script>
 </body>
 </html>

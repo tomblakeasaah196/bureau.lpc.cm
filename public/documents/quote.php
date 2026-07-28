@@ -14,7 +14,7 @@ lpc_serve_document_pdf('quote');
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&display=swap" rel="stylesheet">
     
-    <link rel="stylesheet" href="/assets/css/tailwind.css">
+    <link rel="stylesheet" href="<?= lpc_asset('/assets/css/tailwind.css') ?>">
     
 
     <script src="/assets/vendor/html2canvas/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
@@ -62,7 +62,7 @@ lpc_serve_document_pdf('quote');
         /* Table borders for PDF accuracy */
         .pdf-table th, .pdf-table td { border: 1px solid #E5E7EB; }
     </style>
-    <script src="/assets/js/lpc-dom.js"></script>
+    <script src="<?= lpc_asset('/assets/js/lpc-dom.js') ?>"></script>
     <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
 <body class="min-h-screen flex flex-col font-sans selection:bg-lpc-light selection:text-white">
@@ -420,6 +420,6 @@ lpc_serve_document_pdf('quote');
         </div>
     </div>
 
-    <script src="/assets/js/modules/documents-quote.js" defer></script>
+    <script src="<?= lpc_asset('/assets/js/modules/documents-quote.js') ?>" defer></script>
 </body>
 </html>

@@ -17,7 +17,7 @@ lpc_serve_document_pdf('invoice');
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
     
-    <link rel="stylesheet" href="/assets/css/tailwind.css">
+    <link rel="stylesheet" href="<?= lpc_asset('/assets/css/tailwind.css') ?>">
     
 
     <script src="/assets/vendor/html2canvas/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
@@ -75,7 +75,7 @@ lpc_serve_document_pdf('invoice');
         .status-partial { border: 2px solid #F59E0B; color: #F59E0B; background: #FFFBEB; }
         .status-unpaid { border: 2px solid #EF4444; color: #EF4444; background: #FEF2F2; }
     </style>
-    <script src="/assets/js/lpc-dom.js"></script>
+    <script src="<?= lpc_asset('/assets/js/lpc-dom.js') ?>"></script>
     <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
 <body class="min-h-screen flex flex-col font-sans antialiased">
@@ -300,6 +300,6 @@ lpc_serve_document_pdf('invoice');
         </div>
     </div>
 
-    <script src="/assets/js/modules/documents-facture.js" defer></script>
+    <script src="<?= lpc_asset('/assets/js/modules/documents-facture.js') ?>" defer></script>
 </body>
 </html>

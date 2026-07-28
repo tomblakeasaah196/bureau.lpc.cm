@@ -19,14 +19,11 @@ $initials = strtoupper(substr($display_name, 0, 2));
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo __t('ui.direction_des_op_rations'); ?> | LPC ERP</title>
     
-    <link rel="stylesheet" href="/assets/css/tailwind.css">
     <script src="/assets/vendor/chartjs/chart.umd.min.js" integrity="sha384-G436+Z2nlA8+PNoeRvWdxKbvOf8E/y+lYxqht2iBwNHTQDV5CJr3+AGVj8fGZi5t" crossorigin="anonymous"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     
     
-    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
-    <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
-    <link rel="stylesheet" href="/assets/css/lpc-shell.css">
+<?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
 <body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
@@ -142,6 +139,6 @@ $initials = strtoupper(substr($display_name, 0, 2));
         </main>
     </div>
 
-    <script src="/assets/js/modules/dashboard-ops.js" defer></script>
+    <script src="<?= lpc_asset('/assets/js/modules/dashboard-ops.js') ?>" defer></script>
 </body>
 </html>

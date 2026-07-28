@@ -130,7 +130,7 @@ $__paletteStrings = [
     ['items' => $__index, 'strings' => $__paletteStrings],
     JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
 ) ?></script>
-<script src="/assets/js/lpc-palette.js" defer></script>
+<script src="<?= lpc_asset('/assets/js/lpc-palette.js') ?>" defer></script>
 <?php
 unset($__nav, $__index, $__section, $__item, $__actions, $__a, $__plusIcon, $__paletteStrings, $sectionLabel, $en);
 ?>

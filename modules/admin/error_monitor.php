@@ -80,7 +80,6 @@ foreach ($hourly as $h) { if ($h['count'] > $hourlyMax) $hourlyMax = $h['count']
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title><?= __t('ui.journal_d_erreurs') ?> | Bureau LPC</title>
-<link rel="stylesheet" href="/assets/css/tailwind.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 .glass{background:#fff;border:1px solid #E5E7EB;box-shadow:0 1px 2px rgba(16,24,40,.04)}
@@ -104,8 +103,7 @@ foreach ($hourly as $h) { if ($h['count'] > $hourlyMax) $hourlyMax = $h['count']
 details > summary{cursor:pointer;list-style:none}
 details > summary::-webkit-details-marker{display:none}
 </style>
-<script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
-<link rel="stylesheet" href="/assets/css/lpc-shell.css">
+<?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
 <body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
@@ -262,9 +260,9 @@ require __DIR__ . '/../../includes/components/topbar.php';
 </main>
 </div>
 
-<script src="/assets/js/modules/admin-error_monitor.js" defer></script>
+<script src="<?= lpc_asset('/assets/js/modules/admin-error_monitor.js') ?>" defer></script>
 
 <?= Rbac::jsBootstrap() ?>
-<script src="/assets/js/lpc-rbac.js" defer></script>
+<script src="<?= lpc_asset('/assets/js/lpc-rbac.js') ?>" defer></script>
 </body>
 </html>
