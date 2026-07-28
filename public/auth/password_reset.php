@@ -41,7 +41,7 @@ body{background:#051A0F;color:#eee;min-height:100vh;font-family:Inter,sans-serif
 <div class="w-full max-w-md glass  id="main" role="main"rounded-3xl p-8">
     <div class="text-center mb-6">
         <h1 class="text-white text-2xl font-semibold"><?= __t('ui.nouveau_mot_de_passe') ?></h1>
-        <p class="text-lpc-light text-xs mt-2 uppercase tracking-[0.2em]">Ets. La Petite Cour</p>
+        <p class="text-lpc-light text-xs mt-2 uppercase tracking-[0.2em]"><?= htmlspecialchars(CompanyProfile::displayName()) ?></p>
     </div>
 
     <div id="alert" class="hidden mb-4 p-3 rounded-lg text-sm font-medium border" role="alert" aria-live="polite"></div>

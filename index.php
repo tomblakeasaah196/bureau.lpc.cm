@@ -77,10 +77,17 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
         <div class="text-center mb-10">
             <div class="relative inline-block mb-4">
                 <div class="absolute inset-0 bg-lpc-light rounded-full blur-md opacity-50"></div>
-                <img src="/assets/img/small_logo.svg" alt="LPC Logo" class="relative w-24 h-24 rounded-full border-2 border-white/20 shadow-xl object-cover">
+                <?php /* Sprint 8: logo, name and tagline come from company_profile
+                         (migration 034) instead of being hardcoded here. */ ?>
+                <img src="<?= htmlspecialchars(CompanyProfile::logo('mark'), ENT_QUOTES, 'UTF-8') ?>"
+                     alt="<?= htmlspecialchars(CompanyProfile::displayName(), ENT_QUOTES, 'UTF-8') ?>"
+                     class="relative w-24 h-24 rounded-full border-2 border-white/20 shadow-xl object-cover">
             </div>
-            <h1 class="text-white text-2xl font-semibold tracking-tight">Ets. La Petite Cour</h1>
-            <p class="text-lpc-light text-xs mt-2 uppercase tracking-[0.2em] font-medium">Distribution Agroalimentaire</p>
+            <h1 class="text-white text-2xl font-semibold tracking-tight"><?= htmlspecialchars(CompanyProfile::displayName()) ?></h1>
+            <?php $__tagline = CompanyProfile::erpTagline() ?: CompanyProfile::field('activity_sector', ''); ?>
+            <?php if ($__tagline !== ''): ?>
+                <p class="text-lpc-light text-xs mt-2 uppercase tracking-[0.2em] font-medium"><?= htmlspecialchars($__tagline) ?></p>
+            <?php endif; ?>
         </div>
         
         <?php if (isset($_GET['error'])): ?>
@@ -168,7 +175,7 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
         
         <div class="mt-8 text-center">
             <p class="text-[10px] text-white/30 uppercase tracking-widest">
-                © <?php echo date('Y'); ?> Ets. La Petite Cour.<br>Secured by JBS Praxis.
+                © <?php echo date('Y'); ?> <?= htmlspecialchars(CompanyProfile::displayName()) ?>.<br>Secured by JBS Praxis.
             </p>
         </div>
     </div>

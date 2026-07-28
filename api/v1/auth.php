@@ -54,9 +54,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 // 1. CSRF check — comes BEFORE any DB lookup or rate-limit consumption.
 Csrf::requireValid();
 
-// 2. Rate limit — 10 attempts per 15 minutes per IP.
-$maxAuth    = (int) env('AUTH_MAX_ATTEMPTS_PER_15MIN', 10);
-$authWindow = 15;
+// 2. Rate limit — per IP.
+//    Sprint 8: attempt count and lockout window are now the
+//    `sec_max_login_attempts` / `sec_lockout_minutes` preferences
+//    (Paramètres -> Préférences -> Sécurité). The .env value remains the
+//    fallback for environments where migration 034 has not been applied.
+$maxAuth    = Prefs::int('sec_max_login_attempts', (int) env('AUTH_MAX_ATTEMPTS_PER_15MIN', 10));
+$authWindow = Prefs::int('sec_lockout_minutes', 15);
 RateLimiter::guard('auth', $ip_address, $maxAuth, $authWindow);
 
 $employee_code = trim($_POST['employee_code'] ?? '');

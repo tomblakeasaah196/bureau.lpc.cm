@@ -79,7 +79,59 @@ $__i18n_payload = function_exists('lpc_i18n_js_payload')
      it extends the chrome rather than competing with it. -->
 <link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-help.css') ?>">
 
-<script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
+<?php
+// ---------------------------------------------------------------------------
+// Pre-paint state. Everything here MUST run before the first paint, or the user
+// sees the wrong sidebar width / wrong theme for a frame and then a jump.
+//
+// It stays inline (not a file) for exactly that reason — an external script,
+// even non-deferred, is a network round-trip the first paint would not wait
+// for on a warm cache miss.
+//
+// The per-user values are printed by PHP rather than read from localStorage,
+// so a user who logs in on a new device gets their theme immediately instead
+// of after the first save. localStorage is still consulted for the sidebar
+// rail, because that one is intentionally per-device (see lpc-shell.js) and
+// the account-level value is only the fallback for a device with no memory.
+// ---------------------------------------------------------------------------
+// isset($_SESSION) as well as the user check: a page that includes this file
+// without the bootstrap (there is one — public/documents/sign.php) has no
+// session at all, and reading $_SESSION would emit a notice into the <head>.
+$__prof_ready = false;
+if (isset($_SESSION) && !empty($_SESSION['user_id']) && is_file(__DIR__ . '/../classes/UserProfile.php')) {
+    require_once __DIR__ . '/../classes/UserProfile.php';
+    $__prof_ready = true;
+}
+$__pre = $__prof_ready ? [
+    'theme'     => UserProfile::theme(),
+    'accent'    => UserProfile::accent(),
+    'density'   => UserProfile::density(),
+    'motion'    => UserProfile::reduceMotion() ? 1 : 0,
+    'collapsed' => UserProfile::sidebarCollapsed() ? 1 : 0,
+] : ['theme' => 'system', 'accent' => 'brand', 'density' => 'comfortable', 'motion' => 0, 'collapsed' => 0];
+?>
+<script>(function(){
+  var P = <?= json_encode($__pre, JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?>;
+  var h = document.documentElement;
+  try {
+    // 'system' is resolved here, not in CSS, so the stylesheet never needs a
+    // duplicate prefers-color-scheme copy of the dark palette.
+    var theme = P.theme;
+    if (theme === 'system') {
+      theme = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    }
+    h.setAttribute('data-lpc-theme', theme);
+    h.setAttribute('data-lpc-theme-pref', P.theme);
+    h.setAttribute('data-lpc-accent', P.accent);
+    h.setAttribute('data-lpc-density', P.density);
+    if (P.motion) h.setAttribute('data-lpc-reduce-motion', '1');
+  } catch (e) { /* never let personalisation break the page */ }
+  try {
+    var stored = localStorage.getItem('lpc.sidebar.collapsed');
+    var collapsed = (stored === null) ? !!P.collapsed : (stored === 'true');
+    if (collapsed) h.classList.add('lpc-collapsed');
+  } catch (e) { if (P.collapsed) h.classList.add('lpc-collapsed'); }
+})();</script>
 
 <script type="application/json" id="lpc-bootstrap-data"><?= json_encode(['lang' => $__lang, 'i18n' => json_decode($__i18n_payload, true)], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
 <script src="<?= lpc_asset('/assets/js/lpc-dom.js') ?>" defer></script>
@@ -93,5 +145,5 @@ $__css_path = __DIR__ . '/../../assets/css/tailwind.css';
 if (is_file($__css_path) && filesize($__css_path) < 20000) {
     echo "\n<script>console.warn('[LPC] /assets/css/tailwind.css looks like the placeholder stub. Run: npm ci && npm run build:css');</script>\n";
 }
-unset($__css_path, $__lang, $__i18n_payload);
+unset($__css_path, $__lang, $__i18n_payload, $__pre, $__prof_ready);
 ?>

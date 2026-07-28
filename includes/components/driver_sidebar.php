@@ -63,11 +63,14 @@ $initials = strtoupper(substr($user_name, 0, 2));
 </aside>
 
 <script>
-    // 30-Minute Auto-Logout Logic
+    // Auto-logout on inactivity.
+    // Sprint 8: was a hardcoded 1800000 ms. Now driven by the
+    // `sec_session_timeout_min` preference (Paramètres -> Préférences ->
+    // Sécurité), so it can be tightened for drivers on shared devices without
+    // a code change. Kept in step with the server-side check in bootstrap.php.
     const inactivityTracker = function () {
         let time;
-        // 30 minutes = 30 * 60 * 1000 milliseconds
-        const timeoutLength = 1800000; 
+        const timeoutLength = <?= (int) Prefs::sessionTimeoutMs() ?>;
 
         // Reset timer on any user interaction
         window.onload = resetTimer;

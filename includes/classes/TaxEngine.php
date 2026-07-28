@@ -52,12 +52,24 @@ final class TaxEngine
         $db = Database::getInstance()->getConnection();
         $s = $db->query("SELECT * FROM company_tax_settings ORDER BY id ASC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
         if (!$s) {
-            // Sensible defaults if not seeded — régime réel, AIR 2.2%, group A.
+            // Sprint 8: these were hardcoded literals (0.33 / 0.022 / 0.1925).
+            // They now fall back to the `tax_*` preferences, which the settings
+            // UI writes and which Prefs::setMany() mirrors straight back into
+            // company_tax_settings — so this branch and the row above cannot
+            // disagree. The numeric arguments below are the last-resort
+            // statutory defaults for Cameroon, used only if BOTH the table and
+            // the preferences are unavailable.
             $s = [
-                'tax_regime' => 'reel',
-                'cit_rate'   => 0.33, 'air_rate' => 0.022, 'tva_rate' => 0.1925,
-                'tva_liable' => 1, 'cnps_group' => 'A', 'is_withholding_agent' => 0,
-                'filing_day' => 15,
+                // Régime lives on the company sheet, not in preferences —
+                // it is an attribute of the legal entity, not a setting.
+                'tax_regime'           => class_exists('CompanyProfile') ? CompanyProfile::field('fiscal_regime', 'reel') : 'reel',
+                'cit_rate'             => class_exists('Prefs') ? Prefs::rate('tax_cit_rate', 33)    : 0.33,
+                'air_rate'             => class_exists('Prefs') ? Prefs::rate('tax_air_rate', 2.2)   : 0.022,
+                'tva_rate'             => class_exists('Prefs') ? Prefs::rate('tax_tva_rate', 19.25) : 0.1925,
+                'tva_liable'           => class_exists('Prefs') ? (Prefs::bool('tax_tva_liable', true) ? 1 : 0) : 1,
+                'cnps_group'           => class_exists('Prefs') ? Prefs::str('tax_cnps_group', 'A')  : 'A',
+                'is_withholding_agent' => class_exists('Prefs') ? (Prefs::bool('tax_is_withholding_agent', false) ? 1 : 0) : 0,
+                'filing_day'           => class_exists('Prefs') ? Prefs::int('tax_filing_day', 15)   : 15,
             ];
         }
         return $s;

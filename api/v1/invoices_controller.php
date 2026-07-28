@@ -381,7 +381,9 @@ try {
             $net_payable = $total_amount - $air_amount;
 
             $hash      = strtoupper(substr(md5(uniqid(rand(), true)), 0, 4));
-            $reference = 'FAC-' . date('ym') . '-' . $hash;
+            // Sprint 8: prefix + format come from app_preferences
+            // (Paramètres -> Préférences -> Numérotation). Was 'FAC-' hardcoded.
+            $reference = Prefs::docNumber('invoice', $hash);
             $token     = bin2hex(random_bytes(16));
 
             $stmtInv = $db->prepare("

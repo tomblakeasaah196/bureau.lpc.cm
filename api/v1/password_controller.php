@@ -139,12 +139,18 @@ try {
             $base = rtrim((string) env('APP_URL', 'https://bureau.lpc.cm'), '/');
             $link = $base . '/password_reset.php?token=' . urlencode($rawToken);
 
-            $subject = 'Réinitialisation de votre mot de passe — Bureau LPC';
+            // Sprint 8: the company name and the ERP name in this email were
+            // hardcoded ("Ets. La Petite Cour", "Bureau LPC"). They now come
+            // from company_profile so a rename propagates to outbound mail too.
+            $companyName = CompanyProfile::displayName();
+            $erpName     = CompanyProfile::erpName();
+
+            $subject = "Réinitialisation de votre mot de passe — {$erpName}";
             $body    = <<<EMAIL
 Bonjour,
 
 Une demande de réinitialisation de mot de passe a été enregistrée pour votre
-compte Bureau LPC (code employé : {$code}).
+compte {$erpName} (code employé : {$code}).
 
 Pour définir un nouveau mot de passe, cliquez sur le lien ci-dessous. Ce lien
 est valide pendant 1 heure et ne peut être utilisé qu'une seule fois :
@@ -157,7 +163,7 @@ actuel reste inchangé.
 Adresse IP à l'origine de la demande : {$ip}
 
 —
-Ets. La Petite Cour
+{$companyName}
 EMAIL;
 
             Mail::send($u['email'], $subject, $body);

@@ -256,11 +256,16 @@ html.lpc-collapsed #lpc-sidebar .lpc-nav-group > ul { display: block !important;
 }
 #lpc-sidebar .lpc-nav-link[aria-current="page"] svg { color: var(--lpc-accent-on-dark); }
 
-/* User card pinned to the bottom */
+/* User card pinned to the bottom.
+   The full treatment (trigger button, menu, modals) lives in section 9 at the
+   end of this file; these two rules stay here because they are about the
+   sidebar's LAYOUT — the card is the flex child that must never scroll away. */
 #lpc-sidebar .lpc-user-card {
     flex: 0 0 auto;
-    border-top: 1px solid var(--lpc-chrome-hairline) !important;
+    position: relative;              /* anchors the pop-up menu */
+    border-top: 1px solid var(--lpc-chrome-hairline);
     background: rgba(0, 0, 0, .16);
+    padding: .625rem;
 }
 
 /* Collapsed rail */
@@ -269,8 +274,7 @@ html.lpc-collapsed #lpc-sidebar .lpc-logo-text,
 html.lpc-collapsed #lpc-sidebar .lpc-label,
 html.lpc-collapsed #lpc-sidebar .lpc-sidebar-heading,
 html.lpc-collapsed #lpc-sidebar .lpc-user-text { display: none; }
-html.lpc-collapsed #lpc-sidebar .lpc-nav-link,
-html.lpc-collapsed #lpc-sidebar .lpc-user-card { justify-content: center; }
+html.lpc-collapsed #lpc-sidebar .lpc-nav-link { justify-content: center; }
 html.lpc-collapsed #lpc-sidebar .lpc-nav-link[aria-current="page"]::before { left: -.5rem; }
 html.lpc-collapsed #lpc-sidebar [data-lpc-collapse-toggle] svg { transform: scaleX(-1); }
 
@@ -997,3 +1001,709 @@ html.lpc-collapsed #lpc-topbar { left: var(--lpc-sidebar-w-collapsed); }
     cursor: pointer;
 }
 .lpc-filter-chip button:hover { background: #003d1d; }
+
+
+/* ===========================================================================
+   10. The account menu — sidebar footer, its pop-up, and the profile modals
+   ---------------------------------------------------------------------------
+   Everything in this section is scoped to either #lpc-sidebar or a .lpc-profile
+   / .lpc-account root, so it cannot leak into a page that happens to use a
+   similar class name.
+
+   Why the personalisation variables live HERE and not in :root at the top of
+   the file: :root is the brand contract — the colours that are true for every
+   user on every install. This block is the per-user OVERRIDE layer, and
+   keeping it last means a user's accent choice wins on equal specificity
+   without a single !important.
+   ========================================================================= */
+
+/* ---------------------------------------------------------------------------
+   10.1 Accent — data-lpc-accent on <html>, printed server-side by
+        UserProfile::htmlAttrs() so it is correct in the first byte of markup.
+
+        Only two variables are redefined: --lpc-accent-on-dark (active nav rail,
+        focus rings on the chrome) and --lpc-accent-on-light (primary buttons,
+        links, chart series). Everything downstream already reads through them,
+        which is why a five-line block re-skins the whole app.
+
+        `brand` is absent on purpose — it is the :root default, so choosing it
+        means "remove the override".
+   ------------------------------------------------------------------------- */
+html[data-lpc-accent="teal"] {
+    --lpc-accent-on-dark:  #5EEAD4;
+    --lpc-accent-on-light: #0F766E;
+}
+html[data-lpc-accent="indigo"] {
+    --lpc-accent-on-dark:  #A5B4FC;
+    --lpc-accent-on-light: #4338CA;
+}
+html[data-lpc-accent="amber"] {
+    --lpc-accent-on-dark:  #FCD34D;
+    --lpc-accent-on-light: #B45309;
+}
+html[data-lpc-accent="rose"] {
+    --lpc-accent-on-dark:  #FDA4AF;
+    --lpc-accent-on-light: #BE123C;
+}
+
+/* ---------------------------------------------------------------------------
+   10.2 Theme — the WORKSPACE surface only.
+
+        The dark L-frame (sidebar + topbar) is the brand and does not invert;
+        inverting it would produce a light-on-light sidebar with no edge, which
+        is the one thing the shell's design intent forbids. What flips is the
+        light workspace those two arms wrap.
+
+        `data-lpc-theme="system"` is resolved to a concrete value by
+        lpc-usermenu.js on load (and live, on OS change), so only "light" and
+        "dark" ever need rules. That keeps this block from being duplicated
+        inside a prefers-color-scheme query.
+
+        KNOWN GAP: module pages that hardcode Tailwind's `bg-white` /
+        `text-gray-900` instead of the shell variables will stay light in dark
+        mode. Those pages are being migrated to var(--lpc-surface) as they are
+        touched; the shell chrome, cards, tables, tabs and modals below are
+        already variable-driven.
+   ------------------------------------------------------------------------- */
+html[data-lpc-theme="dark"] {
+    --lpc-page-bg:        #0F1512;
+    --lpc-surface:        #16201B;
+    --lpc-surface-sunken: #111A16;
+    --lpc-border:         #24322B;
+    --lpc-ink:            #E8EFEA;
+    --lpc-ink-soft:       #9DB0A5;
+    --lpc-ink-mute:       #6F8378;
+
+    /* The light-surface accent is tuned for white; on a dark surface it fails
+       contrast, so dark mode borrows the on-dark value. */
+    --lpc-accent-on-light: var(--lpc-accent-on-dark);
+
+    color-scheme: dark;
+}
+/* Scrollbars, form controls and the native <dialog> backdrop follow
+   color-scheme automatically once it is declared above — no extra rules. */
+
+/* ---------------------------------------------------------------------------
+   10.3 Density — compact shaves the vertical rhythm for warehouse terminals
+        and 13" laptops. It only touches spacing, never font size: shrinking
+        type is how a "compact mode" becomes an accessibility complaint.
+   ------------------------------------------------------------------------- */
+html[data-lpc-density="compact"] {
+    --lpc-gutter: 1rem;
+}
+html[data-lpc-density="compact"] #lpc-sidebar .lpc-nav-link { padding-top: .4rem; padding-bottom: .4rem; }
+html[data-lpc-density="compact"] .lpc-user-card             { padding: .45rem; }
+html[data-lpc-density="compact"] .lpc-page table td,
+html[data-lpc-density="compact"] .lpc-page table th         { padding-top: .35rem; padding-bottom: .35rem; }
+
+/* ---------------------------------------------------------------------------
+   10.4 Reduce motion — the user's explicit choice, on top of the OS setting.
+        Both are honoured; neither overrides the other. 0.01ms rather than 0s
+        because a true zero duration skips transitionend, and two of the
+        shell's scripts wait on it.
+   ------------------------------------------------------------------------- */
+html[data-lpc-reduce-motion="1"] *,
+html[data-lpc-reduce-motion="1"] *::before,
+html[data-lpc-reduce-motion="1"] *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+}
+
+/* ---------------------------------------------------------------------------
+   10.5 The trigger button
+   ------------------------------------------------------------------------- */
+#lpc-sidebar .lpc-user-trigger {
+    display: flex;
+    align-items: center;
+    gap: .625rem;
+    width: 100%;
+    padding: .5rem;
+    border: 0;
+    border-radius: var(--lpc-radius-sm, .5rem);
+    background: transparent;
+    color: var(--lpc-chrome-ink);
+    text-align: left;
+    cursor: pointer;
+    transition: background-color .14s ease;
+}
+#lpc-sidebar .lpc-user-trigger:hover      { background: var(--lpc-chrome-fill); }
+#lpc-sidebar .lpc-user-trigger[aria-expanded="true"] { background: var(--lpc-chrome-fill-hi); }
+
+#lpc-sidebar .lpc-user-avatar {
+    position: relative;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .12);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--lpc-accent-on-dark) 45%, transparent);
+    overflow: visible;
+}
+#lpc-sidebar .lpc-user-avatar img {
+    width: 100%;
+    height: 100%;
+    border-radius: 999px;
+    object-fit: cover;
+}
+#lpc-sidebar .lpc-user-avatar--lg { width: 2.75rem; height: 2.75rem; }
+#lpc-sidebar .lpc-user-initials {
+    font-size: .8125rem;
+    font-weight: 700;
+    letter-spacing: .02em;
+    color: var(--lpc-chrome-ink);
+}
+
+/* Presence dot. Sits outside the avatar's rounding, so the avatar keeps
+   overflow: visible and the image gets its own border-radius instead. */
+#lpc-sidebar .lpc-user-presence {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    width: .6875rem;
+    height: .6875rem;
+    border-radius: 999px;
+    background: #22C55E;
+    box-shadow: 0 0 0 2px var(--lpc-chrome-bottom);
+}
+#lpc-sidebar .lpc-user-presence[data-lpc-presence="away"]    { background: #F59E0B; }
+#lpc-sidebar .lpc-user-presence[data-lpc-presence="offline"] { background: #94A3B8; }
+
+#lpc-sidebar .lpc-user-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1 1 auto;
+    line-height: 1.25;
+}
+#lpc-sidebar .lpc-user-name {
+    font-size: .8125rem;
+    font-weight: 600;
+    color: var(--lpc-chrome-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#lpc-sidebar .lpc-user-role {
+    font-size: .625rem;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: var(--lpc-chrome-ink-soft);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#lpc-sidebar .lpc-user-chevron {
+    flex: 0 0 auto;
+    color: var(--lpc-chrome-ink-mute);
+    transition: transform .16s ease, color .16s ease;
+}
+#lpc-sidebar .lpc-user-trigger[aria-expanded="true"] .lpc-user-chevron {
+    transform: rotate(180deg);
+    color: var(--lpc-chrome-ink);
+}
+
+/* ---------------------------------------------------------------------------
+   10.6 The pop-up menu
+
+        Opens UPWARD (bottom: 100%) because the trigger is pinned to the bottom
+        of the viewport — a downward menu would be clipped by the window on
+        every screen. Anchored to .lpc-user-card, which is position: relative.
+   ------------------------------------------------------------------------- */
+#lpc-sidebar .lpc-user-menu {
+    position: absolute;
+    bottom: calc(100% - .25rem);
+    left: .625rem;
+    right: .625rem;
+    z-index: 50;
+
+    border-radius: .75rem;
+    border: 1px solid var(--lpc-chrome-hairline);
+    background: color-mix(in srgb, var(--lpc-chrome-top) 92%, black);
+    box-shadow: 0 18px 40px -12px rgba(0, 0, 0, .65);
+    overflow: hidden;
+
+    transform-origin: bottom center;
+    animation: lpc-user-menu-in .14s ease-out;
+}
+#lpc-sidebar .lpc-user-menu[hidden] { display: none; }
+
+@keyframes lpc-user-menu-in {
+    from { opacity: 0; transform: translateY(6px) scale(.98); }
+    to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+#lpc-sidebar .lpc-user-menu-head {
+    display: flex;
+    align-items: center;
+    gap: .625rem;
+    padding: .75rem;
+    border-bottom: 1px solid var(--lpc-chrome-hairline);
+    background: rgba(255, 255, 255, .03);
+}
+#lpc-sidebar .lpc-user-menu-id   { display: flex; flex-direction: column; min-width: 0; }
+#lpc-sidebar .lpc-user-menu-name {
+    font-size: .8125rem;
+    font-weight: 600;
+    color: var(--lpc-chrome-ink);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#lpc-sidebar .lpc-user-menu-meta {
+    font-size: .6875rem;
+    color: var(--lpc-chrome-ink-soft);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+#lpc-sidebar .lpc-user-menu-items { padding: .375rem; }
+
+#lpc-sidebar .lpc-user-menu-item {
+    display: flex;
+    align-items: center;
+    gap: .625rem;
+    width: 100%;
+    padding: .5rem .625rem;
+    border: 0;
+    border-radius: .5rem;
+    background: transparent;
+    color: var(--lpc-chrome-ink-soft);
+    font-size: .8125rem;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color .12s ease, color .12s ease;
+}
+#lpc-sidebar .lpc-user-menu-item svg { width: 1.05rem; height: 1.05rem; flex: 0 0 auto; }
+#lpc-sidebar .lpc-user-menu-item:hover,
+#lpc-sidebar .lpc-user-menu-item:focus-visible {
+    background: var(--lpc-chrome-fill);
+    color: var(--lpc-chrome-ink);
+    outline: none;
+}
+/* Keyboard roving focus — lpc-usermenu.js moves this attribute with the arrow
+   keys. Styled identically to :hover so the two never disagree visually. */
+#lpc-sidebar .lpc-user-menu-item[data-lpc-active="true"] {
+    background: var(--lpc-chrome-fill);
+    color: var(--lpc-chrome-ink);
+}
+#lpc-sidebar .lpc-user-menu-item--danger:hover,
+#lpc-sidebar .lpc-user-menu-item--danger[data-lpc-active="true"] {
+    background: rgba(220, 38, 38, .18);
+    color: #FCA5A5;
+}
+
+#lpc-sidebar .lpc-user-menu-sep {
+    height: 1px;
+    margin: .375rem .25rem;
+    background: var(--lpc-chrome-hairline);
+}
+
+/* Quick strip */
+#lpc-sidebar .lpc-user-menu-quick {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    padding: .5rem .625rem .625rem;
+    border-top: 1px solid var(--lpc-chrome-hairline);
+}
+#lpc-sidebar .lpc-quick-group {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .08);
+}
+#lpc-sidebar .lpc-quick-btn {
+    display: inline-grid;
+    place-items: center;
+    min-width: 1.75rem;
+    height: 1.5rem;
+    padding: 0 .4rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--lpc-chrome-ink-soft);
+    font-size: .625rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    cursor: pointer;
+    transition: background-color .12s ease, color .12s ease;
+}
+#lpc-sidebar .lpc-quick-btn svg { width: .875rem; height: .875rem; }
+#lpc-sidebar .lpc-quick-btn:hover { color: var(--lpc-chrome-ink); }
+#lpc-sidebar .lpc-quick-btn[aria-pressed="true"] {
+    background: var(--lpc-accent-on-dark);
+    color: var(--lpc-chrome-top);
+}
+
+/* ---------------------------------------------------------------------------
+   10.7 Collapsed rail — avatar only, menu flies out to the right.
+
+        The menu is repositioned rather than re-rendered: same DOM, same
+        script, one CSS rule. left: calc(100% + .5rem) puts it clear of the
+        rail; the fixed width stops it inheriting the 4.5rem rail width and
+        rendering as an unreadable column.
+   ------------------------------------------------------------------------- */
+html.lpc-collapsed #lpc-sidebar .lpc-user-trigger { justify-content: center; padding: .375rem; }
+html.lpc-collapsed #lpc-sidebar .lpc-user-chevron { display: none; }
+html.lpc-collapsed #lpc-sidebar .lpc-user-menu {
+    bottom: .25rem;
+    left: calc(100% + .5rem);
+    right: auto;
+    width: 15rem;
+    transform-origin: bottom left;
+}
+
+/* ---------------------------------------------------------------------------
+   10.8 The profile / password modals
+
+        These render inside LPC.modal.custom's <dialog>, so the base sizing,
+        backdrop, focus trap and Escape handling come free from lpc-modal.js.
+        What is added here is a wider shell and the form furniture, all on
+        workspace variables so the modals follow the light/dark choice.
+   ------------------------------------------------------------------------- */
+.lpc-modal--wide { width: min(46rem, calc(100vw - 2rem)) !important; max-width: none !important; }
+.lpc-modal--wide .lpc-modal-body { max-height: min(70vh, 40rem); overflow-y: auto; }
+
+.lpc-account { color: var(--lpc-ink); }
+
+/* Tabs inside the profile modal */
+.lpc-account-tabs {
+    display: flex;
+    gap: .25rem;
+    padding: .25rem;
+    margin-bottom: 1rem;
+    border-radius: 999px;
+    background: var(--lpc-surface-sunken);
+    border: 1px solid var(--lpc-border);
+}
+.lpc-account-tab {
+    flex: 1 1 0;
+    padding: .4rem .5rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--lpc-ink-soft);
+    font-size: .8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color .12s ease, color .12s ease;
+}
+.lpc-account-tab:hover { color: var(--lpc-ink); }
+.lpc-account-tab[aria-selected="true"] {
+    background: var(--lpc-surface);
+    color: var(--lpc-accent-on-light);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
+}
+.lpc-account-panel[hidden] { display: none; }
+
+/* Avatar editor */
+.lpc-account-hero {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid var(--lpc-border);
+    border-radius: .75rem;
+    background: var(--lpc-surface-sunken);
+}
+.lpc-account-avatar {
+    position: relative;
+    flex: 0 0 auto;
+    width: 5rem;
+    height: 5rem;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--lpc-accent-on-light) 14%, transparent);
+    color: var(--lpc-accent-on-light);
+    font-size: 1.5rem;
+    font-weight: 700;
+    cursor: pointer;
+    border: 2px dashed transparent;
+    transition: border-color .12s ease;
+}
+.lpc-account-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.lpc-account-avatar:hover,
+.lpc-account-avatar.is-dragover { border-color: var(--lpc-accent-on-light); }
+.lpc-account-avatar-overlay {
+    position: absolute;
+    inset: auto 0 0 0;
+    padding: .2rem 0;
+    background: rgba(0, 0, 0, .55);
+    color: #fff;
+    font-size: .5625rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    text-align: center;
+}
+.lpc-account-hero-text { min-width: 0; }
+.lpc-account-hero-name { font-size: 1rem; font-weight: 700; }
+.lpc-account-hero-sub  { font-size: .8125rem; color: var(--lpc-ink-soft); }
+.lpc-account-hero-actions { display: flex; gap: .5rem; margin-top: .5rem; flex-wrap: wrap; }
+
+/* Form furniture */
+.lpc-account-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .875rem;
+}
+.lpc-account-grid > .lpc-account-field--full { grid-column: 1 / -1; }
+@media (max-width: 40rem) {
+    .lpc-account-grid { grid-template-columns: minmax(0, 1fr); }
+}
+.lpc-account-field { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+.lpc-account-label {
+    font-size: .6875rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--lpc-ink-soft);
+}
+.lpc-account-input,
+.lpc-account-select,
+.lpc-account-textarea {
+    width: 100%;
+    padding: .55rem .7rem;
+    border: 1px solid var(--lpc-border);
+    border-radius: .5rem;
+    background: var(--lpc-surface);
+    color: var(--lpc-ink);
+    font-size: .875rem;
+    font-family: inherit;
+}
+.lpc-account-textarea { resize: vertical; min-height: 4.5rem; }
+.lpc-account-input:focus,
+.lpc-account-select:focus,
+.lpc-account-textarea:focus {
+    outline: 2px solid color-mix(in srgb, var(--lpc-accent-on-light) 45%, transparent);
+    outline-offset: 1px;
+    border-color: var(--lpc-accent-on-light);
+}
+.lpc-account-input[readonly] { background: var(--lpc-surface-sunken); color: var(--lpc-ink-soft); }
+.lpc-account-hint  { font-size: .75rem; color: var(--lpc-ink-mute); }
+.lpc-account-count { font-size: .6875rem; color: var(--lpc-ink-mute); text-align: right; }
+
+/* Segmented option rows — theme, density, accent */
+.lpc-account-seg { display: flex; gap: .375rem; flex-wrap: wrap; }
+.lpc-account-seg-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .375rem;
+    padding: .45rem .7rem;
+    border: 1px solid var(--lpc-border);
+    border-radius: .5rem;
+    background: var(--lpc-surface);
+    color: var(--lpc-ink-soft);
+    font-size: .8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color .12s ease, color .12s ease, background-color .12s ease;
+}
+.lpc-account-seg-btn svg { width: 1rem; height: 1rem; }
+.lpc-account-seg-btn:hover { color: var(--lpc-ink); }
+.lpc-account-seg-btn[aria-pressed="true"] {
+    border-color: var(--lpc-accent-on-light);
+    color: var(--lpc-accent-on-light);
+    background: color-mix(in srgb, var(--lpc-accent-on-light) 10%, transparent);
+}
+
+/* Accent swatches — the colour IS the label, so each carries an aria-label
+   and a checkmark rather than text. */
+.lpc-account-swatches { display: flex; gap: .5rem; flex-wrap: wrap; }
+.lpc-account-swatch {
+    position: relative;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    box-shadow: inset 0 0 0 2px var(--lpc-surface);
+    cursor: pointer;
+    padding: 0;
+}
+.lpc-account-swatch[aria-pressed="true"] { border-color: var(--lpc-ink); }
+.lpc-account-swatch[data-accent="brand"]  { background: #005A2B; }
+.lpc-account-swatch[data-accent="teal"]   { background: #0F766E; }
+.lpc-account-swatch[data-accent="indigo"] { background: #4338CA; }
+.lpc-account-swatch[data-accent="amber"]  { background: #B45309; }
+.lpc-account-swatch[data-accent="rose"]   { background: #BE123C; }
+
+/* Toggle rows */
+.lpc-account-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: .7rem .85rem;
+    border: 1px solid var(--lpc-border);
+    border-radius: .625rem;
+    background: var(--lpc-surface);
+}
+.lpc-account-toggle + .lpc-account-toggle { margin-top: .5rem; }
+.lpc-account-toggle-copy { min-width: 0; }
+.lpc-account-toggle-title { font-size: .875rem; font-weight: 600; }
+.lpc-account-toggle-sub   { font-size: .75rem; color: var(--lpc-ink-soft); }
+.lpc-account-switch {
+    flex: 0 0 auto;
+    width: 2.5rem;
+    height: 1.4rem;
+    border-radius: 999px;
+    border: 0;
+    padding: 0;
+    background: var(--lpc-border);
+    position: relative;
+    cursor: pointer;
+    transition: background-color .14s ease;
+}
+.lpc-account-switch::after {
+    content: "";
+    position: absolute;
+    top: .175rem;
+    left: .175rem;
+    width: 1.05rem;
+    height: 1.05rem;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+    transition: transform .14s ease;
+}
+.lpc-account-switch[aria-checked="true"] { background: var(--lpc-accent-on-light); }
+.lpc-account-switch[aria-checked="true"]::after { transform: translateX(1.1rem); }
+
+/* Security panel */
+.lpc-account-facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: .5rem;
+    margin-bottom: 1rem;
+}
+.lpc-account-fact {
+    padding: .625rem .75rem;
+    border: 1px solid var(--lpc-border);
+    border-radius: .625rem;
+    background: var(--lpc-surface-sunken);
+}
+.lpc-account-fact-k {
+    font-size: .625rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--lpc-ink-mute);
+}
+.lpc-account-fact-v { font-size: .875rem; font-weight: 600; margin-top: .15rem; }
+
+.lpc-account-sessions { display: flex; flex-direction: column; gap: .375rem; }
+.lpc-account-session {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: .55rem .75rem;
+    border: 1px solid var(--lpc-border);
+    border-radius: .5rem;
+    font-size: .8125rem;
+}
+.lpc-account-session-meta { color: var(--lpc-ink-soft); font-size: .75rem; }
+.lpc-account-badge {
+    padding: .1rem .45rem;
+    border-radius: 999px;
+    font-size: .625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    background: color-mix(in srgb, var(--lpc-accent-on-light) 15%, transparent);
+    color: var(--lpc-accent-on-light);
+}
+
+/* Section headings inside a panel */
+.lpc-account-section-title {
+    font-size: .6875rem;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--lpc-ink-mute);
+    margin: 1.25rem 0 .5rem;
+}
+.lpc-account-panel > .lpc-account-section-title:first-child { margin-top: 0; }
+
+/* Inline status line — replaces a toast, so the message appears where the
+   user's eyes already are (next to the button they just pressed). */
+.lpc-account-status {
+    min-height: 1.1rem;
+    font-size: .8125rem;
+    font-weight: 600;
+}
+.lpc-account-status--ok   { color: #059669; }
+.lpc-account-status--err  { color: #DC2626; }
+.lpc-account-status--busy { color: var(--lpc-ink-soft); }
+
+/* Password strength meter */
+.lpc-account-meter {
+    display: flex;
+    gap: .25rem;
+    margin-top: .35rem;
+}
+.lpc-account-meter span {
+    flex: 1 1 0;
+    height: .3rem;
+    border-radius: 999px;
+    background: var(--lpc-border);
+    transition: background-color .14s ease;
+}
+.lpc-account-meter[data-score="1"] span:nth-child(-n+1) { background: #DC2626; }
+.lpc-account-meter[data-score="2"] span:nth-child(-n+2) { background: #F59E0B; }
+.lpc-account-meter[data-score="3"] span:nth-child(-n+3) { background: #EAB308; }
+.lpc-account-meter[data-score="4"] span:nth-child(-n+4) { background: #059669; }
+
+/* Requirement checklist under the new-password field */
+.lpc-account-rules { list-style: none; margin: .5rem 0 0; padding: 0; display: grid; gap: .2rem; }
+.lpc-account-rules li {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    font-size: .75rem;
+    color: var(--lpc-ink-mute);
+}
+.lpc-account-rules li::before { content: "○"; font-size: .7rem; }
+.lpc-account-rules li[data-ok="true"] { color: #059669; }
+.lpc-account-rules li[data-ok="true"]::before { content: "●"; }
+
+/* Buttons reused across both modals */
+.lpc-account-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .45rem .8rem;
+    border-radius: .5rem;
+    border: 1px solid var(--lpc-border);
+    background: var(--lpc-surface);
+    color: var(--lpc-ink);
+    font-size: .8125rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.lpc-account-btn:hover { background: var(--lpc-surface-sunken); }
+.lpc-account-btn--primary {
+    border-color: var(--lpc-accent-on-light);
+    background: var(--lpc-accent-on-light);
+    color: #fff;
+}
+.lpc-account-btn--primary:hover { filter: brightness(1.08); }
+.lpc-account-btn--danger { border-color: #DC2626; color: #DC2626; }
+.lpc-account-btn--danger:hover { background: rgba(220, 38, 38, .08); }
+.lpc-account-btn[disabled] { opacity: .55; cursor: not-allowed; }
+
+/* PIN entry — one box per digit would need six inputs and a paste handler;
+   a single input with wide letter-spacing reads the same and pastes correctly. */
+.lpc-account-pin {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 1.25rem;
+    letter-spacing: .5em;
+    text-align: center;
+}

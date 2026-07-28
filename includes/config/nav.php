@@ -115,7 +115,12 @@ $CATALOGUE = [
   'analytics'      => ['href'=>'/modules/analytics/reports.php',                 'icon'=>$I['chart'],     'permission'=>'analytics.reports.view',       'label_fr'=>'Rapports Consolidés',     'label_en'=>'Consolidated Reports'],
 
   'admin_mdm'      => ['href'=>'/modules/admin/master_data.php',                 'icon'=>$I['building'],  'permission'=>'admin.master_data.view',       'label_fr'=>'Données de Base (GDB)',   'label_en'=>'Master Data'],
-  'admin_roles'    => ['href'=>'/modules/admin/roles.php',                       'icon'=>$I['shield'],    'permission'=>'admin.roles.view',             'label_fr'=>'Rôles & Permissions',     'label_en'=>'Roles & Permissions'],
+  // Sprint 8: points at the Settings module's RBAC tab, not the old standalone
+  // page. modules/admin/roles.php still exists but only 302s here — two UIs
+  // over one API (api/v1/rbac_controller.php) was the duplication that left the
+  // settings tab blank. Deep-links straight to the tab.
+  'admin_roles'    => ['href'=>'/modules/settings/index.php?tab=roles',          'icon'=>$I['shield'],    'permission'=>'admin.roles.view',             'label_fr'=>'Rôles & Permissions',     'label_en'=>'Roles & Permissions'],
+  'admin_company'  => ['href'=>'/modules/settings/index.php?tab=company',        'icon'=>$I['building'],  'permission'=>'admin.settings.view',          'label_fr'=>"Identité de l'Entreprise",'label_en'=>'Company Identity'],
   'admin_errors'   => ['href'=>'/modules/admin/error_monitor.php',               'icon'=>$I['signal'],    'permission'=>'admin.errors.view',            'label_fr'=>"Journal d'Erreurs",       'label_en'=>'Error Monitor'],
   'admin_settings' => ['href'=>'/modules/settings/index.php',                    'icon'=>$I['cog'],       'permission'=>'admin.settings.view',          'label_fr'=>'Paramètres',              'label_en'=>'Settings'],
   // The help EDITOR only. The help centre itself is reached from the "?" in the
@@ -169,6 +174,7 @@ $PROFILES = [
     ['heading_fr'=>'Administration & RH', 'heading_en'=>'Administration & HR', 'items'=>[
       ['ref'=>'hr_payroll',     'label_fr'=>'Gestion du Personnel',     'label_en'=>'Staff Management'],
       ['ref'=>'admin_mdm',      'label_fr'=>'Données de Base',          'label_en'=>'Master Data'],
+      ['ref'=>'admin_company',  'label_fr'=>"Identité de l'Entreprise", 'label_en'=>'Company Identity'],
       ['ref'=>'admin_settings', 'label_fr'=>'Paramètres Système & Audit','label_en'=>'System Settings & Audit'],
       ['ref'=>'admin_roles',    'label_fr'=>'Rôles & Permissions',      'label_en'=>'Roles & Permissions'],
       ['ref'=>'admin_errors',   'label_fr'=>"Journal d'Erreurs",        'label_en'=>'Error Monitor'],

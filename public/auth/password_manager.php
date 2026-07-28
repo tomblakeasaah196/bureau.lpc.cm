@@ -46,7 +46,7 @@ input[type=checkbox]{accent-color:#8CC63F}
 
     <div class="text-center mb-6">
         <h1 class="text-white text-2xl font-semibold"><?= __t('ui.s_curit_du_compte') ?></h1>
-        <p class="text-lpc-light text-xs mt-2 uppercase tracking-[0.2em] font-medium">Ets. La Petite Cour</p>
+        <p class="text-lpc-light text-xs mt-2 uppercase tracking-[0.2em] font-medium"><?= htmlspecialchars(CompanyProfile::displayName()) ?></p>
     </div>
 
     <?php if ($forced): ?>

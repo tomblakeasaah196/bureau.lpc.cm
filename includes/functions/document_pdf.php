@@ -328,6 +328,28 @@ function lpc_render_document_html(string $type, array $doc): string
     $title = ($title_map[$type] ?? 'Document') . ' — ' . ($doc['reference'] ?? '');
     $token = (string)($_GET['token'] ?? '');
 
+    // -------------------------------------------------------------------------
+    // Sprint 8 — letterhead from company_profile (migration 034).
+    //
+    // This block used to be three hardcoded lines inside the template:
+    //     "Ets. La Petite Cour"
+    //     "NIU M12200000000L"
+    //     "Tél. +237 6XX XX XX XX"   <- a placeholder, on real customer invoices
+    // none of which agreed with company_tax_settings ('Bureau LPC SARL',
+    // NIU 'P000000000000') or the proposal template ('La Petite Cour').
+    // All three now read from one row, editable at
+    // Administration → Paramètres → Entreprise.
+    //
+    // The brand colours are interpolated into the stylesheet below, so changing
+    // the primary colour in Settings restyles every document.
+    // -------------------------------------------------------------------------
+    $lh      = CompanyProfile::letterhead('fr');
+    $brand   = $lh['color'];   // validated as #RRGGBB on save
+    $accent  = $lh['accent'];
+    // dompdf cannot resolve web-root-relative URLs, so the logo needs a real
+    // filesystem path. '' means no readable file -> the <img> is skipped.
+    $lhLogo  = CompanyProfile::logoFsPath('document');
+
     // Inline template — dompdf handles this fine and it stays in one place.
     ?>
     <!DOCTYPE html>
@@ -335,13 +357,13 @@ function lpc_render_document_html(string $type, array $doc): string
     <style>
         @page { margin: 0; }
         body { font-family: 'DejaVu Sans', sans-serif; font-size: 10pt; color: #1F2937; margin: 15mm 12mm 20mm 12mm; }
-        h1 { font-size: 20pt; margin: 0 0 4pt 0; color: #005A2B; }
-        h2 { font-size: 12pt; margin: 12pt 0 6pt 0; color: #005A2B; border-bottom: 1px solid #005A2B; padding-bottom: 2pt; }
+        h1 { font-size: 20pt; margin: 0 0 4pt 0; color: <?= $brand ?>; }
+        h2 { font-size: 12pt; margin: 12pt 0 6pt 0; color: <?= $brand ?>; border-bottom: 1px solid <?= $brand ?>; padding-bottom: 2pt; }
         table { width: 100%; border-collapse: collapse; }
         .header-table td { vertical-align: top; }
         .header-table .logo-cell { width: 65%; }
         .header-table .meta-cell { text-align: right; font-size: 9pt; color: #4B5563; }
-        .items-table th { background: #005A2B; color: white; font-weight: bold; padding: 6pt 4pt; text-align: left; font-size: 9pt; }
+        .items-table th { background: <?= $brand ?>; color: white; font-weight: bold; padding: 6pt 4pt; text-align: left; font-size: 9pt; }
         .items-table td { padding: 5pt 4pt; border-bottom: 1px solid #E5E7EB; font-size: 9pt; }
         .items-table td.num, .items-table th.num { text-align: right; }
         .totals-table { width: 45%; float: right; margin-top: 8pt; }
@@ -349,17 +371,27 @@ function lpc_render_document_html(string $type, array $doc): string
         .totals-table .grand td { border-top: 2pt solid #111827; border-bottom: 2pt solid #111827; font-weight: bold; font-size: 12pt; background: #F3F4F6; }
         .box { border: 1pt solid #E5E7EB; padding: 6pt 8pt; margin-bottom: 6pt; }
         .muted { color: #6B7280; font-size: 8pt; }
-        .stamp { border: 2pt solid #005A2B; color: #005A2B; padding: 4pt 8pt; display: inline-block; transform: rotate(-2deg); font-weight: bold; }
+        .stamp { border: 2pt solid <?= $brand ?>; color: <?= $brand ?>; padding: 4pt 8pt; display: inline-block; transform: rotate(-2deg); font-weight: bold; }
+        /* Legal mentions, repeated at the foot of every page. Required on a
+           Cameroonian invoice; previously absent entirely. */
+        .doc-footer { position: fixed; bottom: 10mm; left: 12mm; right: 12mm; text-align: center;
+                      color: #9CA3AF; font-size: 7pt; border-top: 0.5pt solid #E5E7EB; padding-top: 3pt; }
         .fallback-link { position: fixed; bottom: 6mm; left: 12mm; color: #9CA3AF; font-size: 7pt; text-decoration: none; }
     </style></head><body>
     <table class="header-table"><tr>
         <td class="logo-cell">
-            <h1>Ets. La Petite Cour</h1>
-            <div class="muted">Distribution agri-alimentaire · Douala, Cameroun<br>
-                NIU M12200000000L · Tél. +237 6XX XX XX XX</div>
+            <?php if ($lhLogo !== ''): ?>
+                <img src="<?= htmlspecialchars($lhLogo, ENT_QUOTES, 'UTF-8') ?>" style="max-height:52pt;max-width:180pt;margin-bottom:4pt">
+            <?php endif; ?>
+            <h1 style="color: <?= htmlspecialchars($lh['color'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($lh['name'], ENT_QUOTES, 'UTF-8') ?></h1>
+            <div class="muted">
+                <?= htmlspecialchars($lh['address'], ENT_QUOTES, 'UTF-8') ?><br>
+                <?php if ($lh['mentions'] !== ''): ?><?= htmlspecialchars($lh['mentions'], ENT_QUOTES, 'UTF-8') ?><br><?php endif; ?>
+                <?= htmlspecialchars($lh['contact'], ENT_QUOTES, 'UTF-8') ?>
+            </div>
         </td>
         <td class="meta-cell">
-            <div style="font-size: 16pt; font-weight: bold; color: #005A2B;"><?= htmlspecialchars($title_map[$type] ?? 'Document', ENT_QUOTES, 'UTF-8') ?></div>
+            <div style="font-size: 16pt; font-weight: bold; color: <?= $brand ?>;"><?= htmlspecialchars($title_map[$type] ?? 'Document', ENT_QUOTES, 'UTF-8') ?></div>
             <div style="font-size: 12pt; font-weight: bold;">N° <?= htmlspecialchars($doc['reference'] ?? '', ENT_QUOTES, 'UTF-8') ?></div>
             <div>Date : <?= htmlspecialchars(substr((string)($doc['date'] ?? ''), 0, 10), ENT_QUOTES, 'UTF-8') ?></div>
             <?php if (!empty($doc['status'])): ?>
@@ -427,6 +459,9 @@ function lpc_render_document_html(string $type, array $doc): string
         <?php endif; ?>
     <?php endif; ?>
 
+    <?php if (!empty($lh['footer'])): ?>
+        <div class="doc-footer"><?= htmlspecialchars($lh['footer'], ENT_QUOTES, 'UTF-8') ?></div>
+    <?php endif; ?>
     <a class="fallback-link" href="?token=<?= htmlspecialchars($token, ENT_QUOTES, 'UTF-8') ?>&amp;html=1">Voir en HTML</a>
     </body></html>
     <?php

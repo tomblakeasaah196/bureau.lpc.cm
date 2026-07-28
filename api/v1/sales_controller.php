@@ -456,7 +456,8 @@ try {
             if (!$order || $order['status'] !== 'pending') throw new Exception("Cette commande a déjà été dispatchée.");
 
             $hash = strtoupper(substr(md5(uniqid(rand(), true)), 0, 4));
-            $reference = 'BL-' . date('ym') . '-' . $hash;
+            // Sprint 8: prefix + format from app_preferences. Was 'BL-' hardcoded.
+            $reference = Prefs::docNumber('delivery', $hash);
             $token = bin2hex(random_bytes(16));
 
             $stmtDel = $db->prepare("INSERT INTO deliveries (reference, sales_order_id, client_id, driver_id, vehicle_id, date, status, token, created_by) VALUES (?, ?, ?, ?, ?, ?, 'dispatched', ?, ?)");

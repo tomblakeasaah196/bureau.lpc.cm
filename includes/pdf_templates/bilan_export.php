@@ -71,7 +71,7 @@ foreach ($data['bilan_passif'] as $l) {
 <body>
 
 <h1>Bilan Comptable — Exercice <?= $year ?></h1>
-<div class="meta">Généré le <?= $esc($data['generated_at']) ?> · Ets. La Petite Cour · États financiers OHADA</div>
+<div class="meta">Généré le <?= $esc($data['generated_at']) ?> · <?= $esc(CompanyProfile::displayName()) ?> · États financiers OHADA</div>
 
 <h2 class="actif">Actif (Emplois — ce que possède l'entreprise)</h2>
 <table>

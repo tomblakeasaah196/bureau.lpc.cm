@@ -79,7 +79,7 @@ $year      = (int)($data['year'] ?? date('Y'));
 <h1>Vue Dirigeant — Exercice <?= $year ?></h1>
 <div class="meta">
     Généré le <?= $esc($data['generated_at'] ?? date('Y-m-d H:i:s')) ?>
-    · Ets. La Petite Cour · Confidentiel — usage interne uniquement.
+    · <?= $esc(CompanyProfile::displayName()) ?> · Confidentiel — usage interne uniquement.
 </div>
 
 <h2>1 · Ratios de rentabilité</h2>

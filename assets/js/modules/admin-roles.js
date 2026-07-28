@@ -1,6 +1,21 @@
 /**
  * assets/js/modules/admin-roles.js
  * -----------------------------------------------------------------------------
+ * ##  DEAD CODE — SAFE TO DELETE  (Sprint 8)
+ * -----------------------------------------------------------------------------
+ * This was the front-end for modules/admin/roles.php. That page now 302s to
+ * Administration → Paramètres → Rôles (RBAC), and the permission matrix lives
+ * in assets/js/modules/settings-index.js (the 'matrix' tab shape).
+ *
+ * Nothing loads this file any more — verified with:
+ *     grep -rn "admin-roles" --include=*.php .    -> 0 results
+ *
+ * It is left on disk only because the deploy user could not remove it. Delete
+ * it at your convenience; there is no code path that references it, and both
+ * this file and settings-index.js talked to the same backend
+ * (api/v1/rbac_controller.php), which is the duplication Sprint 8 removed.
+ *
+ * ---- original header ----
  * Bureau LPC ERP — extracted from modules/admin/roles.php (Sprint 6 D2).
  *
  * Original block contained PHP interpolations; they were relocated to

@@ -75,6 +75,24 @@ unset($__lpc_autoload);
 require_once __DIR__ . '/classes/Rbac.php';
 Rbac::init();
 
+// 5a. Company identity + application preferences (Sprint 8, migration 034).
+//     Loaded here rather than per-page because the shell itself needs them:
+//     the sidebar prints CompanyProfile::erpName(), and the auto-logout timer
+//     reads Prefs::sessionTimeoutMs(). Both classes lazy-load their data on
+//     first access, so requiring them costs nothing until something asks.
+//     Both degrade to hardcoded defaults if migration 034 has not been run,
+//     so a partial deploy does not white-screen the app.
+require_once __DIR__ . '/classes/CompanyProfile.php';
+require_once __DIR__ . '/classes/Prefs.php';
+
+// Apply the configured timezone before anything formats a date. Falls back to
+// the .env value, then to Africa/Douala.
+$__lpc_tz = Prefs::str('locale_timezone', env('APP_TIMEZONE', 'Africa/Douala'));
+if ($__lpc_tz !== '' && in_array($__lpc_tz, timezone_identifiers_list(), true)) {
+    date_default_timezone_set($__lpc_tz);
+}
+unset($__lpc_tz);
+
 // 5c. i18n — real dictionary loader (Sprint 6 D4). Replaces the 6-key
 //     translation stub that lived in includes/functions/helpers.php.
 require_once __DIR__ . '/functions/i18n.php';
@@ -102,9 +120,12 @@ if (!empty($_SESSION['user_id'])) {
 }
 
 // 6. Session freshness check — enforces server-side inactivity timeout.
-//    Configurable via SESSION_LIFETIME_MINUTES in .env (default 30).
+//    Sprint 8: the `sec_session_timeout_min` preference is authoritative; the
+//    .env SESSION_LIFETIME_MINUTES value is now only the fallback used before
+//    migration 034 has run. The client-side auto-logout in driver_sidebar.php
+//    reads the same preference, so the two can no longer drift apart.
 if (!empty($_SESSION['user_id'])) {
-    $__ttl_seconds = (int) env('SESSION_LIFETIME_MINUTES', 30) * 60;
+    $__ttl_seconds = Prefs::int('sec_session_timeout_min', (int) env('SESSION_LIFETIME_MINUTES', 30)) * 60;
     $__last = (int) ($_SESSION['last_activity'] ?? 0);
 
     if ($__last > 0 && (time() - $__last) > $__ttl_seconds) {

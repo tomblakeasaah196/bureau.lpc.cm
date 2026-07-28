@@ -87,7 +87,7 @@ $rows[] = [
 <body>
 
 <h1>Compte de Résultat (Cascade SIG) — <?= $year ?></h1>
-<div class="meta">Généré le <?= $esc($data['generated_at']) ?> · Ets. La Petite Cour · Solde Intermédiaire de Gestion OHADA</div>
+<div class="meta">Généré le <?= $esc($data['generated_at']) ?> · <?= $esc(CompanyProfile::displayName()) ?> · Solde Intermédiaire de Gestion OHADA</div>
 
 <table>
     <thead>
