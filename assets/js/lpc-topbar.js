@@ -1,42 +1,59 @@
 /**
  * assets/js/lpc-topbar.js
  * -----------------------------------------------------------------------------
- * Bureau LPC ERP -- topbar dropdown behavior (quick-create + notifications).
- * Plain show/hide, closes on outside click or Escape. No data fetching yet --
- * the notifications bell renders an empty state until a real alerts source
- * (overdue invoices, low stock, etc.) is wired to #lpc-notif-list.
+ * Bureau LPC ERP — topbar behaviour: the quick-create and notifications popovers.
+ *
+ * Global search is NOT handled here — it belongs to the ⌘K command palette in
+ * assets/js/lpc-palette.js. The topbar's search control is a button that opens
+ * that palette.
+ *
+ * Notifications come from api/v1/notifications_controller.php, which computes
+ * live conditions (overdue invoices, uncertified AIR withholdings, low stock)
+ * rather than reading stored messages. That's why there is deliberately no
+ * "mark as read": an overdue invoice does not stop being overdue because
+ * someone looked at it. The panel surfaces the condition and links to the page
+ * where it can actually be resolved.
  * -----------------------------------------------------------------------------
  */
 (function () {
-    function wireDropdown(btnId, menuId) {
+    'use strict';
+
+    var SEVERITY_RANK = { danger: 0, warning: 1, info: 2 };
+
+    function wirePopover(btnId, popId) {
         var btn = document.getElementById(btnId);
-        var menu = document.getElementById(menuId);
-        if (!btn || !menu) return;
+        var pop = document.getElementById(popId);
+        if (!btn || !pop) return;
 
         function close() {
-            menu.hidden = true;
+            pop.hidden = true;
             btn.setAttribute('aria-expanded', 'false');
         }
         function toggle(e) {
             e.stopPropagation();
-            var willOpen = menu.hidden;
-            document.querySelectorAll('[role="menu"]').forEach(function (m) { m.hidden = true; });
-            menu.hidden = !willOpen;
+            var willOpen = pop.hidden;
+            // Only one popover open at a time.
+            document.querySelectorAll('.lpc-pop').forEach(function (p) { p.hidden = true; });
+            document.querySelectorAll('[aria-haspopup="true"]').forEach(function (b) {
+                b.setAttribute('aria-expanded', 'false');
+            });
+            pop.hidden = !willOpen;
             btn.setAttribute('aria-expanded', String(willOpen));
         }
+
         btn.addEventListener('click', toggle);
         document.addEventListener('click', function (e) {
-            if (!menu.hidden && !menu.contains(e.target) && e.target !== btn) close();
+            if (!pop.hidden && !pop.contains(e.target) && !btn.contains(e.target)) close();
         });
         document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape') close();
+            if (e.key === 'Escape' && !pop.hidden) close();
         });
     }
 
-    function severityClasses(sev) {
-        if (sev === 'danger')  return 'border-red-200 bg-red-50 text-red-700';
-        if (sev === 'warning') return 'border-amber-200 bg-amber-50 text-amber-700';
-        return 'border-gray-200 bg-gray-50 text-gray-700';
+    function dotClass(sev) {
+        if (sev === 'danger')  return 'lpc-pop-dot lpc-pop-dot--danger';
+        if (sev === 'warning') return 'lpc-pop-dot lpc-pop-dot--warning';
+        return 'lpc-pop-dot lpc-pop-dot--info';
     }
 
     function loadNotifications() {
@@ -47,42 +64,45 @@
         fetch('/api/v1/notifications_controller.php', { credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (json) {
-                if (json.status !== 'success') return;
-                var items = json.data.items || [];
+                if (!json || json.status !== 'success') return;
+                var items = (json.data && json.data.items) || [];
 
-                if (items.length === 0) {
+                if (!items.length) {
                     badge.hidden = true;
                     return;
                 }
+
+                // Most severe first, so the thing that needs attention is on top.
+                items.sort(function (a, b) {
+                    return (SEVERITY_RANK[a.severity] ?? 3) - (SEVERITY_RANK[b.severity] ?? 3);
+                });
+
                 badge.hidden = false;
                 badge.textContent = items.length > 9 ? '9+' : String(items.length);
 
-                list.innerHTML = '';
+                list.textContent = '';
                 items.forEach(function (item) {
                     var a = document.createElement('a');
                     a.href = item.href;
-                    a.className = 'block mx-2 mb-1.5 px-3 py-2 rounded-lg border text-sm ' + severityClasses(item.severity);
-                    a.textContent = item.label;
+                    a.className = 'lpc-pop-item';
+
+                    var dot = document.createElement('span');
+                    dot.className = dotClass(item.severity);
+                    a.appendChild(dot);
+
+                    var txt = document.createElement('span');
+                    txt.textContent = item.label;       // textContent, never innerHTML
+                    a.appendChild(txt);
+
                     list.appendChild(a);
                 });
             })
-            .catch(function () { /* silent -- badge just stays hidden */ });
+            .catch(function () { /* silent — the badge simply stays hidden */ });
     }
 
     document.addEventListener('DOMContentLoaded', function () {
-        wireDropdown('lpc-quick-create-btn', 'lpc-quick-create-menu');
-        wireDropdown('lpc-notif-btn', 'lpc-notif-menu');
+        wirePopover('lpc-quick-create-btn', 'lpc-quick-create-menu');
+        wirePopover('lpc-notif-btn', 'lpc-notif-menu');
         loadNotifications();
-
-        // Global search: Enter navigates to a shared search results view.
-        // Wire the real endpoint once one exists; for now this no-ops safely.
-        var search = document.getElementById('lpc-global-search');
-        if (search) {
-            search.addEventListener('keydown', function (e) {
-                if (e.key === 'Enter' && search.value.trim() !== '') {
-                    window.location.href = '/modules/settings/index.php?q=' + encodeURIComponent(search.value.trim());
-                }
-            });
-        }
     });
 })();

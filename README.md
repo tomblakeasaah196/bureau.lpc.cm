@@ -142,7 +142,13 @@ context that's already settled.
 | Sprint 7C | **Actually unify the sidebar** — `admin/finance/ops_sidebar.php` were never wrappers | Done — they contained a full legacy sidebar (`id="sidebar"`, hardcoded nav, `lg:static`), so 22 of 24 pages were running it instead of `sidebar.php`. Now real one-line wrappers. `#lpc-sidebar` position/size/colour is declared in `lpc-shell.css` rather than left to utility classes so it can't drift again. |
 | Sprint 7C | `lpc-shell.js` loaded exactly once, from `sidebar.php` | Done — it was tagged per-page, so the collapse toggle was dead on the pages that lacked it and would have double-bound (two toggles per click = no-op) on any page that had it twice. |
 | Sprint 7C | Fix duplicate `id` on `accounting/budgets.php`'s `<main>` | Done — `id="main"` and `id="report-container"` were both declared; the second was ignored, so "Exporter Rapport" threw on a null element. |
-| Sprint 7C | Visual pass on the live site (before/after screenshots, all 24 pages) | **Todo — this is the acceptance gate.** Walk `docs/SHELL_VERIFY.md` in a browser after deploying. |
+| Sprint 7C | Visual pass on the live site (before/after screenshots, all 24 pages) | Done — shell structure confirmed working on the live site. |
+| Sprint 7D | **Shell design system** — restore the brand, kill the three competing greens | Done — the shell had drifted onto an invented `#01421F` rail plus generic Tailwind `emerald-600/500/300`, so `#8CC63F` had vanished from the app. `lpc-shell.css` is now 35 `:root` tokens; sidebar + topbar are one `#00341A → #005A2B` brand frame; `--lpc-accent-on-dark` / `--lpc-accent-on-light` encode "one accent per surface". |
+| Sprint 7D | Topbar rebuilt on one control system | Done — a filled circle, a bare icon and a bordered text box have become one `.lpc-icon-btn` square set with exactly one primary; `.lpc-lang` is a real FR\|EN segmented toggle instead of a text box that looked disabled. |
+| Sprint 7D | Page controls out of the chrome | Done — `.lpc-toolbar` is a floating branded card in the workspace, `.lpc-tabs` a floating segmented control. Page-specific controls are now forbidden in the topbar (§5.5). |
+| Sprint 7D | ⌘K / Ctrl+K command palette | Done — `includes/components/command_palette.php` + `assets/js/lpc-palette.js`. Index built server-side from `nav.php` and RBAC-filtered, so the palette can never reach a page the sidebar would hide. Scope is pages + actions; record search deferred (needs a unified search endpoint). Replaces the topbar's old fake search input, which was wired to nothing. |
+| Sprint 7D | Notifications: real panel + full page | Done — severity-sorted popover with a count badge, plus `modules/notifications/index.php` grouping alerts by severity. Both read the one existing `notifications_controller.php`, so the SQL is not duplicated. No "mark as read" by design: these are live computed conditions, not stored messages. |
+| Sprint 7D | Visual pass on the redesigned shell | **Todo — acceptance gate.** Walk `docs/SHELL_VERIFY.md` after deploying. |
 | Ship | Final zip + `deploy.sh` | Ready — see `scripts/ship-day.md`. |
 
 Update this table when you finish a phase item. It's the truth about where the revamp stands.
@@ -596,11 +602,34 @@ what produced the Sprint 7C mess (24 pages, 9 different bars; see
 </body>
 ```
 
+Design of the shell (decided 28 July 2026, Sprint 7D):
+
+- The **sidebar and topbar form one continuous dark-green L-shaped frame** in the
+  LPC brand (`#00341A → #005A2B` gradient), wrapping a light workspace. There is
+  no white/green seam.
+- **One accent per surface:** `#8CC63F` on dark chrome, `#005A2B` on the light
+  workspace. Expressed as `--lpc-accent-on-dark` / `--lpc-accent-on-light` so the
+  rule lives in one place. Never use generic Tailwind `emerald-*` for brand
+  accents — that is how the branding drained out of the shell the first time.
+- Every colour is a CSS variable on `:root`. Adding a dark mode later is one
+  extra variable block plus a toggle, not a rewrite.
+
 Rules:
 
-- **Order is fixed:** toolbar, then tabs, then main. The tab bar derives its own
-  sticky offset from that order (`.lpc-toolbar + .lpc-tabs`), so swapping them
-  silently breaks the stacking.
+- **Nothing page-specific goes in the topbar. Ever.** The topbar holds the page
+  title, the ⌘K search trigger, quick-create, notifications and the language
+  toggle — nothing else. Year filters, date ranges, export buttons, view toggles
+  and badges belong in `.lpc-toolbar`.
+- **Order is fixed:** toolbar, then tabs, then main.
+- `.lpc-toolbar` is a **floating branded card inside the workspace** (rounded,
+  shadowed, with a brand-gradient rail on its leading edge), not a full-bleed
+  band and not part of the chrome. `.lpc-tabs` is a **floating segmented
+  control** matching it.
+- **The active tab is detected in CSS as `:not(.border-transparent)`.** All 16
+  scripts in `assets/js/modules/` share one convention — the inactive tab always
+  carries `border-transparent` and the active one has it removed — so the
+  segmented pill needs zero JavaScript changes. If you write a new tab bar,
+  follow that convention or the active segment won't highlight.
 - **Both bars are optional** and collapse to nothing when absent or empty
   (`.lpc-toolbar:empty`). Never leave an empty bar to hold space.
 - **One toolbar per page.** If a page has two groups of controls, put them in the

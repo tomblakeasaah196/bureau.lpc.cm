@@ -1,62 +1,95 @@
 /* assets/css/lpc-shell.css
  * -----------------------------------------------------------------------------
- * Bureau LPC ERP — the app shell. ONE definition of the chrome that wraps every
- * module page: fixed sidebar, fixed inset topbar, the shared secondary toolbar,
- * the shared tab bar, and the page content wrapper.
+ * Bureau LPC ERP — THE APP SHELL. One definition of the chrome that wraps every
+ * module page.
  *
- * Plain CSS on purpose (not Tailwind utilities): this is the layer that must be
- * identical on all 24 pages, so it lives in one file rather than being
- * copy-pasted as utility strings into each page. Link this AFTER tailwind.css.
+ * Design intent (decided 28 July 2026):
+ *   · The sidebar and topbar form ONE continuous dark-green L-shaped frame in
+ *     the LPC brand, wrapping a light workspace. No white/green seam.
+ *   · Page-specific controls NEVER live in the topbar. They live in a floating,
+ *     branded card inside the workspace.
+ *   · Tab bars are floating segmented controls, not underlined text rows.
+ *   · Exactly one accent per surface: #8CC63F on dark chrome, #005A2B on light.
  *
  * The contract a page must honour — nothing more:
  *
  *   <body class="lpc-body …">
  *     … sidebar.php … topbar.php …            (set $pageTitle / $pageSubtitle)
  *     <div id="lpc-shell-main">
- *       <div class="lpc-toolbar">…</div>      OPTIONAL — page-specific controls
- *       <nav class="lpc-tabs">…</nav>         OPTIONAL — page tab bar
+ *       <div class="lpc-toolbar">…</div>      OPTIONAL — this page's controls
+ *       <nav class="lpc-tabs">…</nav>         OPTIONAL — this page's tabs
  *       <main class="lpc-page">…</main>       the page content
  *     </div>
  *   </body>
  *
- * Both bars are optional and collapse to zero height when absent or empty, so a
- * page with no controls leaves no dead space behind. Order matters: toolbar
- * before tabs — the sticky offsets are derived from that order automatically.
+ * Link this AFTER tailwind.css. Plain CSS on purpose: this is the layer that
+ * must be byte-identical on all 24 pages, so it lives in one file instead of
+ * being copy-pasted as utility strings into each page.
  * -----------------------------------------------------------------------------
  */
 
 :root {
-    /* Structure */
+    /* ---- Brand -------------------------------------------------------- */
+    --lpc-brand:            #005A2B;   /* LPC dark green  — fills on light   */
+    --lpc-brand-light:      #8CC63F;   /* LPC light green — accent on dark   */
+    --lpc-brand-deep:       #00341A;   /* top of the chrome gradient         */
+
+    /* Accent per surface. Referenced instead of the raw brand vars so the
+       rule "one accent per surface" is expressed once, here. */
+    --lpc-accent-on-dark:   var(--lpc-brand-light);
+    --lpc-accent-on-light:  var(--lpc-brand);
+
+    /* ---- Chrome (the dark L-frame) ------------------------------------ */
+    --lpc-chrome-top:       #00341A;
+    --lpc-chrome-bottom:    #005A2B;
+    --lpc-chrome-hairline:  rgba(255, 255, 255, 0.09);
+    --lpc-chrome-ink:       #ffffff;
+    --lpc-chrome-ink-soft:  rgba(255, 255, 255, 0.62);
+    --lpc-chrome-ink-mute:  rgba(255, 255, 255, 0.40);
+    --lpc-chrome-fill:      rgba(255, 255, 255, 0.08);
+    --lpc-chrome-fill-hi:   rgba(255, 255, 255, 0.16);
+
+    /* ---- Workspace (the light area) ----------------------------------- */
+    --lpc-page-bg:          #F4F6F8;
+    --lpc-surface:          #ffffff;
+    --lpc-surface-sunken:   #F7F9FA;
+    --lpc-border:           #E6EAEE;
+    --lpc-ink:              #111827;
+    --lpc-ink-soft:         #667085;
+    --lpc-ink-mute:         #98A2B3;
+
+    /* ---- Structure ---------------------------------------------------- */
     --lpc-sidebar-w:           288px;
     --lpc-sidebar-w-collapsed: 76px;
-    --lpc-topbar-h:            64px;
-    --lpc-toolbar-h:           56px;
+    --lpc-topbar-h:            68px;
+    --lpc-toolbar-h:           60px;
     --lpc-tabs-h:              52px;
 
-    /* One padding scale, shared by topbar / toolbar / tabs / page body so the
-       left edge of a page title, a filter and a table all line up exactly. */
-    --lpc-gutter:              2rem;      /* >= 1024px */
-    --lpc-gutter-md:           1.5rem;    /* 768–1023px */
-    --lpc-gutter-sm:           1rem;      /* < 768px   */
+    /* One padding scale shared by chrome and workspace, so a page title, a
+       filter and a table all line up on the same left edge. */
+    --lpc-gutter:           2rem;      /* >= 1024px      */
+    --lpc-gutter-md:        1.5rem;    /* 768 – 1023px   */
+    --lpc-gutter-sm:        1rem;      /* < 768px        */
 
-    /* Surfaces */
-    --lpc-surface:  #ffffff;
-    --lpc-page-bg:  #F5F7FA;
-    --lpc-border:   #E5E7EB;
-    --lpc-ink:      #111827;
-    --lpc-ink-soft: #6B7280;
+    /* ---- Form ---------------------------------------------------------- */
+    --lpc-radius:           14px;
+    --lpc-radius-sm:        10px;
+    --lpc-radius-xs:        8px;
+    --lpc-control-h:        36px;
 
-    /* Brand */
-    --lpc-brand:       #005A2B;
-    --lpc-brand-light: #8CC63F;
+    --lpc-shadow-card:      0 1px 2px rgba(16, 24, 40, .04),
+                            0 10px 28px -14px rgba(0, 52, 26, .18);
+    --lpc-shadow-pop:       0 8px 16px -6px rgba(16, 24, 40, .10),
+                            0 24px 48px -20px rgba(0, 52, 26, .28);
+    --lpc-ring:            0 0 0 3px rgba(140, 198, 63, .35);
 }
 
 /* ===========================================================================
    1. Document flow
    ---------------------------------------------------------------------------
-   The shell is a fixed sidebar + fixed topbar with the DOCUMENT doing the
-   scrolling. The pre-rewiring pages were `flex h-screen overflow-hidden` with
-   an inner scroll container; that model fights this one and clips content, so
+   Fixed sidebar + fixed topbar, with the DOCUMENT doing the scrolling. The
+   pre-rewiring pages were `flex h-screen overflow-hidden` with an inner scroll
+   container; that model fights this one and clips content below the fold, so
    `.lpc-body` states the correct one explicitly.
    ========================================================================= */
 body.lpc-body {
@@ -76,21 +109,19 @@ body.lpc-body {
     padding-top: var(--lpc-topbar-h);
     min-height: 100vh;
     background: var(--lpc-page-bg);
-    transition: margin-left 0.18s ease;
+    transition: margin-left .18s ease;
 }
-html.lpc-collapsed #lpc-shell-main {
-    margin-left: var(--lpc-sidebar-w-collapsed);
-}
+html.lpc-collapsed #lpc-shell-main { margin-left: var(--lpc-sidebar-w-collapsed); }
 
 /* ===========================================================================
-   2. Sidebar
+   2. Sidebar — the vertical arm of the brand frame
    ---------------------------------------------------------------------------
    Position, size and colour are declared HERE rather than left to utility
-   classes on the <aside>. Reason: the legacy per-role sidebars carried
-   `lg:static`, which only looked right because the old <body> was
-   `display:flex`. The moment the shell moved to document flow, a statically
-   positioned sidebar dropped into block flow and pushed every page's content
-   down below it. The shell owns this now, so it cannot drift again.
+   classes on the <aside>. The legacy per-role sidebars carried `lg:static`,
+   which only looked right because the old <body> was `display:flex`; the moment
+   the shell moved to document flow, a statically positioned sidebar dropped
+   into block flow and pushed every page's content below it. The shell owns this
+   now, so it cannot drift again.
    ========================================================================= */
 #lpc-sidebar {
     position: fixed;
@@ -99,58 +130,110 @@ html.lpc-collapsed #lpc-shell-main {
     z-index: 40;
     width: var(--lpc-sidebar-w);
     height: 100vh;
-    height: 100dvh;          /* mobile browsers with a dynamic toolbar */
+    height: 100dvh;                 /* mobile browsers with a dynamic toolbar */
     display: flex;
     flex-direction: column;
-    overflow: hidden;        /* the nav inside is the only scrolling part */
+    overflow: hidden;               /* the nav inside is the only scroll area */
 
-    /* Dark nav rail against the light workspace. `sidebar.php` was authored as
-       `bg-white/5` for a dark-bodied page; on the light shell that renders as
-       near-white with unreadable white text. */
-    background: #01421F;
-    border-right: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.12);
+    background: linear-gradient(180deg,
+                var(--lpc-chrome-top) 0%,
+                var(--lpc-chrome-bottom) 100%);
+    color: var(--lpc-chrome-ink);
+    border-right: 1px solid var(--lpc-chrome-hairline);
 
-    transition: width 0.18s ease, transform 0.3s ease;
+    transition: width .18s ease, transform .3s ease;
 }
-/* The nav list is the only scrolling part; the header and the user card stay
-   pinned. `min-height:0` is the load-bearing bit — without it a flex item
-   refuses to shrink below its content height, so the nav grows, the user card
-   gets pushed past the bottom edge, and nothing scrolls. */
+
+/* sidebar.php was authored `bg-white/5 backdrop-blur-2xl` for a dark-bodied
+   page. On the light shell that renders near-white with unreadable white text,
+   so the gradient above must win. */
+#lpc-sidebar { backdrop-filter: none; }
+
+/* Brand header block */
+#lpc-sidebar > div:first-of-type {
+    border-bottom: 1px solid var(--lpc-chrome-hairline) !important;
+}
+
+/* The nav list is the only scrolling part; header and user card stay pinned.
+   `min-height:0` is load-bearing — without it a flex item refuses to shrink
+   below its content height, so the nav grows, the user card gets pushed past
+   the bottom edge, and nothing scrolls. */
 #lpc-sidebar > .flex-1 {
     min-height: 0;
     overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, .22) transparent;
 }
-#lpc-sidebar > .flex-1::-webkit-scrollbar { width: 6px; }
+#lpc-sidebar > .flex-1::-webkit-scrollbar       { width: 6px; }
+#lpc-sidebar > .flex-1::-webkit-scrollbar-track { background: transparent; }
 #lpc-sidebar > .flex-1::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, .20);
     border-radius: 3px;
 }
-html.lpc-collapsed #lpc-sidebar {
-    width: var(--lpc-sidebar-w-collapsed) !important;
+
+/* Section headings */
+#lpc-sidebar .lpc-sidebar-heading {
+    color: var(--lpc-chrome-ink-mute);
+    font-weight: 700;
+    letter-spacing: .12em;
+    padding-bottom: .375rem;
 }
+
+/* Nav links — one rest state, one hover state, one active state. */
+#lpc-sidebar .lpc-nav-link {
+    position: relative;
+    color: var(--lpc-chrome-ink-soft);
+    border: 0 !important;
+    border-radius: var(--lpc-radius-sm);
+    font-weight: 500;
+    transition: background-color .14s ease, color .14s ease;
+}
+#lpc-sidebar .lpc-nav-link:hover {
+    background: var(--lpc-chrome-fill);
+    color: var(--lpc-chrome-ink);
+}
+#lpc-sidebar .lpc-nav-link[aria-current="page"] {
+    background: var(--lpc-chrome-fill-hi);
+    color: var(--lpc-chrome-ink);
+    font-weight: 600;
+}
+/* Brand-light rail marks the active item. */
+#lpc-sidebar .lpc-nav-link[aria-current="page"]::before {
+    content: "";
+    position: absolute;
+    left: -.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 1.25rem;
+    border-radius: 0 3px 3px 0;
+    background: var(--lpc-accent-on-dark);
+}
+#lpc-sidebar .lpc-nav-link[aria-current="page"] svg { color: var(--lpc-accent-on-dark); }
+
+/* User card pinned to the bottom */
+#lpc-sidebar .lpc-user-card {
+    flex: 0 0 auto;
+    border-top: 1px solid var(--lpc-chrome-hairline) !important;
+    background: rgba(0, 0, 0, .16);
+}
+
+/* Collapsed rail */
+html.lpc-collapsed #lpc-sidebar { width: var(--lpc-sidebar-w-collapsed) !important; }
 html.lpc-collapsed #lpc-sidebar .lpc-logo-text,
 html.lpc-collapsed #lpc-sidebar .lpc-label,
 html.lpc-collapsed #lpc-sidebar .lpc-sidebar-heading,
-html.lpc-collapsed #lpc-sidebar .lpc-user-text {
-    display: none;
-}
+html.lpc-collapsed #lpc-sidebar .lpc-user-text { display: none; }
 html.lpc-collapsed #lpc-sidebar .lpc-nav-link,
-html.lpc-collapsed #lpc-sidebar .lpc-user-card {
-    justify-content: center;
-}
-/* The collapse chevron points the other way once collapsed. */
-html.lpc-collapsed #lpc-sidebar [data-lpc-collapse-toggle] svg {
-    transform: scaleX(-1);
-}
-/* The user card must never be pushed off the bottom, at any scroll position:
-   the nav above it is the only part that scrolls. */
-#lpc-sidebar .lpc-user-card {
-    flex: 0 0 auto;
-}
+html.lpc-collapsed #lpc-sidebar .lpc-user-card { justify-content: center; }
+html.lpc-collapsed #lpc-sidebar .lpc-nav-link[aria-current="page"]::before { left: -.5rem; }
+html.lpc-collapsed #lpc-sidebar [data-lpc-collapse-toggle] svg { transform: scaleX(-1); }
 
 /* ===========================================================================
-   3. Topbar
+   3. Topbar — the horizontal arm of the same frame
+   ---------------------------------------------------------------------------
+   Holds ONLY: page title, global search, quick-create, notifications, language.
+   Page-specific controls belong in .lpc-toolbar, never here.
    ========================================================================= */
 #lpc-topbar {
     position: fixed;
@@ -158,58 +241,266 @@ html.lpc-collapsed #lpc-sidebar [data-lpc-collapse-toggle] svg {
     left: var(--lpc-sidebar-w);
     right: 0;
     height: var(--lpc-topbar-h);
-    padding-left: var(--lpc-gutter);
-    padding-right: var(--lpc-gutter);
     z-index: 30;
-    transition: left 0.18s ease;
-}
-html.lpc-collapsed #lpc-topbar {
-    left: var(--lpc-sidebar-w-collapsed);
-}
-
-/* ===========================================================================
-   4. The shared secondary toolbar
-   ---------------------------------------------------------------------------
-   ONE bar for every page's own controls — year filters, date pickers, export
-   buttons, view toggles, alert badges. Deterministic height so the tab bar
-   below it can compute its own sticky offset with no per-page markup.
-   ========================================================================= */
-.lpc-toolbar {
-    position: sticky;
-    top: var(--lpc-topbar-h);
-    z-index: 21;
 
     display: flex;
     align-items: center;
-    justify-content: flex-end;   /* controls sit right, under the global icons */
-    gap: 0.75rem;
-
-    height: var(--lpc-toolbar-h);
-    flex: 0 0 auto;
+    gap: .75rem;
     padding: 0 var(--lpc-gutter);
 
-    background: var(--lpc-surface);
-    border-bottom: 1px solid var(--lpc-border);
+    /* Matches the sidebar's gradient at this height, so the corner is seamless. */
+    background: var(--lpc-chrome-top);
+    border-bottom: 1px solid var(--lpc-chrome-hairline);
+    color: var(--lpc-chrome-ink);
 
-    /* Never wrap — wrapping would make the height non-deterministic and break
-       the tab bar's sticky offset. Overflow scrolls instead. */
+    transition: left .18s ease;
+}
+html.lpc-collapsed #lpc-topbar { left: var(--lpc-sidebar-w-collapsed); }
+
+.lpc-topbar-title {
+    font-size: .9375rem;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--lpc-chrome-ink);
+}
+.lpc-topbar-sub {
+    font-size: .625rem;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--lpc-chrome-ink-mute);
+    margin-top: .125rem;
+}
+
+/* ---- One icon-button system. Every square control is identical. ---------- */
+.lpc-icon-btn {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: var(--lpc-control-h);
+    height: var(--lpc-control-h);
+    border: 0;
+    border-radius: var(--lpc-radius-sm);
+    background: var(--lpc-chrome-fill);
+    color: rgba(255, 255, 255, .88);
+    cursor: pointer;
+    position: relative;
+    transition: background-color .14s ease, color .14s ease, transform .14s ease;
+}
+.lpc-icon-btn:hover     { background: var(--lpc-chrome-fill-hi); color: #fff; }
+.lpc-icon-btn:active    { transform: scale(.94); }
+.lpc-icon-btn svg       { width: 1.125rem; height: 1.125rem; }
+
+/* The single filled/primary control on the bar. On dark chrome the primary
+   accent is the brand LIGHT green — #005A2B would be invisible here. */
+.lpc-icon-btn--primary {
+    background: var(--lpc-accent-on-dark);
+    color: var(--lpc-brand-deep);
+}
+.lpc-icon-btn--primary:hover {
+    background: #9BD64B;
+    color: var(--lpc-brand-deep);
+}
+
+.lpc-icon-btn__badge {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    background: #EF4444;
+    color: #fff;
+    font-size: .625rem;
+    font-weight: 800;
+    line-height: 1;
+    box-shadow: 0 0 0 2px var(--lpc-chrome-top);
+}
+
+/* ---- Global search trigger (opens the ⌘K palette) ----------------------- */
+.lpc-search-trigger {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 420px;
+    height: var(--lpc-control-h);
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: 0 .5rem 0 .75rem;
+    border: 1px solid transparent;
+    border-radius: var(--lpc-radius-sm);
+    background: var(--lpc-chrome-fill);
+    color: var(--lpc-chrome-ink-soft);
+    font-size: .8125rem;
+    text-align: left;
+    cursor: text;
+    transition: background-color .14s ease, border-color .14s ease;
+}
+.lpc-search-trigger:hover {
+    background: var(--lpc-chrome-fill-hi);
+    border-color: rgba(140, 198, 63, .35);
+}
+.lpc-search-trigger svg   { width: 1rem; height: 1rem; flex: 0 0 auto; opacity: .8; }
+.lpc-search-trigger span  { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.lpc-kbd {
+    flex: 0 0 auto;
+    display: inline-grid;
+    place-items: center;
+    min-width: 1.5rem;
+    height: 1.25rem;
+    padding: 0 .3125rem;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, .14);
+    color: rgba(255, 255, 255, .78);
+    font: 600 .625rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: .04em;
+}
+
+/* ---- Language switch: a real two-segment toggle, not a text box --------- */
+.lpc-lang {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    padding: 3px;
+    gap: 2px;
+    border-radius: 999px;
+    background: var(--lpc-chrome-fill);
+}
+.lpc-lang-opt {
+    display: grid;
+    place-items: center;
+    min-width: 2rem;
+    height: 1.75rem;
+    padding: 0 .5rem;
+    border-radius: 999px;
+    font-size: .6875rem;
+    font-weight: 800;
+    letter-spacing: .06em;
+    color: var(--lpc-chrome-ink-mute);
+    text-decoration: none;
+    transition: background-color .14s ease, color .14s ease;
+}
+.lpc-lang-opt:hover { color: #fff; }
+.lpc-lang-opt[aria-current="true"] {
+    background: var(--lpc-accent-on-dark);
+    color: var(--lpc-brand-deep);
+}
+
+/* ---- Dropdown panels. They open from dark chrome onto light content, so
+        they are light cards. ------------------------------------------------ */
+.lpc-pop {
+    position: absolute;
+    right: 0;
+    top: calc(100% + .5rem);
+    z-index: 60;
+    background: var(--lpc-surface);
+    border: 1px solid var(--lpc-border);
+    border-radius: var(--lpc-radius);
+    box-shadow: var(--lpc-shadow-pop);
+    overflow: hidden;
+    color: var(--lpc-ink);
+}
+.lpc-pop[hidden] { display: none; }
+.lpc-pop-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: .625rem .875rem;
+    border-bottom: 1px solid var(--lpc-border);
+    background: var(--lpc-surface-sunken);
+}
+.lpc-pop-title {
+    font-size: .625rem;
+    font-weight: 800;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--lpc-ink-soft);
+}
+.lpc-pop-link {
+    font-size: .6875rem;
+    font-weight: 700;
+    color: var(--lpc-accent-on-light);
+    text-decoration: none;
+}
+.lpc-pop-link:hover { text-decoration: underline; }
+.lpc-pop-body  { max-height: 22rem; overflow-y: auto; }
+.lpc-pop-empty { padding: 1.75rem 1rem; text-align: center; font-size: .8125rem; color: var(--lpc-ink-mute); }
+.lpc-pop-item {
+    display: flex;
+    align-items: center;
+    gap: .625rem;
+    padding: .625rem .875rem;
+    font-size: .8125rem;
+    color: var(--lpc-ink);
+    text-decoration: none;
+    border-bottom: 1px solid var(--lpc-border);
+}
+.lpc-pop-item:last-child { border-bottom: 0; }
+.lpc-pop-item:hover      { background: var(--lpc-surface-sunken); }
+.lpc-pop-dot {
+    flex: 0 0 auto;
+    width: .5rem; height: .5rem;
+    border-radius: 999px;
+    background: var(--lpc-ink-mute);
+}
+.lpc-pop-dot--danger  { background: #EF4444; }
+.lpc-pop-dot--warning { background: #F59E0B; }
+.lpc-pop-dot--info    { background: var(--lpc-accent-on-light); }
+
+/* ===========================================================================
+   4. The shared page-controls card
+   ---------------------------------------------------------------------------
+   ONE home for every page's own controls — year filters, date pickers, export
+   buttons, view toggles, alert badges. A floating branded card inside the
+   workspace, deliberately NOT part of the chrome and never in the topbar.
+   ========================================================================= */
+.lpc-toolbar {
+    position: relative;
+    flex: 0 0 auto;
+    margin: var(--lpc-gutter) var(--lpc-gutter) 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .75rem;
+
+    min-height: var(--lpc-toolbar-h);
+    padding: .625rem 1rem .625rem 1.25rem;
+
+    background: var(--lpc-surface);
+    border: 1px solid var(--lpc-border);
+    border-radius: var(--lpc-radius);
+    box-shadow: var(--lpc-shadow-card);
+
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: none;
 }
 .lpc-toolbar::-webkit-scrollbar { display: none; }
 
-/* A page with no controls leaves no bar and no dead space. */
-.lpc-toolbar:empty { display: none; }
-
-/* Nothing in the toolbar is allowed to shrink below its content — this is what
-   fixes controls being clipped by their own container edge. */
-.lpc-toolbar > * {
-    flex: 0 0 auto;
-    min-width: 0;
+/* The brand mark on the card: a soft green rail down the leading edge. */
+.lpc-toolbar::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    border-radius: var(--lpc-radius) 0 0 var(--lpc-radius);
+    background: linear-gradient(180deg, var(--lpc-brand-light), var(--lpc-brand));
 }
 
-/* Opt-in left-aligned lead item (a context label, a page-level heading). */
+/* A page with no controls leaves no card and no dead space. */
+.lpc-toolbar:empty { display: none; }
+
+/* Nothing in the card may shrink below its content — this is what stops a
+   control being clipped by its own container edge. */
+.lpc-toolbar > * { flex: 0 0 auto; min-width: 0; }
+
+/* Opt-in left-aligned lead item (a context label, a status readout). */
 .lpc-toolbar > .lpc-toolbar-lead { margin-right: auto; }
 
 /* Hairline divider between logical groups of controls. */
@@ -219,23 +510,23 @@ html.lpc-collapsed #lpc-topbar {
     background: var(--lpc-border);
 }
 
-/* House style for the recurring "labelled filter" cluster, so a year picker
-   looks identical on every page that has one. */
+/* House style for the recurring "labelled filter" cluster, so a year picker is
+   identical on every page that has one. */
 .lpc-field {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    height: 2.25rem;
-    padding: 0 0.75rem;
-    background: #F9FAFB;
+    gap: .5rem;
+    height: var(--lpc-control-h);
+    padding: 0 .75rem;
+    background: var(--lpc-surface-sunken);
     border: 1px solid var(--lpc-border);
-    border-radius: 0.5rem;
+    border-radius: var(--lpc-radius-sm);
 }
 .lpc-field > label,
 .lpc-field > .lpc-field-label {
-    font-size: 0.625rem;
+    font-size: .625rem;
     font-weight: 800;
-    letter-spacing: 0.05em;
+    letter-spacing: .08em;
     text-transform: uppercase;
     color: var(--lpc-ink-soft);
     white-space: nowrap;
@@ -248,20 +539,20 @@ html.lpc-collapsed #lpc-topbar {
 .lpc-field input[type="number"],
 .lpc-field input[type="date"],
 .lpc-field input[type="month"] {
-    height: 1.625rem;
-    padding: 0 0.375rem;
+    height: 1.75rem;
+    padding: 0 .375rem;
     border: 1px solid var(--lpc-border);
-    border-radius: 0.375rem;
-    background: #fff;
-    font-size: 0.8125rem;
+    border-radius: var(--lpc-radius-xs);
+    background: var(--lpc-surface);
+    font-size: .8125rem;
     font-weight: 700;
-    color: var(--lpc-brand);
+    color: var(--lpc-accent-on-light);
     outline: none;
 }
 .lpc-field select:focus,
 .lpc-field input:focus {
     border-color: var(--lpc-brand-light);
-    box-shadow: 0 0 0 2px rgba(140, 198, 63, 0.35);
+    box-shadow: var(--lpc-ring);
 }
 
 /* This file loads after tailwind.css, so a bare `display` declaration here
@@ -272,49 +563,49 @@ html.lpc-collapsed #lpc-topbar {
 .lpc-field.hidden,
 .lpc-page.hidden { display: none; }
 
-/* Standalone control (a lone select or input sitting directly in the toolbar).
-   Deliberately sets NO `display`, so `hidden` / `md:block` / `md:flex` variants
-   on the same element continue to behave. */
+/* Standalone control (a lone select or input in the card). Deliberately sets
+   NO `display`, so `hidden` / `md:block` variants on the same element keep
+   behaving. */
 .lpc-control {
-    height: 2.25rem;
-    padding: 0 0.625rem;
+    height: var(--lpc-control-h);
+    padding: 0 .625rem;
     border: 1px solid var(--lpc-border);
-    border-radius: 0.5rem;
-    background: #fff;
-    font-size: 0.8125rem;
+    border-radius: var(--lpc-radius-sm);
+    background: var(--lpc-surface);
+    font-size: .8125rem;
     font-weight: 600;
     color: var(--lpc-ink);
     outline: none;
     cursor: pointer;
 }
-.lpc-control:focus {
-    border-color: var(--lpc-brand-light);
-    box-shadow: 0 0 0 2px rgba(140, 198, 63, 0.35);
-}
+.lpc-control:focus { border-color: var(--lpc-brand-light); box-shadow: var(--lpc-ring); }
 
 /* ===========================================================================
-   5. The shared tab bar
+   5. The shared tab control
    ---------------------------------------------------------------------------
-   Only the CONTAINER is restyled. The buttons keep whatever utility classes
-   they already carry, because the per-page JS toggles those exact class names
-   to mark the active tab — normalising them here via descendant selectors
-   (specificity 0,1,1 beats a single utility class) means zero JS changes.
+   A floating segmented control, matching the page-controls card.
+
+   ACTIVE-STATE DETECTION, and why it needs no JavaScript changes: all 16
+   tab-switching scripts in assets/js/modules/ share one convention — the
+   INACTIVE tab always carries `border-transparent`, and the active tab has it
+   removed. So `:not(.border-transparent)` is a reliable active selector across
+   every page, whatever brand class each script happens to toggle alongside it.
+   Verified against all 16 scripts and all 16 pages' initial markup.
    ========================================================================= */
 .lpc-tabs {
-    position: sticky;
-    top: var(--lpc-topbar-h);
-    z-index: 20;
+    flex: 0 0 auto;
+    margin: 1rem var(--lpc-gutter) 0;
 
     display: flex;
     align-items: stretch;
-    gap: 2rem;
+    gap: .25rem;
 
-    height: var(--lpc-tabs-h);
-    flex: 0 0 auto;
-    padding: 0 var(--lpc-gutter);
+    padding: .375rem;
 
     background: var(--lpc-surface);
-    border-bottom: 1px solid var(--lpc-border);
+    border: 1px solid var(--lpc-border);
+    border-radius: var(--lpc-radius);
+    box-shadow: var(--lpc-shadow-card);
 
     overflow-x: auto;
     overflow-y: hidden;
@@ -322,49 +613,79 @@ html.lpc-collapsed #lpc-topbar {
 }
 .lpc-tabs::-webkit-scrollbar { display: none; }
 .lpc-tabs:empty { display: none; }
+/* Tab bars populated by JS at runtime (master_data) must not collapse before
+   their buttons land. */
+.lpc-tabs[data-lpc-async]:empty { display: flex; min-height: var(--lpc-tabs-h); }
 
-/* When a page has BOTH bars, the tab bar sticks below the toolbar. Derived
-   from the sibling order — no per-page offset markup needed. */
-.lpc-toolbar + .lpc-tabs {
-    top: calc(var(--lpc-topbar-h) + var(--lpc-toolbar-h));
-}
-
-/* Normalise every tab button: same height, same underline weight, same
-   type scale — regardless of the py-3/py-4 and border-b-2/border-b-[3px]
-   each page happened to be written with. */
+/* Every segment: same height, same radius, same type — regardless of the
+   py-3/py-4 and border-b-2/border-b-[3px] each page was written with. */
 .lpc-tabs > button,
 .lpc-tabs > a {
     position: relative;
+    flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
-    flex: 0 0 auto;
-    height: 100%;
-    padding: 0;
-    border-top: 0;
-    border-left: 0;
-    border-right: 0;
-    border-bottom-width: 3px;
-    border-bottom-style: solid;
-    font-size: 0.8125rem;
-    letter-spacing: 0.05em;
+    justify-content: center;
+    gap: .375rem;
+
+    height: 2.5rem;
+    padding: 0 1rem;
+    border: 0 !important;
+    border-radius: var(--lpc-radius-sm);
+
+    font-size: .75rem;
+    font-weight: 700 !important;
+    letter-spacing: .06em;
     text-transform: uppercase;
     white-space: nowrap;
-    background: none;
+
+    background: transparent;
+    color: var(--lpc-ink-soft) !important;
     cursor: pointer;
-    transition: color 0.15s ease, border-color 0.15s ease;
+    transition: background-color .14s ease, color .14s ease, box-shadow .14s ease;
 }
-/* Tab bars whose buttons were written as equal-width segments
-   (empties_collection) keep that behaviour via one opt-in class. */
-.lpc-tabs.lpc-tabs-fill { gap: 0; }
-.lpc-tabs.lpc-tabs-fill > button {
-    flex: 1 1 0%;
-    justify-content: center;
-    padding: 0 1rem;
+.lpc-tabs > button:hover,
+.lpc-tabs > a:hover {
+    background: var(--lpc-surface-sunken);
+    color: var(--lpc-ink) !important;
 }
 
-/* Tab bars that are populated by JS at runtime (master_data, settings) must not
-   collapse before their buttons land. */
-.lpc-tabs[data-lpc-async]:empty { display: flex; }
+/* The active segment. */
+.lpc-tabs > button:not(.border-transparent),
+.lpc-tabs > a:not(.border-transparent) {
+    background: var(--lpc-accent-on-light);
+    color: #fff !important;
+    box-shadow: 0 2px 10px -3px rgba(0, 90, 43, .55);
+}
+.lpc-tabs > button:not(.border-transparent):hover {
+    background: #006932;
+    color: #fff !important;
+}
+
+/* Count badges inside tabs were absolutely positioned against an underline
+   layout (`absolute -right-3`). In a pill they become inline chips. */
+.lpc-tabs > button > span.absolute {
+    position: static !important;
+    top: auto !important;
+    right: auto !important;
+    margin-left: .125rem;
+    padding: 0 .375rem;
+    min-width: 1.125rem;
+    height: 1.125rem;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 999px;
+    font-size: .625rem;
+    line-height: 1;
+}
+/* On the active (green) segment a red chip clashes; lighten it instead. */
+.lpc-tabs > button:not(.border-transparent) > span.absolute {
+    background: rgba(255, 255, 255, .22) !important;
+    color: #fff !important;
+}
+
+/* Segmented bars whose buttons were written as equal-width columns. */
+.lpc-tabs.lpc-tabs-fill > button { flex: 1 1 0%; }
 
 /* ===========================================================================
    6. The shared page content wrapper
@@ -373,39 +694,197 @@ html.lpc-collapsed #lpc-topbar {
     flex: 1 1 auto;
     min-width: 0;
     padding: var(--lpc-gutter);
-    background: var(--lpc-page-bg);
+    background: transparent;
 }
-/* Content-flow variants, so pages that need a column layout or their own
-   vertical rhythm don't reintroduce bespoke padding. */
+/* Don't double up the gap when a card or tab bar sits above the content. */
+.lpc-toolbar + .lpc-page,
+.lpc-tabs + .lpc-page { padding-top: 1rem; }
+
 .lpc-page.lpc-page-col   { display: flex; flex-direction: column; }
 .lpc-page.lpc-page-flush { padding: 0; }
 .lpc-page > .lpc-stack   { display: flex; flex-direction: column; gap: 1.5rem; }
 
 /* ===========================================================================
-   7. Responsive
-   ---------------------------------------------------------------------------
-   Below lg (1024px) the off-canvas sidebar behaviour wins outright —
-   collapse-to-icons is a desktop-only affordance.
+   7. ⌘K command palette
    ========================================================================= */
-@media (max-width: 1023px) {
-    :root { --lpc-gutter: var(--lpc-gutter-md); }
-    #lpc-topbar      { left: 0 !important; }
-    #lpc-shell-main  { margin-left: 0 !important; }
-    /* Leave room for the mobile hamburger, which is fixed at top-left. */
-    #lpc-topbar      { padding-left: 3.75rem; }
+#lpc-palette[hidden] { display: none; }
+#lpc-palette {
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 12vh 1rem 1rem;
+    background: rgba(2, 18, 10, .55);
+    backdrop-filter: blur(4px);
+    animation: lpcPaletteIn .12s ease-out;
 }
-@media (max-width: 767px) {
-    :root { --lpc-gutter: var(--lpc-gutter-sm); }
-    .lpc-toolbar { gap: 0.5rem; }
-    .lpc-tabs    { gap: 1.25rem; }
+@keyframes lpcPaletteIn { from { opacity: 0 } to { opacity: 1 } }
+
+.lpc-palette-panel {
+    width: 100%;
+    max-width: 640px;
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--lpc-surface);
+    border: 1px solid var(--lpc-border);
+    border-radius: 16px;
+    box-shadow: 0 32px 64px -24px rgba(0, 30, 15, .55);
+    overflow: hidden;
+    animation: lpcPanelIn .14s cubic-bezier(.16, 1, .3, 1);
+}
+@keyframes lpcPanelIn { from { opacity: 0; transform: translateY(-8px) scale(.985) } to { opacity: 1; transform: none } }
+
+.lpc-palette-search {
+    display: flex;
+    align-items: center;
+    gap: .625rem;
+    padding: .875rem 1rem;
+    border-bottom: 1px solid var(--lpc-border);
+}
+.lpc-palette-search svg { width: 1.125rem; height: 1.125rem; color: var(--lpc-ink-mute); flex: 0 0 auto; }
+.lpc-palette-search input {
+    flex: 1 1 auto;
+    min-width: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    font-size: .9375rem;
+    color: var(--lpc-ink);
+}
+.lpc-palette-search input::placeholder { color: var(--lpc-ink-mute); }
+.lpc-palette-esc {
+    flex: 0 0 auto;
+    padding: .1875rem .5rem;
+    border-radius: 6px;
+    background: var(--lpc-surface-sunken);
+    border: 1px solid var(--lpc-border);
+    color: var(--lpc-ink-soft);
+    font: 600 .625rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.lpc-palette-results { flex: 1 1 auto; overflow-y: auto; padding: .375rem 0; }
+
+.lpc-palette-group {
+    padding: .625rem 1rem .25rem;
+    font-size: .5625rem;
+    font-weight: 800;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--lpc-ink-mute);
+}
+
+.lpc-palette-item {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    width: 100%;
+    padding: .5rem 1rem;
+    border: 0;
+    border-left: 3px solid transparent;
+    background: transparent;
+    text-align: left;
+    text-decoration: none;
+    color: var(--lpc-ink);
+    cursor: pointer;
+}
+.lpc-palette-item[aria-selected="true"] {
+    background: #F1F7EA;
+    border-left-color: var(--lpc-brand-light);
+}
+.lpc-palette-icon {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: var(--lpc-radius-xs);
+    background: var(--lpc-surface-sunken);
+    color: var(--lpc-accent-on-light);
+}
+.lpc-palette-icon svg { width: 1rem; height: 1rem; }
+.lpc-palette-item[aria-selected="true"] .lpc-palette-icon {
+    background: var(--lpc-accent-on-light);
+    color: #fff;
+}
+.lpc-palette-text  { flex: 1 1 auto; min-width: 0; }
+.lpc-palette-label { font-size: .8125rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lpc-palette-hint  { font-size: .6875rem; color: var(--lpc-ink-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lpc-palette-meta  { flex: 0 0 auto; font-size: .625rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--lpc-ink-mute); }
+
+.lpc-palette-chips { display: flex; flex-wrap: wrap; gap: .375rem; padding: .5rem 1rem .75rem; }
+.lpc-palette-chip {
+    padding: .25rem .625rem;
+    border: 1px solid var(--lpc-border);
+    border-radius: 999px;
+    background: var(--lpc-surface-sunken);
+    color: var(--lpc-ink-soft);
+    font-size: .6875rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.lpc-palette-chip:hover { border-color: var(--lpc-brand-light); color: var(--lpc-ink); }
+
+.lpc-palette-empty { padding: 2.25rem 1rem; text-align: center; color: var(--lpc-ink-mute); font-size: .8125rem; }
+
+.lpc-palette-foot {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: .5rem 1rem;
+    border-top: 1px solid var(--lpc-border);
+    background: var(--lpc-surface-sunken);
+    font-size: .625rem;
+    color: var(--lpc-ink-mute);
+}
+.lpc-palette-foot kbd {
+    display: inline-grid;
+    place-items: center;
+    min-width: 1.125rem;
+    height: 1.125rem;
+    padding: 0 .25rem;
+    margin-right: .25rem;
+    border: 1px solid var(--lpc-border);
+    border-radius: 4px;
+    background: var(--lpc-surface);
+    font: 600 .5625rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--lpc-ink-soft);
 }
 
 /* ===========================================================================
-   8. Print — drop the chrome, keep the content
+   8. Responsive
+   ---------------------------------------------------------------------------
+   Below lg (1024px) the off-canvas sidebar wins outright — collapse-to-icons is
+   a desktop-only affordance.
+   ========================================================================= */
+@media (max-width: 1023px) {
+    :root { --lpc-gutter: var(--lpc-gutter-md); }
+    #lpc-shell-main { margin-left: 0 !important; }
+    #lpc-topbar {
+        left: 0 !important;
+        padding-left: 3.75rem;          /* room for the fixed hamburger */
+    }
+    .lpc-search-trigger { max-width: 240px; }
+}
+@media (max-width: 767px) {
+    :root { --lpc-gutter: var(--lpc-gutter-sm); }
+    .lpc-topbar-sub     { display: none; }
+    .lpc-search-trigger span,
+    .lpc-search-trigger .lpc-kbd { display: none; }
+    .lpc-search-trigger { flex: 0 0 auto; max-width: none; width: var(--lpc-control-h); justify-content: center; padding: 0; }
+    .lpc-toolbar        { gap: .5rem; }
+    #lpc-palette        { padding: 6vh .75rem .75rem; }
+}
+
+/* ===========================================================================
+   9. Print — drop the chrome, keep the content
    ========================================================================= */
 @media print {
-    #lpc-sidebar, #lpc-topbar, .lpc-toolbar, .lpc-tabs,
+    #lpc-sidebar, #lpc-topbar, .lpc-tabs, #lpc-palette,
     #lpc-sidebar-toggle, #lpc-sidebar-backdrop { display: none !important; }
     #lpc-shell-main { margin-left: 0 !important; padding-top: 0 !important; }
-    .lpc-page { padding: 0 !important; background: #fff !important; }
+    .lpc-toolbar    { display: none !important; }
+    .lpc-page       { padding: 0 !important; background: #fff !important; }
 }
