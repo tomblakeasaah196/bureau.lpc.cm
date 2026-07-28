@@ -91,12 +91,12 @@ try {
                 <img src="/assets/img/full_logo.svg" alt="LPC Logo" class="h-16 w-auto" onerror="this.style.display='none'">
                 <div>
                     <h1 class="text-2xl font-black tracking-tighter text-[#005A2B]">LA PETITE COUR</h1>
-                    <p class="text-xs font-bold text-gray-500 uppercase tracking-widest mt-1">Production & Distribution d'Eau</p>
+                    <p class="text-xs font-bold text-gray-500 uppercase tracking-widest mt-1"><?= htmlspecialchars(__t('ui.x.production_distribution_d_eau')) ?></p>
                 </div>
             </div>
             <div class="text-right">
-                <h2 class="text-xl font-black text-gray-900 uppercase">Rapport d'Inventaire</h2>
-                <h3 class="text-sm font-bold text-gray-500 uppercase">Physique & Régularisation</h3>
+                <h2 class="text-xl font-black text-gray-900 uppercase"><?= htmlspecialchars(__t('ui.x.rapport_d_inventaire')) ?></h2>
+                <h3 class="text-sm font-bold text-gray-500 uppercase"><?= htmlspecialchars(__t('ui.x.physique_regularisation')) ?></h3>
                 <p class="text-lg font-black text-red-600 mt-2"><?php echo htmlspecialchars($report['reference']); ?></p>
                 <p class="text-xs font-bold text-gray-500 mt-1">À date du : <?php echo date('d/m/Y H:i', strtotime($report['created_at'])); ?></p>
             </div>
@@ -104,24 +104,24 @@ try {
 
         <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-8 flex justify-between items-center">
             <div>
-                <h4 class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">Opérateur Certifiant</h4>
+                <h4 class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1"><?= htmlspecialchars(__t('ui.x.operateur_certifiant')) ?></h4>
                 <p class="font-black text-sm text-gray-900"><i class="fas fa-user-shield text-gray-400 mr-2"></i> <?php echo htmlspecialchars($report['first_name'] . ' ' . $report['last_name']); ?></p>
             </div>
             <div class="text-right">
-                <h4 class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">Statut du Rapport</h4>
-                <p class="font-black text-sm text-green-600 uppercase"><i class="fas fa-lock mr-1"></i> Verrouillé & Appliqué</p>
+                <h4 class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1"><?= htmlspecialchars(__t('ui.x.statut_du_rapport')) ?></h4>
+                <p class="font-black text-sm text-green-600 uppercase"><i class="fas fa-lock mr-1"></i> <?= htmlspecialchars(__t('ui.x.verrouille_applique')) ?></p>
             </div>
         </div>
 
         <div class="mb-10">
-            <h4 class="text-xs font-black uppercase tracking-widest text-gray-800 mb-4">Détail des Écarts & Nouveau Stock d'Ouverture</h4>
+            <h4 class="text-xs font-black uppercase tracking-widest text-gray-800 mb-4"><?= htmlspecialchars(__t('ui.x.detail_des_ecarts_nouveau_stock_d_ouvert')) ?></h4>
             <table class="w-full text-left border-collapse border border-gray-800">
                 <thead class="bg-gray-800 text-white">
                     <tr>
-                        <th class="py-3 px-4 text-[10px] font-black uppercase tracking-widest border-r border-gray-700">Produit</th>
-                        <th class="py-3 px-4 text-[10px] font-black uppercase tracking-widest text-center border-r border-gray-700 w-32">Qté Théorique</th>
-                        <th class="py-3 px-4 text-[10px] font-black uppercase tracking-widest text-center border-r border-gray-700 w-32">Écart Constaté</th>
-                        <th class="py-3 px-4 text-[10px] font-black uppercase tracking-widest text-center bg-gray-900 w-40 text-blue-300">Nouveau Solde<br>(Physique)</th>
+                        <th class="py-3 px-4 text-[10px] font-black uppercase tracking-widest border-r border-gray-700"><?= htmlspecialchars(__t('ui.x.produit')) ?></th>
+                        <th class="py-3 px-4 text-[10px] font-black uppercase tracking-widest text-center border-r border-gray-700 w-32"><?= htmlspecialchars(__t('ui.x.qte_theorique')) ?></th>
+                        <th class="py-3 px-4 text-[10px] font-black uppercase tracking-widest text-center border-r border-gray-700 w-32"><?= htmlspecialchars(__t('ui.x.ecart_constate')) ?></th>
+                        <th class="py-3 px-4 text-[10px] font-black uppercase tracking-widest text-center bg-gray-900 w-40 text-blue-300"><?= htmlspecialchars(__t('ui.x.nouveau_solde')) ?><br><?= htmlspecialchars(__t('ui.x.physique')) ?></th>
                     </tr>
                 </thead>
                 <tbody class="text-sm">
@@ -146,7 +146,7 @@ try {
         </div>
 
         <div class="border-2 border-gray-800 rounded-lg p-6 relative break-inside-avoid">
-            <h4 class="absolute -top-3 left-4 bg-white px-2 text-[10px] font-black uppercase tracking-widest text-gray-500">Certification & Scellement Numérique</h4>
+            <h4 class="absolute -top-3 left-4 bg-white px-2 text-[10px] font-black uppercase tracking-widest text-gray-500"><?= htmlspecialchars(__t('ui.x.certification_scellement_numerique')) ?></h4>
             
             <div class="grid grid-cols-3 gap-6 mt-2">
                 <div class="col-span-2">
@@ -154,14 +154,14 @@ try {
                         L'opérateur certifie sur l'honneur l'exactitude des quantités physiques renseignées dans ce rapport. La validation de ce document a automatiquement écrasé les stocks théoriques précédents pour établir les nouveaux soldes d'ouverture. L'empreinte cryptographique ci-dessous garantit l'intégrité de cette déclaration.
                     </p>
                     <div class="space-y-1 bg-gray-50 p-3 rounded border border-gray-100">
-                        <p class="text-[9px] font-mono text-gray-600"><strong>IP Opérateur:</strong> <?php echo htmlspecialchars($report['ip_address']); ?></p>
-                        <p class="text-[9px] font-mono text-gray-600"><strong>Horodatage Serveur:</strong> <?php echo htmlspecialchars($report['created_at']); ?></p>
+                        <p class="text-[9px] font-mono text-gray-600"><strong><?= htmlspecialchars(__t('ui.x.ip_operateur')) ?></strong> <?php echo htmlspecialchars($report['ip_address']); ?></p>
+                        <p class="text-[9px] font-mono text-gray-600"><strong><?= htmlspecialchars(__t('ui.x.horodatage_serveur')) ?></strong> <?php echo htmlspecialchars($report['created_at']); ?></p>
                         <p class="text-[9px] font-mono text-gray-400 break-all leading-tight mt-2"><strong>Empreinte Cryptographique Unique (SHA-256):</strong><br><?php echo htmlspecialchars($report['digital_hash']); ?></p>
                     </div>
                 </div>
 
                 <div class="text-center flex flex-col justify-end pb-2">
-                    <p class="text-xs font-black uppercase text-gray-800 border-b border-gray-200 pb-2 mb-2 inline-block">Approbation Système</p>
+                    <p class="text-xs font-black uppercase text-gray-800 border-b border-gray-200 pb-2 mb-2 inline-block"><?= htmlspecialchars(__t('ui.x.approbation_systeme')) ?></p>
                     <p class="text-[10px] font-bold text-gray-500 uppercase"><?php echo htmlspecialchars($report['first_name'] . ' ' . $report['last_name']); ?></p>
                     <div class="mt-4 inline-flex items-center justify-center border-2 border-green-600 text-green-600 rounded-full w-16 h-16 transform -rotate-12 mx-auto">
                         <i class="fas fa-check-double text-2xl"></i>
@@ -171,7 +171,7 @@ try {
         </div>
 
         <div class="absolute bottom-10 left-0 right-0 text-center">
-            <p class="text-[9px] font-bold text-gray-400">Généré par LPC ERP. Ce document fait office de référence légale pour le redressement comptable du stock.</p>
+            <p class="text-[9px] font-bold text-gray-400"><?= htmlspecialchars(__t('ui.x.genere_par_lpc_erp_ce_document_fait_offi')) ?></p>
         </div>
 
     </div>

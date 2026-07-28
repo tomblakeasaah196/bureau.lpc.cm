@@ -2,7 +2,7 @@
 // Define variables securely from the session to avoid warnings
 $lang = $_GET['lang'] ?? 'fr';
 $user_name = $_SESSION['user_name'] ?? 'Utilisateur';
-$user_role = $_SESSION['user_role'] ?? 'Rôle';
+$user_role = $_SESSION['user_role'] ?? __t('ui.x.role');
 $initials = strtoupper(substr($user_name, 0, 2));
 ?>
 <aside id="sidebar" class="fixed inset-y-0 left-0 z-50 w-72 bg-lpc-dark text-white transform -translate-x-full transition-transform duration-300 flex flex-col shadow-2xl">

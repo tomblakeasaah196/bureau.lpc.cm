@@ -44,7 +44,7 @@ if (!defined('LPC_BOOTSTRAPPED')) {
 // command_palette.php can add its Help group without a second require.
 require_once __DIR__ . '/../functions/help.php';
 
-$lang         = $lang ?? (in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? ($_GET['lang'] ?? 'fr') : 'fr');
+$lang         = $lang ?? lpc_i18n_current_lang();
 $pageTitle    = $pageTitle    ?? '';
 $pageSubtitle = $pageSubtitle ?? '';
 

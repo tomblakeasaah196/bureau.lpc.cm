@@ -599,7 +599,11 @@ html.lpc-collapsed #lpc-topbar { left: var(--lpc-sidebar-w-collapsed); }
     padding: 0 .375rem;
     border: 1px solid var(--lpc-border);
     border-radius: var(--lpc-radius-xs);
-    background: var(--lpc-surface);
+    /* background-color, NOT the `background` shorthand: the shorthand also
+       resets background-image/-repeat/-position/-size, which strips the
+       forms-plugin <select> chevron and leaves it tiling if any later rule
+       re-declares the image on its own. */
+    background-color: var(--lpc-surface);
     font-size: .8125rem;
     font-weight: 700;
     color: var(--lpc-accent-on-light);
@@ -627,7 +631,8 @@ html.lpc-collapsed #lpc-topbar { left: var(--lpc-sidebar-w-collapsed); }
     padding: 0 .625rem;
     border: 1px solid var(--lpc-border);
     border-radius: var(--lpc-radius-sm);
-    background: var(--lpc-surface);
+    /* background-color, not the shorthand — see the note on .lpc-field select. */
+    background-color: var(--lpc-surface);
     font-size: .8125rem;
     font-weight: 600;
     color: var(--lpc-ink);
@@ -1579,7 +1584,8 @@ html.lpc-collapsed #lpc-sidebar .lpc-user-menu {
     padding: .55rem .7rem;
     border: 1px solid var(--lpc-border);
     border-radius: .5rem;
-    background: var(--lpc-surface);
+    /* background-color, not the shorthand — see the note on .lpc-field select. */
+    background-color: var(--lpc-surface);
     color: var(--lpc-ink);
     font-size: .875rem;
     font-family: inherit;

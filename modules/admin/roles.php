@@ -26,7 +26,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 Rbac::requirePermission('admin.roles.view');
 
 // Preserve the language selection across the redirect.
-$lang = in_array(($_GET['lang'] ?? 'fr'), ['fr', 'en'], true) ? ($_GET['lang'] ?? 'fr') : 'fr';
+$lang = lpc_i18n_current_lang();
 
 // 301 would be cached by browsers forever, which makes this hard to undo if we
 // later decide the standalone page should come back. 302 keeps the option open.

@@ -19,7 +19,7 @@ require_once __DIR__ . '/../../includes/functions/proposal_template.php';
 
 Rbac::requirePermission('crm.proposals.template');
 
-$lang   = isset($_GET['lang']) && $_GET['lang'] === 'en' ? 'en' : 'fr';
+$lang = lpc_i18n_current_lang();
 $groups = lpc_proposal_studio_payload();
 $labels = lpc_proposal_group_labels();
 $order  = ['brand', 'p1', 'p2', 'logos', 'p3', 'p4', 'share', 'ui'];
@@ -48,7 +48,7 @@ try {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Studio Proposition | LPC ERP</title>
+    <title><?= htmlspecialchars(__t('ui.x.studio_proposition_lpc_erp')) ?></title>
 
     <style>
         .pt-field        { border-bottom: 1px solid var(--lpc-border, #e5e7eb); padding: 1rem 0; }
@@ -104,8 +104,8 @@ try {
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 <?php
-$pageTitle    = 'Studio Proposition';
-$pageSubtitle = 'Modèle de proposition commerciale';
+$pageTitle    = __t('ui.x.studio_proposition');
+$pageSubtitle = __t('ui.x.modele_de_proposition_commerciale');
 require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
 require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 ?>
@@ -135,7 +135,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                      ? '/quote.php?token=' . htmlspecialchars($previewToken, ENT_QUOTES, 'UTF-8')
                      : '#' ?>"
            id="pt-preview" target="_blank" rel="noopener"
-           <?= $previewToken === '' ? 'aria-disabled="true" title="Aucun devis existant à prévisualiser"' : '' ?>
+           <?= $previewToken === '' ? 'aria-disabled="true" title=__t('ui.x.aucun_devis_existant_a_previsualiser')' : '' ?>
            class="text-sm font-bold <?= $previewToken === '' ? 'text-gray-300 pointer-events-none' : 'text-lpc-dark hover:underline' ?> flex items-center gap-2">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
             Aperçu
@@ -171,8 +171,8 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 
         <?php if ($needsMigration): ?>
             <div role="alert" class="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-5 mb-6">
-                <p class="font-bold mb-1">Modèle non initialisé</p>
-                <p class="text-sm">La table <code>proposal_template_settings</code> est vide ou absente.
+                <p class="font-bold mb-1"><?= htmlspecialchars(__t('ui.x.modele_non_initialise')) ?></p>
+                <p class="text-sm"><?= htmlspecialchars(__t('ui.x.la_table')) ?> <code>proposal_template_settings</code> est vide ou absente.
                    Exécutez <code>migrations/030_proposal_template.sql</code> via
                    <code>scripts/deploy.sh</code>. En attendant, la proposition
                    continue de s'afficher avec ses valeurs d'origine.</p>
@@ -215,7 +215,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                                 <?= htmlspecialchars($f['label_fr'], ENT_QUOTES, 'UTF-8') ?>
                             </label>
                             <?php if (!$f['is_default']): ?>
-                                <span class="pt-badge ml-2">modifié</span>
+                                <span class="pt-badge ml-2"><?= htmlspecialchars(__t('ui.x.modifie')) ?></span>
                             <?php endif; ?>
                             <?php if (!empty($f['help_fr'])): ?>
                                 <p class="text-xs text-gray-500 mt-0.5">
@@ -226,7 +226,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                         <button type="button"
                                 class="pt-reset text-[11px] font-bold text-gray-400 hover:text-red-600 shrink-0 transition-colors"
                                 data-key="<?= htmlspecialchars($k, ENT_QUOTES, 'UTF-8') ?>"
-                                title="Restaurer la valeur d'origine">Réinitialiser</button>
+                                title="Restaurer la valeur d'origine"><?= htmlspecialchars(__t('ui.x.reinitialiser')) ?></button>
                     </div>
 
                     <?php if ($kind === 'image'): ?>
@@ -235,7 +235,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                                  src="<?= htmlspecialchars($f['value_fr'] ?: '/assets/img/full_logo.svg', ENT_QUOTES, 'UTF-8') ?>"
                                  alt="">
                             <div class="pt-imgrow-path">
-                                <label class="pt-lang" for="<?= $id ?>_fr">Chemin de l'image</label>
+                                <label class="pt-lang" for="<?= $id ?>_fr"><?= htmlspecialchars(__t('ui.x.chemin_de_l_image')) ?></label>
                                 <input type="text" class="pt-input pt-val" id="<?= $id ?>_fr" data-lang="fr"
                                        maxlength="<?= (int) $f['max_fr'] ?>"
                                        data-min="<?= (int) $f['min_fr'] ?>" data-max="<?= (int) $f['max_fr'] ?>"
@@ -245,7 +245,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                                 </p>
                             </div>
                             <div class="pt-imgrow-alt">
-                                <label class="pt-lang" for="<?= $id ?>_en">Texte alternatif</label>
+                                <label class="pt-lang" for="<?= $id ?>_en"><?= htmlspecialchars(__t('ui.x.texte_alternatif')) ?></label>
                                 <input type="text" class="pt-input pt-val" id="<?= $id ?>_en" data-lang="en"
                                        maxlength="<?= (int) $f['max_en'] ?>"
                                        data-min="<?= (int) $f['min_en'] ?>" data-max="<?= (int) $f['max_en'] ?>"
@@ -261,14 +261,14 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                                            style="position:absolute; width:1px; height:1px; opacity:0; overflow:hidden;"
                                            data-key="<?= htmlspecialchars($k, ENT_QUOTES, 'UTF-8') ?>">
                                 </label>
-                                <p class="pt-upload-name" id="<?= $id ?>_fname">PNG, JPEG ou WebP — 2 Mo max</p>
+                                <p class="pt-upload-name" id="<?= $id ?>_fname"><?= htmlspecialchars(__t('ui.x.png_jpeg_ou_webp_2_mo_max')) ?></p>
                             </div>
                         </div>
 
                     <?php else: $tag = $kind === 'textarea' ? 'textarea' : 'input'; ?>
                         <div class="pt-grid">
                             <div>
-                                <label class="pt-lang" for="<?= $id ?>_fr">Français</label>
+                                <label class="pt-lang" for="<?= $id ?>_fr"><?= htmlspecialchars(__t('ui.x.francais')) ?></label>
                                 <?php if ($tag === 'textarea'): ?>
                                     <textarea class="pt-input pt-val" id="<?= $id ?>_fr" data-lang="fr" rows="4"
                                               maxlength="<?= (int) $f['max_fr'] ?>"

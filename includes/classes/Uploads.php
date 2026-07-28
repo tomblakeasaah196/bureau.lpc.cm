@@ -94,7 +94,10 @@ class Uploads
                 throw new RuntimeException('Échec de l\'écriture du fichier.');
             }
         }
-        @chmod($absFile, 0640);
+        // 0644, not 0640 — same reason as the 0755 in computeTarget(): Apache
+        // serves this file as a different user than the PHP process, and a
+        // group-only-readable file comes back as 403 in the browser.
+        @chmod($absFile, 0644);
 
         return [
             'path'     => $webPath,
@@ -158,7 +161,10 @@ class Uploads
             imagedestroy($img);
             if (!$ok) throw new RuntimeException('Échec de l\'encodage de la signature.');
         }
-        @chmod($absFile, 0640);
+        // 0644, not 0640 — same reason as the 0755 in computeTarget(): Apache
+        // serves this file as a different user than the PHP process, and a
+        // group-only-readable file comes back as 403 in the browser.
+        @chmod($absFile, 0644);
 
         return [
             'path'     => $webPath,
@@ -293,8 +299,14 @@ class Uploads
         $absDir  = $docRoot . '/uploads/' . $subdir . '/' . $ymd;
         $absFile = $absDir . '/' . $rand . '.' . $ext;
 
+        // 0755, not 0750. PHP runs as the cPanel account user, but Apache
+        // serves static files under /uploads/ as its own user (nobody). Without
+        // world-execute on the YYYY/MM directories Apache cannot traverse into
+        // them and every uploaded image 403s — the file is on disk and the path
+        // is right, the web server just cannot reach it. Execution of anything
+        // in this tree is already blocked by uploads/.htaccess.
         if (!is_dir($absDir)) {
-            if (!@mkdir($absDir, 0750, true) && !is_dir($absDir)) {
+            if (!@mkdir($absDir, 0755, true) && !is_dir($absDir)) {
                 throw new RuntimeException("Impossible de créer le répertoire de destination.");
             }
         }

@@ -2,7 +2,7 @@
 // RBAC + env bootstrap (loads .env, DB, session cookie hardening, Rbac).
 require_once __DIR__ . '/../../../includes/bootstrap.php';
 Rbac::requirePermission('dashboard.driver.view');
-$lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
+$lang = lpc_i18n_current_lang();
 $display_name = $_SESSION['user_name'] ?? 'Jean C.';
 $display_role = $_SESSION['user_role'] ?? 'driver';
 $initials = strtoupper(substr($display_name, 0, 2));
@@ -66,7 +66,7 @@ $initials = strtoupper(substr($display_name, 0, 2));
         <div class="grid grid-cols-2 gap-4 mb-6">
             <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col items-center justify-center">
                 <span class="text-3xl font-black text-blue-600" id="kpi-pending-bl">-</span>
-                <span class="text-xs font-semibold text-gray-500 uppercase mt-1 text-center">BL à Livrer</span>
+                <span class="text-xs font-semibold text-gray-500 uppercase mt-1 text-center"><?= htmlspecialchars(__t('ui.x.bl_a_livrer')) ?></span>
             </div>
             <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col items-center justify-center">
                 <span class="text-3xl font-black text-lpc-dark" id="kpi-bottles">-</span>
@@ -138,20 +138,20 @@ $initials = strtoupper(substr($display_name, 0, 2));
         <div class="bg-white rounded-t-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col h-[90vh] animate-slideUp">
             <div class="bg-lpc-dark p-6 text-white text-center shrink-0 relative">
                 <button type="button" onclick="document.getElementById('modal-confirm').classList.add('hidden')" class="absolute top-6 right-6 text-white/70 hover:text-white"><i class="fas fa-times text-xl"></i></button>
-                <h3 class="font-black text-xl">Preuve de Livraison</h3>
-                <p class="text-xs font-bold text-green-200 mt-1" id="confirm_client_name">Client...</p>
+                <h3 class="font-black text-xl"><?= htmlspecialchars(__t('ui.x.preuve_de_livraison')) ?></h3>
+                <p class="text-xs font-bold text-green-200 mt-1" id="confirm_client_name"><?= htmlspecialchars(__t('ui.x.client_3')) ?></p>
                 <p class="text-[10px] font-mono mt-1" id="confirm_bl_ref">BL-...</p>
             </div>
             
             <form id="form-confirm" onsubmit="event.preventDefault(); submitConfirmDelivery();" class="flex-1 overflow-y-auto p-6 space-y-6">
                 <input type="hidden" id="confirm_reference">
                 <div>
-                    <h4 class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 border-b border-gray-100 pb-2">Vérification des Quantités</h4>
+                    <h4 class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 border-b border-gray-100 pb-2"><?= htmlspecialchars(__t('ui.x.verification_des_quantites')) ?></h4>
                     <div id="confirm-items-container" class="space-y-4"></div>
                 </div>
                 <div>
-                    <h4 class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 border-b border-gray-100 pb-2">Encaissement</h4>
-                    <label class="block text-xs font-black text-gray-600 mb-2">Montant Cash Collecté (FCFA)</label>
+                    <h4 class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 border-b border-gray-100 pb-2"><?= htmlspecialchars(__t('ui.x.encaissement')) ?></h4>
+                    <label class="block text-xs font-black text-gray-600 mb-2"><?= htmlspecialchars(__t('ui.x.montant_cash_collecte_fcfa')) ?></label>
                     <div class="relative">
                         <i class="fas fa-money-bill-wave absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500"></i>
                         <input type="number" id="confirm_cash" value="0" min="0" class="w-full bg-emerald-50 border border-emerald-200 rounded-xl pl-12 pr-4 py-4 text-xl font-black text-emerald-900 outline-none focus:ring-2 focus:ring-emerald-500">
@@ -161,10 +161,10 @@ $initials = strtoupper(substr($display_name, 0, 2));
 
             <div id="success-confirm-overlay" class="hidden absolute inset-0 bg-white z-50 flex flex-col items-center justify-center p-6 text-center">
                 <i class="fas fa-check-circle text-7xl text-lpc-light mb-4"></i>
-                <h2 class="text-2xl font-black text-gray-900 mb-2">Livraison Confirmée !</h2>
-                <p class="text-sm font-bold text-gray-500 mb-8">N'oubliez pas de récupérer les emballages vides chez ce client.</p>
-                <button onclick="goToEmpties()" class="w-full bg-lpc-dark text-white font-black py-4 rounded-xl shadow-lg mb-3"><i class="fas fa-wine-bottle mr-2"></i> Générer un CRE (Vides)</button>
-                <button onclick="window.location.reload()" class="w-full bg-gray-100 text-gray-600 font-bold py-4 rounded-xl">Retour à la tournée</button>
+                <h2 class="text-2xl font-black text-gray-900 mb-2"><?= htmlspecialchars(__t('ui.x.livraison_confirmee')) ?></h2>
+                <p class="text-sm font-bold text-gray-500 mb-8"><?= htmlspecialchars(__t('ui.x.n_oubliez_pas_de_recuperer_les_emballage')) ?></p>
+                <button onclick="goToEmpties()" class="w-full bg-lpc-dark text-white font-black py-4 rounded-xl shadow-lg mb-3"><i class="fas fa-wine-bottle mr-2"></i> <?= htmlspecialchars(__t('ui.x.generer_un_cre_vides')) ?></button>
+                <button onclick="window.location.reload()" class="w-full bg-gray-100 text-gray-600 font-bold py-4 rounded-xl"><?= htmlspecialchars(__t('ui.x.retour_a_la_tournee')) ?></button>
             </div>
 
             <div class="p-4 border-t border-gray-100 bg-gray-50 shrink-0">
@@ -178,13 +178,13 @@ $initials = strtoupper(substr($display_name, 0, 2));
         <div class="bg-white rounded-t-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col p-6 animate-slideUp">
             <div class="text-center mb-6">
                 <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3"><i class="fas fa-flag-checkered text-3xl text-gray-800"></i></div>
-                <h3 class="font-black text-xl text-gray-900">Fin de Tournée</h3>
-                <p class="text-xs font-bold text-gray-500 mt-1">Clôture de votre affectation journalière</p>
+                <h3 class="font-black text-xl text-gray-900"><?= htmlspecialchars(__t('ui.x.fin_de_tournee')) ?></h3>
+                <p class="text-xs font-bold text-gray-500 mt-1"><?= htmlspecialchars(__t('ui.x.cloture_de_votre_affectation_journaliere')) ?></p>
             </div>
             
             <form id="form-return" onsubmit="event.preventDefault(); submitReturn();" class="space-y-5">
                 <div>
-                    <label class="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2">Kilométrage de Retour *</label>
+                    <label class="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.kilometrage_de_retour')) ?></label>
                     <div class="relative">
                         <i class="fas fa-tachometer-alt absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
                         <input type="number" id="return_odometer" required placeholder="Saisir Km final" class="w-full bg-gray-50 border border-gray-200 rounded-xl pl-12 pr-4 py-4 text-lg font-black text-gray-900 outline-none focus:border-lpc-dark focus:ring-1 focus:ring-lpc-dark">
@@ -193,11 +193,11 @@ $initials = strtoupper(substr($display_name, 0, 2));
 
                 <div class="bg-amber-50 border border-amber-200 p-4 rounded-xl flex gap-3 text-amber-800">
                     <i class="fas fa-exclamation-circle text-xl mt-0.5"></i>
-                    <p class="text-[10px] font-bold leading-relaxed">Après validation, veuillez remettre vos bons de livraison signés et la caisse (Cash) au bureau logistique pour la clôture financière.</p>
+                    <p class="text-[10px] font-bold leading-relaxed"><?= htmlspecialchars(__t('ui.x.apres_validation_veuillez_remettre_vos_b')) ?></p>
                 </div>
 
                 <div class="flex gap-3 pt-2">
-                    <button type="button" onclick="document.getElementById('modal-return').classList.add('hidden')" class="w-1/3 bg-gray-100 text-gray-600 font-bold rounded-xl py-4">Annuler</button>
+                    <button type="button" onclick="document.getElementById('modal-return').classList.add('hidden')" class="w-1/3 bg-gray-100 text-gray-600 font-bold rounded-xl py-4"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
                     <button type="submit" id="btn-return-submit" class="w-2/3 bg-gray-900 text-white font-black rounded-xl py-4 shadow-lg flex justify-center items-center gap-2">
                         <i class="fas fa-check"></i> Valider Retour
                     </button>

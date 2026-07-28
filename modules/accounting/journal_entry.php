@@ -7,7 +7,7 @@ Rbac::requirePermission('accounting.journal.view');
  * DESCRIPTION: Manage OHADA/LPC Accounts, Validate auto-generated entries, Manual Wizard.
  */
 // Strict RBAC: Admin and Finance ONLY.
-$lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
+$lang = lpc_i18n_current_lang();
 $user_role = $_SESSION['user_role'];
 ?>
 <!DOCTYPE html>
@@ -15,7 +15,7 @@ $user_role = $_SESSION['user_role'];
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Journaux & Comptes | LPC ERP</title>
+    <title><?= htmlspecialchars(__t('ui.x.journaux_comptes_lpc_erp')) ?></title>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
@@ -37,8 +37,8 @@ $user_role = $_SESSION['user_role'];
 
 
     <?php
-    $pageTitle    = 'Saisie & Journaux';
-    $pageSubtitle = 'Plan Comptable & Brouillards';
+    $pageTitle    = __t('ui.x.saisie_journaux');
+    $pageSubtitle = __t('ui.x.plan_comptable_brouillards');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     ?>
@@ -63,7 +63,7 @@ $user_role = $_SESSION['user_role'];
             <div id="content-queue" class="tab-content active flex-col h-full gap-6">
                 <div class="bg-blue-50 border border-blue-200 p-5 rounded-2xl flex justify-between items-center shrink-0">
                     <div>
-                        <h3 class="font-black text-blue-900 text-sm uppercase tracking-widest flex items-center"><i class="fas fa-shield-alt mr-2"></i> Zone de Validation</h3>
+                        <h3 class="font-black text-blue-900 text-sm uppercase tracking-widest flex items-center"><i class="fas fa-shield-alt mr-2"></i> <?= htmlspecialchars(__t('ui.x.zone_de_validation')) ?></h3>
                         <p class="text-xs text-blue-700 font-bold mt-1">Ces écritures ont été générées par l'ERP (Ventes, Flotte, Trésorerie) ou sauvegardées en brouillon. Vérifiez-les avant de les poster au Grand Livre.</p>
                     </div>
                 </div>
@@ -73,12 +73,12 @@ $user_role = $_SESSION['user_role'];
                         <table class="min-w-full text-left border-collapse">
                             <thead class="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
                                 <tr>
-                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest">Journal</th>
-                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest">Date & Réf</th>
-                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest">Description</th>
-                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right">Lignes (Débit/Crédit)</th>
-                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-center">Statut</th>
-                                    <th class="py-4 px-6 text-right">Actions</th>
+                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest"><?= htmlspecialchars(__t('ui.x.journal')) ?></th>
+                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest"><?= htmlspecialchars(__t('ui.x.date_ref')) ?></th>
+                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest"><?= htmlspecialchars(__t('ui.x.description_2')) ?></th>
+                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right"><?= htmlspecialchars(__t('ui.x.lignes_debit_credit')) ?></th>
+                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-center"><?= htmlspecialchars(__t('ui.x.statut')) ?></th>
+                                    <th class="py-4 px-6 text-right"><?= htmlspecialchars(__t('ui.x.actions')) ?></th>
                                 </tr>
                             </thead>
                             <tbody id="table-body-queue" class="divide-y divide-gray-100 text-sm">
@@ -92,39 +92,39 @@ $user_role = $_SESSION['user_role'];
                 
                 <div class="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm flex flex-col">
                     <div class="flex items-center justify-between border-b border-gray-100 pb-4 mb-6">
-                        <h3 class="font-black text-gray-800 text-lg uppercase tracking-widest"><i class="fas fa-keyboard text-acc-highlight mr-2"></i> Nouvelle Écriture Multiple</h3>
-                        <button onclick="resetWizard()" class="text-xs font-bold text-gray-400 hover:text-rose-500 transition-colors"><i class="fas fa-trash-alt mr-1"></i> Réinitialiser</button>
+                        <h3 class="font-black text-gray-800 text-lg uppercase tracking-widest"><i class="fas fa-keyboard text-acc-highlight mr-2"></i> <?= htmlspecialchars(__t('ui.x.nouvelle_ecriture_multiple')) ?></h3>
+                        <button onclick="resetWizard()" class="text-xs font-bold text-gray-400 hover:text-rose-500 transition-colors"><i class="fas fa-trash-alt mr-1"></i> <?= htmlspecialchars(__t('ui.x.reinitialiser')) ?></button>
                     </div>
                     
                     <form id="form-wizard" class="space-y-6">
                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
                             <div>
-                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Journal *</label>
+                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5"><?= htmlspecialchars(__t('ui.x.journal_2')) ?></label>
                                 <select id="wiz_journal" required class="w-full bg-white border border-gray-300 rounded-lg p-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-acc-highlight">
-                                    <option value="OD">Opérations Diverses (OD)</option>
-                                    <option value="AC">Achats (AC)</option>
-                                    <option value="VT">Ventes (VT)</option>
-                                    <option value="CA">Caisse (CA)</option>
-                                    <option value="BQ">Banque (BQ)</option>
+                                    <option value="OD"><?= htmlspecialchars(__t('ui.x.operations_diverses_od')) ?></option>
+                                    <option value="AC"><?= htmlspecialchars(__t('ui.x.achats_ac')) ?></option>
+                                    <option value="VT"><?= htmlspecialchars(__t('ui.x.ventes_vt')) ?></option>
+                                    <option value="CA"><?= htmlspecialchars(__t('ui.x.caisse_ca')) ?></option>
+                                    <option value="BQ"><?= htmlspecialchars(__t('ui.x.banque_bq')) ?></option>
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Date Comptable *</label>
+                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5"><?= htmlspecialchars(__t('ui.x.date_comptable')) ?></label>
                                 <input type="date" id="wiz_date" required class="w-full bg-white border border-gray-300 rounded-lg p-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-acc-highlight">
                             </div>
                             <div>
-                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Référence Pièce *</label>
+                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5"><?= htmlspecialchars(__t('ui.x.reference_piece')) ?></label>
                                 <input type="text" id="wiz_ref" required placeholder="Ex: FAC-0012" class="w-full bg-white border border-gray-300 rounded-lg p-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-acc-highlight uppercase">
                             </div>
                             <div>
-                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Libellé Global *</label>
+                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5"><?= htmlspecialchars(__t('ui.x.libelle_global')) ?></label>
                                 <input type="text" id="wiz_desc" required placeholder="Description de l'opération..." class="w-full bg-white border border-gray-300 rounded-lg p-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-acc-highlight">
                             </div>
                         </div>
 
                         <div>
                             <div class="flex justify-between items-center mb-3">
-                                <label class="block text-xs font-black text-gray-800 uppercase tracking-widest">Lignes de l'écriture (Partie Double)</label>
+                                <label class="block text-xs font-black text-gray-800 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.lignes_de_l_ecriture_partie_double')) ?></label>
                                 <button type="button" onclick="addWizardLine()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-black shadow-sm transition-all border border-gray-300">
                                     <i class="fas fa-plus text-acc-highlight mr-1"></i> Ajouter une Ligne
                                 </button>
@@ -134,9 +134,9 @@ $user_role = $_SESSION['user_role'];
                                 <table class="w-full text-left border-collapse bg-white">
                                     <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-500 font-black tracking-widest">
                                         <tr>
-                                            <th class="py-3 px-4 w-1/2">Compte Imputé</th>
-                                            <th class="py-3 px-4 w-1/5 text-right">Débit (Emploi)</th>
-                                            <th class="py-3 px-4 w-1/5 text-right">Crédit (Ressource)</th>
+                                            <th class="py-3 px-4 w-1/2"><?= htmlspecialchars(__t('ui.x.compte_impute')) ?></th>
+                                            <th class="py-3 px-4 w-1/5 text-right"><?= htmlspecialchars(__t('ui.x.debit_emploi')) ?></th>
+                                            <th class="py-3 px-4 w-1/5 text-right"><?= htmlspecialchars(__t('ui.x.credit_ressource')) ?></th>
                                             <th class="py-3 px-4 w-10 text-center"><i class="fas fa-cog"></i></th>
                                         </tr>
                                     </thead>
@@ -148,18 +148,18 @@ $user_role = $_SESSION['user_role'];
 
                         <div class="flex flex-col md:flex-row justify-end items-center gap-4 pt-4 border-t border-gray-100">
                             <div id="wiz_balance_indicator" class="px-5 py-3 rounded-xl border font-black text-sm w-full md:w-auto flex items-center justify-between gap-6 unbalanced">
-                                <span>Écart: <span id="wiz_diff">0</span> F</span>
+                                <span><?= htmlspecialchars(__t('ui.x.ecart')) ?> <span id="wiz_diff">0</span> F</span>
                                 <i class="fas fa-exclamation-triangle" id="wiz_icon_unbalanced"></i>
                                 <i class="fas fa-check-circle hidden" id="wiz_icon_balanced"></i>
                             </div>
                             
                             <div class="flex gap-4 w-full md:w-auto text-right">
                                 <div class="bg-gray-50 px-4 py-2 rounded-lg border border-gray-200 min-w-[150px]">
-                                    <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Total Débit</p>
+                                    <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.total_debit')) ?></p>
                                     <p class="text-lg font-black text-gray-900" id="wiz_total_debit">0 F</p>
                                 </div>
                                 <div class="bg-gray-50 px-4 py-2 rounded-lg border border-gray-200 min-w-[150px]">
-                                    <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Total Crédit</p>
+                                    <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.total_credit')) ?></p>
                                     <p class="text-lg font-black text-gray-900" id="wiz_total_credit">0 F</p>
                                 </div>
                             </div>
@@ -191,7 +191,7 @@ $user_role = $_SESSION['user_role'];
                 <div class="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col flex-1 overflow-hidden">
                     <div class="p-4 bg-gray-50 border-b border-gray-200 flex justify-between text-[10px] uppercase text-gray-500 font-black tracking-widest pr-10">
                         <span class="w-1/4">Racine OHADA</span>
-                        <span class="w-3/4">Comptes Auxiliaires LPC (6 Chiffres)</span>
+                        <span class="w-3/4"><?= htmlspecialchars(__t('ui.x.comptes_auxiliaires_lpc_6_chiffres')) ?></span>
                     </div>
                     <div class="overflow-auto flex-1 p-4 space-y-4" id="chart-container">
                         </div>
@@ -204,30 +204,30 @@ $user_role = $_SESSION['user_role'];
     <div id="modal-add-account" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
             <div class="bg-acc-dark px-6 py-5 flex justify-between items-center text-white border-b border-gray-800">
-                <h3 class="font-black text-lg tracking-wide flex items-center gap-3"><i class="fas fa-sitemap"></i> Créer Compte Auxiliaire</h3>
+                <h3 class="font-black text-lg tracking-wide flex items-center gap-3"><i class="fas fa-sitemap"></i> <?= htmlspecialchars(__t('ui.x.creer_compte_auxiliaire')) ?></h3>
                 <button type="button" onclick="closeModal('modal-add-account')" class="text-gray-400 hover:text-white"><i class="fas fa-times text-xl"></i></button>
             </div>
             <div class="p-8 bg-slate-50">
                 <form id="form-account" class="space-y-5">
                     <div>
-                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Compte Racine OHADA *</label>
+                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5"><?= htmlspecialchars(__t('ui.x.compte_racine_ohada')) ?></label>
                         <select id="new_acc_parent" required class="w-full bg-white border border-gray-200 rounded-lg p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-acc-highlight">
                             </select>
                     </div>
                     <div>
-                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Code LPC (Strictement 6 Chiffres) *</label>
+                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5"><?= htmlspecialchars(__t('ui.x.code_lpc_strictement_6_chiffres')) ?></label>
                         <input type="text" id="new_acc_code" required pattern="[0-9]{6}" maxlength="6" placeholder="Ex: 411001" class="w-full bg-white border border-gray-200 rounded-lg p-3 text-sm font-black outline-none focus:ring-2 focus:ring-acc-highlight font-mono tracking-widest">
-                        <p class="text-[9px] text-gray-400 font-bold mt-1">Doit commencer par les chiffres du compte racine.</p>
+                        <p class="text-[9px] text-gray-400 font-bold mt-1"><?= htmlspecialchars(__t('ui.x.doit_commencer_par_les_chiffres_du_compt')) ?></p>
                     </div>
                     <div>
-                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Nom du Compte *</label>
+                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5"><?= htmlspecialchars(__t('ui.x.nom_du_compte')) ?></label>
                         <input type="text" id="new_acc_name" required placeholder="Ex: Client Boutique Maman" class="w-full bg-white border border-gray-200 rounded-lg p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-acc-highlight">
                     </div>
                 </form>
             </div>
             <div class="bg-white px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
-                <button type="button" onclick="closeModal('modal-add-account')" class="px-5 py-2.5 text-sm font-bold text-gray-500">Annuler</button>
-                <button type="button" onclick="submitAccount()" class="px-6 py-2.5 bg-acc-highlight hover:bg-blue-600 text-white rounded-lg font-bold text-sm shadow-md transition-all">Créer</button>
+                <button type="button" onclick="closeModal('modal-add-account')" class="px-5 py-2.5 text-sm font-bold text-gray-500"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
+                <button type="button" onclick="submitAccount()" class="px-6 py-2.5 bg-acc-highlight hover:bg-blue-600 text-white rounded-lg font-bold text-sm shadow-md transition-all"><?= htmlspecialchars(__t('ui.x.creer')) ?></button>
             </div>
         </div>
     </div>

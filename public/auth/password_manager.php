@@ -11,7 +11,7 @@
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
 
-$lang     = in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? ($_GET['lang'] ?? 'fr') : 'fr';
+$lang = lpc_i18n_current_lang();
 $forced   = !empty($_GET['force']) || !empty($_SESSION['force_reset']);
 $prefCode = htmlspecialchars($_SESSION['employee_code'] ?? '', ENT_QUOTES, 'UTF-8');
 ?>

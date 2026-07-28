@@ -25,10 +25,23 @@
     RemoveType    .php .php3 .php4 .php5 .php7 .php8 .phtml .phar .pht .phps
 </IfModule>
 
-# 3. Force everything served from here to be treated as a plain download.
+# 3. Force everything served from here to be treated as a plain download —
+#    EXCEPT the sanitised raster images the app renders inline (avatars,
+#    signatures, receipt thumbnails). A blanket `Content-Disposition:
+#    attachment` makes Chrome refuse to paint the bytes in an <img>, so the
+#    profile photo came back as an empty circle even though the file, the
+#    stored path and the <img src> were all correct.
+#
+#    Relaxing it for these four extensions is safe: every image written here
+#    goes through Uploads::sanitizeImage(), which re-encodes via GD and so
+#    discards any polyglot payload, and nosniff below still pins the served
+#    Content-Type to the real image type.
 <IfModule mod_headers.c>
     Header set X-Content-Type-Options "nosniff"
     Header set Content-Disposition "attachment"
+    <FilesMatch "\.(jpe?g|png|webp|gif)$">
+        Header set Content-Disposition "inline"
+    </FilesMatch>
 </IfModule>
 
 # 4. Belt-and-suspenders: also disable mod_php IF it happens to be active.

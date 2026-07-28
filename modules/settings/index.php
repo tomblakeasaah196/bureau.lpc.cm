@@ -30,7 +30,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 Rbac::requirePermission('admin.settings.view');
 
-$lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
+$lang = lpc_i18n_current_lang();
 
 // Which tabs this user may actually see. A tab the user cannot read is not
 // rendered at all — better than rendering it and 403-ing on click.
@@ -133,8 +133,8 @@ $tabDefs = [
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
     <?php
-    $pageTitle    = 'Administration & Configuration';
-    $pageSubtitle = 'Identité, sécurité, préférences & audits';
+    $pageTitle    = __t('ui.x.administration_configuration');
+    $pageSubtitle = __t('ui.x.identite_securite_preferences_audits');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     ?>
@@ -180,14 +180,14 @@ $tabDefs = [
             <div class="justify-between items-center mb-6 hidden" id="toolbar">
                 <div class="relative w-96">
                     <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                    <label for="search-input" class="sr-only">Rechercher</label>
+                    <label for="search-input" class="sr-only"><?= htmlspecialchars(__t('ui.x.rechercher')) ?></label>
                     <input type="text" id="search-input" placeholder="Rechercher..."
                            oninput="LPCSettings.filterData()"
                            class="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-gray-900 transition-shadow shadow-sm">
                 </div>
                 <button id="btn-primary-action" type="button" onclick="LPCSettings.openActionModal()"
                         class="bg-gray-900 hover:bg-black text-white px-6 py-3 rounded-xl font-bold text-sm shadow-md flex items-center gap-2 transition-transform active:scale-95">
-                    <i class="fas fa-plus"></i> <span id="btn-action-text">Ajouter</span>
+                    <i class="fas fa-plus"></i> <span id="btn-action-text"><?= htmlspecialchars(__t('ui.x.ajouter')) ?></span>
                 </button>
             </div>
 
@@ -227,8 +227,8 @@ $tabDefs = [
                 <form id="dynamic-form" class="grid grid-cols-1 md:grid-cols-2 gap-6"></form>
             </div>
             <div class="px-8 py-5 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
-                <button type="button" onclick="LPCSettings.closeModal()" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-800">Annuler</button>
-                <button type="button" onclick="LPCSettings.saveData()" class="px-8 py-2.5 bg-lpc-light hover:bg-green-600 text-white rounded-xl font-bold text-sm shadow-md">Enregistrer</button>
+                <button type="button" onclick="LPCSettings.closeModal()" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-800"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
+                <button type="button" onclick="LPCSettings.saveData()" class="px-8 py-2.5 bg-lpc-light hover:bg-green-600 text-white rounded-xl font-bold text-sm shadow-md"><?= htmlspecialchars(__t('ui.x.enregistrer')) ?></button>
             </div>
         </div>
     </div>

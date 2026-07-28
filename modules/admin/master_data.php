@@ -2,7 +2,7 @@
 // RBAC + env bootstrap (loads .env, DB, session cookie hardening, Rbac).
 require_once __DIR__ . '/../../includes/bootstrap.php';
 Rbac::requirePermission('admin.master_data.view');
-$lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
+$lang = lpc_i18n_current_lang();
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo $lang; ?>">
@@ -20,7 +20,7 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
 
     <?php
     $pageTitle    = 'Master Data Hub';
-    $pageSubtitle = 'Gestion des Référentiels';
+    $pageSubtitle = __t('ui.x.gestion_des_referentiels');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     ?>
@@ -37,7 +37,7 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
                 </div>
                 <button onclick="openModal()" class="bg-lpc-dark hover:bg-green-800 text-white px-6 py-3 rounded-xl font-bold text-sm shadow-md flex items-center gap-2 transition-transform active:scale-95">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
-                    <span id="btn-add-text">Ajouter</span>
+                    <span id="btn-add-text"><?= htmlspecialchars(__t('ui.x.ajouter')) ?></span>
                 </button>
             </div>
 
@@ -62,8 +62,8 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
                 <form id="dynamic-form" class="grid grid-cols-1 md:grid-cols-2 gap-6" enctype="multipart/form-data"></form>
             </div>
             <div class="px-8 py-5 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
-                <button type="button" onclick="closeModal()" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-800">Annuler</button>
-                <button type="button" onclick="saveRecord()" class="px-8 py-2.5 bg-lpc-light hover:bg-green-500 text-white rounded-xl font-bold text-sm shadow-md">Enregistrer</button>
+                <button type="button" onclick="closeModal()" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-800"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
+                <button type="button" onclick="saveRecord()" class="px-8 py-2.5 bg-lpc-light hover:bg-green-500 text-white rounded-xl font-bold text-sm shadow-md"><?= htmlspecialchars(__t('ui.x.enregistrer')) ?></button>
             </div>
         </div>
     </div>

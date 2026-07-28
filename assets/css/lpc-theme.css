@@ -1270,8 +1270,22 @@ html[data-lpc-theme="dark"] select:focus {
    hardcoded #6b7280 stroke, baked into a background-image. It is not a colour
    property, so nothing above reaches it — at 4.6:1 on the old white field it
    was fine and on the dark field it is nearly gone. Redrawn here in the mute
-   ink colour. */
-html[data-lpc-theme="dark"] select:not([multiple]):not([size]) { background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236F8378' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e"); }
+   ink colour.
+
+   The repeat/position/size/padding are NOT redundant. Several shell rules
+   (.lpc-field select, .lpc-account-select, ...) set the `background`
+   SHORTHAND, which resets background-repeat to `repeat`, background-position
+   to `0% 0%` and background-size to `auto`. Re-declaring background-image
+   alone then brings the chevron back under those reset values, and it tiles
+   horizontally across the whole control — the row of duplicate arrows seen
+   in dark mode. Restate the full set so the shorthand cannot strand it. */
+html[data-lpc-theme="dark"] select:not([multiple]):not([size]) {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236F8378' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right .5rem center;
+    background-size: 1.5em 1.5em;
+    padding-right: 2.5rem;
+}
 
 /* Native date/time pickers render their calendar glyph as a dark bitmap. The
    filter is the only hook browsers expose for it. color-scheme:dark (set by

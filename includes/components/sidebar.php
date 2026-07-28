@@ -21,7 +21,7 @@ if (!defined('LPC_BOOTSTRAPPED')) {
 }
 Rbac::requireAuth();
 
-$lang        = $lang ?? (in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? ($_GET['lang'] ?? 'fr') : 'fr');
+$lang        = $lang ?? lpc_i18n_current_lang();
 
 // Sprint 9: identity comes from UserProfile, not from the session mirrors.
 // The session still holds user_name/avatar (UserProfile::save keeps them in
@@ -31,7 +31,7 @@ $lang        = $lang ?? (in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? 
 require_once __DIR__ . '/../classes/UserProfile.php';
 $__profile   = UserProfile::current();
 $user_name   = $__profile['display_name'];
-$user_role   = UserProfile::roleLabel() ?: ($_SESSION['user_role'] ?? 'Rôle');
+$user_role   = UserProfile::roleLabel() ?: ($_SESSION['user_role'] ?? __t('ui.x.role'));
 $avatar      = $__profile['avatar'];
 $initials    = $__profile['initials'];
 

@@ -12,7 +12,7 @@ if (!empty($_SESSION['user_id'])) {
     header("Location: $landing"); exit;
 }
 
-$lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
+$lang = lpc_i18n_current_lang();
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo $lang; ?>">

@@ -2,7 +2,7 @@
 // RBAC + env bootstrap (loads .env, DB, session cookie hardening, Rbac).
 require_once __DIR__ . '/../../../includes/bootstrap.php';
 Rbac::requirePermission('dashboard.md.view');
-$lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
+$lang = lpc_i18n_current_lang();
 $display_name = $_SESSION['user_name'] ?? 'Timothée M.';
 $display_role = $_SESSION['user_role'] ?? 'admin';
 $initials = strtoupper(substr($display_name, 0, 2));
@@ -26,7 +26,7 @@ $initials = strtoupper(substr($display_name, 0, 2));
 
     <?php
     $pageTitle    = __t('ui.tableau_de_bord_ex_cutif');
-    $pageSubtitle = 'Direction Générale';
+    $pageSubtitle = __t('ui.direction_g_n_rale');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     ?>
@@ -56,7 +56,7 @@ $initials = strtoupper(substr($display_name, 0, 2));
                 <div class="bg-lpc-surface rounded-2xl p-6 shadow-sm border border-gray-100 relative overflow-hidden group hover:shadow-md transition-shadow">
                     <div class="absolute top-0 left-0 w-1 h-full bg-lpc-light"></div>
                     <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1"><?php echo __t('ui.chiffre_d_affaires'); ?> (YTD)</h3>
-                    <p id="revenue-actual" class="text-2xl font-extrabold text-gray-900 animate-pulse text-gray-300">Chargement...</p>
+                    <p id="revenue-actual" class="text-2xl font-extrabold text-gray-900 animate-pulse text-gray-300"><?= htmlspecialchars(__t('ui.x.chargement')) ?></p>
                     <div class="w-full bg-gray-100 rounded-full h-2 mt-4">
                         <div id="revenue-progress-bar" class="bg-lpc-dark h-2 rounded-full transition-all duration-1000" style="width: 0%"></div>
                     </div>
@@ -66,7 +66,7 @@ $initials = strtoupper(substr($display_name, 0, 2));
                 <div class="bg-lpc-surface rounded-2xl p-6 shadow-sm border border-gray-100 relative overflow-hidden group hover:shadow-md transition-shadow">
                     <div class="absolute top-0 left-0 w-1 h-full bg-red-500"></div>
                     <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1"><?php echo __t('ui.cr_ances_clients'); ?></h3>
-                    <p id="ar-total" class="text-2xl font-extrabold text-gray-900 animate-pulse text-gray-300">Chargement...</p>
+                    <p id="ar-total" class="text-2xl font-extrabold text-gray-900 animate-pulse text-gray-300"><?= htmlspecialchars(__t('ui.x.chargement')) ?></p>
                     <p class="text-xs text-red-500 mt-4 font-semibold flex items-center bg-red-50 w-max px-2 py-1 rounded-md">
                         <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
                         <?php echo __t('ui.action_requise'); ?>

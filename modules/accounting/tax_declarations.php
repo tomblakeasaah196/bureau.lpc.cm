@@ -16,7 +16,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 Rbac::requirePermission('accounting.invoices.view');
 require_once __DIR__ . '/../../includes/classes/TaxEngine.php';
-$lang = ($_GET['lang'] ?? 'fr') === 'en' ? 'en' : 'fr';
+$lang = lpc_i18n_current_lang();
 $user_role = $_SESSION['user_role'] ?? 'user';
 ?>
 <!DOCTYPE html>
@@ -24,7 +24,7 @@ $user_role = $_SESSION['user_role'] ?? 'user';
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Déclarations Fiscales | LPC ERP</title>
+<title><?= htmlspecialchars(__t('ui.x.declarations_fiscales_lpc_erp')) ?></title>
 <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css">
 <style>
     .tab-content { display: none; }
@@ -41,7 +41,7 @@ $user_role = $_SESSION['user_role'] ?? 'user';
 <body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 
 <?php
-$pageTitle    = 'Déclarations Fiscales & Sociales';
+$pageTitle    = __t('ui.x.declarations_fiscales_sociales');
 $pageSubtitle = 'DGI · CNPS · Commune — Cameroun 2026';
 $sidebar_path = $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
 if (file_exists($sidebar_path)) require_once $sidebar_path;
@@ -51,10 +51,10 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 <div id="lpc-shell-main">
 
     <nav class="lpc-tabs">
-        <button onclick="switchTab('dashboard')"   id="tab-dashboard"   class="tab-link py-4 border-b-[3px] border-emerald-600 text-emerald-700 font-black text-sm uppercase tracking-wider"><i class="fas fa-chart-line mr-2"></i>Échéances</button>
-        <button onclick="switchTab('monthly')"     id="tab-monthly"     class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 font-bold text-sm uppercase tracking-wider"><i class="fas fa-file-invoice mr-2"></i>Déclarations mensuelles</button>
-        <button onclick="switchTab('withholding')" id="tab-withholding" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 font-bold text-sm uppercase tracking-wider"><i class="fas fa-receipt mr-2"></i>Retenues à la source</button>
-        <button onclick="switchTab('settings')"    id="tab-settings"    class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 font-bold text-sm uppercase tracking-wider"><i class="fas fa-sliders-h mr-2"></i>Paramètres</button>
+        <button onclick="switchTab('dashboard')"   id="tab-dashboard"   class="tab-link py-4 border-b-[3px] border-emerald-600 text-emerald-700 font-black text-sm uppercase tracking-wider"><i class="fas fa-chart-line mr-2"></i><?= htmlspecialchars(__t('ui.x.echeances')) ?></button>
+        <button onclick="switchTab('monthly')"     id="tab-monthly"     class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 font-bold text-sm uppercase tracking-wider"><i class="fas fa-file-invoice mr-2"></i><?= htmlspecialchars(__t('ui.x.declarations_mensuelles')) ?></button>
+        <button onclick="switchTab('withholding')" id="tab-withholding" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 font-bold text-sm uppercase tracking-wider"><i class="fas fa-receipt mr-2"></i><?= htmlspecialchars(__t('ui.x.retenues_a_la_source')) ?></button>
+        <button onclick="switchTab('settings')"    id="tab-settings"    class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 font-bold text-sm uppercase tracking-wider"><i class="fas fa-sliders-h mr-2"></i><?= htmlspecialchars(__t('ui.x.parametres')) ?></button>
     </nav>
 
     <main role="main" id="main" class="lpc-page">
@@ -63,38 +63,38 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
         <div id="content-dashboard" class="tab-content active">
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                    <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Prochaine échéance</p>
+                    <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.prochaine_echeance')) ?></p>
                     <h3 class="text-2xl font-black text-gray-900 mt-2" id="kpi_next_due">—</h3>
                 </div>
                 <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                    <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total à décaisser (30j)</p>
+                    <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.total_a_decaisser_30j')) ?></p>
                     <h3 class="text-2xl font-black text-red-600 mt-2 amt" id="kpi_next_amount">—</h3>
                 </div>
                 <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                    <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">AIR retenu à récupérer</p>
+                    <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.air_retenu_a_recuperer')) ?></p>
                     <h3 class="text-2xl font-black text-emerald-600 mt-2 amt" id="kpi_air_credit">—</h3>
                 </div>
             </div>
 
             <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                 <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-                    <h2 class="font-black text-gray-900">Échéances imminentes</h2>
-                    <button onclick="loadDashboard()" class="text-xs font-bold text-emerald-700 hover:text-emerald-900"><i class="fas fa-sync-alt mr-1"></i>Actualiser</button>
+                    <h2 class="font-black text-gray-900"><?= htmlspecialchars(__t('ui.x.echeances_imminentes')) ?></h2>
+                    <button onclick="loadDashboard()" class="text-xs font-bold text-emerald-700 hover:text-emerald-900"><i class="fas fa-sync-alt mr-1"></i><?= htmlspecialchars(__t('ui.actualiser')) ?></button>
                 </div>
                 <table class="w-full text-sm">
                     <thead class="bg-slate-50 text-[10px] font-black text-gray-500 uppercase">
                         <tr>
-                            <th class="text-left px-6 py-3">Type</th>
-                            <th class="text-left px-6 py-3">Période</th>
-                            <th class="text-right px-6 py-3">Brut</th>
-                            <th class="text-right px-6 py-3">Crédit</th>
-                            <th class="text-right px-6 py-3">À payer</th>
-                            <th class="text-left px-6 py-3">Échéance</th>
-                            <th class="text-right px-6 py-3">Actions</th>
+                            <th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.type')) ?></th>
+                            <th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.periode')) ?></th>
+                            <th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.brut')) ?></th>
+                            <th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.credit')) ?></th>
+                            <th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.a_payer')) ?></th>
+                            <th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.echeance')) ?></th>
+                            <th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.actions')) ?></th>
                         </tr>
                     </thead>
                     <tbody id="upcoming-body" class="divide-y divide-gray-100">
-                        <tr><td colspan="7" class="px-6 py-8 text-center text-gray-400">Chargement…</td></tr>
+                        <tr><td colspan="7" class="px-6 py-8 text-center text-gray-400"><?= htmlspecialchars(__t('ui.account.loading')) ?></td></tr>
                     </tbody>
                 </table>
             </div>
@@ -103,18 +103,18 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
         <!-- ============ MONTHLY DECLARATIONS ============ -->
         <div id="content-monthly" class="tab-content">
             <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6">
-                <h3 class="font-black text-gray-900 mb-4">Calculer une déclaration</h3>
+                <h3 class="font-black text-gray-900 mb-4"><?= htmlspecialchars(__t('ui.x.calculer_une_declaration')) ?></h3>
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <select id="cf_kind" class="border border-gray-300 rounded-lg px-3 py-2 font-semibold">
                         <option value="tva">TVA — 19.25%</option>
                         <option value="air" selected>AIR — Acompte IS (2.2% / 5.5%)</option>
                         <option value="irpp_dipe">DIPE — IRPP + CAC + CFC + CRTV + CNPS</option>
-                        <option value="tsr">TSR — Services étrangers</option>
-                        <option value="patente">Patente (annuel)</option>
+                        <option value="tsr"><?= htmlspecialchars(__t('ui.x.tsr_services_etrangers')) ?></option>
+                        <option value="patente"><?= htmlspecialchars(__t('ui.x.patente_annuel')) ?></option>
                     </select>
                     <input id="cf_year"  type="number" value="<?= date('Y') ?>" class="border border-gray-300 rounded-lg px-3 py-2 font-semibold">
                     <input id="cf_month" type="number" min="1" max="12" value="<?= (int) date('n') - 1 ?: 12 ?>" class="border border-gray-300 rounded-lg px-3 py-2 font-semibold">
-                    <button onclick="computeDeclaration()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm uppercase tracking-wider rounded-lg px-4 py-2"><i class="fas fa-calculator mr-2"></i>Calculer</button>
+                    <button onclick="computeDeclaration()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm uppercase tracking-wider rounded-lg px-4 py-2"><i class="fas fa-calculator mr-2"></i><?= htmlspecialchars(__t('ui.x.calculer')) ?></button>
                 </div>
             </div>
 
@@ -125,32 +125,32 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                         <p class="text-xs text-gray-500 mt-1" id="cr_period">—</p>
                     </div>
                     <div class="flex gap-3">
-                        <button onclick="persistDeclaration()" class="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider rounded-lg px-4 py-2"><i class="fas fa-save mr-2"></i>Enregistrer</button>
-                        <button onclick="window.print()" class="bg-slate-600 hover:bg-slate-700 text-white font-black text-xs uppercase tracking-wider rounded-lg px-4 py-2"><i class="fas fa-print mr-2"></i>Imprimer</button>
+                        <button onclick="persistDeclaration()" class="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider rounded-lg px-4 py-2"><i class="fas fa-save mr-2"></i><?= htmlspecialchars(__t('ui.x.enregistrer')) ?></button>
+                        <button onclick="window.print()" class="bg-slate-600 hover:bg-slate-700 text-white font-black text-xs uppercase tracking-wider rounded-lg px-4 py-2"><i class="fas fa-print mr-2"></i><?= htmlspecialchars(__t('common.print')) ?></button>
                     </div>
                 </div>
                 <table class="w-full text-sm">
                     <thead class="bg-slate-50 text-[10px] font-black text-gray-500 uppercase">
-                        <tr><th class="text-left px-6 py-3">Code</th><th class="text-left px-6 py-3">Libellé</th><th class="text-right px-6 py-3">Montant (FCFA)</th></tr>
+                        <tr><th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.code')) ?></th><th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.libelle')) ?></th><th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.montant_fcfa_2')) ?></th></tr>
                     </thead>
                     <tbody id="cr-lines" class="divide-y divide-gray-100"></tbody>
                     <tfoot class="bg-slate-100 text-sm font-black">
-                        <tr><td colspan="2" class="px-6 py-3 text-right">Brut</td><td class="px-6 py-3 text-right amt" id="cr_total">—</td></tr>
-                        <tr><td colspan="2" class="px-6 py-3 text-right text-emerald-700">Crédit</td><td class="px-6 py-3 text-right text-emerald-700 amt" id="cr_credit">—</td></tr>
-                        <tr class="border-t-2 border-emerald-600"><td colspan="2" class="px-6 py-4 text-right text-lg">NET à payer</td><td class="px-6 py-4 text-right text-lg amt text-red-600" id="cr_net">—</td></tr>
+                        <tr><td colspan="2" class="px-6 py-3 text-right"><?= htmlspecialchars(__t('ui.x.brut')) ?></td><td class="px-6 py-3 text-right amt" id="cr_total">—</td></tr>
+                        <tr><td colspan="2" class="px-6 py-3 text-right text-emerald-700"><?= htmlspecialchars(__t('ui.x.credit')) ?></td><td class="px-6 py-3 text-right text-emerald-700 amt" id="cr_credit">—</td></tr>
+                        <tr class="border-t-2 border-emerald-600"><td colspan="2" class="px-6 py-4 text-right text-lg"><?= htmlspecialchars(__t('ui.x.net_a_payer')) ?></td><td class="px-6 py-4 text-right text-lg amt text-red-600" id="cr_net">—</td></tr>
                     </tfoot>
                 </table>
             </div>
 
             <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                 <div class="px-6 py-4 border-b border-gray-200">
-                    <h3 class="font-black text-gray-900">Historique</h3>
+                    <h3 class="font-black text-gray-900"><?= htmlspecialchars(__t('ui.x.historique')) ?></h3>
                 </div>
                 <table class="w-full text-sm">
                     <thead class="bg-slate-50 text-[10px] font-black text-gray-500 uppercase">
-                        <tr><th class="text-left px-6 py-3">Type</th><th class="text-left px-6 py-3">Période</th><th class="text-right px-6 py-3">Brut</th><th class="text-right px-6 py-3">Net</th><th class="text-left px-6 py-3">Statut</th><th class="text-right px-6 py-3">Actions</th></tr>
+                        <tr><th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.type')) ?></th><th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.periode')) ?></th><th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.brut')) ?></th><th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.net')) ?></th><th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.statut')) ?></th><th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.actions')) ?></th></tr>
                     </thead>
-                    <tbody id="history-body" class="divide-y divide-gray-100"><tr><td colspan="6" class="px-6 py-8 text-center text-gray-400">Chargement…</td></tr></tbody>
+                    <tbody id="history-body" class="divide-y divide-gray-100"><tr><td colspan="6" class="px-6 py-8 text-center text-gray-400"><?= htmlspecialchars(__t('ui.account.loading')) ?></td></tr></tbody>
                 </table>
             </div>
         </div>
@@ -158,26 +158,26 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
         <!-- ============ WITHHOLDING CERTIFICATES ============ -->
         <div id="content-withholding" class="tab-content">
             <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6">
-                <h3 class="font-black text-gray-900 mb-2">Charger une attestation de retenue à la source</h3>
-                <p class="text-xs text-gray-500 mb-4">Prometal, SONARA, PMUC et autres clients habilités DGI vous délivrent chaque mois une attestation prouvant qu'ils ont reversé la retenue AIR (2.2 % ou 5.5 %) à l'État. Cette attestation est <strong>obligatoire</strong> pour qu'on impute cette retenue en crédit sur votre AIR mensuel — sinon vous risquez de payer deux fois.</p>
+                <h3 class="font-black text-gray-900 mb-2"><?= htmlspecialchars(__t('ui.x.charger_une_attestation_de_retenue_a_la')) ?></h3>
+                <p class="text-xs text-gray-500 mb-4">Prometal, SONARA, PMUC et autres clients habilités DGI vous délivrent chaque mois une attestation prouvant qu'ils ont reversé la retenue AIR (2.2 % ou 5.5 %) à l'État. Cette attestation est <strong><?= htmlspecialchars(__t('ui.x.obligatoire')) ?></strong> <?= htmlspecialchars(__t('ui.x.pour_qu_on_impute_cette_retenue_en_credi')) ?></p>
                 <form id="cert-form" onsubmit="uploadCertificate(event)" enctype="multipart/form-data" class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <select name="client_id" id="wc_client" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold col-span-1"><option value="">— Client —</option></select>
+                    <select name="client_id" id="wc_client" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold col-span-1"><option value=""><?= htmlspecialchars(__t('ui.x.client_2')) ?></option></select>
                     <input name="certificate_ref" type="text" placeholder="N° attestation" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold">
                     <input name="issue_date" type="date" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold">
                     <input name="period_year" type="number" value="<?= date('Y') ?>" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold">
                     <input name="period_month" type="number" min="1" max="12" value="<?= (int) date('n') - 1 ?: 12 ?>" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold">
                     <input name="total_amount" type="number" step="1" placeholder="Montant AIR (FCFA)" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold">
                     <input name="file" type="file" accept="application/pdf,image/*" class="col-span-2">
-                    <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm uppercase tracking-wider rounded-lg px-4 py-2"><i class="fas fa-upload mr-2"></i>Enregistrer</button>
+                    <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm uppercase tracking-wider rounded-lg px-4 py-2"><i class="fas fa-upload mr-2"></i><?= htmlspecialchars(__t('ui.x.enregistrer')) ?></button>
                 </form>
             </div>
             <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-                <h3 class="font-black text-gray-900 mb-4">Attestations reçues</h3>
+                <h3 class="font-black text-gray-900 mb-4"><?= htmlspecialchars(__t('ui.x.attestations_recues')) ?></h3>
                 <table class="w-full text-sm">
                     <thead class="bg-slate-50 text-[10px] font-black text-gray-500 uppercase">
-                        <tr><th class="text-left px-4 py-3">Client</th><th class="text-left px-4 py-3">N° attest.</th><th class="text-left px-4 py-3">Période</th><th class="text-right px-4 py-3">Montant</th><th class="text-left px-4 py-3">Fichier</th></tr>
+                        <tr><th class="text-left px-4 py-3"><?= htmlspecialchars(__t('ui.x.client')) ?></th><th class="text-left px-4 py-3"><?= htmlspecialchars(__t('ui.x.n_attest')) ?></th><th class="text-left px-4 py-3"><?= htmlspecialchars(__t('ui.x.periode')) ?></th><th class="text-right px-4 py-3"><?= htmlspecialchars(__t('ui.x.montant')) ?></th><th class="text-left px-4 py-3"><?= htmlspecialchars(__t('ui.x.fichier')) ?></th></tr>
                     </thead>
-                    <tbody id="cert-body" class="divide-y divide-gray-100"><tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">Aucune attestation.</td></tr></tbody>
+                    <tbody id="cert-body" class="divide-y divide-gray-100"><tr><td colspan="5" class="px-4 py-8 text-center text-gray-400"><?= htmlspecialchars(__t('ui.x.aucune_attestation')) ?></td></tr></tbody>
                 </table>
             </div>
         </div>
@@ -185,16 +185,16 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
         <!-- ============ SETTINGS ============ -->
         <div id="content-settings" class="tab-content">
             <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 max-w-3xl">
-                <h3 class="font-black text-gray-900 mb-4">Paramètres fiscaux de l'entreprise</h3>
+                <h3 class="font-black text-gray-900 mb-4"><?= htmlspecialchars(__t('ui.x.parametres_fiscaux_de_l_entreprise')) ?></h3>
                 <div id="settings-form" class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                    <div><label class="text-[10px] font-black text-gray-500 uppercase">Régime</label><div id="s_regime" class="font-bold text-gray-900 mt-1">—</div></div>
+                    <div><label class="text-[10px] font-black text-gray-500 uppercase"><?= htmlspecialchars(__t('ui.x.regime')) ?></label><div id="s_regime" class="font-bold text-gray-900 mt-1">—</div></div>
                     <div><label class="text-[10px] font-black text-gray-500 uppercase">Taux AIR</label><div id="s_air" class="font-bold text-gray-900 mt-1">—</div></div>
-                    <div><label class="text-[10px] font-black text-gray-500 uppercase">Taux TVA</label><div id="s_tva" class="font-bold text-gray-900 mt-1">—</div></div>
+                    <div><label class="text-[10px] font-black text-gray-500 uppercase"><?= htmlspecialchars(__t('ui.x.taux_tva')) ?></label><div id="s_tva" class="font-bold text-gray-900 mt-1">—</div></div>
                     <div><label class="text-[10px] font-black text-gray-500 uppercase">Taux IS</label><div id="s_cit" class="font-bold text-gray-900 mt-1">—</div></div>
                     <div><label class="text-[10px] font-black text-gray-500 uppercase">Groupe CNPS (AT)</label><div id="s_cnps" class="font-bold text-gray-900 mt-1">—</div></div>
                     <div><label class="text-[10px] font-black text-gray-500 uppercase">NIU</label><div id="s_niu" class="font-bold text-gray-900 mt-1">—</div></div>
                 </div>
-                <p class="text-xs text-gray-500 mt-4">Les paramètres sont modifiables depuis <code>company_tax_settings</code> — un module dédié sera ajouté; en attendant contactez l'administrateur.</p>
+                <p class="text-xs text-gray-500 mt-4"><?= htmlspecialchars(__t('ui.x.les_parametres_sont_modifiables_depuis')) ?> <code>company_tax_settings</code> <?= htmlspecialchars(__t('ui.x.un_module_dedie_sera_ajoute_en_attendant')) ?></p>
             </div>
         </div>
 

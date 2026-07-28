@@ -7,7 +7,7 @@ Rbac::requirePermission('dashboard.finance.view');
 //     die("Accès Refusé.");
 // }
 
-$lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
+$lang = lpc_i18n_current_lang();
 $display_name = $_SESSION['user_name'] ?? 'Michelle F.';
 $display_role = $_SESSION['user_role'] ?? 'accountant';
 $initials = strtoupper(substr($display_name, 0, 2));
@@ -31,7 +31,7 @@ $initials = strtoupper(substr($display_name, 0, 2));
 
     <?php
     $pageTitle    = __t('ui.contr_le_financier');
-    $pageSubtitle = 'Direction Financière';
+    $pageSubtitle = __t('ui.direction_financi_re');
     require_once '../../../includes/components/finance_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     ?>
@@ -61,7 +61,7 @@ $initials = strtoupper(substr($display_name, 0, 2));
                 <div class="bg-lpc-surface rounded-2xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
                     <div class="absolute top-0 left-0 w-1 h-full bg-emerald-500"></div>
                     <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1"><?php echo __t('ui.tr_sorerie_actuelle'); ?></h3>
-                    <p id="kpi-cash" class="text-2xl font-extrabold text-gray-900 animate-pulse text-gray-300">Chargement...</p>
+                    <p id="kpi-cash" class="text-2xl font-extrabold text-gray-900 animate-pulse text-gray-300"><?= htmlspecialchars(__t('ui.x.chargement')) ?></p>
                     <p class="text-xs text-gray-500 mt-2 font-medium flex items-center">
                         <span class="w-2 h-2 rounded-full bg-emerald-500 mr-2"></span> Comptes: Caisse & Banque
                     </p>
@@ -70,15 +70,15 @@ $initials = strtoupper(substr($display_name, 0, 2));
                 <div class="bg-lpc-surface rounded-2xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
                     <div class="absolute top-0 left-0 w-1 h-full bg-lpc-light"></div>
                     <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1"><?php echo __t('ui.cr_ances_clients_ar'); ?></h3>
-                    <p id="kpi-ar" class="text-2xl font-extrabold text-gray-900 animate-pulse text-gray-300">Chargement...</p>
-                    <p class="text-xs text-gray-500 mt-2 font-medium flex items-center">Factures non payées</p>
+                    <p id="kpi-ar" class="text-2xl font-extrabold text-gray-900 animate-pulse text-gray-300"><?= htmlspecialchars(__t('ui.x.chargement')) ?></p>
+                    <p class="text-xs text-gray-500 mt-2 font-medium flex items-center"><?= htmlspecialchars(__t('ui.x.factures_non_payees')) ?></p>
                 </div>
 
                 <div class="bg-lpc-surface rounded-2xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
                     <div class="absolute top-0 left-0 w-1 h-full bg-amber-500"></div>
                     <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1"><?php echo __t('ui.dettes_fournisseurs_ap'); ?></h3>
-                    <p id="kpi-ap" class="text-2xl font-extrabold text-gray-900 animate-pulse text-gray-300">Chargement...</p>
-                    <p class="text-xs text-gray-500 mt-2 font-medium flex items-center">Dû à Source du Pays, etc.</p>
+                    <p id="kpi-ap" class="text-2xl font-extrabold text-gray-900 animate-pulse text-gray-300"><?= htmlspecialchars(__t('ui.x.chargement')) ?></p>
+                    <p class="text-xs text-gray-500 mt-2 font-medium flex items-center"><?= htmlspecialchars(__t('ui.x.du_a_source_du_pays_etc')) ?></p>
                 </div>
 
                 <div class="bg-red-50 rounded-2xl p-6 shadow-sm border border-red-100 relative overflow-hidden">
@@ -119,14 +119,14 @@ $initials = strtoupper(substr($display_name, 0, 2));
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
                             <tr>
-                                <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Date & Chauffeur</th>
-                                <th class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Cash Attendu (Système)</th>
-                                <th class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Cash Déclaré (Chauffeur)</th>
+                                <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider"><?= htmlspecialchars(__t('ui.x.date_chauffeur')) ?></th>
+                                <th class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider"><?= htmlspecialchars(__t('ui.x.cash_attendu_systeme')) ?></th>
+                                <th class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider"><?= htmlspecialchars(__t('ui.x.cash_declare_chauffeur')) ?></th>
                                 <th class="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Action OHADA</th>
                             </tr>
                         </thead>
                         <tbody id="reconciliation-table-body" class="bg-white divide-y divide-gray-200">
-                            <tr><td colspan="4" class="px-6 py-8 text-center text-gray-400 animate-pulse text-sm">Recherche des données en cours...</td></tr>
+                            <tr><td colspan="4" class="px-6 py-8 text-center text-gray-400 animate-pulse text-sm"><?= htmlspecialchars(__t('ui.x.recherche_des_donnees_en_cours')) ?></td></tr>
                         </tbody>
                     </table>
                 </div>

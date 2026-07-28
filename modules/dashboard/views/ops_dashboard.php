@@ -7,7 +7,7 @@ Rbac::requirePermission('dashboard.ops.view');
 //     die("Accès Refusé.");
 // }
 
-$lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
+$lang = lpc_i18n_current_lang();
 $display_name = $_SESSION['user_name'] ?? 'Patience O.';
 $display_role = $_SESSION['user_role'] ?? 'operations';
 $initials = strtoupper(substr($display_name, 0, 2));
@@ -31,7 +31,7 @@ $initials = strtoupper(substr($display_name, 0, 2));
 
     <?php
     $pageTitle    = __t('ui.centre_d_op_rations');
-    $pageSubtitle = 'Direction des Opérations';
+    $pageSubtitle = __t('ui.direction_des_op_rations');
     require_once '../../../includes/components/ops_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     ?>
@@ -60,7 +60,7 @@ $initials = strtoupper(substr($display_name, 0, 2));
                 <div class="bg-blue-50 rounded-2xl p-6 shadow-sm border border-blue-100 relative overflow-hidden">
                     <div class="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
                     <h3 class="text-xs font-bold text-blue-400 uppercase tracking-widest mb-1"><?php echo __t('ui.livraisons_bl_en_attente'); ?></h3>
-                    <p id="kpi-pending-deliveries" class="text-2xl font-extrabold text-blue-800 animate-pulse text-blue-300">Chargement...</p>
+                    <p id="kpi-pending-deliveries" class="text-2xl font-extrabold text-blue-800 animate-pulse text-blue-300"><?= htmlspecialchars(__t('ui.x.chargement')) ?></p>
                     <p class="text-xs text-blue-600 mt-2 font-medium flex items-center">
                         À dispatcher aux chauffeurs
                     </p>
@@ -80,7 +80,7 @@ $initials = strtoupper(substr($display_name, 0, 2));
                     <div class="absolute top-0 left-0 w-1 h-full bg-emerald-500"></div>
                     <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1"><?php echo __t('ui.retour_emballages'); ?></h3>
                     <p id="kpi-empties-rate" class="text-2xl font-extrabold text-gray-900 animate-pulse text-gray-300">...</p>
-                    <p class="text-xs text-gray-500 mt-2 font-medium flex items-center">Objectif: >80% par chauffeur</p>
+                    <p class="text-xs text-gray-500 mt-2 font-medium flex items-center">Objectif: ><?= htmlspecialchars(__t('ui.x.80_par_chauffeur')) ?></p>
                 </div>
 
                 <div class="bg-lpc-surface rounded-2xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
@@ -123,14 +123,14 @@ $initials = strtoupper(substr($display_name, 0, 2));
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
                             <tr>
-                                <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Référence BL</th>
-                                <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Client & Destination</th>
-                                <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Quantité (20L/10L)</th>
-                                <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Statut & Chauffeur</th>
+                                <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider"><?= htmlspecialchars(__t('ui.x.reference_bl')) ?></th>
+                                <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider"><?= htmlspecialchars(__t('ui.x.client_destination')) ?></th>
+                                <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider"><?= htmlspecialchars(__t('ui.x.quantite_20l_10l')) ?></th>
+                                <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider"><?= htmlspecialchars(__t('ui.x.statut_chauffeur')) ?></th>
                             </tr>
                         </thead>
                         <tbody id="dispatch-table-body" class="bg-white divide-y divide-gray-200">
-                            <tr><td colspan="4" class="px-6 py-8 text-center text-gray-400 animate-pulse text-sm">Chargement des opérations...</td></tr>
+                            <tr><td colspan="4" class="px-6 py-8 text-center text-gray-400 animate-pulse text-sm"><?= htmlspecialchars(__t('ui.x.chargement_des_operations')) ?></td></tr>
                         </tbody>
                     </table>
                 </div>
