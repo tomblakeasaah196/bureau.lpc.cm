@@ -156,6 +156,19 @@ $tabDefs = [
                     <i class="fas <?= $def['icon'] ?> mr-2"></i> <?= htmlspecialchars($def[$lang]) ?>
                 </button>
             <?php endforeach; ?>
+
+            <?php
+            // Help for THIS module (migration 035). Renders nothing if no article
+            // is anchored to 'admin.settings' or the reader may not see it, so it
+            // is safe to deploy ahead of the content migration.
+            //
+            // The anchor is module-level rather than per-tab: every article here
+            // shares page_path '/modules/settings/index.php', so the drawer opens
+            // the overview and lists the rest as "Voir aussi". Which overview it
+            // opens on depends on the reader's permissions — a user without
+            // admin.company.view never sees the company articles at all.
+            echo lpc_help_link('admin.settings', $lang, ['class' => 'ml-auto']);
+            ?>
         </nav>
 
         <main role="main" id="main" class="lpc-page lpc-page-col">

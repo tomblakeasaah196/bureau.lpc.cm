@@ -106,8 +106,16 @@ CALL lpc_add_col('employee_profiles', 'locale',
 CALL lpc_add_col('employee_profiles', 'timezone',
   "timezone VARCHAR(64) NULL COMMENT 'IANA zone, e.g. Africa/Douala. NULL = follow app_preferences.locale_timezone.'");
 
+-- Default is 'light', NOT 'system'.
+--
+-- 'system' was the first choice and it was wrong: most staff run their OS in
+-- dark mode, so shipping this migration silently inverted the entire workspace
+-- for everyone on their next page load. Nobody asked for that, and a
+-- personalisation feature must never change how the app looks until the user
+-- personalises something. 'light' is what the app has always looked like, so
+-- the migration is visually a no-op. 'system' remains available in the picker.
 CALL lpc_add_col('employee_profiles', 'theme',
-  "theme ENUM('system','light','dark') NOT NULL DEFAULT 'system' COMMENT 'Workspace surface theme. The dark L-frame chrome is brand, and never changes.'");
+  "theme ENUM('system','light','dark') NOT NULL DEFAULT 'light' COMMENT 'Workspace surface theme. The dark L-frame chrome is brand, and never changes.'");
 
 CALL lpc_add_col('employee_profiles', 'accent',
   "accent ENUM('brand','teal','indigo','amber','rose') NOT NULL DEFAULT 'brand' COMMENT 'Which accent fills active nav / primary buttons. brand = LPC green.'");

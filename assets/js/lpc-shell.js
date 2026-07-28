@@ -24,6 +24,52 @@
         }
     }
 
+    /**
+     * Draw attention to the rail toggle once per browser session.
+     *
+     * WHY IT NEEDS A HINT AT ALL
+     *   The button is a 27px circle with no label sitting on the sidebar's
+     *   edge. It is discoverable once you know it exists and invisible until
+     *   then. A brief wiggle-and-glow is the cheapest way to say "this is a
+     *   control" without adding permanent chrome that everyone then has to
+     *   look past forever.
+     *
+     * WHY ONCE PER SESSION, NOT ONCE EVER
+     *   Once ever would need a server round-trip to be true across devices,
+     *   and would miss the second person using a shared warehouse terminal.
+     *   sessionStorage is per tab-session: it fires on the first page of a
+     *   working day and stays quiet for the rest of it.
+     *
+     * WHY IT CANCELS ON INTERACTION
+     *   Someone who already reaches for the button does not need to be told.
+     *   Hovering, focusing or clicking kills the animation immediately — a
+     *   hint that keeps playing after it has been understood is just noise.
+     */
+    function hintOnce(btn) {
+        var KEY = 'lpc.rail.hinted';
+        try { if (sessionStorage.getItem(KEY) === '1') return; } catch (e) { return; }
+
+        // Wait out the first paint and the sidebar's own transform transition,
+        // otherwise the wiggle competes with the page settling and reads as a
+        // rendering glitch rather than as a deliberate cue.
+        setTimeout(function () {
+            btn.classList.add('is-hinting');
+            try { sessionStorage.setItem(KEY, '1'); } catch (e) {}
+
+            var stop = function () {
+                btn.classList.remove('is-hinting');
+                btn.removeEventListener('animationend', stop);
+                btn.removeEventListener('pointerenter', stop);
+                btn.removeEventListener('focus', stop);
+                btn.removeEventListener('click', stop);
+            };
+            btn.addEventListener('animationend', stop);
+            btn.addEventListener('pointerenter', stop);
+            btn.addEventListener('focus', stop);
+            btn.addEventListener('click', stop);
+        }, 1200);
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
         var btns = document.querySelectorAll('[data-lpc-collapse-toggle]');
         for (var i = 0; i < btns.length; i++) {
@@ -31,6 +77,11 @@
                 setCollapsed(!document.documentElement.classList.contains('lpc-collapsed'));
             });
         }
+        // Only the floating one is worth hinting — it is the only one with no
+        // label. If a page still renders an older in-header toggle, it is left
+        // alone rather than jiggling in the middle of the brand row.
+        var rail = document.querySelector('.lpc-rail-toggle[data-lpc-collapse-toggle]');
+        if (rail) hintOnce(rail);
     });
 
     window.LPC = window.LPC || {};

@@ -54,7 +54,11 @@ if (!function_exists('lpc_nav_sections')) {
         $en = ($lang === 'en');
 
         $role = strtolower(trim((string) ($_SESSION['user_role'] ?? '')));
-        $key  = $role . '|' . $lang;
+        // The path is part of the key because rule 4 below expands whichever
+        // section holds the current page. It is constant within a request, so
+        // this only ever adds one memo entry — but leaving it out would be a
+        // trap for the first caller that renders two paths in one request.
+        $key  = $role . '|' . $lang . '|' . strtok((string) ($_SERVER['REQUEST_URI'] ?? ''), '?');
         if (isset($memo[$key])) {
             return $memo[$key];
         }
@@ -110,7 +114,13 @@ if (!function_exists('lpc_nav_sections')) {
                 'heading'   => $en
                     ? ($section['heading_en'] ?? $section['heading_fr'] ?? '')
                     : ($section['heading_fr'] ?? ''),
-                'collapsed' => (bool) ($section['collapsed'] ?? false),
+                // Resolved below, once every section is known — the rule needs
+                // to see which section holds the current page before it can
+                // decide anything. `collapsed` here only carries the profile's
+                // explicit wish, if it stated one.
+                'collapsed' => array_key_exists('collapsed', $section)
+                    ? (bool) $section['collapsed']
+                    : null,
                 'items'     => $items,
             ];
         }
@@ -147,6 +157,46 @@ if (!function_exists('lpc_nav_sections')) {
                 'items'     => $extra,
             ];
         }
+
+        // ---- Rule 4: which sections start expanded ---------------------------
+        //
+        // This used to be per-section data, and it was backwards: 'Stratégie &
+        // BI' was the ONE section carrying `collapsed => true`, so the section
+        // people actually land in started shut while all five others started
+        // open — a full screen of links with nothing to orient against.
+        //
+        // Rather than flip a flag on 29 section definitions across six role
+        // profiles (and rely on whoever adds role seven remembering), the rule
+        // is expressed once, here:
+        //
+        //   1. The section containing the page you are ON is expanded, always,
+        //      even over an explicit `collapsed => true`. Landing on a page
+        //      whose own section is shut is disorienting, and no configuration
+        //      should be able to produce it. (This matters for the generated
+        //      'Autres Modules' section, which is declared collapsed.)
+        //   2. Otherwise a profile's explicit `collapsed` value wins.
+        //   3. Otherwise the FIRST section is expanded and the rest collapsed.
+        //      One open section is an orientation point; six is a wall.
+        //
+        // The user's own toggling still wins over all of this on the next page
+        // — lpc-sidebar.js remembers it per browser and only writes on a real
+        // user action, so these defaults apply to a first visit only.
+        $currentPath = strtok((string) ($_SERVER['REQUEST_URI'] ?? ''), '?');
+
+        $activeIdx = null;
+        foreach ($out as $i => $section) {
+            foreach ($section['items'] as $item) {
+                if (strtok($item['href'], '#') === $currentPath) { $activeIdx = $i; break 2; }
+            }
+        }
+
+        foreach ($out as $i => &$section) {
+            if ($i === $activeIdx)            { $section['collapsed'] = false; continue; }  // rule 1
+            if ($section['collapsed'] !== null) continue;                                    // rule 2
+            $section['collapsed'] = ($activeIdx !== null) ? true : ($i !== 0);               // rule 3
+        }
+        unset($section);   // break the reference — a stale one here would make
+                           // the next foreach over $out overwrite the last row
 
         return $memo[$key] = $out;
     }

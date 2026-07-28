@@ -378,6 +378,26 @@
         });
     }
 
+    /**
+     * Widen the profile modal.
+     *
+     * The class goes on TWO elements. lpc-modal.js renders
+     * `<dialog class="lpc-modal-dialog"><div class="lpc-modal">…`, and
+     * src/input.css caps the DIALOG at min(560px, 92vw). Widening only the
+     * inner div made it overflow its own dialog — clipped title, sideways
+     * scrollbar. Widening only the dialog would leave the inner div at its
+     * 560px max-width. Both, or neither.
+     *
+     * The non-<dialog> fallback path uses `.lpc-modal-fallback` as the host,
+     * so we walk up to whichever is present.
+     */
+    function widen(el) {
+        var panel = el.closest('.lpc-modal');
+        if (panel) panel.classList.add('lpc-modal--wide');
+        var host = el.closest('.lpc-modal-dialog, .lpc-modal-fallback');
+        if (host) host.classList.add('lpc-modal--wide');
+    }
+
     function setStatus(el, message, kind) {
         if (!el) return;
         el.textContent = message || '';
@@ -579,9 +599,7 @@
         });
 
         afterOpen('[data-lpc-account]', function (el) {
-            // The profile modal is the only one that needs the extra width.
-            var shell = el.closest('.lpc-modal');
-            if (shell) shell.classList.add('lpc-modal--wide');
+            widen(el);
             wireProfileModal(el);
         });
 

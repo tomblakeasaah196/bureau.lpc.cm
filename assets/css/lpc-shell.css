@@ -1365,8 +1365,69 @@ html.lpc-collapsed #lpc-sidebar .lpc-user-menu {
         What is added here is a wider shell and the form furniture, all on
         workspace variables so the modals follow the light/dark choice.
    ------------------------------------------------------------------------- */
-.lpc-modal--wide { width: min(46rem, calc(100vw - 2rem)) !important; max-width: none !important; }
-.lpc-modal--wide .lpc-modal-body { max-height: min(70vh, 40rem); overflow-y: auto; }
+/* The <dialog> is capped at min(560px, 92vw) by the base modal styles in
+   src/input.css. Widening only the inner .lpc-modal made it overflow its own
+   dialog: the panel was clipped on the left, the title read "on profil", and
+   the body grew a horizontal scrollbar. BOTH elements have to be widened, so
+   lpc-usermenu.js puts the class on the dialog (or the fallback overlay) as
+   well as on the panel. */
+.lpc-modal-dialog.lpc-modal--wide,
+.lpc-modal-fallback.lpc-modal--wide {
+    width: min(52rem, calc(100vw - 2rem));
+    max-width: min(52rem, calc(100vw - 2rem));
+}
+.lpc-modal.lpc-modal--wide {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+}
+.lpc-modal--wide .lpc-modal-body {
+    /* min-height as well as max: the Preferences tab is much shorter than the
+       Profile tab, and without a floor the whole dialog resized every time the
+       user changed tab — the panel visibly jumped. Pinning a floor makes the
+       three tabs feel like one surface instead of three dialogs. */
+    min-height: min(26rem, 60vh);
+    max-height: min(74vh, 44rem);
+    overflow-y: auto;
+    /* Belt and braces: nothing inside these panels is allowed to force a
+       sideways scroll, whatever a long select option or a pasted URL does. */
+    overflow-x: hidden;
+}
+
+/* -----------------------------------------------------------------------
+   Make the modal shell itself theme-aware.
+
+   src/input.css hardcodes #fff for .lpc-modal and #0f172a for its title,
+   from before there was a theme. That is fine in light mode and unreadable
+   in dark, so the surface variables are reasserted here — this file loads
+   after tailwind.css, so these win without !important.
+
+   Scoped to modals that actually contain an account panel: other modals
+   across the app are untouched by this change.
+   --------------------------------------------------------------------- */
+.lpc-modal:has(.lpc-account) {
+    background: var(--lpc-surface);
+    color: var(--lpc-ink);
+}
+.lpc-modal:has(.lpc-account) .lpc-modal-title { color: var(--lpc-ink); }
+.lpc-modal:has(.lpc-account) .lpc-modal-body  { color: var(--lpc-ink); }
+.lpc-modal:has(.lpc-account) .lpc-modal-actions {
+    border-top: 1px solid var(--lpc-border);
+    padding-top: .75rem;
+}
+/* :has() is unsupported on a few older WebKit builds still in the field on
+   site tablets. There the modal keeps its white background — so the account
+   panel forces dark-readable text off, rather than leaving white-on-white. */
+@supports not selector(:has(*)) {
+    html[data-lpc-theme="dark"] .lpc-account {
+        --lpc-surface:        #ffffff;
+        --lpc-surface-sunken: #F7F9FA;
+        --lpc-border:         #E6EAEE;
+        --lpc-ink:            #111827;
+        --lpc-ink-soft:       #667085;
+        --lpc-ink-mute:       #98A2B3;
+    }
+}
 
 .lpc-account { color: var(--lpc-ink); }
 
@@ -1411,11 +1472,20 @@ html.lpc-collapsed #lpc-sidebar .lpc-user-menu {
     border-radius: .75rem;
     background: var(--lpc-surface-sunken);
 }
+/* The avatar is a <button>, and a button carries a user-agent padding of
+   roughly 1px 6px plus a 2px border. Left alone, that padding inset the image
+   inside the circle and the border-box maths made a 5rem button render its
+   5rem image clipped and off-centre — the "avatar doesn't fit its placeholder"
+   bug. box-sizing + an explicit zero padding + an inset border fixes it, and
+   the image is sized as a block so no inline baseline gap creeps back in. */
 .lpc-account-avatar {
     position: relative;
     flex: 0 0 auto;
+    box-sizing: border-box;
     width: 5rem;
     height: 5rem;
+    padding: 0;
+    border: 0;
     border-radius: 999px;
     display: grid;
     place-items: center;
@@ -1424,13 +1494,30 @@ html.lpc-collapsed #lpc-sidebar .lpc-user-menu {
     color: var(--lpc-accent-on-light);
     font-size: 1.5rem;
     font-weight: 700;
+    line-height: 1;
     cursor: pointer;
-    border: 2px dashed transparent;
-    transition: border-color .12s ease;
+    /* Drawn with a ring rather than a real border so it never participates in
+       layout — a dashed border appearing on hover used to shift the image. */
+    box-shadow: inset 0 0 0 2px transparent;
+    transition: box-shadow .12s ease;
 }
-.lpc-account-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.lpc-account-avatar img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 999px;
+}
+.lpc-account-avatar > span:not(.lpc-account-avatar-overlay) {
+    /* The initials fallback. Grid-centred, so it needs no offset of its own. */
+    display: block;
+}
 .lpc-account-avatar:hover,
-.lpc-account-avatar.is-dragover { border-color: var(--lpc-accent-on-light); }
+.lpc-account-avatar:focus-visible,
+.lpc-account-avatar.is-dragover {
+    box-shadow: inset 0 0 0 2px var(--lpc-accent-on-light);
+    outline: none;
+}
 .lpc-account-avatar-overlay {
     position: absolute;
     inset: auto 0 0 0;
@@ -1706,4 +1793,234 @@ html.lpc-collapsed #lpc-sidebar .lpc-user-menu {
     font-size: 1.25rem;
     letter-spacing: .5em;
     text-align: center;
+}
+
+
+/* ---------------------------------------------------------------------------
+   10.9 The brand mark — a lit disc behind the sidebar logo
+
+   PROBLEM
+     The LPC mark is green artwork on the dark green chrome. Measured against
+     --lpc-chrome-top (#00341A) it lands around 1.6:1 — WCAG 2.2 SC 1.4.11
+     wants 3:1 for a meaningful non-text graphic, and in practice the logo
+     simply disappeared at 40px on a laptop screen.
+
+   WHY A DISC AND NOT A RECOLOUR
+     Recolouring would mean shipping a white-knockout variant of the logo,
+     which is a second asset to keep in sync and is not ours to invent. Putting
+     a near-white lit surface BEHIND it works with whatever artwork the company
+     uploads under Administration → Entreprise → Marque, including a
+     multicoloured one, and needs no second file.
+
+   THE LIGHTING
+     Three layers, in paint order:
+       · a radial gradient offset to 32%/28% — a soft light source above-left,
+         so the disc reads as lit rather than as a flat white circle;
+       · an inset highlight along the top edge and an inset shade at the
+         bottom, which is what gives it physical roundness;
+       · an outer brand-green glow, so the disc sits IN the chrome instead of
+         looking like a sticker pasted on top of it.
+   ------------------------------------------------------------------------- */
+#lpc-sidebar .lpc-brand-mark {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 999px;
+    overflow: hidden;
+
+    background:
+        radial-gradient(circle at 32% 28%,
+            #ffffff   0%,
+            #fbfdf8  38%,
+            #eaf4e0  68%,
+            #d5e7c4 100%);
+
+    box-shadow:
+        /* top-edge specular */
+        inset 0 1px 1px rgba(255, 255, 255, .95),
+        /* bottom-inside shade — the roundness cue */
+        inset 0 -7px 12px -6px rgba(0, 52, 26, .28),
+        /* crisp containing edge */
+        0 0 0 1px rgba(255, 255, 255, .30),
+        /* brand glow, so the disc belongs to the chrome */
+        0 0 20px -5px rgba(140, 198, 63, .60),
+        0 2px 6px -2px rgba(0, 0, 0, .45);
+}
+
+/* The logo never touches the rim: 68% leaves a light margin all round, which
+   is what makes the disc read as a lit surface rather than a crop. */
+#lpc-sidebar .lpc-brand-mark img,
+#lpc-sidebar .lpc-brand-mark svg {
+    display: block;
+    width: 68%;
+    height: 68%;
+    object-fit: contain;
+}
+
+/* Initials fallback when the logo file is missing — same disc, brand-dark ink
+   on the same light surface, so a broken asset never darkens this corner. */
+#lpc-sidebar .lpc-brand-initials {
+    font-size: .6875rem;
+    font-weight: 800;
+    letter-spacing: .04em;
+    color: var(--lpc-brand);
+}
+
+/* A single soft specular arc across the upper-left. Pointer-events off so it
+   can never intercept a click on the mark. */
+#lpc-sidebar .lpc-brand-mark::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(
+        142deg,
+        rgba(255, 255, 255, .55) 0%,
+        rgba(255, 255, 255, .10) 34%,
+        rgba(255, 255, 255, 0)   58%);
+}
+
+/* Collapsed rail: the disc is the only brand cue left once the wordmark is
+   hidden, so it grows slightly rather than shrinking. */
+html.lpc-collapsed #lpc-sidebar .lpc-brand-mark { width: 2.5rem; height: 2.5rem; }
+
+/* Honour the user's motion setting — the glow is the only animated thing here,
+   and it is decorative. */
+@media (prefers-reduced-motion: no-preference) {
+    #lpc-sidebar .lpc-brand-mark { transition: box-shadow .2s ease; }
+    #lpc-sidebar .lpc-brand-mark:hover {
+        box-shadow:
+            inset 0 1px 1px rgba(255, 255, 255, .95),
+            inset 0 -7px 12px -6px rgba(0, 52, 26, .28),
+            0 0 0 1px rgba(255, 255, 255, .38),
+            0 0 26px -4px rgba(140, 198, 63, .80),
+            0 2px 6px -2px rgba(0, 0, 0, .45);
+    }
+}
+
+
+/* ---------------------------------------------------------------------------
+   10.10 The floating rail toggle
+
+   Sits ON the sidebar's right edge, half in the chrome and half in the
+   workspace, because that is literally the boundary it moves. Inside the
+   header it was a third nondescript icon beside the logo and the mobile close
+   button, and people did not find it.
+
+   POSITIONING
+     Absolute against the <aside>, not fixed against the viewport. The aside
+     already changes width when the rail collapses, so `right: -0.85rem` keeps
+     the button glued to the edge in both states with one rule instead of two.
+
+   Hidden below `lg` on purpose: at that width the sidebar is an overlay driven
+   by the hamburger, and a collapse control for a drawer that is already fully
+   hidden would do nothing.
+   ------------------------------------------------------------------------- */
+#lpc-sidebar .lpc-rail-toggle {
+    display: none;                       /* shown at lg+ below */
+    position: absolute;
+    top: 5.25rem;                        /* just clear of the header block */
+    right: -0.85rem;
+    z-index: 45;                         /* over the workspace, under the menu */
+
+    width: 1.7rem;
+    height: 1.7rem;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--lpc-accent-on-dark) 40%, transparent);
+
+    background:
+        radial-gradient(circle at 34% 30%,
+            color-mix(in srgb, var(--lpc-chrome-bottom) 70%, #ffffff) 0%,
+            var(--lpc-chrome-bottom) 55%,
+            var(--lpc-chrome-top) 100%);
+    color: var(--lpc-chrome-ink);
+    cursor: pointer;
+
+    /* The glow. Two rings — a tight brand halo and a wide soft one — so it
+       reads as lit rather than as a hard outline. */
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, .35),
+        0 0 10px -1px color-mix(in srgb, var(--lpc-accent-on-dark) 55%, transparent),
+        0 0 22px -6px color-mix(in srgb, var(--lpc-accent-on-dark) 70%, transparent),
+        0 3px 8px -3px rgba(0, 0, 0, .55);
+
+    transition: transform .16s ease, box-shadow .2s ease, border-color .2s ease;
+}
+
+@media (min-width: 1024px) {
+    #lpc-sidebar .lpc-rail-toggle { display: grid; place-items: center; }
+}
+
+#lpc-sidebar .lpc-rail-toggle svg {
+    width: .85rem;
+    height: .85rem;
+    transition: transform .2s ease;
+}
+
+/* Collapsed: the chevron points the other way. The button itself does not
+   move — the aside it is anchored to has already narrowed. */
+html.lpc-collapsed #lpc-sidebar .lpc-rail-toggle svg { transform: scaleX(-1); }
+
+#lpc-sidebar .lpc-rail-toggle:hover,
+#lpc-sidebar .lpc-rail-toggle:focus-visible {
+    transform: scale(1.12);
+    border-color: var(--lpc-accent-on-dark);
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, .35),
+        0 0 14px 0    color-mix(in srgb, var(--lpc-accent-on-dark) 75%, transparent),
+        0 0 30px -4px color-mix(in srgb, var(--lpc-accent-on-dark) 85%, transparent),
+        0 3px 10px -3px rgba(0, 0, 0, .6);
+    outline: none;
+}
+#lpc-sidebar .lpc-rail-toggle:active { transform: scale(.94); }
+
+/* ---- The once-per-session hint ------------------------------------------
+   A short wiggle plus a brightening pulse, three times, then it stops for
+   good. lpc-shell.js gates it on sessionStorage so it fires once per browser
+   session — enough to be noticed, not enough to become the thing you hate
+   about the app. Removed on first interaction, so anyone who already knows
+   what it does never sees it finish.
+
+   The animation is on a class, not on the base rule, so it cannot replay on
+   every re-render.
+   ----------------------------------------------------------------------- */
+@keyframes lpc-rail-hint {
+      0%   { transform: translateX(0)     scale(1); }
+     10%   { transform: translateX(-3px)  scale(1.1); }
+     20%   { transform: translateX(3px)   scale(1.1); }
+     30%   { transform: translateX(-2px)  scale(1.06); }
+     40%   { transform: translateX(2px)   scale(1.06); }
+     50%   { transform: translateX(0)     scale(1); }
+    100%   { transform: translateX(0)     scale(1); }
+}
+@keyframes lpc-rail-hint-glow {
+      0%, 100% { box-shadow:
+                   0 0 0 1px rgba(0,0,0,.35),
+                   0 0 10px -1px color-mix(in srgb, var(--lpc-accent-on-dark) 55%, transparent),
+                   0 0 22px -6px color-mix(in srgb, var(--lpc-accent-on-dark) 70%, transparent),
+                   0 3px 8px -3px rgba(0,0,0,.55); }
+     25%      { box-shadow:
+                   0 0 0 1px rgba(0,0,0,.35),
+                   0 0 18px 2px  color-mix(in srgb, var(--lpc-accent-on-dark) 90%, transparent),
+                   0 0 38px -2px color-mix(in srgb, var(--lpc-accent-on-dark) 95%, transparent),
+                   0 3px 8px -3px rgba(0,0,0,.55); }
+}
+#lpc-sidebar .lpc-rail-toggle.is-hinting {
+    animation: lpc-rail-hint      1.6s ease-in-out 3,
+               lpc-rail-hint-glow 1.6s ease-in-out 3;
+}
+
+/* Anyone who has asked for less motion — at OS level or in Mon profil —
+   gets the glow pulse only, never the wiggle. */
+@media (prefers-reduced-motion: reduce) {
+    #lpc-sidebar .lpc-rail-toggle.is-hinting { animation: lpc-rail-hint-glow 1.6s ease-in-out 3; }
+    #lpc-sidebar .lpc-rail-toggle,
+    #lpc-sidebar .lpc-rail-toggle svg { transition: none; }
+}
+html[data-lpc-reduce-motion="1"] #lpc-sidebar .lpc-rail-toggle.is-hinting {
+    animation: lpc-rail-hint-glow 1.6s ease-in-out 3;
 }

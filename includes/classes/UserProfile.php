@@ -176,7 +176,10 @@ final class UserProfile
             'initials'       => self::computeInitials($display),
             'locale'         => $locale,
             'timezone'       => (string) ($row['timezone'] ?? ''),
-            'theme'          => self::pick($row['theme'] ?? null, self::THEMES, 'system'),
+            // 'light', not 'system' — see the note on the theme column in
+            // migration 035. An unset preference must render the app exactly
+            // as it rendered before this feature existed.
+            'theme'          => self::pick($row['theme'] ?? null, self::THEMES, 'light'),
             'accent'         => self::pick($row['accent'] ?? null, self::ACCENTS, 'brand'),
             'density'        => self::pick($row['density'] ?? null, self::DENSITIES, 'comfortable'),
             'sidebar_collapsed' => (bool) ($row['sidebar_collapsed'] ?? false),
@@ -344,18 +347,7 @@ final class UserProfile
         $db = self::db();
         if (!$db) throw new RuntimeException('Base de données indisponible.');
 
-        // employee_profiles is 1:1 with users and migration 035 guarantees a
-        // row for every user — but a user created between the migration and
-        // now would not have one, so upsert rather than update.
-        $cols = array_keys($set);
-        $ins  = 'user_id, ' . implode(', ', $cols) . ', profile_updated_at';
-        $ph   = ':user_id, ' . implode(', ', array_map(fn($c) => ':' . $c, $cols)) . ', NOW()';
-        $upd  = implode(', ', array_map(fn($c) => "$c = VALUES($c)", $cols)) . ', profile_updated_at = NOW()';
-
-        $st = $db->prepare("INSERT INTO employee_profiles ($ins) VALUES ($ph) ON DUPLICATE KEY UPDATE $upd");
-        $params = ['user_id' => $userId];
-        foreach ($set as $k => $v) $params[$k] = $v;
-        $st->execute($params);
+        self::upsert($db, $userId, $set);
 
         // ---- Re-sync the session mirrors -----------------------------------
         // Everything that reads $_SESSION['user_name'] / ['avatar'] / ['lang']
@@ -371,6 +363,140 @@ final class UserProfile
         }
 
         return $fresh;
+    }
+
+    /**
+     * Write columns onto the user's employee_profiles row, creating it only if
+     * it genuinely does not exist.
+     *
+     * WHY NOT `INSERT ... ON DUPLICATE KEY UPDATE`
+     * -------------------------------------------
+     * That was the first implementation and it was wrong. MySQL validates the
+     * INSERT row BEFORE it discovers the duplicate key, so under the strict
+     * mode this install runs, an upsert that supplies only `user_id` and
+     * `display_name` fails with
+     *
+     *     SQLSTATE[HY000]: 1364 Field 'base_salary' doesn't have a default value
+     *
+     * — even though the row already exists and the UPDATE branch would never
+     * have touched base_salary. employee_profiles carries HR columns
+     * (base_salary, hire_date) that are NOT NULL without defaults, and a
+     * self-service profile edit has no business inventing values for them.
+     *
+     * So: UPDATE first, which only ever names the columns being changed and
+     * therefore cannot trip on an HR column. Only when no row exists do we
+     * INSERT, and that path asks information_schema which columns actually
+     * require a value on this install and fills each with a type-appropriate
+     * zero rather than hardcoding a guess about the schema.
+     */
+    private static function upsert(PDO $db, int $userId, array $set): void
+    {
+        $cols = array_keys($set);
+
+        // ---- 1. The overwhelmingly common path: the row exists. -------------
+        $assign = implode(', ', array_map(static fn($c) => "`$c` = :$c", $cols));
+        $st = $db->prepare("
+            UPDATE employee_profiles
+               SET $assign, profile_updated_at = NOW()
+             WHERE user_id = :user_id
+        ");
+        $params = ['user_id' => $userId];
+        foreach ($set as $k => $v) $params[$k] = $v;
+        $st->execute($params);
+
+        // rowCount() is 0 both when the row is missing AND when the values were
+        // already identical, so it cannot be used to decide. Ask directly.
+        $exists = $db->prepare("SELECT 1 FROM employee_profiles WHERE user_id = ? LIMIT 1");
+        $exists->execute([$userId]);
+        if ($exists->fetchColumn()) return;
+
+        // ---- 2. No row. Build an INSERT that satisfies this install's schema.
+        $insert = $set;
+        foreach (self::requiredColumns($db) as $col => $type) {
+            if ($col === 'user_id' || array_key_exists($col, $insert)) continue;
+            $insert[$col] = self::zeroFor($type);
+        }
+        $insert['user_id'] = $userId;
+
+        $names  = array_keys($insert);
+        $fields = '`' . implode('`, `', $names) . '`, profile_updated_at';
+        $holes  = implode(', ', array_map(static fn($c) => ':' . $c, $names)) . ', NOW()';
+
+        $db->prepare("INSERT INTO employee_profiles ($fields) VALUES ($holes)")
+           ->execute($insert);
+    }
+
+    /**
+     * Columns on employee_profiles that are NOT NULL, have no default, and are
+     * not auto-generated — i.e. the ones an INSERT is obliged to name.
+     *
+     * @return array<string,string> column => DATA_TYPE
+     */
+    private static function requiredColumns(PDO $db): array
+    {
+        static $memo = null;
+        if ($memo !== null) return $memo;
+        $memo = [];
+        try {
+            $st = $db->query("
+                SELECT COLUMN_NAME, DATA_TYPE
+                  FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME   = 'employee_profiles'
+                   AND IS_NULLABLE  = 'NO'
+                   AND COLUMN_DEFAULT IS NULL
+                   AND EXTRA NOT LIKE '%auto_increment%'
+                   AND EXTRA NOT LIKE '%GENERATED%'
+            ");
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $memo[$r['COLUMN_NAME']] = strtolower($r['DATA_TYPE']);
+            }
+        } catch (Throwable $e) {
+            error_log('UserProfile::requiredColumns: ' . $e->getMessage());
+        }
+        return $memo;
+    }
+
+    /**
+     * A harmless placeholder for a required column this class knows nothing
+     * about. Deliberately a zero/empty value and never a plausible-looking one:
+     * a salary that reads 0 is obviously unset, whereas a salary invented as
+     * 150000 would quietly become payroll input.
+     */
+    private static function zeroFor(string $type)
+    {
+        switch ($type) {
+            case 'int': case 'bigint': case 'smallint': case 'tinyint': case 'mediumint':
+            case 'decimal': case 'float': case 'double':
+                return 0;
+            case 'date':      return '1970-01-01';
+            case 'datetime':  case 'timestamp': return '1970-01-01 00:00:01';
+            case 'time':      return '00:00:00';
+            case 'year':      return 1970;
+            default:          return '';
+        }
+    }
+
+    /**
+     * Store (or clear, with null) the quick-login PIN hash.
+     *
+     * Lives here rather than in the controller purely so it shares
+     * upsert()'s strict-mode-safe write path. The hashing itself stays in the
+     * controller, next to the password verification that gates it — this class
+     * never sees a plaintext PIN.
+     */
+    public static function setPinHash(?string $hash): void
+    {
+        $userId = (int) ($_SESSION['user_id'] ?? 0);
+        if ($userId <= 0) throw new RuntimeException('Session invalide.');
+        $db = self::db();
+        if (!$db) throw new RuntimeException('Base de données indisponible.');
+
+        self::upsert($db, $userId, [
+            'login_pin_hash'   => $hash,
+            'login_pin_set_at' => $hash === null ? null : date('Y-m-d H:i:s'),
+        ]);
+        self::$cache = null;
     }
 
     private static function trimOrNull($raw, int $max, string $label): ?string

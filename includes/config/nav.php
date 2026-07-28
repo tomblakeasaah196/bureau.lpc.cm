@@ -139,7 +139,12 @@ $PROFILES = [
 
   // --- ADMIN / Direction ---------------------------------------------------
   'admin' => [
-    ['heading_fr'=>'Stratégie & BI', 'heading_en'=>'Strategy & BI', 'collapsed'=>true, 'items'=>[
+    // No `collapsed` flag: this is the first section, and lpc_nav_sections()
+    // expands the first section by default. It used to carry
+    // `collapsed => true`, which made the ONE section people land in start
+    // shut while every other section started open — the exact inverse of the
+    // intent. See rule 4 in includes/functions/navigation.php.
+    ['heading_fr'=>'Stratégie & BI', 'heading_en'=>'Strategy & BI', 'items'=>[
       ['ref'=>'dash_md',        'label_fr'=>'Tableau de Bord Exécutif', 'label_en'=>'Executive Dashboard'],
       // The MD oversees the other three. Placed here rather than left to fall
       // into "Autres Modules", which is where the overlay rule would otherwise

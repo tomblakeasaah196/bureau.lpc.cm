@@ -60,9 +60,25 @@ $__nav = lpc_nav_sections($lang);
     $lpcInitials = strtoupper(mb_substr(preg_replace('/[^A-Za-z0-9 ]/', '', $lpcErpName) ?: 'ERP', 0, 3));
     ?>
     <div class="p-5 border-b border-white/10 flex items-center gap-3">
-        <img src="<?= htmlspecialchars($lpcMark, ENT_QUOTES, 'UTF-8') ?>"
-             onerror="this.outerHTML='<div class=\'w-10 h-10 rounded-full bg-emerald-600 grid place-items-center text-white font-bold text-xs\'><?= htmlspecialchars($lpcInitials, ENT_QUOTES, 'UTF-8') ?></div>'"
-             alt="<?= htmlspecialchars($lpcErpName, ENT_QUOTES, 'UTF-8') ?>" class="w-10 h-10 rounded-full shrink-0 object-contain bg-white/10">
+        <?php
+        // The brand mark is a green logo sitting on the dark green chrome, so
+        // at 40px it was reading as a smudge — roughly 1.6:1 against the
+        // background, well under the 3:1 WCAG 2.2 asks of a non-text graphic.
+        //
+        // The fix is a lit disc BEHIND the logo rather than a recolour of the
+        // logo itself: brand assets are not ours to alter, and a white-knockout
+        // version would need a second file that gets out of sync. A near-white
+        // radial "light from inside" gives the green mark a >12:1 local
+        // background whatever the logo's own colours are, and the outer glow
+        // keeps the disc from reading as a flat white sticker.
+        //
+        // The onerror fallback keeps the same disc, so a missing logo file
+        // degrades to initials in the identical shape rather than a bare tile.
+        ?>
+        <span class="lpc-brand-mark shrink-0">
+            <img src="<?= htmlspecialchars($lpcMark, ENT_QUOTES, 'UTF-8') ?>"
+                 onerror="this.outerHTML='<span class=\'lpc-brand-initials\'><?= htmlspecialchars($lpcInitials, ENT_QUOTES, 'UTF-8') ?></span>'"
+                 alt="<?= htmlspecialchars($lpcErpName, ENT_QUOTES, 'UTF-8') ?>"></span>
         <div class="min-w-0 lpc-logo-text">
             <div class="font-semibold text-white text-sm truncate"><?= htmlspecialchars($lpcErpName) ?></div>
             <?php if ($lpcTagline !== ''): ?>
@@ -73,15 +89,32 @@ $__nav = lpc_nav_sections($lang);
                 class="ml-auto lg:hidden text-white/60 hover:text-white p-1" aria-label="Fermer">
             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
-        <button data-lpc-collapse-toggle
-                aria-expanded="true"
-                aria-controls="lpc-sidebar"
-                title="<?= $lang==='en'?'Collapse sidebar':'Réduire le menu' ?>"
-                aria-label="<?= $lang==='en'?'Collapse sidebar':'Réduire le menu' ?>"
-                class="lpc-focusable hidden lg:flex ml-auto shrink-0 text-white/60 hover:text-white p-1.5 rounded-lg hover:bg-white/5">
-            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
-        </button>
     </div>
+
+    <?php
+    // ---------------------------------------------------------------------
+    // Collapse toggle — floats ON the sidebar's right edge.
+    //
+    // It used to live inside the header row, where it read as a third icon
+    // next to the logo and the mobile close button and nobody found it. On
+    // the edge it is what it does: a handle on the boundary it moves.
+    //
+    // Rendered as a sibling of the header rather than inside it so its
+    // absolute positioning is relative to the <aside>, which means it tracks
+    // the rail automatically when the sidebar collapses — no second position
+    // rule for the collapsed state.
+    // ---------------------------------------------------------------------
+    ?>
+    <button data-lpc-collapse-toggle
+            aria-expanded="true"
+            aria-controls="lpc-sidebar"
+            title="<?= $lang==='en'?'Collapse sidebar':'Réduire le menu' ?>"
+            aria-label="<?= $lang==='en'?'Collapse sidebar':'Réduire le menu' ?>"
+            class="lpc-focusable lpc-rail-toggle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 19.5L8.25 12l7.5-7.5"/>
+        </svg>
+    </button>
 
     <!-- Nav -->
     <div class="flex-1 overflow-y-auto py-3 px-3 space-y-4">

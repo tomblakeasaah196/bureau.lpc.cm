@@ -276,13 +276,12 @@ try {
             pFail('Mot de passe incorrect.');
         }
 
+        // Routed through UserProfile so it uses the UPDATE-then-INSERT path.
+        // A raw ON DUPLICATE KEY UPDATE here would hit exactly the same
+        // "Field 'base_salary' doesn't have a default value" failure that
+        // UserProfile::upsert() exists to avoid — see the comment there.
         $hash = password_hash($pin, PASSWORD_BCRYPT, ['cost' => (int) env('BCRYPT_COST', 12)]);
-        $db->prepare("
-            INSERT INTO employee_profiles (user_id, login_pin_hash, login_pin_set_at)
-            VALUES (?, ?, NOW())
-            ON DUPLICATE KEY UPDATE login_pin_hash = VALUES(login_pin_hash),
-                                    login_pin_set_at = VALUES(login_pin_set_at)
-        ")->execute([$userId, $hash]);
+        UserProfile::setPinHash($hash);
 
         profAudit($db, $userId, 'Quick-login PIN set');
         UserProfile::current(true);
@@ -291,8 +290,7 @@ try {
 
     // =========================================================================
     case 'clear_pin': {
-        $db->prepare("UPDATE employee_profiles SET login_pin_hash = NULL, login_pin_set_at = NULL WHERE user_id = ?")
-           ->execute([$userId]);
+        UserProfile::setPinHash(null);
         profAudit($db, $userId, 'Quick-login PIN removed');
         UserProfile::current(true);
         profOk('Code rapide supprimé.', ['security' => prof_security_overview($db, $userId)]);
@@ -324,8 +322,18 @@ try {
         pFail('Action inconnue.');
     }
 
+} catch (PDOException $e) {
+    // MUST come before the RuntimeException arm: PDOException EXTENDS
+    // RuntimeException, so the order below is not cosmetic. Getting it wrong
+    // is how "SQLSTATE[HY000]: General error: 1364 Field 'base_salary' doesn't
+    // have a default value" ended up rendered in the profile modal — a raw
+    // schema disclosure, in French-language UI, to an end user who can do
+    // nothing with it.
+    error_log('profile_controller SQL: ' . $e->getMessage());
+    pFail('Impossible d\'enregistrer pour le moment. L\'incident a été signalé.', 500);
 } catch (RuntimeException $e) {
-    // UserProfile::save() throws these with user-facing French messages.
+    // UserProfile::save() throws these deliberately, with messages written to
+    // be read by the person who triggered them.
     pFail($e->getMessage());
 } catch (Throwable $e) {
     error_log('profile_controller: ' . $e->getMessage());

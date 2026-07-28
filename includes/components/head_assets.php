@@ -108,7 +108,7 @@ $__pre = $__prof_ready ? [
     'density'   => UserProfile::density(),
     'motion'    => UserProfile::reduceMotion() ? 1 : 0,
     'collapsed' => UserProfile::sidebarCollapsed() ? 1 : 0,
-] : ['theme' => 'system', 'accent' => 'brand', 'density' => 'comfortable', 'motion' => 0, 'collapsed' => 0];
+] : ['theme' => 'light', 'accent' => 'brand', 'density' => 'comfortable', 'motion' => 0, 'collapsed' => 0];
 ?>
 <script>(function(){
   var P = <?= json_encode($__pre, JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?>;
