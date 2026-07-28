@@ -151,8 +151,8 @@ function lpc_load_document(PDO $db, string $type, string $token): ?array
 
         case 'quote':
             $stmt = $db->prepare("
-                SELECT p.*, c.name AS client_name, c.address AS client_address
-                  FROM proposals p LEFT JOIN clients c ON c.id = p.client_id
+                SELECT p.*
+                  FROM proposals p
                  WHERE p.token = ? LIMIT 1
             ");
             $stmt->execute([$token]);
@@ -162,7 +162,7 @@ function lpc_load_document(PDO $db, string $type, string $token): ?array
             // best-effort load, missing table is fine.
             $lines = [];
             try {
-                $items = $db->prepare("SELECT * FROM proposal_items WHERE proposal_id = ? ORDER BY id ASC");
+                $items = $db->prepare("SELECT *, product_description AS product_name, product_format AS format FROM proposal_items WHERE proposal_id = ? ORDER BY id ASC");
                 $items->execute([$r['id']]);
                 $lines = $items->fetchAll(PDO::FETCH_ASSOC);
             } catch (Throwable $e) { /* proposal_items may not exist */ }
@@ -270,7 +270,7 @@ function lpc_normalize_quote(array $r, array $lines): array {
     $grand = (float)($r['total_amount'] ?? $sub);
     return ['record_id'=>(int)$r['id'], 'reference'=>$r['reference'] ?? ('QUOTE-'.$r['id']),
             'date'=>$r['date'] ?? $r['created_at'],
-            'client'=>['name'=>$r['client_name'] ?? $r['prospect_name'] ?? '', 'address'=>$r['client_address'] ?? '', 'niu'=>'', 'phone'=>''],
+            'client'=>['name'=>$r['client_name'] ?? $r['prospect_name'] ?? '', 'address'=>$r['client_address'] ?? '', 'niu'=>'', 'phone'=>$r['client_phone'] ?? ''],
             'items'=>$items, 'totals'=>['subtotal'=>$sub, 'discount'=>0, 'tax'=>0, 'grand_total'=>$grand, 'words'=>lpc_amount_in_words($grand)],
             'notes'=>$r['notes'] ?? '', 'source_updated_at'=>$r['updated_at'] ?? $r['created_at'] ?? null];
 }
