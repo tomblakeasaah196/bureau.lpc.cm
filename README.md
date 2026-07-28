@@ -783,6 +783,22 @@ Rules for anyone touching this:
 - **The two JSON `<script>` blocks carry `JSON_HEX_TAG` and friends.**
   Without them a template value containing `</script>` closes the block
   and executes whatever follows. This is load-bearing, not style.
+- **Every field has a length budget, derived in code — not stored.**
+  `lpc_proposal_limit()` computes it from the length of the seeded default,
+  which is the text the layout was designed around. Deriving rather than
+  storing means the budget can never drift from the default it came from.
+  The rule is `max(default × 1.1, default + 8)`: percentage governs long
+  paragraphs (where overflow actually breaks a page), a flat 8 characters
+  governs short labels (where ±10% is one character and makes the field
+  uneditable). `share_*` and image paths are exempt — neither is laid out
+  on the page. The minimum is advisory and never enforced: text that is
+  too short leaves a gap, it doesn't break anything.
+  **This matters because the proposal pages are `297mm` tall with
+  `overflow: hidden`.** Long text is not reflowed onto another page, it is
+  silently clipped — a client receives a proposal with half an article
+  missing and nobody upstream sees an error. `maxlength` in the browser is
+  a convenience; the check in `proposal_template_controller.php` is the
+  control.
 - **SVG upload is deliberately refused.** An SVG is an XML document that
   can carry `<script>`, and these files render inside a page we serve to
   clients. PNG / JPEG / WebP only, re-encoded through GD by `Uploads`.

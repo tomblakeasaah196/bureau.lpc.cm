@@ -69,6 +69,33 @@ try {
                            background: #f9fafb; border: 1px solid #e5e7eb; border-radius: .375rem; padding: .25rem; }
         .pt-panel[hidden] { display: none; }
         .pt-savebar      { position: sticky; bottom: 0; z-index: 20; }
+
+        /* Character counter. Three states, because "you are over" is only
+           useful if "you are near" came first. */
+        .pt-count        { display: block; text-align: right; font-size: .6875rem;
+                           font-variant-numeric: tabular-nums; color: #9ca3af;
+                           margin-top: .25rem; }
+        .pt-count.warn   { color: #b45309; font-weight: 700; }
+        .pt-count.over   { color: #b91c1c; font-weight: 800; }
+        .pt-count.under  { color: #6b7280; }
+        .pt-input.over   { border-color: #b91c1c; background: #fef2f2; }
+
+        /* Image row. These widths were Tailwind arbitrary values
+           (min-w-[16rem]); those are compiled at build time and were never in
+           assets/css/tailwind.css, so they silently did nothing and the row
+           collapsed. Scoped CSS instead — see README §5.5. */
+        .pt-imgrow       { display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap; }
+        .pt-imgrow-path  { flex: 1 1 18rem; min-width: 14rem; }
+        .pt-imgrow-alt   { flex: 1 1 10rem; min-width: 9rem; }
+        .pt-upload-btn   { display: inline-flex; align-items: center; gap: .45rem;
+                           cursor: pointer; white-space: nowrap;
+                           padding: .55rem 1rem; border-radius: .5rem;
+                           border: 1px solid #005A2B; color: #005A2B;
+                           background: #fff; font-size: .8125rem; font-weight: 700;
+                           transition: background .15s, color .15s; }
+        .pt-upload-btn:hover { background: #005A2B; color: #fff; }
+        .pt-upload-btn:focus-within { outline: 2px solid #005A2B; outline-offset: 2px; }
+        .pt-upload-name  { font-size: .6875rem; color: #6b7280; margin-top: .3rem; }
     </style>
 
     <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
@@ -197,28 +224,39 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                     </div>
 
                     <?php if ($kind === 'image'): ?>
-                        <div class="flex items-center gap-4 flex-wrap">
+                        <div class="pt-imgrow">
                             <img class="pt-logo-prev" id="<?= $id ?>_prev"
                                  src="<?= htmlspecialchars($f['value_fr'] ?: '/assets/img/full_logo.svg', ENT_QUOTES, 'UTF-8') ?>"
                                  alt="">
-                            <div class="flex-1 min-w-[16rem]">
+                            <div class="pt-imgrow-path">
                                 <label class="pt-lang" for="<?= $id ?>_fr">Chemin de l'image</label>
                                 <input type="text" class="pt-input pt-val" id="<?= $id ?>_fr" data-lang="fr"
+                                       maxlength="<?= (int) $f['max_fr'] ?>"
+                                       data-min="<?= (int) $f['min_fr'] ?>" data-max="<?= (int) $f['max_fr'] ?>"
                                        value="<?= htmlspecialchars($f['value_fr'], ENT_QUOTES, 'UTF-8') ?>">
                                 <p class="text-[11px] text-gray-400 mt-1">
-                                    Vider ce champ masque l'élément. PNG, JPEG ou WebP — 2&nbsp;Mo max.
+                                    Vider ce champ masque l'élément.
                                 </p>
                             </div>
-                            <div class="flex-1 min-w-[12rem]">
+                            <div class="pt-imgrow-alt">
                                 <label class="pt-lang" for="<?= $id ?>_en">Texte alternatif</label>
                                 <input type="text" class="pt-input pt-val" id="<?= $id ?>_en" data-lang="en"
+                                       maxlength="<?= (int) $f['max_en'] ?>"
+                                       data-min="<?= (int) $f['min_en'] ?>" data-max="<?= (int) $f['max_en'] ?>"
                                        value="<?= htmlspecialchars($f['value_en'], ENT_QUOTES, 'UTF-8') ?>">
                             </div>
-                            <label class="shrink-0 cursor-pointer px-4 py-2 rounded-lg border border-lpc-dark text-lpc-dark text-xs font-bold hover:bg-gray-50 transition-colors">
-                                Téléverser
-                                <input type="file" class="pt-upload hidden" accept="image/png,image/jpeg,image/webp"
-                                       data-key="<?= htmlspecialchars($k, ENT_QUOTES, 'UTF-8') ?>">
-                            </label>
+                            <div>
+                                <label class="pt-upload-btn">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0-12l-4 4m4-4l4 4"/>
+                                    </svg>
+                                    Choisir une image…
+                                    <input type="file" class="pt-upload" accept="image/png,image/jpeg,image/webp"
+                                           style="position:absolute; width:1px; height:1px; opacity:0; overflow:hidden;"
+                                           data-key="<?= htmlspecialchars($k, ENT_QUOTES, 'UTF-8') ?>">
+                                </label>
+                                <p class="pt-upload-name" id="<?= $id ?>_fname">PNG, JPEG ou WebP — 2 Mo max</p>
+                            </div>
                         </div>
 
                     <?php else: $tag = $kind === 'textarea' ? 'textarea' : 'input'; ?>
@@ -226,18 +264,26 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                             <div>
                                 <label class="pt-lang" for="<?= $id ?>_fr">Français</label>
                                 <?php if ($tag === 'textarea'): ?>
-                                    <textarea class="pt-input pt-val" id="<?= $id ?>_fr" data-lang="fr" rows="4"><?= htmlspecialchars($f['value_fr'], ENT_QUOTES, 'UTF-8') ?></textarea>
+                                    <textarea class="pt-input pt-val" id="<?= $id ?>_fr" data-lang="fr" rows="4"
+                                              maxlength="<?= (int) $f['max_fr'] ?>"
+                                              data-min="<?= (int) $f['min_fr'] ?>" data-max="<?= (int) $f['max_fr'] ?>"><?= htmlspecialchars($f['value_fr'], ENT_QUOTES, 'UTF-8') ?></textarea>
                                 <?php else: ?>
                                     <input type="text" class="pt-input pt-val" id="<?= $id ?>_fr" data-lang="fr"
+                                           maxlength="<?= (int) $f['max_fr'] ?>"
+                                           data-min="<?= (int) $f['min_fr'] ?>" data-max="<?= (int) $f['max_fr'] ?>"
                                            value="<?= htmlspecialchars($f['value_fr'], ENT_QUOTES, 'UTF-8') ?>">
                                 <?php endif; ?>
                             </div>
                             <div>
                                 <label class="pt-lang" for="<?= $id ?>_en">English</label>
                                 <?php if ($tag === 'textarea'): ?>
-                                    <textarea class="pt-input pt-val" id="<?= $id ?>_en" data-lang="en" rows="4"><?= htmlspecialchars($f['value_en'], ENT_QUOTES, 'UTF-8') ?></textarea>
+                                    <textarea class="pt-input pt-val" id="<?= $id ?>_en" data-lang="en" rows="4"
+                                              maxlength="<?= (int) $f['max_en'] ?>"
+                                              data-min="<?= (int) $f['min_en'] ?>" data-max="<?= (int) $f['max_en'] ?>"><?= htmlspecialchars($f['value_en'], ENT_QUOTES, 'UTF-8') ?></textarea>
                                 <?php else: ?>
                                     <input type="text" class="pt-input pt-val" id="<?= $id ?>_en" data-lang="en"
+                                           maxlength="<?= (int) $f['max_en'] ?>"
+                                           data-min="<?= (int) $f['min_en'] ?>" data-max="<?= (int) $f['max_en'] ?>"
                                            value="<?= htmlspecialchars($f['value_en'], ENT_QUOTES, 'UTF-8') ?>">
                                 <?php endif; ?>
                             </div>

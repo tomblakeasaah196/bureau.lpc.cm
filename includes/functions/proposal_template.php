@@ -295,6 +295,85 @@ function lpc_proposal_fill(string $template, array $vars): string
 }
 
 /**
+ * Length budget for one field, per language.
+ *
+ * The 4-page proposal is a fixed-geometry document: each `.a4-page` is exactly
+ * 297mm tall with `overflow: hidden`. Text that runs long does not reflow onto
+ * another page — it is silently clipped, and nobody notices until a client
+ * receives a proposal with half of Article 4 missing. So the studio caps how
+ * far each field can grow.
+ *
+ * The budget is derived from the length of the SEEDED DEFAULT, which is the
+ * text the layout was actually designed around: ±10% is the safety margin.
+ * Deriving it in code rather than storing it in the DB means the limits can
+ * never drift away from the defaults they were computed from.
+ *
+ * Three deliberate exceptions:
+ *   · Very short labels — ±10% of "Date" is half a character, which would make
+ *     the field uneditable. Anything under ~12 chars gets a flat +8 headroom
+ *     instead; a few extra characters on a one-word label cannot break a page.
+ *   · `share` messages — WhatsApp/email bodies, not laid out on the page at
+ *     all. Generous cap purely to bound abuse.
+ *   · `image` paths — a filesystem path has no relationship to the default's
+ *     length. Capped at the column's practical limit.
+ *
+ * @return array{min:int, max:int}
+ */
+function lpc_proposal_limit(string $key, string $lang = 'fr'): array
+{
+    $defaults = lpc_proposal_defaults();
+    $def      = $defaults[$key] ?? ['', ''];
+    $text     = $lang === 'en' ? ($def[1] ?? $def[0]) : $def[0];
+    $len      = mb_strlen((string) $text);
+
+    if (str_starts_with($key, 'ref_logo_') || str_starts_with($key, 'brand_logo_')) {
+        return ['min' => 0, 'max' => 255];
+    }
+    if (str_starts_with($key, 'share_')) {
+        return ['min' => 0, 'max' => 2000];
+    }
+    if ($len === 0) {
+        return ['min' => 0, 'max' => 200];
+    }
+
+    // ±10% of a short label is worthless — 10% of "La Petite Cour" is one and
+    // a half characters, so you could not add "SARL" to your own company name.
+    // Every field therefore gets whichever is larger: the percentage, or a flat
+    // 8 characters of headroom. The two cross over around 80 characters, which
+    // lands the behaviour where it should be:
+    //
+    //   · short labels ("Date", "Référence")  → absolute room, percentage is noise
+    //   · long paragraphs (Article 1, résumé) → proportional room, which is what
+    //     actually protects a fixed-height page from overflowing
+    //
+    // Measured against the seeded content this moves the tightest field from
+    // +2 characters to +8, and leaves the paragraph budgets untouched.
+    $max = max((int) ceil($len * 1.1), $len + 8);
+
+    // The minimum is advisory only and never enforced. Text much shorter than
+    // the design length leaves a visible gap rather than breaking the layout,
+    // so it is worth flagging but not worth blocking. Short labels get no
+    // minimum at all — "Date" has no business having one.
+    $min = $len >= 12 ? (int) floor($len * 0.9) : 0;
+
+    return ['min' => $min, 'max' => $max];
+}
+
+/**
+ * Limits for both languages at once — the shape the studio and the controller
+ * both consume, so there is exactly one definition of "too long".
+ */
+function lpc_proposal_limits(string $key): array
+{
+    $fr = lpc_proposal_limit($key, 'fr');
+    $en = lpc_proposal_limit($key, 'en');
+    return [
+        'min_fr' => $fr['min'], 'max_fr' => $fr['max'],
+        'min_en' => $en['min'], 'max_en' => $en['max'],
+    ];
+}
+
+/**
  * Studio payload: every row with its metadata, grouped, with the default
  * alongside the current value so the editor can offer "reset to default"
  * and show what changed.
@@ -307,7 +386,7 @@ function lpc_proposal_studio_payload(): array
 
     foreach ($rows as $key => $r) {
         $def = $defaults[$key] ?? ['', ''];
-        $groups[$r['group_key']][] = [
+        $groups[$r['group_key']][] = lpc_proposal_limits($key) + [
             'key'        => $key,
             'value_fr'   => (string) ($r['value_fr'] ?? ''),
             'value_en'   => (string) ($r['value_en'] ?? ''),

@@ -64,8 +64,54 @@
         refreshDirtyBadge();
     }
 
+    // ---- Character budget ---------------------------------------------------
+    // The proposal pages are fixed-height with overflow:hidden — text that runs
+    // long is clipped, not reflowed, and the person editing has no way to see
+    // that from this screen. The counter is the only feedback they get, so it
+    // shows the target range, not just a number.
+    function updateCount(input) {
+        var counter = input.parentNode.querySelector('.pt-count');
+        if (!counter) return;
+
+        var len = input.value.length;
+        var min = parseInt(input.dataset.min || '0', 10);
+        var max = parseInt(input.dataset.max || '0', 10);
+
+        counter.textContent = len + ' / ' + max;
+        counter.classList.remove('warn', 'over', 'under');
+        input.classList.remove('over');
+
+        if (len > max) {
+            // Reachable by paste on some browsers, and by any non-browser client.
+            counter.classList.add('over');
+            input.classList.add('over');
+            counter.textContent = len + ' / ' + max + ' — trop long';
+        } else if (len === max || len > max * 0.95) {
+            counter.classList.add('warn');
+        } else if (min > 0 && len < min) {
+            // Not an error. Much shorter than the design length leaves a visible
+            // gap on the page rather than breaking it, so this is advisory only.
+            counter.classList.add('under');
+            counter.textContent = len + ' / ' + max + ' — court (min conseillé ' + min + ')';
+        }
+    }
+
+    function initCounters() {
+        document.querySelectorAll('.pt-val').forEach(function (input) {
+            if (!input.dataset.max) return;
+            if (input.parentNode.querySelector('.pt-count')) return;
+            var span = document.createElement('span');
+            span.className = 'pt-count';
+            input.parentNode.appendChild(span);
+            updateCount(input);
+        });
+    }
+
     document.addEventListener('input', function (e) {
-        if (e.target.classList && e.target.classList.contains('pt-val')) markDirty(e.target);
+        if (e.target.classList && e.target.classList.contains('pt-val')) {
+            markDirty(e.target);
+            updateCount(e.target);
+        }
     });
 
     // Leaving with unsaved edits is almost always an accident on a form this long.
@@ -151,21 +197,38 @@
 
             post({ action: 'save', fields: JSON.stringify(fields) })
                 .then(function (j) {
+                    var refused = (j.too_long || []).concat(j.skipped || []);
                     dirty.forEach(function (id) {
                         var parts = id.split('|');
+                        if (refused.indexOf(parts[0]) !== -1) return;   // keep it dirty
                         var row = document.querySelector('.pt-field[data-key="' + parts[0] + '"]');
                         if (!row) return;
                         var input = row.querySelector('.pt-val[data-lang="' + parts[1] + '"]');
                         if (input) { baseline.set(id, input.value); input.classList.remove('dirty'); }
                     });
-                    dirty.clear();
+                    // Refused fields deliberately stay in `dirty` so the save
+                    // button remains live and the edit is not lost.
+                    Array.from(dirty).forEach(function (id) {
+                        if (refused.indexOf(id.split('|')[0]) === -1) dirty.delete(id);
+                    });
                     refreshDirtyBadge();
 
                     var msg = j.message || 'Enregistré.';
                     if (j.skipped && j.skipped.length) {
-                        msg += ' ' + j.skipped.length + ' champ(s) ignoré(s) (inconnu ou trop long).';
+                        msg += ' ' + j.skipped.length + ' champ(s) ignoré(s) (clé inconnue).';
                     }
-                    notify(msg);
+                    // A rejected field keeps its edit in the box and stays
+                    // dirty, so the person can shorten it and save again
+                    // rather than losing what they typed.
+                    if (j.too_long && j.too_long.length) {
+                        j.too_long.forEach(function (key) {
+                            var row = document.querySelector('.pt-field[data-key="' + key + '"]');
+                            if (!row) return;
+                            row.scrollIntoView({ block: 'center' });
+                            row.querySelectorAll('.pt-val').forEach(updateCount);
+                        });
+                    }
+                    notify(msg, !!(j.too_long && j.too_long.length));
                 })
                 .catch(function (err) { notify(err.message, true); })
                 .finally(function () {
@@ -190,6 +253,9 @@
                     dirty.delete(fieldId(key, 'fr'));
                     dirty.delete(fieldId(key, 'en'));
                     refreshDirtyBadge();
+
+                    if (fr) updateCount(fr);
+                    if (en) updateCount(en);
 
                     var prev = row.querySelector('.pt-logo-prev');
                     if (prev && j.value_fr) prev.src = j.value_fr;
@@ -225,7 +291,10 @@
             var file = input.files && input.files[0];
             if (!file) return;
 
-            var key = input.dataset.key;
+            var key   = input.dataset.key;
+            var fname = document.querySelector('.pt-field[data-key="' + key + '"] .pt-upload-name');
+            if (fname) fname.textContent = 'Envoi de ' + file.name + '…';
+
             var fd  = new FormData();
             fd.append('action', 'upload_image');
             fd.append('key', key);
@@ -253,9 +322,14 @@
                 dirty.delete(fieldId(key, 'fr'));
                 refreshDirtyBadge();
                 if (prev) prev.src = j.path;
+                if (path) updateCount(path);
+                if (fname) fname.textContent = file.name + ' — enregistré';
                 notify('Image téléversée.');
             })
-            .catch(function (err) { notify(err.message, true); })
+            .catch(function (err) {
+                if (fname) fname.textContent = 'PNG, JPEG ou WebP — 2 Mo max';
+                notify(err.message, true);
+            })
             .finally(function () { input.value = ''; });
         });
     });
@@ -273,5 +347,6 @@
     }
 
     captureBaseline();
+    initCounters();
     refreshDirtyBadge();
 })();

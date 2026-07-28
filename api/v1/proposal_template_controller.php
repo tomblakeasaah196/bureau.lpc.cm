@@ -90,9 +90,10 @@ switch ($action) {
             pt_fail('Aucune modification reçue.');
         }
 
-        $userId  = (int) ($_SESSION['user_id'] ?? 0);
-        $saved   = 0;
-        $skipped = [];
+        $userId   = (int) ($_SESSION['user_id'] ?? 0);
+        $saved    = 0;
+        $skipped  = [];
+        $tooLong  = [];
 
         try {
             $db->beginTransaction();
@@ -112,10 +113,15 @@ switch ($action) {
                 $fr = str_replace("\r\n", "\n", (string) ($pair['fr'] ?? ''));
                 $en = str_replace("\r\n", "\n", (string) ($pair['en'] ?? ''));
 
-                // Hard cap. TEXT holds 64KB; nothing on a 4-page proposal is
-                // legitimately longer than this, and it bounds a runaway paste.
-                if (mb_strlen($fr) > 8000 || mb_strlen($en) > 8000) {
-                    $skipped[] = $key;
+                // Length budget. The browser sets `maxlength` too, but that is
+                // a convenience, not a control: a maxlength attribute is gone
+                // the moment someone POSTs directly. The proposal pages are
+                // fixed-height with overflow:hidden, so over-long text is
+                // silently clipped in front of a client — this is the check
+                // that actually prevents it.
+                $lim = lpc_proposal_limits($key);
+                if (mb_strlen($fr) > $lim['max_fr'] || mb_strlen($en) > $lim['max_en']) {
+                    $tooLong[] = $key;
                     continue;
                 }
 
@@ -130,11 +136,17 @@ switch ($action) {
             pt_fail("Échec de l'enregistrement.", 500);
         }
 
+        $msg = $saved . ' champ(s) enregistré(s).';
+        if ($tooLong !== []) {
+            $msg .= ' ' . count($tooLong) . ' champ(s) refusé(s) : texte trop long pour la mise en page.';
+        }
+
         pt_out([
-            'status'  => 'success',
-            'saved'   => $saved,
-            'skipped' => $skipped,
-            'message' => $saved . ' champ(s) enregistré(s).',
+            'status'   => 'success',
+            'saved'    => $saved,
+            'skipped'  => $skipped,
+            'too_long' => $tooLong,
+            'message'  => $msg,
         ]);
         break;
 
