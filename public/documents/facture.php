@@ -1,6 +1,14 @@
 <?php
 // Sprint-4 (parallel): server-side PDF renders by default. Legacy HTML falls
 // through when ?html=1 is present (for debugging / accessibility).
+
+// This page is a DOCUMENT, not an app screen: a customer opens it from a token
+// link, and it is the exact DOM html2canvas rasterises into the PDF. It must
+// therefore look identical for every recipient regardless of any internal
+// user's theme preference. LPC_FORCE_LIGHT tells head_assets.php to pin the
+// light theme and to omit lpc-theme.css entirely — see the block at the top of
+// that file for why the dark stylesheet also broke PDF generation.
+if (!defined('LPC_FORCE_LIGHT')) { define('LPC_FORCE_LIGHT', true); }
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/functions/document_pdf.php';
 lpc_serve_document_pdf('invoice');

@@ -26,8 +26,10 @@ $lang = lpc_i18n_current_lang();
 // Sub-actions: download raw tail, invoked as ?do=download.
 // -----------------------------------------------------------------------------
 if (($_GET['do'] ?? '') === 'download') {
-    $path = ErrorMonitor::logPath();
-    if (!$path || !is_readable($path)) {
+    // Download the tail of EVERY log we read, not just ERROR_LOG_PATH — the
+    // download has to match what the screen shows or it is useless for triage.
+    $paths = ErrorMonitor::logSources();
+    if (!$paths) {
         http_response_code(404);
         header('Content-Type: text/plain; charset=utf-8');
         echo "Log file not found or unreadable.";
@@ -37,15 +39,19 @@ if (($_GET['do'] ?? '') === 'download') {
     $bytes = (int) ($_GET['bytes'] ?? ErrorMonitor::MAX_TAIL_BYTES);
     if ($bytes < 1024) $bytes = ErrorMonitor::DEFAULT_TAIL_BYTES;
     if ($bytes > ErrorMonitor::MAX_TAIL_BYTES) $bytes = ErrorMonitor::MAX_TAIL_BYTES;
-    $size = filesize($path) ?: 0;
-    $off  = max(0, $size - $bytes);
-    $fh = fopen($path, 'rb');
-    if ($fh) {
-        header('Content-Type: text/plain; charset=utf-8');
-        header('Content-Disposition: attachment; filename="lpc-error-tail-' . date('Ymd-His') . '.log"');
-        fseek($fh, $off);
-        fpassthru($fh);
-        fclose($fh);
+
+    header('Content-Type: text/plain; charset=utf-8');
+    header('Content-Disposition: attachment; filename="lpc-error-tail-' . date('Ymd-His') . '.log"');
+    foreach ($paths as $path) {
+        echo "\n===== " . $path . " =====\n";
+        $size = filesize($path) ?: 0;
+        $off  = max(0, $size - $bytes);
+        $fh = fopen($path, 'rb');
+        if ($fh) {
+            fseek($fh, $off);
+            fpassthru($fh);
+            fclose($fh);
+        }
     }
     exit;
 }
@@ -57,14 +63,20 @@ $bytes    = (int) ($_GET['bytes'] ?? ErrorMonitor::DEFAULT_TAIL_BYTES);
 if ($bytes < 4096) $bytes = ErrorMonitor::DEFAULT_TAIL_BYTES;
 if ($bytes > ErrorMonitor::MAX_TAIL_BYTES) $bytes = ErrorMonitor::MAX_TAIL_BYTES;
 
+// Read EVERY log we can find, not just ERROR_LOG_PATH. Errors raised before
+// bootstrap has run (parse errors, fatals in files that skip bootstrap) land in
+// cPanel's per-directory error_log and used to be invisible on this screen.
 $logPath  = ErrorMonitor::logPath();
-$logExists= $logPath && is_file($logPath) && is_readable($logPath);
-$logSize  = $logExists ? filesize($logPath) : 0;
+$sources  = ErrorMonitor::logSources();
+$logExists= !empty($sources);
+$logSize  = 0; foreach ($sources as $s) { $logSize += (int) @filesize($s); }
 
-$entries  = $logExists ? ErrorMonitor::tail($bytes) : [];
+$entries  = $logExists ? ErrorMonitor::tailAll($bytes) : [];
 $agg      = ErrorMonitor::aggregate($entries);
 $hourly   = ErrorMonitor::hourlyBuckets($entries);
 $total24h = 0; foreach ($hourly as $h) { $total24h += (int) $h['count']; }
+$totalWin = count($entries);
+$undated  = ErrorMonitor::undatedCount($entries);
 
 // Extract available levels for the filter.
 $levels = [];
@@ -162,13 +174,32 @@ require __DIR__ . '/../../includes/components/topbar.php';
         <p class="text-2xl font-bold text-gray-900 mt-1"><?= count($agg) ?></p>
     </div>
     <div class="glass rounded-xl p-4">
-        <p class="text-gray-500 text-[10px] font-bold uppercase tracking-widest"><?= __t('ui.fen_tre_lue') ?></p>
-        <p class="text-2xl font-bold text-gray-900 mt-1"><?= number_format($bytes / 1024, 0, ',', ' ') ?> KB</p>
+        <p class="text-gray-500 text-[10px] font-bold uppercase tracking-widest"><?= __t('ui.error_monitor.in_window') ?></p>
+        <p class="text-2xl font-bold text-gray-900 mt-1"><?= number_format($totalWin, 0, ',', ' ') ?></p>
     </div>
     <div class="glass rounded-xl p-4">
         <p class="text-gray-500 text-[10px] font-bold uppercase tracking-widest"><?= __t('ui.taille_du_log') ?></p>
         <p class="text-2xl font-bold text-gray-900 mt-1"><?= $logSize >= 1048576 ? number_format($logSize / 1048576, 1, ',', ' ') . ' MB' : number_format($logSize / 1024, 0, ',', ' ') . ' KB' ?></p>
+        <p class="text-[10px] text-gray-500 mt-1"><?= count($sources) ?> <?= __t('ui.error_monitor.sources') ?> · <?= number_format($bytes / 1024, 0, ',', ' ') ?> KB <?= __t('ui.fen_tre_lue') ?></p>
     </div>
+</section>
+
+<?php if ($undated > 0): ?>
+<!-- Entries with no parseable timestamp can never land in an hourly bucket.
+     Disclose them rather than letting the 24h KPI quietly disagree with the list. -->
+<section class="glass rounded-xl p-3 mb-6 border-l-4 border-amber-400">
+    <p class="text-xs text-amber-800"><?= htmlspecialchars(__t('ui.error_monitor.undated', ['n' => $undated]), ENT_QUOTES, 'UTF-8') ?></p>
+</section>
+<?php endif; ?>
+
+<!-- Which files we actually read, so "missing error" is diagnosable at a glance. -->
+<section class="glass rounded-xl p-3 mb-6">
+    <p class="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1"><?= __t('ui.error_monitor.sources') ?></p>
+    <ul class="mono text-[11px] text-gray-600 space-y-0.5">
+        <?php foreach ($sources as $s): ?>
+            <li><?= htmlspecialchars($s, ENT_QUOTES, 'UTF-8') ?> — <?= number_format((int) @filesize($s) / 1024, 0, ',', ' ') ?> KB</li>
+        <?php endforeach; ?>
+    </ul>
 </section>
 
 <!-- Hourly bar chart -->
@@ -215,7 +246,11 @@ require __DIR__ . '/../../includes/components/topbar.php';
     <?php else: ?>
     <div class="space-y-2" id="err-list">
         <?php foreach ($agg as $row):
-            $cls = 'lvl lvl-' . strtolower(preg_replace('/[^a-z]/i', '', $row['level'])); ?>
+            // Severity buckets, not raw level names — the level list is wider
+            // than the CSS class list (Recoverable fatal error, Core warning…),
+            // and unmapped levels used to render as unstyled grey.
+            $cls     = 'lvl lvl-' . ErrorMonitor::severity($row['level']);
+            $explain = $row['explain'] !== '' ? __t('ui.error_monitor.explain.' . $row['explain']) : ''; ?>
             <details class="err-item bg-white border border-gray-200 rounded-lg overflow-hidden"
                      data-level="<?= htmlspecialchars($row['level'], ENT_QUOTES, 'UTF-8') ?>"
                      data-text="<?= htmlspecialchars(mb_strtolower(($row['message'] ?? '') . ' ' . ($row['file'] ?? '')), ENT_QUOTES, 'UTF-8') ?>">
@@ -229,6 +264,9 @@ require __DIR__ . '/../../includes/components/topbar.php';
                             <?php endif; ?>
                         </div>
                         <p class="text-sm text-gray-900/90 truncate"><?= htmlspecialchars(explode("\n", $row['message'])[0] ?? '', ENT_QUOTES, 'UTF-8') ?></p>
+                        <?php if ($explain !== ''): ?>
+                            <p class="text-xs text-gray-600 mt-1"><?= htmlspecialchars($explain, ENT_QUOTES, 'UTF-8') ?></p>
+                        <?php endif; ?>
                         <p class="text-[10px] text-gray-500 mt-1">
                             <?= __t('ui.de') ?>
                             <span class="mono"><?= htmlspecialchars($row['first_seen'], ENT_QUOTES, 'UTF-8') ?></span>
@@ -242,8 +280,22 @@ require __DIR__ . '/../../includes/components/topbar.php';
                     </button>
                 </summary>
                 <div class="p-3 border-t border-gray-200 bg-gray-50">
-                    <?php if ($row['file']): ?>
+                    <?php if ($explain !== ''): ?>
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-gray-500"><?= __t('ui.error_monitor.what_it_means') ?></p>
+                        <p class="text-xs text-gray-700 mb-3"><?= htmlspecialchars($explain, ENT_QUOTES, 'UTF-8') ?></p>
+                    <?php endif; ?>
+                    <?php if (!empty($row['locations'])): ?>
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-gray-500"><?= __t('ui.error_monitor.locations') ?></p>
+                        <ul class="mono text-xs text-gray-600 mb-2">
+                            <?php foreach ($row['locations'] as $loc => $n): ?>
+                                <li><?= htmlspecialchars($loc, ENT_QUOTES, 'UTF-8') ?> <span class="chip"><?= (int) $n ?>&times;</span></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php elseif ($row['file']): ?>
                         <p class="text-xs text-gray-500 mono mb-2"><?= htmlspecialchars($row['file'] . ($row['line'] ? ":{$row['line']}" : ''), ENT_QUOTES, 'UTF-8') ?></p>
+                    <?php endif; ?>
+                    <?php if (!empty($row['sources'])): ?>
+                        <p class="text-[10px] text-gray-500 mb-2"><?= __t('ui.error_monitor.sources') ?>: <span class="mono"><?= htmlspecialchars(implode(', ', array_keys($row['sources'])), ENT_QUOTES, 'UTF-8') ?></span></p>
                     <?php endif; ?>
                     <?php foreach ($row['samples'] as $s): ?>
                         <pre class="text-[11px] text-gray-500 whitespace-pre-wrap break-words mono mt-2 p-2 bg-black/30 rounded"><?= htmlspecialchars($s, ENT_QUOTES, 'UTF-8') ?></pre>

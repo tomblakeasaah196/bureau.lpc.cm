@@ -43,6 +43,35 @@ if (defined('LPC_HEAD_ASSETS_EMITTED')) {
 }
 define('LPC_HEAD_ASSETS_EMITTED', true);
 
+// ---------------------------------------------------------------------------
+// LPC_FORCE_LIGHT — pages that are DOCUMENTS, not app screens.
+//
+// The token-link pages under public/documents/ (devis, facture, bon de
+// commande, bon de livraison, CRE, signature) are a sheet of paper that happens
+// to be served over HTTP. A customer opens one from a WhatsApp link; it is the
+// commercial artefact, and it must look identical for every recipient no matter
+// what theme the LPC staffer who generated it happens to prefer. It is also the
+// exact DOM that html2canvas rasterises into the downloadable PDF.
+//
+// Those pages nevertheless include this file — they want the fonts, the i18n
+// payload and the modal system — so before LPC_FORCE_LIGHT they picked up
+// lpc-theme.css along with everything else and rendered dark. Two consequences,
+// both bad:
+//
+//   1. The customer-facing quote changed appearance based on an internal user
+//      preference it should never have been coupled to.
+//   2. PDF generation broke outright. lpc-theme.css builds its tinted status
+//      colours with color-mix(); Chrome serialises a computed color-mix() as
+//      `color(srgb …)`, and html2canvas' colour parser understands rgb/rgba/hsl
+//      and hex only. It threw on the first tinted element inside .a4-page, which
+//      surfaced as "Erreur lors de la génération du PDF".
+//
+// A page opts out by defining LPC_FORCE_LIGHT before requiring this file. It
+// then gets a hardcoded light theme and no lpc-theme.css at all — not merely
+// "light for now", but no dark stylesheet present to be switched on later by
+// the account menu.
+$__force_light = defined('LPC_FORCE_LIGHT') && LPC_FORCE_LIGHT;
+
 // Cache-busting helper. bootstrap.php pulls this in, but this component can be
 // reached from odd contexts — be defensive.
 if (!function_exists('lpc_asset')) {
@@ -80,6 +109,7 @@ $__i18n_payload = function_exists('lpc_i18n_js_payload')
 <!-- Help centre. After the shell, and it only defines .lpc-help-* selectors, so
      it extends the chrome rather than competing with it. -->
 <link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-help.css') ?>">
+<?php if (!$__force_light): ?>
 <!-- Dark-mode bridge. LAST, because it has to beat both Tailwind's utilities
      and the two stylesheets above on equal specificity, and it is the only one
      of the four that is allowed to.
@@ -95,6 +125,7 @@ $__i18n_payload = function_exists('lpc_i18n_js_payload')
      conditional <link> would mean the first toggle of a session repaints the
      page against a stylesheet the browser has not fetched yet. -->
 <link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-theme.css') ?>">
+<?php endif; ?>
 
 <?php
 // ---------------------------------------------------------------------------
@@ -126,6 +157,18 @@ $__pre = $__prof_ready ? [
     'motion'    => UserProfile::reduceMotion() ? 1 : 0,
     'collapsed' => UserProfile::sidebarCollapsed() ? 1 : 0,
 ] : ['theme' => 'light', 'accent' => 'brand', 'density' => 'comfortable', 'motion' => 0, 'collapsed' => 0];
+
+// A document page is pinned to light, and to the house accent, regardless of
+// who is logged in. The accent is pinned too: a devis is LPC green because that
+// is the company's brand on a customer-facing document, not because the person
+// who happened to generate it chose green in their own settings.
+//
+// Reduce-motion is deliberately NOT overridden — that is an accessibility need
+// belonging to whoever is looking at the screen, not a styling preference.
+if ($__force_light) {
+    $__pre['theme']  = 'light';
+    $__pre['accent'] = 'brand';
+}
 ?>
 <script>(function(){
   var P = <?= json_encode($__pre, JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?>;
@@ -168,5 +211,5 @@ $__css_path = __DIR__ . '/../../assets/css/tailwind.css';
 if (is_file($__css_path) && filesize($__css_path) < 20000) {
     echo "\n<script>console.warn('[LPC] /assets/css/tailwind.css looks like the placeholder stub. Run: npm ci && npm run build:css');</script>\n";
 }
-unset($__css_path, $__lang, $__i18n_payload, $__pre, $__prof_ready);
+unset($__css_path, $__lang, $__i18n_payload, $__pre, $__prof_ready, $__force_light);
 ?>
