@@ -1,5 +1,5 @@
 -- =============================================================================
--- 035_user_personalization.sql
+-- 036_user_personalization.sql
 -- -----------------------------------------------------------------------------
 -- Bureau LPC ERP — Sprint 9 · per-user identity, preferences and quick-PIN.
 --
@@ -46,9 +46,48 @@
 --   overwrites a user's own choice.
 --
 -- IDEMPOTENT. Safe to re-run.
+--
+-- RENAMED FROM 035_user_personalization.sql
+-- -----------------------------------------
+-- It shipped as 035 and collided with 035_help_settings_articles.sql, which
+-- was already using that number. scripts/verify.sh checks the migrations
+-- directory for a contiguous sequence and reported
+--
+--     ✗ migration gap: expected 036, got 035_user_personalization.sql
+--
+-- Two files may not share a number: scripts/migrate.php keys
+-- schema_migrations on the filename stem, so the collision was survivable by
+-- luck (the stems differed) rather than by design, and the next person to
+-- number by eye would have hit it properly.
+--
+-- Renaming changes the version key, so this file re-applies once under its new
+-- name. That is safe precisely because every step above is guarded — the
+-- column adds skip what exists, the CREATEs are IF NOT EXISTS, and the
+-- backfill only touches rows it has not already touched. Step 0 below retires
+-- the old row so `--status` does not list a version with no file forever.
 -- =============================================================================
 
 START TRANSACTION;
+
+-- -----------------------------------------------------------------------------
+-- 0. Retire the pre-rename bookkeeping row.
+--
+--    Guarded on the table existing, so this is a no-op on a fresh install that
+--    has never seen the 035-numbered version. Deleting the row is correct
+--    rather than renaming it: the checksum stored against it belongs to a file
+--    that no longer exists, and this run writes an accurate row for the new
+--    name a moment later.
+-- -----------------------------------------------------------------------------
+SET @sql = (
+  SELECT IF(
+    COUNT(*) = 1,
+    "DELETE FROM schema_migrations WHERE version = '035_user_personalization'",
+    'SELECT ''no schema_migrations table yet — fresh install'' AS info'
+  )
+  FROM information_schema.tables
+  WHERE table_schema = DATABASE() AND table_name = 'schema_migrations'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- -----------------------------------------------------------------------------
 -- 0. Guard: employee_profiles must exist. If a fresh install has not created it

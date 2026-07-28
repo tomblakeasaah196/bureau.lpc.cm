@@ -1,11 +1,11 @@
 -- =============================================================================
--- 036_theme_default_light.sql
+-- 037_theme_default_light.sql
 -- -----------------------------------------------------------------------------
--- Bureau LPC ERP — corrective follow-up to 035.
+-- Bureau LPC ERP — corrective follow-up to 036.
 --
 -- WHAT WENT WRONG
 -- ---------------
--- 035 shipped employee_profiles.theme with DEFAULT 'system'. 'system' means
+-- 036 shipped employee_profiles.theme with DEFAULT 'system'. 'system' means
 -- "follow the operating system's colour scheme", and most staff run their OS
 -- in dark mode — so the migration silently inverted the entire workspace for
 -- every user on their next page load. Nobody had opted into anything.
@@ -19,7 +19,7 @@
 --   2. Resets rows still holding the untouched 'system' value.
 --
 -- WHY IT IS SAFE TO RESET 'system' ROWS
---   035 ran minutes-to-days ago and the picker that writes this column shipped
+--   036 ran minutes-to-days ago and the picker that writes this column shipped
 --   with it. Anyone who deliberately chose "Système" since then loses that one
 --   choice and can re-pick it in Mon profil → Préférences. Weighed against
 --   every other user being stuck in an inverted UI they never asked for, that
@@ -38,7 +38,7 @@ START TRANSACTION;
 
 -- -----------------------------------------------------------------------------
 -- 1. Column default. Guarded on information_schema so this file is safe to run
---    on an install where 035 has not been applied at all — there the column
+--    on an install where 036 has not been applied at all — there the column
 --    does not exist, and this does nothing rather than erroring.
 -- -----------------------------------------------------------------------------
 SET @sql = (
@@ -47,7 +47,7 @@ SET @sql = (
     "ALTER TABLE employee_profiles
        MODIFY COLUMN theme ENUM('system','light','dark') NOT NULL DEFAULT 'light'
        COMMENT 'Workspace surface theme. The dark L-frame chrome is brand, and never changes.'",
-    'SELECT ''employee_profiles.theme absent — migration 035 not applied; nothing to do'' AS info'
+    'SELECT ''employee_profiles.theme absent — migration 036 not applied; nothing to do'' AS info'
   )
   FROM information_schema.columns
   WHERE table_schema = DATABASE()
@@ -57,7 +57,7 @@ SET @sql = (
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- -----------------------------------------------------------------------------
--- 2. Reset the rows that only hold 'system' because 035 put it there.
+-- 2. Reset the rows that only hold 'system' because 036 put it there.
 -- -----------------------------------------------------------------------------
 SET @sql = (
   SELECT IF(

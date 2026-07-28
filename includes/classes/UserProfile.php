@@ -45,7 +45,7 @@
  *   UserProfile::setPref($k, $v)    void
  *
  * DEGRADED MODE
- *   If migration 035 has not run, every getter falls back to the session/app
+ *   If migration 036 has not run, every getter falls back to the session/app
  *   defaults and save() throws a friendly message instead of a PDOException.
  *   A partial deploy must not white-screen the sidebar.
  * -----------------------------------------------------------------------------
@@ -61,10 +61,10 @@ final class UserProfile
     /** @var array<string,mixed>|null Resolved profile for this request. */
     private static $cache = null;
 
-    /** @var bool|null Has migration 035 run? Probed once. */
+    /** @var bool|null Has migration 036 run? Probed once. */
     private static $ready = null;
 
-    /** Allowed enum values, mirrored from migration 035 so bad input is
+    /** Allowed enum values, mirrored from migration 036 so bad input is
      *  rejected in PHP with a readable message instead of by MySQL strict
      *  mode with "Data truncated for column 'accent'". */
     public const THEMES    = ['system', 'light', 'dark'];
@@ -83,7 +83,7 @@ final class UserProfile
     }
 
     /**
-     * True once the migration-035 columns exist. Probed with a single
+     * True once the migration-036 columns exist. Probed with a single
      * information_schema query, then memoised — cheaper than catching a
      * PDOException on every page render, and it lets callers show
      * "run the migration" instead of a 500.
@@ -177,7 +177,7 @@ final class UserProfile
             'locale'         => $locale,
             'timezone'       => (string) ($row['timezone'] ?? ''),
             // 'light', not 'system' — see the note on the theme column in
-            // migration 035. An unset preference must render the app exactly
+            // migration 036. An unset preference must render the app exactly
             // as it rendered before this feature existed.
             'theme'          => self::pick($row['theme'] ?? null, self::THEMES, 'light'),
             'accent'         => self::pick($row['accent'] ?? null, self::ACCENTS, 'brand'),
@@ -268,7 +268,7 @@ final class UserProfile
         $userId = (int) ($_SESSION['user_id'] ?? 0);
         if ($userId <= 0) throw new RuntimeException('Session invalide.');
         if (!self::ready()) {
-            throw new RuntimeException("Le profil utilisateur n'est pas encore disponible (migration 035 en attente).");
+            throw new RuntimeException("Le profil utilisateur n'est pas encore disponible (migration 036 en attente).");
         }
 
         $set = [];
