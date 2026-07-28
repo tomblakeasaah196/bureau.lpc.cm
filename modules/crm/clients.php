@@ -29,11 +29,9 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
     <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
     <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
-<body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
+<body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
-
-    <div id="sidebar-overlay" class="fixed inset-0 bg-black/50 z-40 hidden lg:hidden backdrop-blur-sm transition-opacity" onclick="toggleSidebar()"></div>
 
     <?php
     $pageTitle    = __t('ui.base_clients_devis');
@@ -44,14 +42,14 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
 
     <div id="lpc-shell-main">
 
-        <header class="bg-white border-b border-lpc-border px-4 md:px-6 py-3 flex justify-end items-center shrink-0 z-10">
+        <div class="lpc-toolbar">
             <button onclick="openNewClientModal()" class="bg-lpc-dark hover:bg-[#004722] text-white px-4 md:px-5 py-2.5 rounded-xl font-bold shadow-md transition-all flex items-center shrink-0">
                 <svg class="w-5 h-5 md:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                 <span class="hidden md:inline"><?php echo __t('ui.nouveau_client'); ?></span>
             </button>
-        </header>
+        </div>
 
-        <main role="main" id="main" class="flex-1 overflow-y-auto p-4 md:p-6">
+        <main role="main" id="main" class="lpc-page">
         
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
             <div class="bg-white p-5 rounded-2xl border border-lpc-border shadow-sm flex items-center justify-between">

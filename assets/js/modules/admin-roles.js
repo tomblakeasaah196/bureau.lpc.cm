@@ -75,20 +75,20 @@ function renderRoles() {
         const li = document.createElement('li');
         li.className = 'rounded-lg border transition-all ' + (selected
             ? 'border-emerald-400/40 bg-emerald-500/10'
-            : 'border-white/5 hover:border-white/15 hover:bg-white/5');
+            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50');
         li.innerHTML = LPC.html`
             <div class="flex items-center gap-2 p-3">
                 <button onclick="selectRole(${r.id})" class="flex-1 text-left">
-                    <div class="font-medium text-white flex items-center gap-2">
+                    <div class="font-medium text-gray-900 flex items-center gap-2">
                         ${escapeHtml(r.name)}
-                        ${isSys ? '<span class="chip text-emerald-300">système</span>' : ''}
+                        ${isSys ? '<span class="chip text-emerald-700">système</span>' : ''}
                     </div>
-                    <div class="text-[11px] text-white/70 mt-0.5">
+                    <div class="text-[11px] text-gray-500 mt-0.5">
                         ${r.user_count} window.PAGE_DATA.v5
                         &middot; ${r.perm_count} permissions
                     </div>
                 </button>
-                ${(!isSys && CAN_EDIT) ? `<button onclick="openRenameRoleModal(${r.id}, '${escapeAttr(r.name)}')" title="Renommer" class="text-white/70 hover:text-white p-1" aria-label="Renommer">✎</button>` : ''}
+                ${(!isSys && CAN_EDIT) ? `<button onclick="openRenameRoleModal(${r.id}, '${escapeAttr(r.name)}')" title="Renommer" class="text-gray-500 hover:text-gray-900 p-1" aria-label="Renommer">✎</button>` : ''}
                 ${(!isSys && CAN_DELETE) ? `<button onclick="deleteRole(${r.id}, '${escapeAttr(r.name)}')" title="Supprimer" class="text-red-400/70 hover:text-red-400 p-1" aria-label="Supprimer">🗑</button>` : ''}
             </div>`;
         ul.appendChild(li);
@@ -101,7 +101,7 @@ async function selectRole(id) {
     document.getElementById('matrix-empty').classList.add('hidden');
     document.getElementById('matrix-header').classList.remove('hidden');
     document.getElementById('matrix-body').classList.remove('hidden');
-    document.getElementById('matrix-body').innerHTML = '<div class="text-white/70 text-sm p-4">Chargement…</div>';
+    document.getElementById('matrix-body').innerHTML = '<div class="text-gray-500 text-sm p-4">Chargement…</div>';
 
     const data = await api('get_role_permissions', { role_id: id });
     const role = data.role;
@@ -129,26 +129,26 @@ function renderMatrix(grouped) {
         sec.dataset.mod = mod;
         const grantedInMod = perms.filter(p => p.granted).length;
         sec.innerHTML = LPC.html`
-            <div class="flex items-center justify-between px-4 py-2 bg-white/5 border-b border-white/10">
+            <div class="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200">
                 <div class="flex items-center gap-2">
                     <span class="text-xs font-semibold uppercase tracking-widest text-emerald-300">${escapeHtml(mod)}</span>
-                    <span class="text-[10px] text-white/70" data-count>${grantedInMod}/${perms.length}</span>
+                    <span class="text-[10px] text-gray-500" data-count>${grantedInMod}/${perms.length}</span>
                 </div>
                 ${CAN_EDIT ? `
                 <div class="flex gap-2 text-[11px]">
                     <button onclick="moduleToggle('${escapeAttr(mod)}', true)"  class="text-emerald-300 hover:underline">window.PAGE_DATA.v6</button>
-                    <button onclick="moduleToggle('${escapeAttr(mod)}', false)" class="text-white/70 hover:underline">window.PAGE_DATA.v7</button>
+                    <button onclick="moduleToggle('${escapeAttr(mod)}', false)" class="text-gray-500 hover:underline">window.PAGE_DATA.v7</button>
                 </div>` : ''}
             </div>
-            <div class="divide-y divide-white/5">
+            <div class="divide-y divide-gray-200">
                 ${perms.map(p => `
                     <label class="perm-row flex items-start gap-3 px-4 py-2 cursor-pointer" data-perm="${escapeAttr(p.name)}">
                         <input type="checkbox" ${p.granted ? 'checked':''} ${disabled}
                                data-perm-name="${escapeAttr(p.name)}"
                                onchange="onPermChange('${escapeAttr(mod)}', this)">
                         <div class="min-w-0">
-                            <div class="text-sm text-white">${escapeHtml(p.description)}</div>
-                            <code class="text-[10px] text-white/70">${escapeHtml(p.name)}</code>
+                            <div class="text-sm text-gray-900">${escapeHtml(p.description)}</div>
+                            <code class="text-[10px] text-gray-500">${escapeHtml(p.name)}</code>
                         </div>
                     </label>
                 `).join('')}

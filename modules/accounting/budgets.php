@@ -40,7 +40,7 @@ $user_role = $_SESSION['user_role'];
     <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
     <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
-<body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
+<body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
@@ -52,10 +52,10 @@ $user_role = $_SESSION['user_role'];
     ?>
 
     <div id="lpc-shell-main">
-        <div class="bg-white border-b border-gray-200 px-8 py-2.5 shrink-0 shadow-sm flex items-center justify-end gap-4">
-            <div class="bg-gray-100 p-1.5 rounded-lg border border-gray-200 flex items-center shadow-inner">
-                <label class="text-[10px] font-black text-gray-500 uppercase px-2">Exercice:</label>
-                <select id="global_year_filter" onchange="refreshAllTabs()" class="bg-white border border-gray-300 rounded text-sm font-black text-finance-dark px-3 py-1 outline-none focus:ring-2 focus:ring-finance-highlight">
+        <div class="lpc-toolbar">
+            <div class="lpc-field">
+                <label for="global_year_filter">Exercice:</label>
+                <select id="global_year_filter" onchange="refreshAllTabs()">
                     <option value="2026" selected>2026</option>
                     <option value="2025">2025</option>
                 </select>
@@ -66,7 +66,7 @@ $user_role = $_SESSION['user_role'];
             </button>
         </div>
 
-        <nav class="bg-white border-b border-gray-200 px-8 flex items-center gap-8 shrink-0 overflow-x-auto shadow-sm z-10">
+        <nav class="lpc-tabs">
             <button onclick="switchTab('dashboard')" class="tab-link py-4 border-b-[3px] border-finance-highlight text-finance-dark font-black text-sm uppercase tracking-wider whitespace-nowrap" id="tab-dashboard">
                 <i class="fas fa-tachometer-alt mr-2"></i> Vision Globale
             </button>
@@ -84,7 +84,7 @@ $user_role = $_SESSION['user_role'];
             </button>
         </nav>
 
-        <main role="main" id="main" class="flex-1 overflow-y-auto p-8 flex flex-col relative bg-slate-50/80" id="report-container">
+        <main role="main" id="main" class="lpc-page lpc-page-col relative" id="report-container">
 
             <div id="content-dashboard" class="tab-content active flex-col h-full gap-6">
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-6 shrink-0">

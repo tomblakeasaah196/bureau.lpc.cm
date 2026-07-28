@@ -2,10 +2,75 @@
 
 > **READ THIS FIRST. Every engineer, every session, before touching a file.**
 >
-> This project is a full revamp of a production-bound PHP ERP for
-> Ets. La Petite Cour (agri-food distribution, Cameroon). Nothing here has
-> been deployed yet — we are rebuilding the codebase inside this folder and
-> will ship the whole thing as one zip when it's done.
+> This project is a full revamp of a production PHP ERP for Ets. La Petite
+> Cour (agri-food distribution, Cameroon). **It is live** at
+> `https://bureau.lpc.cm`, running on cPanel shared hosting. This folder is
+> not a staging area — changes here are changes to the real app once
+> deployed. See the section immediately below for exactly how a change
+> gets from this folder onto the live site.
+
+---
+
+## Quick context if you're an AI assistant starting fresh
+
+Read this before doing anything else — it'll save you from re-deriving
+context that's already settled.
+
+- **This folder IS the git working tree**, already connected to
+  `https://github.com/tomblakeasaah196/bureau.lpc.cm` (public repo,
+  branch `main`). Just edit files directly here; there's no separate
+  "staging" copy.
+- **The deploy pipeline is git-based**, not the old zip-based model
+  described in §1 further down (that section is historical/superseded —
+  kept for context, not current instructions).
+- **If you need to commit + push:** try normal `git` commands first. If
+  you're running in a sandboxed/mounted environment and hit a permissions
+  error writing inside `.git/` (e.g. `unable to unlink
+  '.git/index.lock'`), that's a known limitation of some folder-mount
+  setups, not a real repo problem — don't keep fighting it or re-running
+  commands to work around it. Tell the user to commit + push via
+  **GitHub Desktop** on their own machine instead: Changes tab → type a
+  summary → **Commit to main** → **Push origin**. That always works and
+  needs no special handling.
+- **GitHub Actions auto-deploy exists** (`.github/workflows/deploy.yml`,
+  tar+scp+ssh based since `rsync` isn't available on the host) but is
+  **currently non-functional** — the host's firewall (DTRHOSTING /
+  `srv-web-ns9.newtoncorp.fr`) blocks inbound SSH from external IPs,
+  including GitHub's runners, even though SSH itself runs fine on port 22
+  (confirmed via the server's own terminal). The user's own home
+  connection times out on port 22 too, not just GitHub's — so this isn't
+  a narrow "whitelist GitHub's IPs" fix, it's a broader lock-down.
+  **Do not assume a `git push` deploys anything by itself.**
+- **The actual deploy step, every time, is manual** — after code is pushed
+  to GitHub, the user logs into cPanel's Terminal (a browser-based shell
+  under Tools, not a standalone SSH client) and runs:
+  ```bash
+  cd ~/public_html/bureau.lpc.cm
+  git fetch origin main
+  git reset --hard origin/main
+  bash scripts/deploy.sh
+  ```
+  This pulls the exact GitHub state onto the server and runs the full
+  deploy pipeline (migrations, OHADA COA preflight, permission fixes,
+  smoke tests). `.env` and `uploads/` are both gitignored, so `reset
+  --hard` never touches either.
+- **Two `deploy.sh`/`verify.sh` warnings show up on every run** — neither
+  means anything is broken, both are known and pre-existing:
+  1. "migration gap" complaints about numbers 009 / 015 / 017 / 019 / 021 /
+     026 — deliberately-reserved-but-unused numbers from parallel work
+     streams (see migrations/ comments), expected and documented.
+  2. "per-role smoke failed" — needs dedicated `SMOKE_*` test-user
+     credentials that were never set up; a testing-infra gap, not a
+     live-site problem.
+- **Future automation considered but not yet built:** cPanel's own
+  Git™ Version Control feature is the recommended next step whenever
+  there's time — the server pulls from GitHub itself (outbound, so the
+  firewall never comes up), and a `.cpanel.yml` file can run
+  `scripts/deploy.sh` automatically after each pull. An FTP/SFTP-based
+  GitHub Action was considered and set aside: FTP can't execute remote
+  commands, so migrations/permissions/smoke-tests would never run
+  automatically that way regardless of how the file transfer itself is
+  automated.
 
 ---
 
@@ -69,6 +134,12 @@
 | Sprint 7B | Dead-link sweep — 5 audit sidebar hrefs + 3 further finds (advance_request, reconciliations, deliveries) | Done — see `includes/components/{admin,driver,finance,ops}_sidebar.php`, `modules/dashboard/views/{driver,finance,ops}_dashboard.php`. |
 | Sprint 7B | Delete orphan `api/v1/print_audit.php` (byte-similar stale copy, 0 refs) | Done — canonical is `modules/inventory/print_audit.php`. |
 | Sprint 7B | Delete 3 zero-byte `setup_erp.sh` stubs (`Auth.php`, `Accounting.php`, `constants.php`) | Done — 0 refs sitewide. |
+| Sprint 7C | App-shell rewiring (sidebar + topbar on 24 pages) | Done — but see 7C below; "structurally wired" was not the same as "visually consistent". |
+| Sprint 7C | **Shared secondary-toolbar component** — kill the 9 bespoke per-page control bars | Done — `.lpc-toolbar` / `.lpc-tabs` / `.lpc-page` / `body.lpc-body` in `assets/css/lpc-shell.css`; all 24 pages migrated. Audit + root causes in `docs/SHELL_AUDIT.md`. Migration scripts kept under `scripts/tools/`. |
+| Sprint 7C | Kill the legacy `flex h-screen overflow-hidden` body model (22 pages) | Done — the shell CSS assumes document-flow with a fixed sidebar/topbar; the old full-height flex model pinned `#lpc-shell-main` to 100vh and clipped everything below the fold. |
+| Sprint 7C | Restore the 9 dead brand colour tokens | Done — `lpc.surface`, `lpc.border` and the `finance/rev/acc/pay/dash/asset/fin` accent pairs were referenced by 11 pages (and by the tab-switching JS) but never existed in the built CSS, so active-tab underlines rendered grey. Added to `tailwind.config.js`, all mapped onto the one LPC brand pair, Tailwind rebuilt. |
+| Sprint 7C | `admin/roles.php` + `admin/error_monitor.php` dark theme → shared light theme | Done — they were the only two pages on `#051A0F`; also dropped their in-page `<h1>` that duplicated the shared topbar title. |
+| Sprint 7C | Visual pass on the live site (before/after screenshots, all 24 pages) | **Todo — this is the acceptance gate.** Walk `docs/SHELL_VERIFY.md` in a browser after deploying. |
 | Ship | Final zip + `deploy.sh` | Ready — see `scripts/ship-day.md`. |
 
 Update this table when you finish a phase item. It's the truth about where the revamp stands.
@@ -77,7 +148,39 @@ Update this table when you finish a phase item. It's the truth about where the r
 
 ## 1. Deployment model
 
-**We are NOT doing incremental deploys.** The whole app ships in one drop:
+### 1a. Current model (git-based, live) — read this one
+
+The site is live and this is the actual, current process. Full detail is
+in the "Quick context" section at the top of this document; short version:
+
+```
+   [ this folder, edited directly ]
+              │
+              │  commit + push via GitHub Desktop
+              ▼
+   [ github.com/tomblakeasaah196/bureau.lpc.cm, branch main ]
+              │
+              │  user runs, in cPanel's Terminal:
+              │    cd ~/public_html/bureau.lpc.cm
+              │    git fetch origin main
+              │    git reset --hard origin/main
+              │    bash scripts/deploy.sh
+              ▼
+       [ deploy.sh runs its full pipeline — see scripts/README.md ]
+```
+
+A GitHub Actions workflow (`.github/workflows/deploy.yml`) exists to
+automate the fetch/reset/deploy.sh step on every push, but is currently
+blocked by the host's firewall (see Quick Context section above for the
+full diagnosis). Until that's resolved, the manual command above is the
+real deploy step, every time.
+
+### 1b. Original model (historical/superseded — kept for context only)
+
+Before git was adopted, the plan was a one-shot zip drop with no
+incremental deploys. This never became the live process — superseded by
+1a above — but is kept here since some of `deploy.sh`'s design (backups,
+migrations, permission resets, smoke tests) still traces back to it:
 
 ```
    [ engineer's laptop / this folder ]
@@ -99,8 +202,6 @@ Update this table when you finish a phase item. It's the truth about where the r
        • curl a few smoke-test URLs
        • print a red PASS/FAIL summary
 ```
-
-`deploy.sh` doesn't exist yet — it's a Sprint-ship deliverable. Add it under `/scripts/deploy.sh`.
 
 ---
 
@@ -231,7 +332,7 @@ bureau.lpc.cm/                     ← app root = Apache document root
 └── .well-known/                   ACME / SSL. cPanel-managed. Leave alone.
 ```
 
-### Ship-day zip layout
+### Ship-day zip layout (historical/superseded — see §1a for the current git-based process)
 
 At the end of the revamp, the release zip is built like this:
 
@@ -469,6 +570,57 @@ The sidebar renderer skips any section whose items are all hidden by RBAC — so
 - **Accessibility:** every input has a `<label for="id">`; every icon-only button has `aria-label`; error alerts have `role="alert"`; contrast ≥ 4.5:1.
 - **Mobile:** the app has one hamburger, in the unified sidebar. Don't add per-page mobile menus.
 
+### 5.5 The app shell — the contract every module page must honour
+
+`assets/css/lpc-shell.css` owns the whole chrome. A page supplies content and
+nothing else. **Do not hand-style a control bar on a page** — that is exactly
+what produced the Sprint 7C mess (24 pages, 9 different bars; see
+`docs/SHELL_AUDIT.md`).
+
+```php
+<body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
+  <?php
+  $pageTitle    = 'Grand livre OHADA';       // renders in the shared topbar
+  $pageSubtitle = 'Comptabilité & Finance';  // ditto
+  require .../sidebar.php;
+  require .../topbar.php;   // must come AFTER sidebar.php
+  ?>
+  <div id="lpc-shell-main">
+      <div class="lpc-toolbar">…</div>   <!-- optional: this page's controls -->
+      <nav class="lpc-tabs">…</nav>      <!-- optional: this page's tabs     -->
+      <main role="main" id="main" class="lpc-page">…</main>
+  </div>
+</body>
+```
+
+Rules:
+
+- **Order is fixed:** toolbar, then tabs, then main. The tab bar derives its own
+  sticky offset from that order (`.lpc-toolbar + .lpc-tabs`), so swapping them
+  silently breaks the stacking.
+- **Both bars are optional** and collapse to nothing when absent or empty
+  (`.lpc-toolbar:empty`). Never leave an empty bar to hold space.
+- **One toolbar per page.** If a page has two groups of controls, put them in the
+  same toolbar separated by `.lpc-toolbar-sep`, not in two bars.
+- Helpers inside the toolbar: `.lpc-toolbar-lead` (pin an item to the left),
+  `.lpc-toolbar-sep` (hairline divider), `.lpc-field` (a labelled filter
+  cluster), `.lpc-control` (a lone `<select>`/`<input>`).
+- **`.lpc-field` sets `display`; `.lpc-control` deliberately does not.** Because
+  this file loads *after* `tailwind.css`, a `display` declaration here beats
+  Tailwind's `.hidden` on the same element. So anything whose visibility the page
+  JS toggles (`#custom-date-ui`, `#period-selector`) must use `.lpc-control`, or
+  keep its Tailwind display utilities, never `.lpc-field`.
+- **Content wrapper variants:** `.lpc-page` (default), `+ .lpc-page-col` (flex
+  column), `+ .lpc-page-flush` (no padding). Don't reintroduce per-page `p-8` /
+  `p-4 md:p-6` / `bg-slate-50` — the padding scale and page background are
+  `--lpc-gutter` and `--lpc-page-bg`.
+- **Never re-add `flex h-screen overflow-hidden` to `<body>`.** The shell scrolls
+  the document; that combination pins `#lpc-shell-main` to `100vh` and clips
+  everything below the fold.
+- **New brand colour token?** Add it to `tailwind.config.js` *and* run
+  `npm run build:css`, then commit the rebuilt `assets/css/tailwind.css`. A class
+  that isn't in the config renders as nothing, silently.
+
 ---
 
 ## 6. Security — non-negotiables
@@ -499,7 +651,7 @@ Copy of the "must-follow" list from the audit. These are trip-wires; violating o
 
 ### While you work
 
-- One feature = one branch (once we adopt git — currently there's no `.git/` here).
+- One feature = one branch where practical. Git is live: `https://github.com/tomblakeasaah196/bureau.lpc.cm`, branch `main`. Commit + push via **GitHub Desktop** on the user's machine (see Quick Context section at the top — automated `git` commands from a sandboxed/mounted AI session can get stuck on `.git/index.lock` permissions).
 - One migration = one file, numbered, idempotent.
 - Update `AUDIT_REPORT.md` if you fix a documented issue (mark the finding "resolved YYYY-MM-DD").
 - Update the status table in §0 of this README when you finish a phase item.
@@ -512,7 +664,7 @@ Copy of the "must-follow" list from the audit. These are trip-wires; violating o
 
 ### Never do these
 
-- Never SSH into the production server to edit files by hand.
+- Never SSH into the production server to edit files by hand. (Running `git fetch`/`reset --hard`/`deploy.sh` from cPanel's Terminal to pull the canonical GitHub state is the sanctioned exception — that's deploying, not hand-editing.)
 - Never `mysql -e "DROP TABLE …"` against production.
 - Never commit `.env`, `*.sql` dumps, or `error_log` files.
 - Never disable a security gate to "test something quickly."
@@ -521,7 +673,13 @@ Copy of the "must-follow" list from the audit. These are trip-wires; violating o
 
 ## 8. Deployment day
 
-When the revamp is done, we ship as follows. This section is a placeholder; expand once `scripts/deploy.sh` is written.
+**Historical/superseded.** This section described the hypothetical one-time
+zip cutover written before launch. That launch already happened — the site
+is live and this is no longer how deploys work. For the current, real
+process (used every time there's a code change to ship), see §1a and the
+"Quick context" section at the top of this document. Kept below only
+because some of the smoke-test/backup/rollback thinking still applies to
+one-off recovery scenarios.
 
 1. Freeze the codebase (tag `v1.0.0`).
 2. On the server:
@@ -604,4 +762,4 @@ A: Add a new module group to `permissions.php` and a new section to `nav.php`. S
 
 ---
 
-Last updated: 20 July 2026. Bump this date when you materially change the document.
+Last updated: 28 July 2026. Bump this date when you materially change the document.

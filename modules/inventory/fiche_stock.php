@@ -32,7 +32,7 @@ $user_role = $_SESSION['user_role'];
     <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
     <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
-<body class="bg-lpc-bg font-sans text-gray-800 antialiased flex h-screen overflow-hidden">
+<body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
@@ -44,18 +44,18 @@ $user_role = $_SESSION['user_role'];
     ?>
 
     <div id="lpc-shell-main">
-        <div class="bg-white border-b border-gray-200 px-8 py-2.5 shrink-0 shadow-sm flex items-center justify-end">
-            <div class="flex items-center gap-3 bg-gray-50 px-4 py-2 rounded-xl border border-gray-200">
-                <span class="text-xs font-bold" id="lbl-phys">Unités (Qté)</span>
+        <div class="lpc-toolbar">
+            <div class="lpc-field">
+                <span class="lpc-field-label" id="lbl-phys">Unités (Qté)</span>
                 <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
                     <input type="checkbox" name="toggle" id="view-toggle" onchange="toggleViewMode()" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out z-10"/>
                     <label for="view-toggle" class="toggle-label block overflow-hidden h-5 rounded-full bg-gray-300 cursor-pointer transition-colors duration-200 ease-in-out"></label>
                 </div>
-                <span class="text-xs font-bold text-gray-400" id="lbl-fin">Valeur (FCFA)</span>
+                <span class="lpc-field-label" id="lbl-fin">Valeur (FCFA)</span>
             </div>
         </div>
 
-        <main role="main" id="main" class="p-8 space-y-6">
+        <main role="main" id="main" class="lpc-page space-y-6">
             
             <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex justify-between items-center">
                 <h2 class="text-sm font-black text-gray-800 uppercase tracking-widest"><i class="fas fa-filter mr-2 text-lpc-light"></i> Période d'Analyse</h2>

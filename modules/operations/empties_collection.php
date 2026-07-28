@@ -32,7 +32,7 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
     <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
     <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
-<body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
+<body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
@@ -47,7 +47,7 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
 
     <div id="lpc-shell-main">
 
-        <div class="bg-white border-b border-gray-200 flex shrink-0 shadow-sm overflow-x-auto">
+        <nav class="lpc-tabs lpc-tabs-fill">
             <button onclick="switchTab('owed')" id="tab-owed" class="tab-btn flex-1 py-3 text-sm font-black text-lpc-dark border-b-[3px] border-lpc-dark text-center uppercase tracking-wider whitespace-nowrap px-4">
                 <i class="fas fa-balance-scale mr-1"></i> Dus
             </button>
@@ -65,9 +65,9 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
                 <i class="fas fa-chart-line mr-1"></i> Revenus Recyclage
             </button>
             <?php endif; ?>
-        </div>
+        </nav>
 
-        <main role="main" id="main" class="flex-1 overflow-y-auto p-4 md:p-8 relative">
+        <main role="main" id="main" class="lpc-page relative">
 
             <div id="content-owed" class="tab-content active max-w-4xl mx-auto pb-20">
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-3">

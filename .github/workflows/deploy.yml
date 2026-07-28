@@ -33,35 +33,37 @@ jobs:
           SSH_HOST:        ${{ secrets.DEPLOY_SSH_HOST }}
           SSH_USER:        ${{ secrets.DEPLOY_SSH_USER }}
           SSH_PORT:        ${{ secrets.DEPLOY_SSH_PORT }}
+          SSH_PASSPHRASE:  ${{ secrets.DEPLOY_SSH_PASSPHRASE }}
         run: |
-          # --- Temporary diagnostics -- set -e deliberately OFF here so every ---
-          # line runs regardless of what fails, and we capture each exit code
-          # explicitly instead of letting the script die silently. GitHub masks
-          # the raw value of anything sourced from `secrets.*` (that's why the
-          # last run showed [***] for host/port/user too, not just the key) --
-          # but lengths and exit codes are just numbers, never masked, so this
-          # gets through no matter what. Remove this whole block once a deploy
-          # actually succeeds.
+          set -e
           echo "SSH_HOST length = ${#SSH_HOST}"
           echo "SSH_PORT length = ${#SSH_PORT}"
           echo "SSH_USER length = ${#SSH_USER}"
           echo "SSH_PRIVATE_KEY length = ${#SSH_PRIVATE_KEY}"
+          echo "SSH_PASSPHRASE length = ${#SSH_PASSPHRASE}"
 
           mkdir -p ~/.ssh
-          echo "mkdir exit code: $?"
-
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
-          echo "write key exit code: $?"
-
           chmod 600 ~/.ssh/deploy_key
-          echo "chmod exit code: $?"
-
           ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
-          echo "ssh-keyscan exit code: $?"
-          echo "known_hosts now has $(wc -l < ~/.ssh/known_hosts 2>/dev/null || echo 0) line(s)"
+          echo "known_hosts now has $(wc -l < ~/.ssh/known_hosts) line(s) -- 0 here means the host/port didn't answer"
 
-          echo "--- end diagnostics -- resuming normal strict mode below ---"
-          set -e
+          # This host's cPanel enforces a passphrase on every generated key --
+          # no way to opt out of that in the UI -- so the key can't be used
+          # directly by scp/ssh below (they'd hang waiting for a prompt that
+          # never comes in a non-interactive CI run). Standard fix: unlock it
+          # once into ssh-agent using the passphrase, then every ssh/scp call
+          # after this in the same job reuses the already-unlocked agent key
+          # automatically. SSH_ASKPASS_REQUIRE=force (OpenSSH 8.4+, present on
+          # ubuntu-latest) is what makes ssh-add use the askpass script below
+          # instead of trying to prompt an interactive terminal that doesn't exist.
+          eval "$(ssh-agent -s)"
+          ASKPASS_SCRIPT="$(mktemp)"
+          printf '#!/bin/sh\necho "$SSH_PASSPHRASE"\n' > "$ASKPASS_SCRIPT"
+          chmod +x "$ASKPASS_SCRIPT"
+          SSH_ASKPASS="$ASKPASS_SCRIPT" SSH_ASKPASS_REQUIRE=force ssh-add ~/.ssh/deploy_key < /dev/null
+          rm -f "$ASKPASS_SCRIPT"
+          echo "ssh-agent now holds: $(ssh-add -l)"
 
           # rsync isn't available on the target host (shared cPanel, no root
           # to install it) -- tar + scp needs nothing beyond ssh itself on
@@ -73,10 +75,12 @@ jobs:
           # never touched by extraction either way.
           tar czf /tmp/deploy.tar.gz --exclude='.git' --exclude='.github' .
 
-          scp -i ~/.ssh/deploy_key -P "$SSH_PORT" -o StrictHostKeyChecking=yes \
+          # No more -i flag needed on either call below -- ssh-agent (unlocked
+          # above) supplies the key automatically to both.
+          scp -P "$SSH_PORT" -o StrictHostKeyChecking=yes \
             /tmp/deploy.tar.gz "$SSH_USER@$SSH_HOST:~/deploy_incoming.tar.gz"
 
-          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" '
+          ssh -p "$SSH_PORT" -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" '
             set -e
             cd ~/public_html/bureau.lpc.cm
             tar xzf ~/deploy_incoming.tar.gz

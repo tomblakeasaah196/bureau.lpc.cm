@@ -1,19 +1,94 @@
 /* assets/css/lpc-shell.css
  * -----------------------------------------------------------------------------
- * Bureau LPC ERP -- app shell layout (fixed sidebar + fixed inset topbar).
- * Plain CSS on purpose, not Tailwind utilities: this ships without needing
- * `npm run build:css` re-run, since tonight's workflow is direct file copy,
- * not a full repackage. Link this AFTER tailwind.css on every shell page.
+ * Bureau LPC ERP — the app shell. ONE definition of the chrome that wraps every
+ * module page: fixed sidebar, fixed inset topbar, the shared secondary toolbar,
+ * the shared tab bar, and the page content wrapper.
+ *
+ * Plain CSS on purpose (not Tailwind utilities): this is the layer that must be
+ * identical on all 24 pages, so it lives in one file rather than being
+ * copy-pasted as utility strings into each page. Link this AFTER tailwind.css.
+ *
+ * The contract a page must honour — nothing more:
+ *
+ *   <body class="lpc-body …">
+ *     … sidebar.php … topbar.php …            (set $pageTitle / $pageSubtitle)
+ *     <div id="lpc-shell-main">
+ *       <div class="lpc-toolbar">…</div>      OPTIONAL — page-specific controls
+ *       <nav class="lpc-tabs">…</nav>         OPTIONAL — page tab bar
+ *       <main class="lpc-page">…</main>       the page content
+ *     </div>
+ *   </body>
+ *
+ * Both bars are optional and collapse to zero height when absent or empty, so a
+ * page with no controls leaves no dead space behind. Order matters: toolbar
+ * before tabs — the sticky offsets are derived from that order automatically.
  * -----------------------------------------------------------------------------
  */
+
 :root {
-    --lpc-sidebar-w: 288px;
+    /* Structure */
+    --lpc-sidebar-w:           288px;
     --lpc-sidebar-w-collapsed: 76px;
-    --lpc-topbar-h: 64px;
+    --lpc-topbar-h:            64px;
+    --lpc-toolbar-h:           56px;
+    --lpc-tabs-h:              52px;
+
+    /* One padding scale, shared by topbar / toolbar / tabs / page body so the
+       left edge of a page title, a filter and a table all line up exactly. */
+    --lpc-gutter:              2rem;      /* >= 1024px */
+    --lpc-gutter-md:           1.5rem;    /* 768–1023px */
+    --lpc-gutter-sm:           1rem;      /* < 768px   */
+
+    /* Surfaces */
+    --lpc-surface:  #ffffff;
+    --lpc-page-bg:  #F5F7FA;
+    --lpc-border:   #E5E7EB;
+    --lpc-ink:      #111827;
+    --lpc-ink-soft: #6B7280;
+
+    /* Brand */
+    --lpc-brand:       #005A2B;
+    --lpc-brand-light: #8CC63F;
 }
 
+/* ===========================================================================
+   1. Document flow
+   ---------------------------------------------------------------------------
+   The shell is a fixed sidebar + fixed topbar with the DOCUMENT doing the
+   scrolling. The pre-rewiring pages were `flex h-screen overflow-hidden` with
+   an inner scroll container; that model fights this one and clips content, so
+   `.lpc-body` states the correct one explicitly.
+   ========================================================================= */
+body.lpc-body {
+    display: block;
+    height: auto;
+    min-height: 100vh;
+    overflow-x: hidden;
+    overflow-y: auto;
+    background: var(--lpc-page-bg);
+    color: var(--lpc-ink);
+}
+
+#lpc-shell-main {
+    display: flex;
+    flex-direction: column;
+    margin-left: var(--lpc-sidebar-w);
+    padding-top: var(--lpc-topbar-h);
+    min-height: 100vh;
+    background: var(--lpc-page-bg);
+    transition: margin-left 0.18s ease;
+}
+html.lpc-collapsed #lpc-shell-main {
+    margin-left: var(--lpc-sidebar-w-collapsed);
+}
+
+/* ===========================================================================
+   2. Sidebar
+   ========================================================================= */
 #lpc-sidebar {
-    transition: width 0.18s ease;
+    height: 100vh;
+    height: 100dvh;          /* mobile browsers with a dynamic toolbar */
+    transition: width 0.18s ease, transform 0.3s ease;
 }
 html.lpc-collapsed #lpc-sidebar {
     width: var(--lpc-sidebar-w-collapsed) !important;
@@ -24,19 +99,31 @@ html.lpc-collapsed #lpc-sidebar .lpc-sidebar-heading,
 html.lpc-collapsed #lpc-sidebar .lpc-user-text {
     display: none;
 }
-html.lpc-collapsed #lpc-sidebar .lpc-nav-link {
-    justify-content: center;
-}
+html.lpc-collapsed #lpc-sidebar .lpc-nav-link,
 html.lpc-collapsed #lpc-sidebar .lpc-user-card {
     justify-content: center;
 }
+/* The collapse chevron points the other way once collapsed. */
+html.lpc-collapsed #lpc-sidebar [data-lpc-collapse-toggle] svg {
+    transform: scaleX(-1);
+}
+/* The user card must never be pushed off the bottom, at any scroll position:
+   the nav above it is the only part that scrolls. */
+#lpc-sidebar .lpc-user-card {
+    flex: 0 0 auto;
+}
 
+/* ===========================================================================
+   3. Topbar
+   ========================================================================= */
 #lpc-topbar {
     position: fixed;
     top: 0;
     left: var(--lpc-sidebar-w);
     right: 0;
     height: var(--lpc-topbar-h);
+    padding-left: var(--lpc-gutter);
+    padding-right: var(--lpc-gutter);
     z-index: 30;
     transition: left 0.18s ease;
 }
@@ -44,19 +131,245 @@ html.lpc-collapsed #lpc-topbar {
     left: var(--lpc-sidebar-w-collapsed);
 }
 
-#lpc-shell-main {
-    margin-left: var(--lpc-sidebar-w);
-    padding-top: var(--lpc-topbar-h);
-    min-height: 100vh;
-    transition: margin-left 0.18s ease;
+/* ===========================================================================
+   4. The shared secondary toolbar
+   ---------------------------------------------------------------------------
+   ONE bar for every page's own controls — year filters, date pickers, export
+   buttons, view toggles, alert badges. Deterministic height so the tab bar
+   below it can compute its own sticky offset with no per-page markup.
+   ========================================================================= */
+.lpc-toolbar {
+    position: sticky;
+    top: var(--lpc-topbar-h);
+    z-index: 21;
+
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;   /* controls sit right, under the global icons */
+    gap: 0.75rem;
+
+    height: var(--lpc-toolbar-h);
+    flex: 0 0 auto;
+    padding: 0 var(--lpc-gutter);
+
+    background: var(--lpc-surface);
+    border-bottom: 1px solid var(--lpc-border);
+
+    /* Never wrap — wrapping would make the height non-deterministic and break
+       the tab bar's sticky offset. Overflow scrolls instead. */
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
 }
-html.lpc-collapsed #lpc-shell-main {
-    margin-left: var(--lpc-sidebar-w-collapsed);
+.lpc-toolbar::-webkit-scrollbar { display: none; }
+
+/* A page with no controls leaves no bar and no dead space. */
+.lpc-toolbar:empty { display: none; }
+
+/* Nothing in the toolbar is allowed to shrink below its content — this is what
+   fixes controls being clipped by their own container edge. */
+.lpc-toolbar > * {
+    flex: 0 0 auto;
+    min-width: 0;
 }
 
-/* Below lg (1024px): existing off-canvas sidebar behavior wins outright --
-   collapse-to-icons is a desktop-only affordance. */
+/* Opt-in left-aligned lead item (a context label, a page-level heading). */
+.lpc-toolbar > .lpc-toolbar-lead { margin-right: auto; }
+
+/* Hairline divider between logical groups of controls. */
+.lpc-toolbar > .lpc-toolbar-sep {
+    width: 1px;
+    height: 1.5rem;
+    background: var(--lpc-border);
+}
+
+/* House style for the recurring "labelled filter" cluster, so a year picker
+   looks identical on every page that has one. */
+.lpc-field {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 2.25rem;
+    padding: 0 0.75rem;
+    background: #F9FAFB;
+    border: 1px solid var(--lpc-border);
+    border-radius: 0.5rem;
+}
+.lpc-field > label,
+.lpc-field > .lpc-field-label {
+    font-size: 0.625rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--lpc-ink-soft);
+    white-space: nowrap;
+}
+/* Scoped to real text-ish inputs only — a custom toggle built from an
+   appearance-none checkbox must keep its own sizing. */
+.lpc-field select,
+.lpc-field input[type="text"],
+.lpc-field input[type="search"],
+.lpc-field input[type="number"],
+.lpc-field input[type="date"],
+.lpc-field input[type="month"] {
+    height: 1.625rem;
+    padding: 0 0.375rem;
+    border: 1px solid var(--lpc-border);
+    border-radius: 0.375rem;
+    background: #fff;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--lpc-brand);
+    outline: none;
+}
+.lpc-field select:focus,
+.lpc-field input:focus {
+    border-color: var(--lpc-brand-light);
+    box-shadow: 0 0 0 2px rgba(140, 198, 63, 0.35);
+}
+
+/* This file loads after tailwind.css, so a bare `display` declaration here
+   would beat Tailwind's `.hidden` on the same element. Anything the page JS
+   toggles must keep working — hence these explicit guards. */
+.lpc-toolbar.hidden,
+.lpc-tabs.hidden,
+.lpc-field.hidden,
+.lpc-page.hidden { display: none; }
+
+/* Standalone control (a lone select or input sitting directly in the toolbar).
+   Deliberately sets NO `display`, so `hidden` / `md:block` / `md:flex` variants
+   on the same element continue to behave. */
+.lpc-control {
+    height: 2.25rem;
+    padding: 0 0.625rem;
+    border: 1px solid var(--lpc-border);
+    border-radius: 0.5rem;
+    background: #fff;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--lpc-ink);
+    outline: none;
+    cursor: pointer;
+}
+.lpc-control:focus {
+    border-color: var(--lpc-brand-light);
+    box-shadow: 0 0 0 2px rgba(140, 198, 63, 0.35);
+}
+
+/* ===========================================================================
+   5. The shared tab bar
+   ---------------------------------------------------------------------------
+   Only the CONTAINER is restyled. The buttons keep whatever utility classes
+   they already carry, because the per-page JS toggles those exact class names
+   to mark the active tab — normalising them here via descendant selectors
+   (specificity 0,1,1 beats a single utility class) means zero JS changes.
+   ========================================================================= */
+.lpc-tabs {
+    position: sticky;
+    top: var(--lpc-topbar-h);
+    z-index: 20;
+
+    display: flex;
+    align-items: stretch;
+    gap: 2rem;
+
+    height: var(--lpc-tabs-h);
+    flex: 0 0 auto;
+    padding: 0 var(--lpc-gutter);
+
+    background: var(--lpc-surface);
+    border-bottom: 1px solid var(--lpc-border);
+
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+}
+.lpc-tabs::-webkit-scrollbar { display: none; }
+.lpc-tabs:empty { display: none; }
+
+/* When a page has BOTH bars, the tab bar sticks below the toolbar. Derived
+   from the sibling order — no per-page offset markup needed. */
+.lpc-toolbar + .lpc-tabs {
+    top: calc(var(--lpc-topbar-h) + var(--lpc-toolbar-h));
+}
+
+/* Normalise every tab button: same height, same underline weight, same
+   type scale — regardless of the py-3/py-4 and border-b-2/border-b-[3px]
+   each page happened to be written with. */
+.lpc-tabs > button,
+.lpc-tabs > a {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
+    height: 100%;
+    padding: 0;
+    border-top: 0;
+    border-left: 0;
+    border-right: 0;
+    border-bottom-width: 3px;
+    border-bottom-style: solid;
+    font-size: 0.8125rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    background: none;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+/* Tab bars whose buttons were written as equal-width segments
+   (empties_collection) keep that behaviour via one opt-in class. */
+.lpc-tabs.lpc-tabs-fill { gap: 0; }
+.lpc-tabs.lpc-tabs-fill > button {
+    flex: 1 1 0%;
+    justify-content: center;
+    padding: 0 1rem;
+}
+
+/* Tab bars that are populated by JS at runtime (master_data, settings) must not
+   collapse before their buttons land. */
+.lpc-tabs[data-lpc-async]:empty { display: flex; }
+
+/* ===========================================================================
+   6. The shared page content wrapper
+   ========================================================================= */
+.lpc-page {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: var(--lpc-gutter);
+    background: var(--lpc-page-bg);
+}
+/* Content-flow variants, so pages that need a column layout or their own
+   vertical rhythm don't reintroduce bespoke padding. */
+.lpc-page.lpc-page-col   { display: flex; flex-direction: column; }
+.lpc-page.lpc-page-flush { padding: 0; }
+.lpc-page > .lpc-stack   { display: flex; flex-direction: column; gap: 1.5rem; }
+
+/* ===========================================================================
+   7. Responsive
+   ---------------------------------------------------------------------------
+   Below lg (1024px) the off-canvas sidebar behaviour wins outright —
+   collapse-to-icons is a desktop-only affordance.
+   ========================================================================= */
 @media (max-width: 1023px) {
-    #lpc-topbar { left: 0 !important; }
-    #lpc-shell-main { margin-left: 0 !important; }
+    :root { --lpc-gutter: var(--lpc-gutter-md); }
+    #lpc-topbar      { left: 0 !important; }
+    #lpc-shell-main  { margin-left: 0 !important; }
+    /* Leave room for the mobile hamburger, which is fixed at top-left. */
+    #lpc-topbar      { padding-left: 3.75rem; }
+}
+@media (max-width: 767px) {
+    :root { --lpc-gutter: var(--lpc-gutter-sm); }
+    .lpc-toolbar { gap: 0.5rem; }
+    .lpc-tabs    { gap: 1.25rem; }
+}
+
+/* ===========================================================================
+   8. Print — drop the chrome, keep the content
+   ========================================================================= */
+@media print {
+    #lpc-sidebar, #lpc-topbar, .lpc-toolbar, .lpc-tabs,
+    #lpc-sidebar-toggle, #lpc-sidebar-backdrop { display: none !important; }
+    #lpc-shell-main { margin-left: 0 !important; padding-top: 0 !important; }
+    .lpc-page { padding: 0 !important; background: #fff !important; }
 }

@@ -7,9 +7,17 @@ runs the deploy for you. No more copy-pasting files by hand.
 There are two things to set up, in order:
 
 1. **A new SSH key**, generated on the server (cPanel), so GitHub can log
-   into the server without a password.
-2. **Four secrets in GitHub**, so the automated deploy knows how to reach
-   the server and what key to use.
+   into the server.
+2. **Five secrets in GitHub**, so the automated deploy knows how to reach
+   the server, what key to use, and how to unlock it.
+
+> **Note on this host specifically:** on this cPanel, key generation
+> *forces* a passphrase (min 5 characters, min "strength" 65 on cPanel's
+> meter) — there's no way to opt out of that in the UI here, unlike some
+> other hosts. That's why there are five secrets below instead of four:
+> the extra one is the passphrase, which the workflow uses to unlock the
+> key for itself at deploy time (via `ssh-agent`), so you still don't have
+> to type anything by hand during a deploy.
 
 Total time: about 15 minutes. Nothing here is reversible-but-dangerous —
 worst case, you generate a key you don't end up using, which costs nothing.
@@ -85,13 +93,17 @@ You'll see a form with a few fields. Fill them in like this:
 | Field | What to enter |
 |---|---|
 | **Key Name** | Something you'll recognize later, e.g. `github-deploy-2026` — anything other than the name of the old key |
-| **Key Password** / **Password (Again)** | **Leave both blank.** cPanel may show a warning that this is less secure — that's expected and fine here, because GitHub Actions has no way to type a password when it connects, so a passphrase-protected key would just fail every deploy. |
+| **Key Password** / **Password (Again)** | **This host requires one — you cannot leave it blank.** cPanel will reject anything under 5 characters or under its "strength 65" bar. Pick a strong passphrase (a random 20+ character string is safest — you never type this by hand again after today), enter it in both fields, and **write it down** with your other connection details from Step 1.6. You'll paste it into GitHub as a 5th secret in Part 2. |
 | **Key Type** | **ED25519** if it's offered (it's the modern, recommended type). If you don't see ED25519 as an option, choose **RSA** and set **Key Size** to **4096**. |
 
 Click **Generate Key** (button text may say "Generate Key" or "Create").
 
 You should see a success message. Click through it (often "Go Back") to
 return to the key list.
+
+> If cPanel's error message mentions a minimum length or a "strength"
+> number, that's this same requirement — just make the passphrase longer
+> and mix in numbers/symbols until the strength bar clears it.
 
 ### Step 1.5 — Authorize the new key
 
@@ -200,26 +212,28 @@ Two fields appear:
 
 Click **Add secret**.
 
-### Step 2.4 — Add the remaining three secrets
+### Step 2.4 — Add the remaining four secrets
 
-Repeat **New repository secret** three more times, once for each of
-these (name on the left, value is whatever you noted in Step 1.6):
+Repeat **New repository secret** four more times, once for each of
+these (name on the left, value is whatever you noted in Step 1.6 / 1.4):
 
 | Name (type exactly) | Value |
 |---|---|
 | `DEPLOY_SSH_HOST` | the host/server name from Step 1.6 |
 | `DEPLOY_SSH_USER` | your SSH username from Step 1.6 |
 | `DEPLOY_SSH_PORT` | the port number from Step 1.6 (just digits, e.g. `21098`) |
+| `DEPLOY_SSH_PASSPHRASE` | the key passphrase you set in Step 1.4 |
 
-### Step 2.5 — Confirm all four are there
+### Step 2.5 — Confirm all five are there
 
-Once done, the secrets list on that page should show four entries:
+Once done, the secrets list on that page should show five entries:
 
 ```
 DEPLOY_SSH_KEY
 DEPLOY_SSH_HOST
 DEPLOY_SSH_USER
 DEPLOY_SSH_PORT
+DEPLOY_SSH_PASSPHRASE
 ```
 
 GitHub never shows the values again after saving (by design) — you'll

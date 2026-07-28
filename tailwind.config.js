@@ -24,20 +24,50 @@ module.exports = {
     safelist: [
         'hidden', 'block', 'flex', 'grid', 'lpc-hidden-by-rbac',
         { pattern: /^(bg|text|border)-(red|amber|emerald|green|blue|gray|slate)-(50|100|200|300|400|500|600|700|800|900)$/ },
-        { pattern: /^(bg|text|border)-lpc-(dark|light|bg)$/ },
+        { pattern: /^(bg|text|border)-lpc-(dark|light|bg|surface|border)$/ },
+        // Module accent pairs. The per-page tab JS toggles these class names at
+        // runtime (e.g. assets/js/modules/accounting-budgets.js), so they must
+        // survive purge even though some appear only inside a JS string.
+        { pattern: /^(bg|text|border|ring)-(finance|rev|acc|pay|dash|asset|fin|treasury)-(dark|highlight)$/ },
     ],
     theme: {
         extend: {
             colors: {
                 lpc: {
-                    dark:  '#005A2B',
-                    light: '#8CC63F',
-                    bg:    '#F8FAFC',
+                    dark:    '#005A2B',
+                    light:   '#8CC63F',
+                    bg:      '#F5F7FA',
+                    surface: '#FFFFFF',
+                    border:  '#E5E7EB',
                 },
+
+                // ---------------------------------------------------------------
+                // Module accent palettes.
+                //
+                // These token names were originally defined per page in inline
+                // `tailwind.config` blocks, each with its own arbitrary colour.
+                // Those blocks went away when Tailwind was self-hosted (Sprint 3)
+                // but ~11 pages — and the tab-switching JS — still reference the
+                // class names, so they resolved to nothing: active-tab underlines
+                // and brand text silently rendered as fallback grey.
+                //
+                // They are deliberately ALL mapped onto the one LPC brand pair
+                // rather than restoring seven unrelated colours. Every active tab
+                // indicator and brand accent in the app is now the same green,
+                // which is the point — one product, not seven.
+                // ---------------------------------------------------------------
+                finance:  { dark: '#005A2B', highlight: '#8CC63F' },  // budgets
+                rev:      { dark: '#005A2B', highlight: '#8CC63F' },  // ledger
+                acc:      { dark: '#005A2B', highlight: '#8CC63F' },  // journal_entry
+                pay:      { dark: '#005A2B', highlight: '#8CC63F' },  // payroll_finance
+                dash:     { dark: '#005A2B', highlight: '#8CC63F' },  // analytics/reports
+                asset:    { dark: '#005A2B', highlight: '#8CC63F' },  // fixed_assets
+                fin:      { dark: '#005A2B', highlight: '#8CC63F' },  // accounting/reports
                 treasury: {
-                    dark:  '#047857',
-                    light: '#34D399',
-                    alert: '#F59E0B',
+                    dark:      '#005A2B',
+                    highlight: '#8CC63F',
+                    light:     '#34D399',
+                    alert:     '#F59E0B',
                 },
             },
             fontFamily: {

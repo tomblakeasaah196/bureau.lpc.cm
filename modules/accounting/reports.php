@@ -53,7 +53,7 @@ $user_role = $_SESSION['user_role'];
     <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
     <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
-<body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
+<body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
@@ -65,23 +65,32 @@ $user_role = $_SESSION['user_role'];
     ?>
 
     <div id="lpc-shell-main">
-        <div class="bg-white border-b border-gray-200 px-8 py-2.5 shrink-0 shadow-sm flex items-center justify-end gap-6">
-            <div class="hidden md:block text-right border-r border-gray-200 pr-6" id="tax_indicator_panel">
-                <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Simulation IS vs AIR (5.5%)</p>
-                <p class="text-sm font-black text-emerald-600" id="tax_status_text">Chargement...</p>
+        <div class="lpc-toolbar">
+            <div class="lpc-toolbar-lead hidden md:block" id="tax_indicator_panel">
+                <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest leading-tight">Simulation IS vs AIR (5.5%)</p>
+                <p class="text-sm font-black text-emerald-600 leading-tight" id="tax_status_text">Chargement...</p>
             </div>
 
-            <div class="bg-gray-100 p-1.5 rounded-lg border border-gray-200 flex items-center shadow-inner">
-                <label class="text-[10px] font-black text-gray-500 uppercase px-2">Exercice N:</label>
-                <select id="report_year" onchange="fetchFinancials()" class="bg-white border border-gray-300 rounded text-sm font-black text-fin-dark px-3 py-1 outline-none focus:ring-2 focus:ring-fin-highlight">
+            <div class="lpc-field">
+                <label for="report_year">Exercice N:</label>
+                <select id="report_year" onchange="fetchFinancials()">
                     <option value="2026" selected>2026 (En cours)</option>
                     <option value="2025">2025 (Clôturé)</option>
                 </select>
             </div>
+
+            <div class="lpc-toolbar-sep"></div>
+
+            <button onclick="exportToPDF()" data-perm="accounting.reports.export" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold text-xs border border-gray-300 shadow-sm transition-all"><i class="fas fa-file-pdf text-rose-500 mr-1"></i> PDF</button>
+            <button onclick="exportToExcel()" data-perm="accounting.reports.export" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold text-xs border border-gray-300 shadow-sm transition-all"><i class="fas fa-file-excel text-emerald-600 mr-1"></i> CSV</button>
+            <?php if($user_role === 'admin'): ?>
+            <button onclick="initiateClosure()" id="btn_cloture" class="bg-rose-600 hover:bg-rose-700 text-white px-5 py-2 rounded-lg font-black text-xs shadow-md transition-all flex items-center gap-2">
+                <i class="fas fa-lock"></i> Clôturer l'Exercice
+            </button>
+            <?php endif; ?>
         </div>
 
-        <nav class="bg-white border-b border-gray-200 px-8 flex items-center justify-between shrink-0 overflow-x-auto shadow-sm z-10">
-            <div class="flex gap-8">
+        <nav class="lpc-tabs">
                 <button onclick="switchTab('bilan')" class="tab-link py-4 border-b-[3px] border-fin-highlight text-fin-dark font-black text-sm uppercase tracking-wider whitespace-nowrap" id="tab-bilan">
                     <i class="fas fa-balance-scale-left mr-2"></i> Bilan Comptable
                 </button>
@@ -91,20 +100,9 @@ $user_role = $_SESSION['user_role'];
                 <button onclick="switchTab('dashboard')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-dashboard">
                     <i class="fas fa-tachometer-alt mr-2"></i> Vue Dirigeant (Managerial)
                 </button>
-            </div>
-            
-            <div class="flex gap-3 py-2">
-                <button onclick="exportToPDF()" data-perm="accounting.reports.export" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold text-xs border border-gray-300 shadow-sm transition-all"><i class="fas fa-file-pdf text-rose-500 mr-1"></i> PDF</button>
-                <button onclick="exportToExcel()" data-perm="accounting.reports.export" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold text-xs border border-gray-300 shadow-sm transition-all"><i class="fas fa-file-excel text-emerald-600 mr-1"></i> CSV</button>
-                <?php if($user_role === 'admin'): ?>
-                <button onclick="initiateClosure()" id="btn_cloture" class="bg-rose-600 hover:bg-rose-700 text-white px-5 py-2 rounded-lg font-black text-xs shadow-md transition-all ml-2 flex items-center gap-2">
-                    <i class="fas fa-lock"></i> Clôturer l'Exercice
-                </button>
-                <?php endif; ?>
-            </div>
         </nav>
 
-        <main role="main" id="main" class="flex-1 overflow-y-auto p-8 flex flex-col relative bg-slate-50">
+        <main role="main" id="main" class="lpc-page lpc-page-col relative">
 
             <div id="content-bilan" class="tab-content active flex-col h-full gap-6">
                 <div class="grid grid-cols-1 xl:grid-cols-2 gap-8 h-full items-start">

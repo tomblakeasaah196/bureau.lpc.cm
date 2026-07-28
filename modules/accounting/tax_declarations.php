@@ -41,7 +41,7 @@ $user_role = $_SESSION['user_role'] ?? 'user';
     <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
     <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
-<body class="bg-slate-50 font-sans text-gray-800 flex h-screen overflow-hidden">
+<body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 
 <?php
 $pageTitle    = 'Déclarations Fiscales & Sociales';
@@ -53,14 +53,14 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 
 <div id="lpc-shell-main">
 
-    <nav class="bg-white border-b border-gray-200 px-8 flex items-center gap-8 shrink-0 shadow-sm">
+    <nav class="lpc-tabs">
         <button onclick="switchTab('dashboard')"   id="tab-dashboard"   class="tab-link py-4 border-b-[3px] border-emerald-600 text-emerald-700 font-black text-sm uppercase tracking-wider"><i class="fas fa-chart-line mr-2"></i>Échéances</button>
         <button onclick="switchTab('monthly')"     id="tab-monthly"     class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 font-bold text-sm uppercase tracking-wider"><i class="fas fa-file-invoice mr-2"></i>Déclarations mensuelles</button>
         <button onclick="switchTab('withholding')" id="tab-withholding" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 font-bold text-sm uppercase tracking-wider"><i class="fas fa-receipt mr-2"></i>Retenues à la source</button>
         <button onclick="switchTab('settings')"    id="tab-settings"    class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 font-bold text-sm uppercase tracking-wider"><i class="fas fa-sliders-h mr-2"></i>Paramètres</button>
     </nav>
 
-    <main class="flex-1 overflow-y-auto p-8">
+    <main role="main" id="main" class="lpc-page">
 
         <!-- ============ DASHBOARD ============ -->
         <div id="content-dashboard" class="tab-content active">

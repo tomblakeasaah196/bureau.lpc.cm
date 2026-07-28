@@ -28,7 +28,7 @@ $initials = strtoupper(substr($display_name, 0, 2));
     <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
     <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
-<body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
+<body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
@@ -40,7 +40,7 @@ $initials = strtoupper(substr($display_name, 0, 2));
     ?>
 
     <div id="lpc-shell-main">
-        <div class="bg-lpc-surface shadow-sm px-6 py-2.5 border-b border-gray-100 shrink-0 flex items-center justify-end gap-3">
+        <div class="lpc-toolbar">
             <div id="custom-date-ui" class="hidden flex items-center space-x-2 bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
                 <input type="date" id="start-date" class="text-sm text-gray-700 bg-transparent border-none focus:ring-0 p-1.5 cursor-pointer">
                 <span class="text-gray-400 text-sm">au</span>
@@ -50,14 +50,14 @@ $initials = strtoupper(substr($display_name, 0, 2));
                 </button>
             </div>
 
-            <select id="period-selector" onchange="handlePeriodChange()" class="hidden md:block bg-white border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-2 focus:ring-lpc-light focus:border-lpc-light p-2.5 font-medium shadow-sm cursor-pointer transition-shadow">
+            <select id="period-selector" onchange="handlePeriodChange()" class="hidden md:block lpc-control">
                 <option value="today" selected><?php echo __t('ui.aujourd_hui'); ?></option>
                 <option value="month"><?php echo __t('ui.ce_mois'); ?></option>
                 <option value="custom"><?php echo __t('ui.personnalis'); ?></option>
             </select>
         </div>
 
-        <main role="main" id="main" class="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
+        <main role="main" id="main" class="lpc-page">
             
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <div class="bg-blue-50 rounded-2xl p-6 shadow-sm border border-blue-100 relative overflow-hidden">

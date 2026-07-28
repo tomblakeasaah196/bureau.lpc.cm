@@ -25,25 +25,24 @@ $canDelete= Rbac::hasPermission('admin.roles.delete');
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
 <style>
-body{background:#051A0F;color:#eee;font-family:Inter,sans-serif;min-height:100vh}
-.glass{background:rgba(255,255,255,.05);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.1)}
-.chip{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);padding:.15rem .5rem;border-radius:9999px;font-size:.7rem}
-.perm-row:hover{background:rgba(255,255,255,.03)}
-input[type=checkbox]{accent-color:#8CC63F;width:1rem;height:1rem}
+.glass{background:#fff;border:1px solid #E5E7EB;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+.chip{background:#F3F4F6;border:1px solid #E5E7EB;padding:.15rem .5rem;border-radius:9999px;font-size:.7rem;color:#374151}
+.perm-row:hover{background:#F9FAFB}
+input[type=checkbox]{accent-color:#005A2B;width:1rem;height:1rem}
 .btn{padding:.5rem 1rem;border-radius:.5rem;font-weight:600;font-size:.85rem;cursor:pointer;transition:all .15s}
-.btn-primary{background:linear-gradient(90deg,#005A2B,#8CC63F);color:white}
+.btn-primary{background:linear-gradient(90deg,#005A2B,#8CC63F);color:#fff}
 .btn-primary:hover{opacity:.92}
-.btn-secondary{background:rgba(255,255,255,.08);color:#eee;border:1px solid rgba(255,255,255,.15)}
-.btn-secondary:hover{background:rgba(255,255,255,.14)}
-.btn-danger{background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(239,68,68,.3)}
-.btn-danger:hover{background:rgba(239,68,68,.25)}
-.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-secondary{background:#fff;color:#374151;border:1px solid #D1D5DB}
+.btn-secondary:hover{background:#F9FAFB}
+.btn-danger{background:#FEF2F2;color:#B91C1C;border:1px solid #FECACA}
+.btn-danger:hover{background:#FEE2E2}
+.btn:disabled{opacity:.45;cursor:not-allowed}
 </style>
     <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
     <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
     <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
-<body class="flex min-h-screen">
+<body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
@@ -53,32 +52,27 @@ require __DIR__ . '/../../includes/components/topbar.php';
 ?>
 
 <div id="lpc-shell-main">
-<main role="main" id="main" class="p-6 lg:p-8 overflow-y-auto">
 
-    <header class="flex items-start justify-between gap-4 mb-6">
-        <div>
-            <h1 class="text-2xl font-semibold text-white"><?= __t('ui.r_les_permissions') ?></h1>
-            <p class="text-white/60 text-sm mt-1">
-                <?= __t('ui.cr_ez_des_r_les_personnalis_s_et_contr_l') ?>
-            </p>
-        </div>
+    <div class="lpc-toolbar">
         <?php if ($canCreate): ?>
         <button onclick="openCreateRoleModal()" class="btn btn-primary">
             + <?= __t('ui.nouveau_r_le') ?>
         </button>
         <?php endif; ?>
-    </header>
+    </div>
+
+<main role="main" id="main" class="lpc-page">
 
     <div class="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-6">
 
         <!-- ROLES LIST -->
         <section class="glass rounded-xl p-4">
             <div class="flex items-center justify-between mb-3">
-                <h2 class="text-sm font-semibold uppercase tracking-wider text-white/70"><?= __t('ui.r_les') ?></h2>
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-500"><?= __t('ui.r_les') ?></h2>
                 <span id="roles-count" class="chip">—</span>
             </div>
             <ul id="roles-list" class="space-y-2">
-                <li class="text-white/70 text-sm p-3">Chargement…</li>
+                <li class="text-gray-500 text-sm p-3">Chargement…</li>
             </ul>
 
             <?php if ($canEdit): ?>
@@ -93,8 +87,8 @@ require __DIR__ . '/../../includes/components/topbar.php';
             <div id="matrix-header" class="hidden mb-4">
                 <div class="flex items-center justify-between gap-3">
                     <div>
-                        <h2 class="text-lg font-semibold text-white" id="matrix-role-name">—</h2>
-                        <p class="text-xs text-white/70" id="matrix-role-meta">—</p>
+                        <h2 class="text-lg font-semibold text-gray-900" id="matrix-role-name">—</h2>
+                        <p class="text-xs text-gray-500" id="matrix-role-meta">—</p>
                     </div>
                     <div class="flex gap-2">
                         <button onclick="matrixSelectAll()"  class="btn btn-secondary text-xs"><?= __t('ui.tout') ?></button>
@@ -105,10 +99,10 @@ require __DIR__ . '/../../includes/components/topbar.php';
                     </div>
                 </div>
                 <input id="filter-perms" type="text" placeholder="<?= __t('ui.filtrer_permissions') ?>"
-                       class="mt-3 w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 focus:outline-none focus:border-emerald-400">
+                       class="mt-3 w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-400">
             </div>
 
-            <div id="matrix-empty" class="text-white/70 text-sm p-6 text-center">
+            <div id="matrix-empty" class="text-gray-500 text-sm p-6 text-center">
                 <?= __t('ui.s_lectionnez_un_r_le_gauche_pour_voir_se') ?>
             </div>
 
@@ -122,13 +116,13 @@ require __DIR__ . '/../../includes/components/topbar.php';
 <!-- CREATE / RENAME ROLE MODAL -->
 <div id="modal-role" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
     <div class="glass rounded-xl p-6 w-full max-w-md">
-        <h3 id="modal-role-title" class="text-lg font-semibold text-white mb-4">Nouveau rôle</h3>
+        <h3 id="modal-role-title" class="text-lg font-semibold text-gray-900 mb-4">Nouveau rôle</h3>
         <input type="hidden" id="modal-role-id">
-        <label class="text-xs uppercase tracking-wider text-white/60">Nom du rôle</label>
+        <label class="text-xs uppercase tracking-wider text-gray-500">Nom du rôle</label>
         <input id="modal-role-name" type="text"
-               class="mt-1 w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white"
+               class="mt-1 w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-900"
                placeholder="ex: warehouse_manager" maxlength="32">
-        <p class="text-[11px] text-white/70 mt-1">Lettres minuscules, chiffres, tirets, underscores. 2-32 caractères.</p>
+        <p class="text-[11px] text-gray-500 mt-1">Lettres minuscules, chiffres, tirets, underscores. 2-32 caractères.</p>
         <div class="flex justify-end gap-2 mt-6">
             <button onclick="closeModal('modal-role')" class="btn btn-secondary">Annuler</button>
             <button onclick="submitRole()" class="btn btn-primary">Enregistrer</button>

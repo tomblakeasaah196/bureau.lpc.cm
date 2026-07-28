@@ -35,7 +35,7 @@ $user_role = $_SESSION['user_role'];
     <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
     <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
-<body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
+<body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
@@ -47,11 +47,11 @@ $user_role = $_SESSION['user_role'];
     ?>
 
     <div id="lpc-shell-main">
-        <div class="bg-white border-b border-gray-200 px-8 py-2.5 shrink-0 shadow-sm flex items-center justify-end gap-4">
-            <p class="text-xs text-gray-400 font-bold uppercase tracking-widest mr-auto md:mr-0">Vue Dirigeant - <span id="view_period_label">YTD (Année en cours)</span></p>
-            <div class="bg-gray-100 p-1.5 rounded-lg border border-gray-200 flex items-center shadow-inner">
-                <label class="text-[10px] font-black text-gray-500 uppercase px-2">Période:</label>
-                <select id="timeframe_filter" onchange="loadDashboardData()" class="bg-white border border-gray-300 rounded text-sm font-black text-dash-dark px-3 py-1 outline-none focus:ring-2 focus:ring-dash-highlight">
+        <div class="lpc-toolbar">
+            <p class="lpc-toolbar-lead text-xs text-gray-400 font-bold uppercase tracking-widest">Vue Dirigeant - <span id="view_period_label">YTD (Année en cours)</span></p>
+            <div class="lpc-field">
+                <label for="timeframe_filter">Période:</label>
+                <select id="timeframe_filter" onchange="loadDashboardData()">
                     <option value="YTD" selected>YTD (Depuis Janvier)</option>
                     <option value="MTD">MTD (Mois en cours)</option>
                 </select>
@@ -61,7 +61,7 @@ $user_role = $_SESSION['user_role'];
             </button>
         </div>
 
-        <main role="main" id="dashboard-content" class="flex-1 overflow-y-auto p-8 relative bg-slate-50"><a id="main" tabindex="-1" class="sr-only">Contenu principal</a>
+        <main role="main" id="dashboard-content" class="lpc-page relative"><a id="main" tabindex="-1" class="sr-only">Contenu principal</a>
             
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 

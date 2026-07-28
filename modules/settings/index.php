@@ -29,7 +29,7 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
     <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
     <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
-<body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
+<body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
@@ -42,7 +42,7 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
 
     <div id="lpc-shell-main">
 
-        <nav class="bg-white border-b border-gray-200 px-8 flex items-center gap-8 shrink-0 overflow-x-auto" id="settings-tabs">
+        <nav class="lpc-tabs" id="settings-tabs">
             <button onclick="switchTab('users')" class="tab-link py-4 border-b-2 border-gray-900 text-gray-900 font-black text-sm uppercase tracking-wider transition-all" id="tab-users">
                 <i class="fas fa-user-shield mr-2"></i> Utilisateurs
             </button>
@@ -60,7 +60,7 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'fr';
             </button>
         </nav>
 
-        <main role="main" id="main" class="flex-1 overflow-y-auto p-8 bg-[#F9FAFB] flex flex-col">
+        <main role="main" id="main" class="lpc-page lpc-page-col">
             
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8" id="kpi-ribbon">
                 </div>

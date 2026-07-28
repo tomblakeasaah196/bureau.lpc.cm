@@ -35,7 +35,7 @@ $user_role = $_SESSION['user_role'];
     <script>(function(){try{if(localStorage.getItem('lpc.sidebar.collapsed')==='true')document.documentElement.classList.add('lpc-collapsed');}catch(e){}})();</script>
     <link rel="stylesheet" href="/assets/css/lpc-shell.css">
 </head>
-<body class="bg-lpc-bg font-sans text-gray-800 antialiased overflow-hidden flex h-screen">
+<body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
@@ -48,7 +48,7 @@ $user_role = $_SESSION['user_role'];
 
     <div id="lpc-shell-main">
 
-        <nav class="bg-white border-b border-gray-200 px-8 flex items-center gap-8 shrink-0 overflow-x-auto shadow-sm z-10">
+        <nav class="lpc-tabs">
             <button onclick="switchTab('queue')" class="tab-link py-4 border-b-[3px] border-asset-highlight text-asset-dark font-black text-sm uppercase tracking-wider whitespace-nowrap relative" id="tab-queue">
                 <i class="fas fa-truck-loading mr-2"></i> À Capitaliser (Flotte)
                 <span id="badge-queue" class="absolute top-3 -right-3 bg-rose-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm hidden">0</span>
@@ -61,7 +61,7 @@ $user_role = $_SESSION['user_role'];
             </button>
         </nav>
 
-        <main role="main" id="main" class="flex-1 overflow-y-auto p-8 flex flex-col relative bg-slate-50">
+        <main role="main" id="main" class="lpc-page lpc-page-col relative">
 
             <div id="content-queue" class="tab-content active flex-col h-full gap-6">
                 <div class="bg-amber-50 border border-amber-200 p-5 rounded-2xl flex justify-between items-center shrink-0">
