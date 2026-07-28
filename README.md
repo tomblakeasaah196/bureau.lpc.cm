@@ -790,7 +790,29 @@ Rules for anyone touching this:
   are code-owned and fine; it's uploads that are constrained.
 - **`crm.proposals.template` is not `crm.proposals.create`.** Writing one
   devis and rewriting the contract terms every future client signs are
-  different levels of authority. Granted to admin's `*` only by default.
+  different levels of authority. Migration 031 grants it to every role
+  that already holds `crm.clients.view` — i.e. everyone who can open the
+  page it launches from. Narrow it from Administration → Rôles &
+  Permissions; no migration needed.
+
+> ⚠️ **There is no `'*'` row in `role_permissions`.** Migration 030 shipped
+> granting this permission to nobody, on the comment "granted to nobody by
+> default beyond admin's `*`". That was wrong: `001_rbac_seed.sql`
+> *enumerates* every permission row for admin, and migration 028 narrows
+> that set — the wildcard row does not exist in this database.
+> `Rbac::hasPermission()` short-circuits on `'*'` at `Rbac.php:156`, so
+> code relying on it reviews as correct and then denies everyone in
+> production, with no error anywhere: a gate returning false looks exactly
+> like a feature that never deployed. Migration 031 is the fix.
+> **Never grant a new permission implicitly — always write the
+> `role_permissions` rows, the way migration 029 does.** The same faulty
+> assumption is still sitting in the comments of migration 025; if
+> `accounting.reports.export` ever appears to be missing for a role that
+> should have it, that is the first place to look.
+>
+> Related: a grant does not reach a session that is already open.
+> `Rbac::loadFromDb()` caches the permission set into `$_SESSION['rbac']`
+> at login (§4.1), so after any grant migration, sign out and back in.
 
 Known boundary: the one-page dompdf export (`?pdf=1`) still uses the
 generic document template in `includes/functions/document_pdf.php`, whose

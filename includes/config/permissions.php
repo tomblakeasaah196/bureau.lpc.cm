@@ -193,6 +193,7 @@ $LPC_DEFAULT_ROLE_PERMISSIONS = [
         'analytics.reports.export',
         'crm.clients.view',
         'crm.proposals.view',
+        'crm.proposals.template',
         'sales.orders.view',
         'sales.deliveries.view',
         // full accounting
@@ -221,6 +222,7 @@ $LPC_DEFAULT_ROLE_PERMISSIONS = [
         'dashboard.ops.view',
         'crm.clients.view', 'crm.clients.create', 'crm.clients.edit',
         'crm.clients.convert', 'crm.proposals.view', 'crm.proposals.create',
+        'crm.proposals.template',
         'sales.orders.view', 'sales.orders.create', 'sales.orders.edit',
         'sales.orders.delete', 'sales.orders.dispatch',
         'sales.deliveries.view',
@@ -242,7 +244,7 @@ $LPC_DEFAULT_ROLE_PERMISSIONS = [
     'sales' => [
         'dashboard.sales.view',
         'crm.clients.view', 'crm.clients.create', 'crm.clients.edit', 'crm.clients.convert',
-        'crm.proposals.view', 'crm.proposals.create',
+        'crm.proposals.view', 'crm.proposals.create', 'crm.proposals.template',
         'sales.orders.view', 'sales.orders.create', 'sales.orders.edit', 'sales.orders.dispatch',
         'sales.deliveries.view', 'sales.deliveries.close',
         'inventory.stock.view',
