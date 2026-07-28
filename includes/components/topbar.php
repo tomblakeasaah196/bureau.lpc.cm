@@ -39,7 +39,7 @@
 if (!defined('LPC_BOOTSTRAPPED')) {
     require_once __DIR__ . '/../bootstrap.php';
 }
-$lang         = $lang ?? (in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? $_GET['lang'] : 'fr');
+$lang         = $lang ?? (in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? ($_GET['lang'] ?? 'fr') : 'fr');
 $pageTitle    = $pageTitle    ?? '';
 $pageSubtitle = $pageSubtitle ?? '';
 

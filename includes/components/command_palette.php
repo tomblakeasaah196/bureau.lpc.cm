@@ -23,7 +23,7 @@
 if (!defined('LPC_BOOTSTRAPPED')) {
     require_once __DIR__ . '/../bootstrap.php';
 }
-$lang = $lang ?? (in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? $_GET['lang'] : 'fr');
+$lang = $lang ?? (in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? ($_GET['lang'] ?? 'fr') : 'fr');
 $en   = $lang === 'en';
 
 // -----------------------------------------------------------------------------
@@ -33,7 +33,7 @@ $__nav   = require __DIR__ . '/../config/nav.php';
 $__index = [];
 
 foreach ($__nav as $__section) {
-    $sectionLabel = $en
+    $__sectionLabel = $en
         ? ($__section['heading_en'] ?? $__section['heading_fr'])
         : $__section['heading_fr'];
 
@@ -42,7 +42,7 @@ foreach ($__nav as $__section) {
         $__index[] = [
             'g' => $en ? 'Pages' : 'Pages',
             'l' => $en ? ($__item['label_en'] ?? $__item['label_fr']) : $__item['label_fr'],
-            'h' => $sectionLabel,
+            'h' => $__sectionLabel,
             'u' => $__item['href'],
             'i' => $__item['icon'],
             'm' => '',
@@ -132,5 +132,9 @@ $__paletteStrings = [
 ) ?></script>
 <script src="<?= lpc_asset('/assets/js/lpc-palette.js') ?>" defer></script>
 <?php
-unset($__nav, $__index, $__section, $__item, $__actions, $__a, $__plusIcon, $__paletteStrings, $sectionLabel, $en);
+// Only unset this component's OWN temporaries. An include shares the caller's
+// variable scope, so unsetting a generic name like $en or $item destroys the
+// including page's variable — that is exactly what broke
+// modules/notifications/index.php after the topbar was rendered.
+unset($__nav, $__index, $__section, $__item, $__actions, $__a, $__plusIcon, $__paletteStrings, $__sectionLabel);
 ?>

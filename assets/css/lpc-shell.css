@@ -302,23 +302,30 @@ html.lpc-collapsed #lpc-topbar { left: var(--lpc-sidebar-w-collapsed); }
     color: var(--lpc-brand-deep);
 }
 
+/* Unread count. LinkedIn-style: a small red pill hugging the icon's top-right,
+   showing the number, capped at 99+. Hidden entirely at zero — the [hidden]
+   attribute is set by lpc-topbar.js, and this needs !important because the
+   `display: grid` below would otherwise beat it. */
 .lpc-icon-btn__badge {
     position: absolute;
-    top: -3px;
-    right: -3px;
-    min-width: 17px;
-    height: 17px;
-    padding: 0 4px;
+    top: -5px;
+    right: -5px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
     display: grid;
     place-items: center;
     border-radius: 999px;
-    background: #EF4444;
+    background: #E11D48;
     color: #fff;
-    font-size: .625rem;
-    font-weight: 800;
+    font-size: .6875rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
     line-height: 1;
     box-shadow: 0 0 0 2px var(--lpc-chrome-top);
 }
+.lpc-icon-btn__badge[hidden] { display: none !important; }
 
 /* ---- Global search trigger (opens the ⌘K palette) ----------------------- */
 .lpc-search-trigger {

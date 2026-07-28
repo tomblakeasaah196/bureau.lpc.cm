@@ -28,7 +28,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 Rbac::requireAuth();
 
-$lang = in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? $_GET['lang'] : 'fr';
+$lang = in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? ($_GET['lang'] ?? 'fr') : 'fr';
 $en   = $lang === 'en';
 ?>
 <!DOCTYPE html>

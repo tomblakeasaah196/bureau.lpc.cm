@@ -21,7 +21,7 @@ if (!defined('LPC_BOOTSTRAPPED')) {
 }
 Rbac::requireAuth();
 
-$lang        = $lang ?? (in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? $_GET['lang'] : 'fr');
+$lang        = $lang ?? (in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? ($_GET['lang'] ?? 'fr') : 'fr');
 $user_name   = $_SESSION['user_name']    ?? 'Utilisateur';
 $user_role   = $_SESSION['user_role']    ?? 'Rôle';
 $avatar      = $_SESSION['avatar']       ?? null;
@@ -32,9 +32,9 @@ $__i1       = mb_substr($__parts[0] ?? '', 0, 1, 'UTF-8');
 $__i2       = mb_substr($__parts[1] ?? ($__parts[0] ?? ''), 0, 1, 'UTF-8');
 $initials   = mb_strtoupper($__i1 . $__i2, 'UTF-8');
 
-$currentPath = strtok($_SERVER['REQUEST_URI'] ?? '', '?');
+$__currentPath = strtok($_SERVER['REQUEST_URI'] ?? '', '?');
 
-$nav = require __DIR__ . '/../config/nav.php';
+$__nav = require __DIR__ . '/../config/nav.php';
 ?>
 <aside id="lpc-sidebar"
        role="navigation"
@@ -67,38 +67,38 @@ $nav = require __DIR__ . '/../config/nav.php';
 
     <!-- Nav -->
     <div class="flex-1 overflow-y-auto py-3 px-3 space-y-4">
-    <?php foreach ($nav as $sectionIdx => $section):
+    <?php foreach ($__nav as $__sectionIdx => $__section):
         // Skip section entirely if user can't see any of its items.
-        $visible = array_filter($section['items'], function ($it) {
+        $__visible = array_filter($__section['items'], function ($it) {
             return Rbac::hasPermission($it['permission']);
         });
-        if (!$visible) continue;
-        $headingId = 'lpc-nav-heading-' . $sectionIdx;
+        if (!$__visible) continue;
+        $__headingId = 'lpc-nav-heading-' . $__sectionIdx;
     ?>
-        <div role="group" aria-labelledby="<?= $headingId ?>">
-            <div id="<?= $headingId ?>"
+        <div role="group" aria-labelledby="<?= $__headingId ?>">
+            <div id="<?= $__headingId ?>"
                  class="lpc-sidebar-heading px-3 pb-1 text-[10px] uppercase tracking-widest">
-                <?= htmlspecialchars($lang === 'en' ? ($section['heading_en'] ?? $section['heading_fr']) : $section['heading_fr']) ?>
+                <?= htmlspecialchars($lang === 'en' ? ($__section['heading_en'] ?? $__section['heading_fr']) : $__section['heading_fr']) ?>
             </div>
             <ul role="menu" class="space-y-0.5">
-                <?php foreach ($visible as $item):
-                    $label = $lang === 'en' ? ($item['label_en'] ?? $item['label_fr']) : $item['label_fr'];
-                    $active = ($currentPath === $item['href']);
+                <?php foreach ($__visible as $__item):
+                    $__label = $lang === 'en' ? ($__item['label_en'] ?? $__item['label_fr']) : $__item['label_fr'];
+                    $__active = ($__currentPath === $__item['href']);
                 ?>
                 <li role="none">
-                    <a href="<?= htmlspecialchars($item['href']) ?>"
+                    <a href="<?= htmlspecialchars($__item['href']) ?>"
                        role="menuitem"
-                       data-perm="<?= htmlspecialchars($item['permission']) ?>"
-                       <?= $active ? 'aria-current="page"' : '' ?>
-                       title="<?= htmlspecialchars($label) ?>"
+                       data-perm="<?= htmlspecialchars($__item['permission']) ?>"
+                       <?= $__active ? 'aria-current="page"' : '' ?>
+                       title="<?= htmlspecialchars($__label) ?>"
                        class="lpc-focusable lpc-nav-link group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all
-                              <?= $active
+                              <?= $__active
                                   ? 'bg-emerald-500/20 text-white border border-emerald-400/30'
                                   : 'text-white/70 hover:bg-white/5 hover:text-white border border-transparent' ?>">
                         <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="<?= $item['icon'] ?>"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="<?= $__item['icon'] ?>"/>
                         </svg>
-                        <span class="truncate lpc-label"><?= htmlspecialchars($label) ?></span>
+                        <span class="truncate lpc-label"><?= htmlspecialchars($__label) ?></span>
                     </a>
                 </li>
                 <?php endforeach; ?>
@@ -162,5 +162,7 @@ if (!defined('LPC_SHELL_JS_EMITTED')) {
 ?>
 <?php
 // Free scope-local temporaries
-unset($__parts, $__i1, $__i2, $nav, $visible, $section, $item, $label, $active, $currentPath);
+// Only this component's own __-prefixed temporaries. Never unset a generic
+// name here: an include shares the caller's scope and would wipe the page's var.
+unset($__parts, $__i1, $__i2, $__nav, $__visible, $__section, $__item, $__label, $__active, $__currentPath, $__sectionIdx, $__headingId);
 ?>

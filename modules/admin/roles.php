@@ -10,7 +10,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 Rbac::requirePermission('admin.roles.view');
 
-$lang     = in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? $_GET['lang'] : 'fr';
+$lang     = in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? ($_GET['lang'] ?? 'fr') : 'fr';
 $canEdit  = Rbac::hasPermission('admin.roles.edit');
 $canCreate= Rbac::hasPermission('admin.roles.create');
 $canDelete= Rbac::hasPermission('admin.roles.delete');

@@ -56,9 +56,28 @@
         return 'lpc-pop-dot lpc-pop-dot--info';
     }
 
+    // Unread count on the bell. Zero => no badge at all; otherwise the number,
+    // capped at 99+. Kept in one place so the badge and the button's accessible
+    // name can never disagree.
+    function setCount(badge, btn, n) {
+        if (!n) {
+            badge.hidden = true;
+            badge.textContent = '';
+            if (btn) btn.setAttribute('aria-label', 'Notifications');
+            return;
+        }
+        badge.hidden = false;
+        badge.textContent = n > 99 ? '99+' : String(n);
+        if (btn) {
+            btn.setAttribute('aria-label', 'Notifications (' + n + ')');
+            btn.setAttribute('title', 'Notifications (' + n + ')');
+        }
+    }
+
     function loadNotifications() {
         var list  = document.getElementById('lpc-notif-list');
         var badge = document.getElementById('lpc-notif-badge');
+        var btn   = document.getElementById('lpc-notif-btn');
         if (!list || !badge) return;
 
         fetch('/api/v1/notifications_controller.php', { credentials: 'same-origin' })
@@ -67,18 +86,18 @@
                 if (!json || json.status !== 'success') return;
                 var items = (json.data && json.data.items) || [];
 
-                if (!items.length) {
-                    badge.hidden = true;
-                    return;
-                }
+                // Prefer the server's own count; fall back to the array length.
+                var count = (json.data && typeof json.data.count === 'number')
+                    ? json.data.count
+                    : items.length;
+
+                setCount(badge, btn, count);
+                if (!items.length) return;
 
                 // Most severe first, so the thing that needs attention is on top.
                 items.sort(function (a, b) {
                     return (SEVERITY_RANK[a.severity] ?? 3) - (SEVERITY_RANK[b.severity] ?? 3);
                 });
-
-                badge.hidden = false;
-                badge.textContent = items.length > 9 ? '9+' : String(items.length);
 
                 list.textContent = '';
                 items.forEach(function (item) {

@@ -20,7 +20,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 header('Content-Type: application/json; charset=utf-8');
 
 Rbac::requireAuth();
-$lang = in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? $_GET['lang'] : 'fr';
+$lang = in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? ($_GET['lang'] ?? 'fr') : 'fr';
 
 try {
     $db = Database::getInstance()->getConnection();

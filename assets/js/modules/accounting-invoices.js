@@ -329,10 +329,10 @@
                         <td class="py-4 px-6 font-bold text-gray-700 text-xs">${inv.client_name}</td>
                         <td class="py-4 px-6 text-right font-black text-gray-900">${LPC.fmt.int(inv.total_amount)} F</td>
                         <td class="py-4 px-6 text-center text-xs font-bold text-gray-500">${new Date(inv.due_date).toLocaleDateString('fr-FR')}</td>
-                        <td class="py-4 px-6 text-center">${statusBadge}</td>
+                        <td class="py-4 px-6 text-center">${LPC.raw(statusBadge)}</td>
                         <td class="py-4 px-6 text-right whitespace-nowrap">
                             <a href="/facture.php?token=${inv.token}" target="_blank" class="text-blue-500 bg-blue-50 hover:bg-blue-100 hover:text-blue-700 p-2.5 rounded-xl mr-2 transition-colors inline-block" title="Aperçu PDF"><i class="fas fa-file-pdf"></i></a>
-                            ${inv.status !== 'paid' ? `<button onclick="openPaymentModal(${inv.id}, ${inv.client_id})" class="text-emerald-600 bg-emerald-50 hover:bg-emerald-100 p-2.5 rounded-xl transition-colors shadow-sm" title="Encaisser direct" aria-label="Encaisser direct"><i class="fas fa-plus"></i></button>` : ''}
+                            ${LPC.raw(inv.status !== 'paid' ? `<button onclick="openPaymentModal(${inv.id}, ${inv.client_id})" class="text-emerald-600 bg-emerald-50 hover:bg-emerald-100 p-2.5 rounded-xl transition-colors shadow-sm" title="Encaisser direct" aria-label="Encaisser direct"><i class="fas fa-plus"></i></button>` : '')}
                         </td>
                     </tr>`;
             });
@@ -369,8 +369,8 @@
                         <td class="py-4 px-6 font-bold text-gray-700 text-xs">${pay.client_name}</td>
                         <td class="py-4 px-6 text-[10px] font-black tracking-wide text-blue-600">${pay.invoice_ref || '<span class="text-purple-500 italic px-2 py-0.5 bg-purple-50 rounded">Avance Libre</span>'}</td>
                         <td class="py-4 px-6 text-right font-black text-emerald-600">${LPC.fmt.int(pay.amount)} F</td>
-                        <td class="py-4 px-6 text-center">${mBadge}</td>
-                        <td class="py-4 px-6 text-center flex justify-center items-center h-full">${sBadge} ${actionBtn}</td>
+                        <td class="py-4 px-6 text-center">${LPC.raw(mBadge)}</td>
+                        <td class="py-4 px-6 text-center flex justify-center items-center h-full">${LPC.raw(sBadge)} ${LPC.raw(actionBtn)}</td>
                     </tr>`;
             });
         }

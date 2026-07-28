@@ -10,7 +10,7 @@
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
 
-$lang  = in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? $_GET['lang'] : 'fr';
+$lang  = in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? ($_GET['lang'] ?? 'fr') : 'fr';
 $token = trim($_GET['token'] ?? '');
 if ($token === '' || strlen($token) < 32 || strlen($token) > 128) {
     header('Location: /index.php?error=reset_invalid'); exit;

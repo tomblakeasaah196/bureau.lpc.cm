@@ -20,7 +20,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/ErrorMonitor.php';
 Rbac::requirePermission('admin.errors.view');
 
-$lang = in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? $_GET['lang'] : 'fr';
+$lang = in_array(($_GET['lang'] ?? 'fr'), ['fr','en'], true) ? ($_GET['lang'] ?? 'fr') : 'fr';
 
 // -----------------------------------------------------------------------------
 // Sub-actions: download raw tail, invoked as ?do=download.
