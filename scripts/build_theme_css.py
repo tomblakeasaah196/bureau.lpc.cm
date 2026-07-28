@@ -625,6 +625,353 @@ w('''
 ''')
 w('%s .lpc-help-skeleton { background: linear-gradient(90deg, var(--lpc-surface-chip) 25%%, var(--lpc-surface-well) 50%%, var(--lpc-surface-chip) 75%%); }\n' % DARK)
 
+
+# =============================================================================
+# 14. Page-local <style> blocks.
+# -----------------------------------------------------------------------------
+# Sections 1-13 remap Tailwind utilities and the shared component classes. That
+# is not the whole app.
+#
+# Around twenty module pages also define their OWN component classes in an
+# inline <style> block in <head> — .lpc-section, .lpc-input, .lpc-role-chip,
+# .lpc-savebar, .perm-row, .st-paid, .row-master and ~100 more — with literal
+# light colours. No utility remap can reach a class that Tailwind never
+# generated, so those pages kept white cards and near-black label text on a dark
+# workspace. Worse than untouched, in fact: §3 correctly turned their body text
+# light, and light text on a still-white .lpc-section is less readable than the
+# original. That is the "some pages are still bad" case.
+#
+# Enumerating those ~100 declarations by hand here would fix today's pages and
+# rot the moment someone adds a <style> block to page twenty-one. So they are
+# READ from the source instead: this section scans the pages, parses their
+# blocks, and derives a dark counterpart for every colour declaration it finds.
+# Re-running the build re-scans, which means new page CSS is covered by
+# construction rather than by remembering to come back here.
+#
+# Specificity, not load order, is what makes these win: a page rule like
+# `.lpc-input:focus` is (0,2,0) and the generated `html[data-lpc-theme="dark"]
+# .lpc-input:focus` is (0,3,1). That holds even for a page that puts its <style>
+# after head_assets.php (none do today, but it costs nothing to be order-proof).
+# =============================================================================
+import colorsys
+import glob
+import re
+
+APP_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+
+# Pages whose <style> blocks must NOT be themed.
+#   pdf_templates / documents / document_pdf : rendered onto white paper
+#   auth pages + index.php                   : the dark glass login design,
+#                                              which is already dark and is not
+#                                              part of the light/dark workspace
+#   print_audit                              : print-only view
+SKIP_PATHS = (
+    'includes/pdf_templates/',
+    'public/documents/',
+    'public/auth/',
+    'includes/functions/document_pdf.php',
+    'modules/inventory/print_audit.php',
+    'includes/components/head_assets.php',
+    'index.php',
+)
+
+# Brand colours map to the accent variables rather than to a surface/ink step,
+# so a page that hardcoded the brand still follows a user's accent choice.
+BRAND = {
+    '#005a2b': 'var(--lpc-accent-on-light)',
+    '#8cc63f': 'var(--lpc-accent-on-dark)',
+    '#00341a': 'var(--lpc-chrome-top)',
+}
+
+
+def parse_hex(h):
+    h = h.lstrip('#')
+    if len(h) == 3:
+        h = ''.join(c * 2 for c in h)
+    if len(h) == 8:
+        h = h[:6]
+    if len(h) != 6:
+        return None
+    return tuple(int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+
+
+def hsl(rgb):
+    r, g, b = rgb
+    h, l, s = colorsys.rgb_to_hls(r, g, b)
+    return h * 360, s, l
+
+
+# Tailwind's neutral ramps, verbatim. These are listed rather than detected
+# because no cheap numeric test separates them from the pale status washes the
+# app also uses: slate-800 #1e293b and blue-100 #dbeafe have almost identical
+# chroma, and HLS saturation is useless here — it approaches 1.0 for anything
+# near white, so #F9FAFB (gray-50) reads as MORE saturated than #fef3c7
+# (amber-100). Reading a literal list is exact where a heuristic is not, and
+# these values have not changed across Tailwind 2, 3 or 4.
+NEUTRAL_HEXES = {
+    # gray
+    '#f9fafb', '#f3f4f6', '#e5e7eb', '#d1d5db', '#9ca3af', '#6b7280',
+    '#4b5563', '#374151', '#1f2937', '#111827', '#030712',
+    # slate
+    '#f8fafc', '#f1f5f9', '#e2e8f0', '#cbd5e1', '#94a3b8', '#64748b',
+    '#475569', '#334155', '#1e293b', '#0f172a', '#020617',
+    # zinc / neutral / stone (present in a couple of pages)
+    '#fafafa', '#f4f4f5', '#e4e4e7', '#d4d4d8', '#a1a1aa', '#71717a',
+    '#52525b', '#3f3f46', '#27272a', '#18181b',
+    '#f5f5f5', '#e5e5e5', '#d4d4d4', '#a3a3a3', '#737373', '#525252',
+    '#404040', '#262626', '#171717',
+    '#f5f5f4', '#e7e5e4', '#d6d3d1', '#a8a29e', '#78716c', '#57534e',
+    '#44403c', '#292524', '#1c1917',
+    # plain black/white
+    '#ffffff', '#000000',
+}
+
+
+def is_neutral(literal, rgb):
+    """
+    True when a colour carries no meaning beyond its lightness.
+
+    Two tests, in order: the Tailwind neutral ramps by exact value, then raw
+    chroma (max-min) for the handful of bespoke greys the pages invented —
+    #FCFCFD, #E6EAEE and similar. Chroma is used rather than HLS saturation
+    because it does not distort near the ends of the lightness range.
+    """
+    if literal.lower() in NEUTRAL_HEXES:
+        return True
+    return (max(rgb) - min(rgb)) <= 0.02
+
+
+def map_colour(prop, literal):
+    """
+    One literal colour -> the shell variable (or derived tint) that expresses
+    the same INTENT on a dark surface.
+
+    Everything keys off lightness and saturation rather than a lookup table,
+    because the pages did not share a palette — #F9FAFB, #f8fafc, #f1f5f9 and
+    #FCFCFD all mean "one step down from the card" and all have to land on
+    --lpc-surface-sunken without anyone maintaining a list of them.
+    """
+    key = literal.lower()
+    if key in BRAND:
+        return BRAND[key]
+
+    rgb = parse_hex(literal)
+    if rgb is None:
+        return None
+    hue, sat, lum = hsl(rgb)
+
+    is_bg = prop in ('background', 'background-color')
+    is_border = prop.startswith('border')
+    is_text = prop in ('color', 'accent-color')
+
+    # --- near-neutral -------------------------------------------------------
+    if is_neutral(literal, rgb):
+        if is_bg:
+            # Pure white and near-white are NOT the same step, and collapsing
+            # them onto --lpc-surface is what flattens these pages: .lpc-input
+            # (#F9FAFB) sitting inside .lpc-section (#fff) is a field inset into
+            # a card, and if both resolve to the card colour the field stops
+            # looking like a field. Only literal white is the card.
+            if lum >= 0.995:
+                return 'var(--lpc-surface)'
+            if lum >= 0.90:
+                return 'var(--lpc-surface-sunken)'
+            if lum >= 0.78:
+                return 'var(--lpc-surface-chip)'
+            if lum >= 0.55:
+                return 'var(--lpc-surface-well)'
+            if lum <= 0.35:
+                # Already dark on a light page: an intentional contrast island.
+                # It has to become LIGHTER than its surroundings to keep
+                # standing out — same reasoning as §1.
+                return 'var(--lpc-surface-raised)'
+            return 'var(--lpc-surface-well)'
+        if is_border:
+            return 'var(--lpc-border)' if lum >= 0.75 else 'var(--lpc-border-strong)'
+        if is_text:
+            if lum >= 0.90:
+                return None          # white-on-accent text stays white
+            if lum <= 0.35:
+                return 'var(--lpc-ink)'
+            if lum <= 0.60:
+                return 'var(--lpc-ink-soft)'
+            return 'var(--lpc-ink-mute)'
+        return None
+
+    # --- saturated ----------------------------------------------------------
+    # Status colours. The hue carries meaning (red = overdue, green = paid), so
+    # it is preserved and only the lightness is re-pitched for a dark surface.
+    if is_bg:
+        if lum >= 0.85:
+            # A pale status wash -> the same hue mixed into the card.
+            base = colorsys.hls_to_rgb(hue / 360.0, 0.55, max(sat, 0.65))
+            hexs = '#%02x%02x%02x' % tuple(int(round(c * 255)) for c in base)
+            return 'color-mix(in srgb, %s 18%%, var(--lpc-surface))' % hexs
+        return None                  # saturated fills already read on dark
+    if is_border:
+        base = colorsys.hls_to_rgb(hue / 360.0, 0.55, max(sat, 0.65))
+        hexs = '#%02x%02x%02x' % tuple(int(round(c * 255)) for c in base)
+        return 'color-mix(in srgb, %s 42%%, var(--lpc-border))' % hexs
+    if is_text:
+        if lum >= 0.72:
+            return None              # already light enough
+        # Dark status text -> the same hue at a lightness that clears AA on the
+        # tint above.
+        out = colorsys.hls_to_rgb(hue / 360.0, 0.78, min(max(sat, 0.55), 0.95))
+        return '#%02x%02x%02x' % tuple(int(round(c * 255)) for c in out)
+    return None
+
+
+def map_rgb_functions(prop, value):
+    """
+    Map rgb()/rgba() literals, preserving alpha.
+
+    Translucent fills are how the pages build scrims, glass panels and the
+    sticky save bar, and they cannot go through map_colour() unchanged because
+    the result has to stay translucent. The alpha is re-expressed as a
+    color-mix against `transparent`, which is the only way to blend a CSS
+    variable to a partial alpha without splitting it into channel components.
+
+    Fully-black translucent values (shadows, scrims) are left alone: they are
+    already correct on a dark surface, and lightening them would remove the
+    separation they exist to create.
+    """
+    out = []
+    for m in re.finditer(r'rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)',
+                         value):
+        literal = m.group(0)
+        r, g, b = (float(m.group(i)) / 255.0 for i in (1, 2, 3))
+        alpha = float(m.group(4)) if m.group(4) is not None else 1.0
+
+        if max(r, g, b) <= 0.15:
+            continue                      # black scrim / shadow — already right
+
+        mapped = map_colour(prop, '#%02x%02x%02x'
+                            % tuple(int(round(c * 255)) for c in (r, g, b)))
+        if not mapped:
+            continue
+        if alpha >= 0.999:
+            out.append((literal, mapped))
+        else:
+            out.append((literal, 'color-mix(in srgb, %s %d%%, transparent)'
+                        % (mapped, int(round(alpha * 100)))))
+    return out
+
+
+def strip_noise(block):
+    """Comments and @-blocks out. Both contain braces and would be parsed as
+    rules; @media print in particular must never be themed."""
+    block = re.sub(r'/\*.*?\*/', '', block, flags=re.S)
+    # Remove @keyframes / @media / @supports bodies (one level of nesting).
+    block = re.sub(r'@[a-z-]+[^{]*\{(?:[^{}]|\{[^{}]*\})*\}', '', block, flags=re.S)
+    return block
+
+
+def scan_page_styles():
+    """-> ordered list of (selector, [(prop, mapped_value)]) plus a source map."""
+    found = []
+    seen = set()
+    sources = {}
+
+    paths = []
+    for root in ('modules', 'includes', 'public'):
+        paths += glob.glob(os.path.join(APP_ROOT, root, '**', '*.php'), recursive=True)
+    paths.append(os.path.join(APP_ROOT, 'index.php'))
+
+    for path in sorted(paths):
+        rel = os.path.relpath(path, APP_ROOT).replace('\\', '/')
+        if any(rel == s or rel.startswith(s) for s in SKIP_PATHS):
+            continue
+        try:
+            src = open(path, encoding='utf-8', errors='replace').read()
+        except OSError:
+            continue
+
+        for block in re.findall(r'<style[^>]*>(.*?)</style>', src, re.S):
+            for m in re.finditer(r'([^{}]+)\{([^{}]*)\}', strip_noise(block)):
+                selector, body = m.group(1).strip(), m.group(2)
+                if not selector or selector.startswith('@'):
+                    continue
+                # Percentage keyframe steps that survived, and PHP that leaked
+                # into a selector position.
+                if re.match(r'^[\d.]+%$', selector) or '<?' in selector:
+                    continue
+
+                decls = []
+                for prop, val in re.findall(r'([a-z-]+)\s*:\s*([^;]+)', body):
+                    prop = prop.strip()
+                    val = val.strip()
+                    if prop not in ('color', 'background', 'background-color',
+                                    'border', 'border-color', 'border-top',
+                                    'border-bottom', 'border-left', 'border-right',
+                                    'accent-color'):
+                        continue
+                    if 'gradient' in val or '!important' in val:
+                        # Gradients are brand artwork; !important here is only
+                        # .reconciled-row, handled explicitly in §12.
+                        continue
+                    out = val
+                    changed = False
+
+                    # rgb()/rgba() first, because .lpc-savebar and .glass-panel
+                    # write their fill as rgba(255,255,255,.92) — a hex-only
+                    # scan leaves the sticky save bar and the glass panels
+                    # white on a dark page, which is exactly where the eye goes.
+                    for lit, mapped in map_rgb_functions(prop, val):
+                        out = out.replace(lit, mapped)
+                        changed = True
+
+                    for lit in re.findall(r'#[0-9a-fA-F]{3,8}', out):
+                        mapped = map_colour(prop, lit)
+                        if mapped:
+                            out = out.replace(lit, mapped)
+                            changed = True
+
+                    if changed:
+                        decls.append((prop, out))
+
+                if not decls:
+                    continue
+                for sel in [s.strip() for s in selector.split(',') if s.strip()]:
+                    key = (sel, tuple(decls))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    found.append((sel, decls))
+                    sources.setdefault(sel, rel)
+    return found, sources
+
+
+page_rules, page_sources = scan_page_styles()
+
+w('''
+/* ===========================================================================
+   14. Page-local component classes  (GENERATED BY SCANNING THE PAGES)
+   ---------------------------------------------------------------------------
+   Derived from the inline <style> blocks of the module pages — see
+   scripts/build_theme_css.py, scan_page_styles(). Do not hand-edit: fix the
+   colour in the page, or the mapping in map_colour(), and rebuild.
+
+   Colours are mapped by lightness and saturation rather than from a lookup
+   table, because these pages never shared a palette. #F9FAFB, #f8fafc, #f1f5f9
+   and #FCFCFD all mean "one step below the card"; all four land on
+   --lpc-surface-sunken without anyone maintaining a list. Saturated status
+   colours keep their hue (red still means overdue) and only get re-pitched for
+   a dark background.
+   ========================================================================= */
+''')
+w('/* %d rules generated from %d page selectors. */\n'
+  % (len(page_rules), len(page_sources)))
+
+_last_src = None
+for sel, decls in page_rules:
+    src = page_sources.get(sel)
+    if src != _last_src:
+        w('\n/* --- %s --- */\n' % src)
+        _last_src = src
+    body = ' '.join('%s: %s;' % (p, v) for p, v in decls)
+    w('%s %s { %s }\n' % (DARK, sel, body))
+
 w('''
 /* Printed output is always on white paper, so the dark theme is dropped
    wholesale for print rather than fixed rule by rule. */

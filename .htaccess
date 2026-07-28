@@ -139,6 +139,20 @@ ServerSignature Off
 #    Note: index.php currently ignores $_GET['route'] and just renders login.
 #    Deep URLs are filesystem-served. This rule is a fallback for missing paths.
 # -----------------------------------------------------------------------------
+# Never route /uploads/ through the front controller.
+#
+# WHY (debugged 2026-07-28): an avatar sat on disk at 0644, in the correct
+# directory, and the URL still returned the LOGIN PAGE — not a 403, not a 404.
+# Its parent directory was 0750, so Apache could not traverse in to stat the
+# file; `!-f` therefore evaluated true, the catch-all below fired, and
+# index.php rendered login. A permissions fault was disguised as an auth
+# redirect, and every <img> silently received text/html instead of JPEG.
+#
+# Excluding uploads/ means a genuine problem now surfaces honestly as 403 or
+# 404. This removes no protection: uploads/.htaccess still denies execution of
+# every scriptable extension in this tree.
+RewriteRule ^uploads/ - [L]
+
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^(.*)$ index.php?route=$1 [QSA,L]
