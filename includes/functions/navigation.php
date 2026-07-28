@@ -13,6 +13,27 @@
  * here, using the permission from the CATALOGUE, not from the profile. A profile
  * cannot grant anything; listing an item a user lacks permission for simply
  * drops it. Sections left with no visible items are omitted entirely.
+ *
+ * THE OVERLAY RULE (28 July 2026)
+ * -------------------------------
+ * Profiles are a PRESENTATION OVERLAY, not an allow-list. Concretely:
+ *
+ *   1. If you hold the permission, the item appears. No exceptions.
+ *   2. The profile decides where it sits and what it is called.
+ *   3. Anything you hold but the profile does not place falls into a catch-all
+ *      section at the end, under its neutral catalogue name.
+ *
+ * Rule 3 is the important one. Profiles used to be an allow-list, which meant a
+ * permission could be granted and the item still never appear — that is why the
+ * admin, holding almost every permission, could not see Écritures,
+ * Immobilisations or Déclarations Fiscales. It also meant every new module was
+ * invisible until someone remembered to edit nav.php. Now the nav is a true
+ * function of permissions, and curation only controls presentation.
+ *
+ * Corollary worth remembering: to hide something from a role, REVOKE THE
+ * PERMISSION — do not try to hide it by leaving it out of the profile. Hiding a
+ * menu item never protected a page anyway; Rbac::requirePermission() at the top
+ * of each page is the actual gate.
  * -----------------------------------------------------------------------------
  */
 
@@ -91,6 +112,39 @@ if (!function_exists('lpc_nav_sections')) {
                     : ($section['heading_fr'] ?? ''),
                 'collapsed' => (bool) ($section['collapsed'] ?? false),
                 'items'     => $items,
+            ];
+        }
+
+        // ---- Rule 3: auto-surface anything permitted but unplaced -------------
+        // Without this, granting a permission would not be enough to make an
+        // item appear, and every new module would stay invisible until someone
+        // edited nav.php. The nav is a function of permissions; the profile only
+        // curates presentation.
+        $placed = [];
+        foreach ($profile as $section) {
+            foreach (($section['items'] ?? []) as $entry) {
+                if (isset($entry['ref'])) { $placed[$entry['ref']] = true; }
+            }
+        }
+
+        $extra = [];
+        foreach ($catalogue as $ref => $base) {
+            if (isset($placed[$ref])) continue;
+            if (!Rbac::hasPermission($base['permission'])) continue;
+            $extra[] = [
+                'label'      => $en
+                    ? ($base['label_en'] ?? $base['label_fr'] ?? '')
+                    : ($base['label_fr'] ?? ''),
+                'href'       => $base['href'],
+                'icon'       => $base['icon'],
+                'permission' => $base['permission'],
+            ];
+        }
+        if ($extra) {
+            $out[] = [
+                'heading'   => $en ? 'Other Modules' : 'Autres Modules',
+                'collapsed' => true,
+                'items'     => $extra,
             ];
         }
 

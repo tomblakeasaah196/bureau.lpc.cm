@@ -27,6 +27,7 @@ $LPC_PERMISSIONS = [
         'dashboard.md.view'       => 'Voir tableau de bord Directeur Général',
         'dashboard.finance.view'  => 'Voir tableau de bord Finance',
         'dashboard.ops.view'      => 'Voir tableau de bord Opérations',
+        'dashboard.sales.view'   => 'Voir tableau de bord Ventes',
         'dashboard.driver.view'   => 'Voir tableau de bord Chauffeur',
     ],
 
@@ -179,7 +180,11 @@ $LPC_PERMISSIONS = [
  */
 $LPC_DEFAULT_ROLE_PERMISSIONS = [
 
-    'admin' => ['*'],  // MD / super-admin — every permission.
+    // NOTE: this '*' is the PHP-side shorthand only. The DB seed
+    // (001_rbac_seed.sql) enumerates every permission row for admin rather than
+    // granting a '*' row, and migration 028 narrows that set. Keep the two in
+    // mind together: this array documents intent, role_permissions is the truth.
+    'admin' => ['*'],  // MD / super-admin — every permission except driver-only tools.
 
     'accountant' => [
         'dashboard.finance.view',
@@ -226,6 +231,22 @@ $LPC_DEFAULT_ROLE_PERMISSIONS = [
         'operations.empties.view', 'operations.empties.create_cre',
         'fleet.vehicles.view', 'fleet.vehicles.assign', 'fleet.vehicles.maintenance',
         'admin.master_data.view',
+    ],
+
+    // Sales — sells: owns clients, quotes, orders and dispatch. Sees stock and
+    // client empties so they know what they can promise, and invoices READ-ONLY
+    // so they can see who is overdue before taking another order. Deliberately
+    // no cash handling (record_payment / validate_cash stay with finance), no
+    // stock movements, no accounting.
+    'sales' => [
+        'dashboard.sales.view',
+        'crm.clients.view', 'crm.clients.create', 'crm.clients.edit', 'crm.clients.convert',
+        'crm.proposals.view', 'crm.proposals.create',
+        'sales.orders.view', 'sales.orders.create', 'sales.orders.edit', 'sales.orders.dispatch',
+        'sales.deliveries.view', 'sales.deliveries.close',
+        'inventory.stock.view',
+        'operations.empties.view',
+        'accounting.invoices.view',
     ],
 
     'driver' => [

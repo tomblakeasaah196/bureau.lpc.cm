@@ -85,6 +85,7 @@ $CATALOGUE = [
   'dash_md'        => ['href'=>'/modules/dashboard/views/md_dashboard.php',      'icon'=>$I['grid'],      'permission'=>'dashboard.md.view',            'label_fr'=>'Direction Générale',      'label_en'=>'Management'],
   'dash_finance'   => ['href'=>'/modules/dashboard/views/finance_dashboard.php', 'icon'=>$I['wallet'],    'permission'=>'dashboard.finance.view',       'label_fr'=>'Finance',                 'label_en'=>'Finance'],
   'dash_ops'       => ['href'=>'/modules/dashboard/views/ops_dashboard.php',     'icon'=>$I['gauge'],     'permission'=>'dashboard.ops.view',           'label_fr'=>'Opérations',              'label_en'=>'Operations'],
+  'dash_sales'     => ['href'=>'/modules/dashboard/views/sales_dashboard.php',   'icon'=>$I['chart'],     'permission'=>'dashboard.sales.view',         'label_fr'=>'Ventes',                  'label_en'=>'Sales'],
   'dash_driver'    => ['href'=>'/modules/dashboard/views/driver_dashboard.php',  'icon'=>$I['truck'],     'permission'=>'dashboard.driver.view',        'label_fr'=>'Chauffeur',               'label_en'=>'Driver'],
 
   'crm_clients'    => ['href'=>'/modules/crm/clients.php',                       'icon'=>$I['users'],     'permission'=>'crm.clients.view',             'label_fr'=>'Base Clients',            'label_en'=>'Clients'],
@@ -129,6 +130,12 @@ $PROFILES = [
   'admin' => [
     ['heading_fr'=>'Stratégie & BI', 'heading_en'=>'Strategy & BI', 'collapsed'=>true, 'items'=>[
       ['ref'=>'dash_md',        'label_fr'=>'Tableau de Bord Exécutif', 'label_en'=>'Executive Dashboard'],
+      // The MD oversees the other three. Placed here rather than left to fall
+      // into "Autres Modules", which is where the overlay rule would otherwise
+      // put them since admin holds all three permissions.
+      ['ref'=>'dash_finance',   'label_fr'=>'Vue Finance',              'label_en'=>'Finance View'],
+      ['ref'=>'dash_ops',       'label_fr'=>'Vue Opérations',           'label_en'=>'Operations View'],
+      ['ref'=>'dash_sales',     'label_fr'=>'Vue Ventes',               'label_en'=>'Sales View'],
       ['ref'=>'analytics',      'label_fr'=>'Rapports Consolidés',      'label_en'=>'Consolidated Reports'],
     ]],
     ['heading_fr'=>'Commerce & CRM', 'heading_en'=>'Commerce & CRM', 'items'=>[
@@ -144,8 +151,11 @@ $PROFILES = [
     ]],
     ['heading_fr'=>'Comptabilité & Finance', 'heading_en'=>'Accounting & Finance', 'items'=>[
       ['ref'=>'acc_invoices',   'label_fr'=>'Facturation & AR',         'label_en'=>'Invoicing & AR'],
+      ['ref'=>'acc_journal',    'label_fr'=>'Écritures',                'label_en'=>'Journal Entries'],
       ['ref'=>'acc_ledger',     'label_fr'=>'Grand Livre OHADA',        'label_en'=>'OHADA Ledger'],
       ['ref'=>'acc_cashflow',   'label_fr'=>'Trésorerie & Banque',      'label_en'=>'Treasury & Bank'],
+      ['ref'=>'acc_assets',     'label_fr'=>'Immobilisations',          'label_en'=>'Fixed Assets'],
+      ['ref'=>'acc_tax',        'label_fr'=>'Déclarations Fiscales',    'label_en'=>'Tax Declarations'],
       ['ref'=>'acc_reports',    'label_fr'=>'Bilan & Résultat',         'label_en'=>'Balance Sheet & P&L'],
       ['ref'=>'acc_budgets',    'label_fr'=>'Budgets & Performance',    'label_en'=>'Budgets & Performance'],
     ]],
@@ -176,6 +186,7 @@ $PROFILES = [
       ['ref'=>'acc_ledger',     'label_fr'=>'Grand Livre',                  'label_en'=>'Ledger'],
       ['ref'=>'acc_assets',     'label_fr'=>'Immobilisations & Amortissements','label_en'=>'Assets & Depreciation'],
       ['ref'=>'acc_reports',    'label_fr'=>'États Financiers (Bilan)',     'label_en'=>'Financial Statements'],
+      ['ref'=>'acc_tax',        'label_fr'=>'Déclarations Fiscales',        'label_en'=>'Tax Declarations'],
     ]],
     ['heading_fr'=>'Contrôle & RH', 'heading_en'=>'Control & HR', 'items'=>[
       ['ref'=>'acc_budgets',    'label_fr'=>'Budgets & Cibles',             'label_en'=>'Budgets & Targets'],
@@ -212,6 +223,26 @@ $PROFILES = [
     ['heading_fr'=>'Mon Véhicule', 'heading_en'=>'My Vehicle', 'items'=>[
       ['ref'=>'fleet_fuel',     'label_fr'=>'Saisir Carburant',         'label_en'=>'Log Fuel'],
       ['ref'=>'fleet_break',    'label_fr'=>'Signaler une Panne',       'label_en'=>'Report Breakdown'],
+    ]],
+  ],
+  // --- SALES ---------------------------------------------------------------
+  'sales' => [
+    ['heading_fr'=>'Ma Performance', 'heading_en'=>'My Performance', 'items'=>[
+      ['ref'=>'dash_sales',     'label_fr'=>'Tableau de Bord Ventes',   'label_en'=>'Sales Dashboard'],
+    ]],
+    ['heading_fr'=>'Portefeuille Clients', 'heading_en'=>'Client Portfolio', 'items'=>[
+      ['ref'=>'crm_clients',    'label_fr'=>'Clients & Prospects',      'label_en'=>'Clients & Prospects'],
+    ]],
+    ['heading_fr'=>'Ventes', 'heading_en'=>'Sales', 'items'=>[
+      ['ref'=>'sales_orders',   'label_fr'=>'Commandes Clients',        'label_en'=>'Customer Orders'],
+      ['ref'=>'sales_orders',   'label_fr'=>'Dispatch & BL',            'label_en'=>'Dispatch & Delivery Notes', 'suffix'=>'#dispatch'],
+    ]],
+    ['heading_fr'=>'Disponibilité', 'heading_en'=>'Availability', 'items'=>[
+      ['ref'=>'inv_stock',      'label_fr'=>'État du Stock',            'label_en'=>'Stock Levels'],
+      ['ref'=>'ops_empties',    'label_fr'=>'Vides Clients',            'label_en'=>'Client Empties'],
+    ]],
+    ['heading_fr'=>'Suivi', 'heading_en'=>'Follow-up', 'items'=>[
+      ['ref'=>'acc_invoices',   'label_fr'=>'Encours Clients',          'label_en'=>'Client Receivables'],
     ]],
   ],
 ];
