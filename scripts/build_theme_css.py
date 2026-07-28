@@ -393,8 +393,26 @@ CHEVRON = ("url(\"data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' "
            "fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236F8378' "
            "stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' "
            "d='M6 8l4 4 4-4'/%3e%3c/svg%3e\")")
-w('%s select:not([multiple]):not([size]) { background-image: %s; }\n'
-  % (DARK, CHEVRON))
+w('%s select:not([multiple]):not([size]) {\n' % DARK)
+w('    background-image: %s;\n' % CHEVRON)
+# The three companions are NOT optional, and leaving them out is a real bug we
+# shipped once: the forms plugin sets image + position + repeat + size together
+# on `select`, but several page-local classes worn by selects (.lpc-input in
+# settings, .seamless-input in sales/orders) set the `background` SHORTHAND,
+# which resets repeat to `repeat`, position to `0% 0%` and size to `auto`.
+#
+# Those classes outrank the plugin's bare `select`, so in LIGHT mode the arrow
+# simply disappears — an old, unnoticed cosmetic bug. In dark mode this rule
+# outranks the class and put the image back, but the shorthand's `repeat` was
+# still in force, so the chevron tiled: six arrows across the Forme Juridique
+# field.
+#
+# Restating all four here makes the rule self-contained, so no shorthand
+# anywhere — including one added to a page tomorrow — can retile it.
+w('    background-position: right .5rem center;\n')
+w('    background-repeat: no-repeat;\n')
+w('    background-size: 1.5em 1.5em;\n')
+w('}\n')
 
 w('''
 /* Native date/time pickers render their calendar glyph as a dark bitmap. The

@@ -377,6 +377,25 @@
                     <input class="lpc-input is-error" value="!!">
                     <input class="lpc-input mt-2" value="Verrouillé" disabled>
                 </div>
+                <!-- Regression test for the tiled-chevron bug. This is the
+                     Forme Juridique control: a <select class="lpc-input">, the
+                     same combination settings-index.js:619 builds. .lpc-input
+                     sets the `background` SHORTHAND, which resets
+                     background-repeat to `repeat`; when §6 set only
+                     background-image, the arrow tiled six times across the
+                     field. Exactly one chevron, hard right, means fixed. -->
+                <div class="md:col-span-2">
+                    <label class="lpc-field-label">Forme juridique (&lt;select class="lpc-input"&gt;)</label>
+                    <select class="lpc-input">
+                        <option>Société à Responsabilité Limitée (SARL)</option>
+                        <option>Société Anonyme (SA)</option>
+                    </select>
+                    <p class="lpc-field-help">Un seul chevron, à droite. Six = régression.</p>
+                </div>
+                <div>
+                    <label class="lpc-field-label">Select nu (plugin forms seul)</label>
+                    <select class="w-full rounded-lg text-sm"><option>Douala</option></select>
+                </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">

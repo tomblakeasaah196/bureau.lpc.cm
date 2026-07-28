@@ -1271,7 +1271,12 @@ html[data-lpc-theme="dark"] select:focus {
    property, so nothing above reaches it — at 4.6:1 on the old white field it
    was fine and on the dark field it is nearly gone. Redrawn here in the mute
    ink colour. */
-html[data-lpc-theme="dark"] select:not([multiple]):not([size]) { background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236F8378' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e"); }
+html[data-lpc-theme="dark"] select:not([multiple]):not([size]) {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236F8378' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right .5rem center;
+    background-repeat: no-repeat;
+    background-size: 1.5em 1.5em;
+}
 
 /* Native date/time pickers render their calendar glyph as a dark bitmap. The
    filter is the only hook browsers expose for it. color-scheme:dark (set by
