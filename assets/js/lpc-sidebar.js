@@ -23,6 +23,41 @@
         if (btn) btn.setAttribute('aria-expanded', String(shouldOpen));
     };
 
+    // ---- Collapsible nav sections -------------------------------------------
+    // <details> already does the open/close. This only REMEMBERS the choice, so
+    // a section the user closed stays closed on the next page. Keyed per role's
+    // section index; the server still decides the first-visit default via
+    // nav.php's `collapsed` flag, which is why we only write on user action.
+    (function () {
+        var KEY = 'lpc.sidebar.sections';
+
+        function read() {
+            try { return JSON.parse(localStorage.getItem(KEY) || '{}'); }
+            catch (e) { return {}; }
+        }
+        function write(state) {
+            try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            var groups = document.querySelectorAll('#lpc-sidebar .lpc-nav-group[data-lpc-section]');
+            if (!groups.length) return;
+            var saved = read();
+
+            groups.forEach(function (g) {
+                var id = g.getAttribute('data-lpc-section');
+                if (Object.prototype.hasOwnProperty.call(saved, id)) {
+                    g.open = !!saved[id];
+                }
+                g.addEventListener('toggle', function () {
+                    var state = read();
+                    state[id] = g.open;
+                    write(state);
+                });
+            });
+        });
+    })();
+
     // Session inactivity auto-logout after N minutes.
     (function () {
         const LIMIT_MIN = 30;

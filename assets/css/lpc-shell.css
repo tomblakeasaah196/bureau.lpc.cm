@@ -171,13 +171,58 @@ html.lpc-collapsed #lpc-shell-main { margin-left: var(--lpc-sidebar-w-collapsed)
     border-radius: 3px;
 }
 
-/* Section headings */
+/* ---- Collapsible sections -------------------------------------------------
+   Built on <details>/<summary>: keyboard accessible and works with JS off.
+   Default open/closed comes from nav.php (`collapsed => true`); the user's own
+   toggling is then remembered per browser by lpc-sidebar.js. */
+#lpc-sidebar .lpc-nav-group { margin-bottom: .25rem; }
+
+#lpc-sidebar .lpc-nav-summary {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .375rem .75rem;
+    border-radius: var(--lpc-radius-sm);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    transition: background-color .14s ease;
+}
+#lpc-sidebar .lpc-nav-summary::-webkit-details-marker { display: none; }
+#lpc-sidebar .lpc-nav-summary:hover { background: rgba(255, 255, 255, .05); }
+
 #lpc-sidebar .lpc-sidebar-heading {
+    flex: 1 1 auto;
+    min-width: 0;
     color: var(--lpc-chrome-ink-mute);
+    font-size: .625rem;
     font-weight: 700;
     letter-spacing: .12em;
-    padding-bottom: .375rem;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
+#lpc-sidebar .lpc-nav-summary:hover .lpc-sidebar-heading { color: var(--lpc-chrome-ink-soft); }
+
+#lpc-sidebar .lpc-nav-chevron {
+    flex: 0 0 auto;
+    color: var(--lpc-chrome-ink-mute);
+    transform: rotate(-90deg);          /* closed: points right */
+    transition: transform .16s ease;
+}
+#lpc-sidebar .lpc-nav-group[open] > .lpc-nav-summary .lpc-nav-chevron {
+    transform: rotate(0deg);            /* open: points down */
+}
+
+/* A section that is open gets a little breathing room under its heading. */
+#lpc-sidebar .lpc-nav-group[open] > ul { margin-top: .125rem; }
+
+/* On the collapsed icon rail there is no room for headings, and a closed
+   section would hide its icons with no way to reveal them — so force every
+   section open and hide the summary entirely. */
+html.lpc-collapsed #lpc-sidebar .lpc-nav-summary { display: none; }
+html.lpc-collapsed #lpc-sidebar .lpc-nav-group > ul { display: block !important; }
 
 /* Nav links — one rest state, one hover state, one active state. */
 #lpc-sidebar .lpc-nav-link {

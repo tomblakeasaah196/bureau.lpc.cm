@@ -34,7 +34,7 @@ $initials   = mb_strtoupper($__i1 . $__i2, 'UTF-8');
 
 $__currentPath = strtok($_SERVER['REQUEST_URI'] ?? '', '?');
 
-$__nav = require __DIR__ . '/../config/nav.php';
+$__nav = lpc_nav_sections($lang);
 ?>
 <aside id="lpc-sidebar"
        role="navigation"
@@ -68,42 +68,39 @@ $__nav = require __DIR__ . '/../config/nav.php';
     <!-- Nav -->
     <div class="flex-1 overflow-y-auto py-3 px-3 space-y-4">
     <?php foreach ($__nav as $__sectionIdx => $__section):
-        // Skip section entirely if user can't see any of its items.
-        $__visible = array_filter($__section['items'], function ($it) {
-            return Rbac::hasPermission($it['permission']);
-        });
-        if (!$__visible) continue;
+        // lpc_nav_sections() has already dropped anything this user can't see,
+        // and omits a section entirely when none of its items survive.
         $__headingId = 'lpc-nav-heading-' . $__sectionIdx;
+        $__secKey    = 'sec' . $__sectionIdx;
     ?>
-        <div role="group" aria-labelledby="<?= $__headingId ?>">
-            <div id="<?= $__headingId ?>"
-                 class="lpc-sidebar-heading px-3 pb-1 text-[10px] uppercase tracking-widest">
-                <?= htmlspecialchars($lang === 'en' ? ($__section['heading_en'] ?? $__section['heading_fr']) : $__section['heading_fr']) ?>
-            </div>
-            <ul role="menu" class="space-y-0.5">
-                <?php foreach ($__visible as $__item):
-                    $__label = $lang === 'en' ? ($__item['label_en'] ?? $__item['label_fr']) : $__item['label_fr'];
-                    $__active = ($__currentPath === $__item['href']);
+        <details class="lpc-nav-group" data-lpc-section="<?= htmlspecialchars($__secKey) ?>"
+                 <?= $__section['collapsed'] ? '' : 'open' ?>>
+            <summary id="<?= $__headingId ?>" class="lpc-nav-summary lpc-focusable">
+                <span class="lpc-sidebar-heading"><?= htmlspecialchars($__section['heading']) ?></span>
+                <svg class="lpc-nav-chevron" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+                </svg>
+            </summary>
+            <ul role="menu" class="space-y-0.5" aria-labelledby="<?= $__headingId ?>">
+                <?php foreach ($__section['items'] as $__item):
+                    $__active = ($__currentPath === strtok($__item['href'], '#'));
                 ?>
                 <li role="none">
                     <a href="<?= htmlspecialchars($__item['href']) ?>"
                        role="menuitem"
                        data-perm="<?= htmlspecialchars($__item['permission']) ?>"
                        <?= $__active ? 'aria-current="page"' : '' ?>
-                       title="<?= htmlspecialchars($__label) ?>"
-                       class="lpc-focusable lpc-nav-link group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all
-                              <?= $__active
-                                  ? 'bg-emerald-500/20 text-white border border-emerald-400/30'
-                                  : 'text-white/70 hover:bg-white/5 hover:text-white border border-transparent' ?>">
+                       title="<?= htmlspecialchars($__item['label']) ?>"
+                       class="lpc-focusable lpc-nav-link group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all">
                         <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="<?= $__item['icon'] ?>"/>
                         </svg>
-                        <span class="truncate lpc-label"><?= htmlspecialchars($__label) ?></span>
+                        <span class="truncate lpc-label"><?= htmlspecialchars($__item['label']) ?></span>
                     </a>
                 </li>
                 <?php endforeach; ?>
             </ul>
-        </div>
+        </details>
     <?php endforeach; ?>
     </div>
 
@@ -164,5 +161,5 @@ if (!defined('LPC_SHELL_JS_EMITTED')) {
 // Free scope-local temporaries
 // Only this component's own __-prefixed temporaries. Never unset a generic
 // name here: an include shares the caller's scope and would wipe the page's var.
-unset($__parts, $__i1, $__i2, $__nav, $__visible, $__section, $__item, $__label, $__active, $__currentPath, $__sectionIdx, $__headingId);
+unset($__parts, $__i1, $__i2, $__nav, $__section, $__item, $__active, $__currentPath, $__sectionIdx, $__headingId, $__secKey);
 ?>

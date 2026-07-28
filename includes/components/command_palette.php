@@ -29,20 +29,14 @@ $en   = $lang === 'en';
 // -----------------------------------------------------------------------------
 // 1. Pages — straight from the nav config, RBAC-filtered.
 // -----------------------------------------------------------------------------
-$__nav   = require __DIR__ . '/../config/nav.php';
 $__index = [];
 
-foreach ($__nav as $__section) {
-    $__sectionLabel = $en
-        ? ($__section['heading_en'] ?? $__section['heading_fr'])
-        : $__section['heading_fr'];
-
+foreach (lpc_nav_sections($lang) as $__section) {
     foreach ($__section['items'] as $__item) {
-        if (!Rbac::hasPermission($__item['permission'])) continue;
         $__index[] = [
-            'g' => $en ? 'Pages' : 'Pages',
-            'l' => $en ? ($__item['label_en'] ?? $__item['label_fr']) : $__item['label_fr'],
-            'h' => $__sectionLabel,
+            'g' => 'Pages',
+            'l' => $__item['label'],
+            'h' => $__section['heading'],
             'u' => $__item['href'],
             'i' => $__item['icon'],
             'm' => '',
@@ -136,5 +130,5 @@ $__paletteStrings = [
 // variable scope, so unsetting a generic name like $en or $item destroys the
 // including page's variable — that is exactly what broke
 // modules/notifications/index.php after the topbar was rendered.
-unset($__nav, $__index, $__section, $__item, $__actions, $__a, $__plusIcon, $__paletteStrings, $__sectionLabel);
+unset($__index, $__section, $__item, $__actions, $__a, $__plusIcon, $__paletteStrings, $__sectionLabel);
 ?>

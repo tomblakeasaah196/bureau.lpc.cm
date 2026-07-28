@@ -84,6 +84,10 @@ require_once __DIR__ . '/functions/i18n.php';
 // unversioned asset paths broke production on 28 July 2026.
 require_once __DIR__ . '/functions/assets.php';
 
+// Navigation resolver — lpc_nav_sections(). Shared by the sidebar and the
+// command palette so they can never disagree about what a user can reach.
+require_once __DIR__ . '/functions/navigation.php';
+
 // 5b. Tag the DB session with the current user id so migration 007's
 //     AFTER INSERT/UPDATE/DELETE triggers can record WHO made a change.
 //     Silently degrades if DB isn't reachable — audit rows still land with
