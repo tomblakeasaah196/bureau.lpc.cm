@@ -171,11 +171,49 @@ function execute_sql_file(PDO $pdo, string $path): void {
     // per statement still lets a CREATE TRIGGER ... END body pass through
     // with its internal `;` characters intact, since we only split on the
     // *current* delimiter, not on every semicolon.
+    // THE SPLIT MUST BE STRING-AWARE.
+    //
+    // This used to end a statement at any LINE whose trimmed tail matched the
+    // delimiter. That is fine for schema DDL, where a `;` only ever appears as
+    // a terminator — and it broke the moment a migration inserted prose:
+    //
+    //     035_help_settings_articles.sql, an INSERT of help articles, contains
+    //     18 lines inside quoted bodies that end with a semicolon, because
+    //     that is how a bulleted list is punctuated in French and English:
+    //
+    //         "- le moteur fiscal reçoit la raison sociale, le NIU ;
+    //          - l'en-tête des PDF lit la fiche à chaque génération ;"
+    //
+    //     The splitter cut the statement at the first of them, and the server
+    //     received an INSERT ending in the middle of a string literal:
+    //
+    //         1064 ... near '"Avant la refonte, l'identité de la société
+    //         était stockée à trois endro...
+    //
+    // Fixing the 18 lines would have fixed one file and left the landmine
+    // armed for every future content migration. So the scanner below tracks
+    // string and comment state and only recognises a delimiter that is
+    // genuinely at statement level.
+    //
+    // It understands, because MySQL does:
+    //   '…'  "…"  `…`   — quoted, with backslash escapes AND doubled-quote
+    //                     escapes ('' and "") inside them
+    //   -- …  # …        — line comments, but only OUTSIDE a string
+    //   /* … */          — block comments, likewise
+    //
+    // DELIMITER is still handled line-wise: it is a mysql-client pseudo-command
+    // that must sit alone on its own line, so it can never appear mid-string.
     $delimiter = ';';
     $buffer    = '';
 
+    $inString  = null;   // "'", '"', '`', or null
+    $inComment = false;  // inside a /* … */ block
+
     foreach (preg_split('/\r\n|\n|\r/', $sql) as $line) {
-        if (preg_match('/^\s*DELIMITER\s+(\S+)\s*$/i', $line, $m)) {
+
+        // A DELIMITER directive only counts at statement level.
+        if ($inString === null && !$inComment
+            && preg_match('/^\s*DELIMITER\s+(\S+)\s*$/i', $line, $m)) {
             run_sql_statement($pdo, $buffer);
             $delimiter = $m[1];
             $buffer    = '';
@@ -184,13 +222,68 @@ function execute_sql_file(PDO $pdo, string $path): void {
 
         $buffer .= $line . "\n";
 
-        $trimmed = rtrim($buffer);
-        $dlen    = strlen($delimiter);
-        if ($dlen > 0 && substr($trimmed, -$dlen) === $delimiter) {
-            run_sql_statement($pdo, substr($trimmed, 0, -$dlen));
-            $buffer = '';
+        // Walk the line, maintaining state, and note where a delimiter lands
+        // at statement level. Only the LAST such position on the line matters:
+        // it is where this statement ends and the next begins.
+        $dlen   = strlen($delimiter);
+        $len    = strlen($line);
+        $cut    = null;   // byte offset within $line, just past the delimiter
+
+        for ($i = 0; $i < $len; $i++) {
+            $ch = $line[$i];
+
+            if ($inComment) {
+                if ($ch === '*' && ($i + 1) < $len && $line[$i + 1] === '/') { $inComment = false; $i++; }
+                continue;
+            }
+
+            if ($inString !== null) {
+                if ($ch === '\\') { $i++; continue; }                 // escaped char
+                if ($ch === $inString) {
+                    // A doubled quote is a literal quote, not the end.
+                    if (($i + 1) < $len && $line[$i + 1] === $inString) { $i++; continue; }
+                    $inString = null;
+                }
+                continue;
+            }
+
+            // --- statement level ---
+            if ($ch === "'" || $ch === '"' || $ch === '`') { $inString = $ch; continue; }
+            if ($ch === '#') break;                                    // line comment
+            if ($ch === '-' && ($i + 1) < $len && $line[$i + 1] === '-') {
+                // `--` is only a comment when followed by whitespace or EOL,
+                // which is what keeps `5--3` (5 minus negative 3) working.
+                if (($i + 2) >= $len || $line[$i + 2] === ' ' || $line[$i + 2] === "\t") break;
+            }
+            if ($ch === '/' && ($i + 1) < $len && $line[$i + 1] === '*') { $inComment = true; $i++; continue; }
+
+            if ($dlen > 0 && substr($line, $i, $dlen) === $delimiter) {
+                $cut = $i + $dlen;
+                $i  += $dlen - 1;
+            }
+        }
+
+        if ($cut !== null) {
+            // Everything buffered up to the delimiter is one statement. Any
+            // remainder on the same line (rare, but `A; B;` is legal) stays
+            // buffered for the next round.
+            $tailLen   = $len - $cut;
+            $stmtLen   = strlen($buffer) - 1 - $tailLen - $dlen;   // -1 for the "\n" we appended
+            $statement = substr($buffer, 0, $stmtLen);
+            $remainder = substr($line, $cut);
+
+            run_sql_statement($pdo, $statement);
+            $buffer = ($remainder === '' ? '' : $remainder . "\n");
         }
     }
+
+    if ($inString !== null) {
+        throw new RuntimeException(
+            "Unterminated $inString-quoted string in " . basename($path) .
+            " — the file ends inside a string literal."
+        );
+    }
+
     run_sql_statement($pdo, $buffer); // trailing statement with no terminator (defensive)
 }
 

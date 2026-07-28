@@ -1131,23 +1131,36 @@ html[data-lpc-reduce-motion="1"] *::after {
 #lpc-sidebar .lpc-user-trigger:hover      { background: var(--lpc-chrome-fill); }
 #lpc-sidebar .lpc-user-trigger[aria-expanded="true"] { background: var(--lpc-chrome-fill-hi); }
 
+/* TWO ELEMENTS, ONE CIRCLE.
+   .lpc-user-avatar is the ring and the anchor for the presence dot, so it
+   MUST keep overflow visible — the dot deliberately overhangs the rim.
+   .lpc-user-avatar-img is the clipper. Relying on the image's own
+   border-radius instead let a non-square photo render as an ellipse and spill
+   past the ring; a dedicated square, overflow-hidden box cannot. */
 #lpc-sidebar .lpc-user-avatar {
     position: relative;
     flex: 0 0 auto;
-    display: grid;
-    place-items: center;
     width: 2.5rem;
     height: 2.5rem;
     border-radius: 999px;
-    background: rgba(255, 255, 255, .12);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--lpc-accent-on-dark) 45%, transparent);
-    overflow: visible;
+    overflow: visible;              /* the presence dot lives outside the circle */
 }
-#lpc-sidebar .lpc-user-avatar img {
+#lpc-sidebar .lpc-user-avatar-img {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .12);
+    overflow: hidden;               /* nothing escapes this, ever */
+}
+#lpc-sidebar .lpc-user-avatar-img img {
+    display: block;
     width: 100%;
     height: 100%;
-    border-radius: 999px;
-    object-fit: cover;
+    object-fit: cover;              /* fill the circle, crop the overflow */
+    object-position: center;
 }
 #lpc-sidebar .lpc-user-avatar--lg { width: 2.75rem; height: 2.75rem; }
 #lpc-sidebar .lpc-user-initials {
@@ -1919,12 +1932,20 @@ html.lpc-collapsed #lpc-sidebar .lpc-brand-mark { width: 2.5rem; height: 2.5rem;
    by the hamburger, and a collapse control for a drawer that is already fully
    hidden would do nothing.
    ------------------------------------------------------------------------- */
-#lpc-sidebar .lpc-rail-toggle {
+.lpc-rail-toggle {
     display: none;                       /* shown at lg+ below */
-    position: absolute;
-    top: 5.25rem;                        /* just clear of the header block */
-    right: -0.85rem;
-    z-index: 45;                         /* over the workspace, under the menu */
+
+    /* FIXED, not absolute, and rendered outside the <aside> — see the comment
+       in includes/components/sidebar.php. The aside clips (overflow: hidden)
+       and creates a stacking context (transform), so a child could neither
+       overhang its edge nor rise above it. Offsetting from the sidebar-width
+       variable keeps the handle glued to the boundary in both rail states,
+       and the same variable drives the collapsed offset below. */
+    position: fixed;
+    top: 5.25rem;                        /* just clear of the brand block */
+    left: calc(var(--lpc-sidebar-w) - 0.85rem);
+    z-index: 60;                         /* above the topbar (30) and rail (40) */
+    transition: left .18s ease, transform .16s ease, box-shadow .2s ease, border-color .2s ease;
 
     width: 1.7rem;
     height: 1.7rem;
@@ -1952,21 +1973,21 @@ html.lpc-collapsed #lpc-sidebar .lpc-brand-mark { width: 2.5rem; height: 2.5rem;
 }
 
 @media (min-width: 1024px) {
-    #lpc-sidebar .lpc-rail-toggle { display: grid; place-items: center; }
+    .lpc-rail-toggle { display: grid; place-items: center; }
 }
 
-#lpc-sidebar .lpc-rail-toggle svg {
+.lpc-rail-toggle svg {
     width: .85rem;
     height: .85rem;
     transition: transform .2s ease;
 }
 
-/* Collapsed: the chevron points the other way. The button itself does not
-   move — the aside it is anchored to has already narrowed. */
-html.lpc-collapsed #lpc-sidebar .lpc-rail-toggle svg { transform: scaleX(-1); }
+/* Collapsed: the handle slides in with the rail and the chevron flips. */
+html.lpc-collapsed .lpc-rail-toggle     { left: calc(var(--lpc-sidebar-w-collapsed) - 0.85rem); }
+html.lpc-collapsed .lpc-rail-toggle svg { transform: scaleX(-1); }
 
-#lpc-sidebar .lpc-rail-toggle:hover,
-#lpc-sidebar .lpc-rail-toggle:focus-visible {
+.lpc-rail-toggle:hover,
+.lpc-rail-toggle:focus-visible {
     transform: scale(1.12);
     border-color: var(--lpc-accent-on-dark);
     box-shadow:
@@ -1976,7 +1997,7 @@ html.lpc-collapsed #lpc-sidebar .lpc-rail-toggle svg { transform: scaleX(-1); }
         0 3px 10px -3px rgba(0, 0, 0, .6);
     outline: none;
 }
-#lpc-sidebar .lpc-rail-toggle:active { transform: scale(.94); }
+.lpc-rail-toggle:active { transform: scale(.94); }
 
 /* ---- The once-per-session hint ------------------------------------------
    A short wiggle plus a brightening pulse, three times, then it stops for
@@ -2009,7 +2030,7 @@ html.lpc-collapsed #lpc-sidebar .lpc-rail-toggle svg { transform: scaleX(-1); }
                    0 0 38px -2px color-mix(in srgb, var(--lpc-accent-on-dark) 95%, transparent),
                    0 3px 8px -3px rgba(0,0,0,.55); }
 }
-#lpc-sidebar .lpc-rail-toggle.is-hinting {
+.lpc-rail-toggle.is-hinting {
     animation: lpc-rail-hint      1.6s ease-in-out 3,
                lpc-rail-hint-glow 1.6s ease-in-out 3;
 }
@@ -2017,10 +2038,10 @@ html.lpc-collapsed #lpc-sidebar .lpc-rail-toggle svg { transform: scaleX(-1); }
 /* Anyone who has asked for less motion — at OS level or in Mon profil —
    gets the glow pulse only, never the wiggle. */
 @media (prefers-reduced-motion: reduce) {
-    #lpc-sidebar .lpc-rail-toggle.is-hinting { animation: lpc-rail-hint-glow 1.6s ease-in-out 3; }
-    #lpc-sidebar .lpc-rail-toggle,
-    #lpc-sidebar .lpc-rail-toggle svg { transition: none; }
+    .lpc-rail-toggle.is-hinting { animation: lpc-rail-hint-glow 1.6s ease-in-out 3; }
+    .lpc-rail-toggle,
+    .lpc-rail-toggle svg { transition: none; }
 }
-html[data-lpc-reduce-motion="1"] #lpc-sidebar .lpc-rail-toggle.is-hinting {
+html[data-lpc-reduce-motion="1"] .lpc-rail-toggle.is-hinting {
     animation: lpc-rail-hint-glow 1.6s ease-in-out 3;
 }

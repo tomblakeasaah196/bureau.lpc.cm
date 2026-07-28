@@ -843,12 +843,13 @@
         root.querySelectorAll('.lpc-user-name, .lpc-user-menu-name').forEach(function (n) {
             n.textContent = p.displayName || '';
         });
-        root.querySelectorAll('.lpc-user-avatar').forEach(function (box) {
-            var presence = box.querySelector('.lpc-user-presence');
+        // Rewrite only the inner clipper, never .lpc-user-avatar itself — the
+        // presence dot is its sibling and blowing away the parent's innerHTML
+        // would delete the dot and its state along with the photo.
+        root.querySelectorAll('.lpc-user-avatar-img').forEach(function (box) {
             box.innerHTML = p.avatar
-                ? '<img src="' + esc(p.avatar) + '" alt="" width="40" height="40">'
+                ? '<img src="' + esc(p.avatar) + '" alt="">'
                 : '<span class="lpc-user-initials">' + esc(p.initials || '?') + '</span>';
-            if (presence) box.appendChild(presence);
         });
     }
 

@@ -91,30 +91,6 @@ $__nav = lpc_nav_sections($lang);
         </button>
     </div>
 
-    <?php
-    // ---------------------------------------------------------------------
-    // Collapse toggle — floats ON the sidebar's right edge.
-    //
-    // It used to live inside the header row, where it read as a third icon
-    // next to the logo and the mobile close button and nobody found it. On
-    // the edge it is what it does: a handle on the boundary it moves.
-    //
-    // Rendered as a sibling of the header rather than inside it so its
-    // absolute positioning is relative to the <aside>, which means it tracks
-    // the rail automatically when the sidebar collapses — no second position
-    // rule for the collapsed state.
-    // ---------------------------------------------------------------------
-    ?>
-    <button data-lpc-collapse-toggle
-            aria-expanded="true"
-            aria-controls="lpc-sidebar"
-            title="<?= $lang==='en'?'Collapse sidebar':'Réduire le menu' ?>"
-            aria-label="<?= $lang==='en'?'Collapse sidebar':'Réduire le menu' ?>"
-            class="lpc-focusable lpc-rail-toggle">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 19.5L8.25 12l7.5-7.5"/>
-        </svg>
-    </button>
 
     <!-- Nav -->
     <div class="flex-1 overflow-y-auto py-3 px-3 space-y-4">
@@ -183,12 +159,24 @@ $__nav = lpc_nav_sections($lang);
                 aria-expanded="false"
                 aria-controls="lpc-user-menu"
                 title="<?= htmlspecialchars($user_name) ?> — <?= $lang==='en'?'account menu':'menu du compte' ?>">
+            <?php
+            // TWO nested elements, deliberately.
+            //
+            // .lpc-user-avatar must keep overflow VISIBLE so the presence dot
+            // can overhang the rim. That means it cannot be the element doing
+            // the circular clipping, and a photo relying on its own
+            // border-radius escaped the circle whenever it was not perfectly
+            // square. .lpc-user-avatar-img is the clipper: overflow hidden,
+            // fixed square, nothing can leave it. The dot lives outside it.
+            ?>
             <span class="lpc-user-avatar">
-                <?php if ($avatar): ?>
-                    <img src="<?= htmlspecialchars($avatar) ?>" alt="" width="40" height="40">
-                <?php else: ?>
-                    <span class="lpc-user-initials"><?= htmlspecialchars($initials) ?></span>
-                <?php endif; ?>
+                <span class="lpc-user-avatar-img">
+                    <?php if ($avatar): ?>
+                        <img src="<?= htmlspecialchars($avatar) ?>" alt="">
+                    <?php else: ?>
+                        <span class="lpc-user-initials"><?= htmlspecialchars($initials) ?></span>
+                    <?php endif; ?>
+                </span>
                 <!-- Presence dot. Static green today; the notifications poller
                      flips it to away/offline once it starts reporting idle. -->
                 <span class="lpc-user-presence" data-lpc-presence="online" aria-hidden="true"></span>
@@ -211,11 +199,13 @@ $__nav = lpc_nav_sections($lang);
                  user can confirm which account they are about to act on. -->
             <div class="lpc-user-menu-head">
                 <span class="lpc-user-avatar lpc-user-avatar--lg">
-                    <?php if ($avatar): ?>
-                        <img src="<?= htmlspecialchars($avatar) ?>" alt="" width="44" height="44">
-                    <?php else: ?>
-                        <span class="lpc-user-initials"><?= htmlspecialchars($initials) ?></span>
-                    <?php endif; ?>
+                    <span class="lpc-user-avatar-img">
+                        <?php if ($avatar): ?>
+                            <img src="<?= htmlspecialchars($avatar) ?>" alt="">
+                        <?php else: ?>
+                            <span class="lpc-user-initials"><?= htmlspecialchars($initials) ?></span>
+                        <?php endif; ?>
+                    </span>
                 </span>
                 <span class="lpc-user-menu-id">
                     <span class="lpc-user-menu-name"><?= htmlspecialchars($user_name) ?></span>
@@ -278,6 +268,38 @@ $__nav = lpc_nav_sections($lang);
         </div>
     </div>
 </aside>
+
+<?php
+// -----------------------------------------------------------------------------
+// Collapse toggle — a floating handle on the sidebar's right edge.
+//
+// IT LIVES OUTSIDE THE <aside>, AND THAT IS THE WHOLE POINT.
+//   First attempt put it inside, absolutely positioned at `right: -0.85rem`.
+//   #lpc-sidebar carries `overflow: hidden` (the nav list is the only scroll
+//   area), so the half of the button hanging past the edge was simply clipped
+//   away — it looked like the workspace was painting over it, but nothing was
+//   ever drawn there at all. No z-index could have fixed that; a clipped
+//   element is not a stacked one.
+//
+//   As a sibling it is `position: fixed`, offset from the left by the sidebar
+//   width variable. That also frees it from the <aside>'s stacking context —
+//   the aside has a `transform` for the mobile slide-in, which would otherwise
+//   trap any child beneath the aside's own z-index no matter what it asked for.
+//
+// Before this it sat in the header row as a third anonymous icon beside the
+// logo and the mobile close button, and nobody found it.
+// -----------------------------------------------------------------------------
+?>
+<button data-lpc-collapse-toggle
+        aria-expanded="true"
+        aria-controls="lpc-sidebar"
+        title="<?= $lang==='en'?'Collapse sidebar':'Réduire le menu' ?>"
+        aria-label="<?= $lang==='en'?'Collapse sidebar':'Réduire le menu' ?>"
+        class="lpc-focusable lpc-rail-toggle">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 19.5L8.25 12l7.5-7.5"/>
+    </svg>
+</button>
 
 <!-- Mobile hamburger + backdrop -->
 <button id="lpc-sidebar-toggle"
