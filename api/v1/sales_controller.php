@@ -494,6 +494,15 @@ try {
                 $stmtInvOut->execute([$item['product_id'], $item['quantity'], $delivery_id, $user_id]);
             }
 
+            // Sprint 9 · migration 041: mirror the physical stock movement in
+            // the ledger — Dr 6031 / Cr 31x, valued at CUMP, per category.
+            // Until now inventory_movements was the only record that anything
+            // had left the warehouse, so stock value on the balance sheet only
+            // ever grew. Same transaction: if the JE won't balance, the
+            // dispatch rolls back with it.
+            require_once __DIR__ . '/../../includes/classes/JournalPoster.php';
+            JournalPoster::postDeliveryCogs((int) $delivery_id, $date, $reference);
+
             $db->prepare("UPDATE sales_orders SET status = 'dispatched' WHERE id = ?")
                ->execute([$so_id]);
             $db->commit();

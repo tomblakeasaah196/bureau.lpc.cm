@@ -190,16 +190,211 @@ final class JournalPoster
         if ($tva > 0 && !$tva_coa) throw new RuntimeException("JournalPoster: 4432 (TVA collectée) not mapped — run migration 020.");
         if ($air > 0 && !$air_coa) throw new RuntimeException("JournalPoster: 4424 (AIR à récupérer) not mapped — run migration 020.");
 
+        // Sprint 9 · migration 041: split the revenue credit across the accounts
+        // the products themselves point at, instead of dumping the whole
+        // subtotal on 701. Falls back to a single $revenue_coa line when the
+        // mapping isn't available, so behaviour is unchanged pre-migration.
+        $revenue_split = self::splitRevenueByProduct($db, (int) $invoice_id, $subtotal, $revenue_coa);
+
         $ref  = 'INV-' . $inv['reference'];
         $desc = "Émission facture #{$inv['reference']} (client #{$inv['client_id']})";
         $je_id = self::createDraftJe($db, $ref, 'VT', (string)$inv['date'], $desc, $user_id);
         if ($net_payable > 0) self::addLine($db, $je_id, $client_coa,  $net_payable, 0.0);
         if ($air > 0)         self::addLine($db, $je_id, $air_coa,     $air,          0.0);
-        self::addLine($db, $je_id, $revenue_coa, 0.0, $subtotal);
+        foreach ($revenue_split as $coa_id => $amount) {
+            if ($amount > 0) self::addLine($db, $je_id, (int) $coa_id, 0.0, $amount);
+        }
         if ($tva > 0)         self::addLine($db, $je_id, $tva_coa,     0.0, $tva);
         self::post($db, $je_id, $user_id);
 
         return $je_id;
+    }
+
+    /**
+     * Allocate an invoice subtotal across revenue accounts, one bucket per
+     * distinct account the invoice's products resolve to.
+     *
+     * Resolution order per product (see migration 041):
+     *   products.revenue_account_id            — per-SKU override, usually NULL
+     *   product_categories.revenue_account_id  — the normal path
+     *   $fallback_coa                          — 701, as before
+     *
+     * ROUNDING. Line shares are computed against the summed line values, then
+     * scaled to the invoice subtotal (which can differ — discounts, manual
+     * edits). FCFA has no subunit, so each bucket is rounded to a whole franc
+     * and the residual is pushed onto the largest bucket. Without that last
+     * step a three-category invoice can drift a franc or two and
+     * post_journal_entry raises SIGNAL 45000, rolling back the whole invoice.
+     *
+     * @return array<int,float>  chart_of_accounts.id => credit amount
+     */
+    private static function splitRevenueByProduct(PDO $db, int $invoice_id, float $subtotal, int $fallback_coa): array
+    {
+        $subtotal = self::roundFcfa($subtotal);
+        if ($subtotal <= 0) return [];
+        if (!self::hasProductAccountMapping($db)) return [$fallback_coa => $subtotal];
+
+        try {
+            $stmt = $db->prepare("
+                SELECT COALESCE(p.revenue_account_id, pc.revenue_account_id) AS coa_id,
+                       SUM(ii.quantity * ii.unit_price)                      AS line_value
+                  FROM invoice_items ii
+                  LEFT JOIN products           p  ON p.id  = ii.product_id
+                  LEFT JOIN product_categories pc ON pc.id = p.category_id
+                 WHERE ii.invoice_id = ?
+                 GROUP BY COALESCE(p.revenue_account_id, pc.revenue_account_id)
+            ");
+            $stmt->execute([$invoice_id]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            // Never let an accounting refinement break invoicing.
+            error_log('JournalPoster::splitRevenueByProduct fell back to 701 — ' . $e->getMessage());
+            return [$fallback_coa => $subtotal];
+        }
+
+        $total_lines = 0.0;
+        foreach ($rows as $r) $total_lines += (float) $r['line_value'];
+        if (!$rows || $total_lines <= 0) return [$fallback_coa => $subtotal];
+
+        $buckets = [];
+        foreach ($rows as $r) {
+            $coa = !empty($r['coa_id']) ? (int) $r['coa_id'] : $fallback_coa;
+            $buckets[$coa] = ($buckets[$coa] ?? 0.0)
+                           + self::roundFcfa($subtotal * ((float) $r['line_value'] / $total_lines));
+        }
+
+        // Force the buckets to sum to the subtotal exactly.
+        $drift = $subtotal - array_sum($buckets);
+        if (abs($drift) >= 0.5) {
+            $largest = array_keys($buckets, max($buckets))[0];
+            $buckets[$largest] = self::roundFcfa($buckets[$largest] + $drift);
+        }
+
+        return $buckets;
+    }
+
+    /**
+     * Cost of goods sold for a dispatch, valued at CUMP.
+     *
+     *   Debit  6031 Variations des stocks de marchandises   qty x cump
+     *   Credit 31x  Stocks (per product category)           qty x cump
+     *
+     * WHY HERE: stock physically leaves in sales_controller::generate_dispatch,
+     * which writes the inventory_movements 'out_delivery' rows. Until now
+     * nothing mirrored that in the ledger, so stock value on the balance sheet
+     * only ever grew — receptions debited 601 and updated products.cump, and
+     * the outbound side was silent.
+     *
+     * Called from inside the caller's transaction, like every other method
+     * here. A product with cump = 0 (never received through procurement)
+     * contributes nothing and is skipped rather than posting a zero line.
+     *
+     * KNOWN LIMIT: this values delivery_items.quantity (dispatched), not
+     * delivered_quantity (accepted after the client's adjustments). That is
+     * deliberate — it mirrors inventory_movements, which also books the full
+     * dispatched quantity as 'out_delivery' and handles refusals separately
+     * via 'in_return_emp' / 'in_adjustment'. Stock and ledger therefore agree.
+     * Wire the return path through reverseSource('delivery', $id) if you later
+     * want partial refusals to unwind the COGS entry too.
+     *
+     * @param int   $delivery_id  deliveries.id (already inserted)
+     * @param string $date        dispatch date, Y-m-d
+     * @param string $reference   the BL reference, for the JE description
+     * @return int|null           journal_entries.id, or null when there is
+     *                            nothing to value (all CUMP zero, or the
+     *                            account mapping isn't installed yet)
+     */
+    public static function postDeliveryCogs(int $delivery_id, string $date, string $reference): ?int
+    {
+        $db      = Database::getInstance()->getConnection();
+        $user_id = (int) ($_SESSION['user_id'] ?? 0);
+
+        if (!self::hasProductAccountMapping($db)) return null;
+
+        $cogs_default = self::coaByOhada($db, '6031');
+        if (!$cogs_default) {
+            error_log('JournalPoster::postDeliveryCogs — 6031 not mapped; apply migration 041. Skipping COGS.');
+            return null;
+        }
+
+        // Value at CUMP, grouped by the stock account each product resolves to.
+        $stmt = $db->prepare("
+            SELECT COALESCE(p.stock_account_id, pc.stock_account_id) AS stock_coa,
+                   COALESCE(p.cogs_account_id,  pc.cogs_account_id)  AS cogs_coa,
+                   SUM(di.quantity * p.cump)                         AS value_out
+              FROM delivery_items di
+              JOIN products           p  ON p.id  = di.product_id
+              LEFT JOIN product_categories pc ON pc.id = p.category_id
+             WHERE di.delivery_id = ?
+               AND p.cump > 0
+             GROUP BY COALESCE(p.stock_account_id, pc.stock_account_id),
+                      COALESCE(p.cogs_account_id,  pc.cogs_account_id)
+        ");
+        $stmt->execute([$delivery_id]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $lines = [];
+        $total = 0.0;
+        foreach ($rows as $r) {
+            $value = self::roundFcfa((float) $r['value_out']);
+            if ($value <= 0) continue;
+            if (empty($r['stock_coa'])) {
+                // No stock account for this category — refuse to guess. The
+                // dispatch still succeeds; the accountant sees the log.
+                error_log("JournalPoster::postDeliveryCogs — delivery #{$delivery_id}: "
+                        . "no stock account mapped for one category, {$value} FCFA not posted.");
+                continue;
+            }
+            $lines[] = [
+                'stock' => (int) $r['stock_coa'],
+                'cogs'  => !empty($r['cogs_coa']) ? (int) $r['cogs_coa'] : $cogs_default,
+                'value' => $value,
+            ];
+            $total += $value;
+        }
+        if ($total <= 0) return null;
+
+        $je_id = self::createDraftJe(
+            $db, 'COGS-' . $reference, 'OD', $date,
+            "Sortie de stock sur BL {$reference} (valorisée au CUMP)", $user_id,
+            'delivery', $delivery_id
+        );
+        foreach ($lines as $l) {
+            self::addLine($db, $je_id, $l['cogs'],  $l['value'], 0.0);
+            self::addLine($db, $je_id, $l['stock'], 0.0,         $l['value']);
+        }
+        self::post($db, $je_id, $user_id);
+
+        return $je_id;
+    }
+
+    /**
+     * True once migration 041 has been applied — i.e. products carries the
+     * account-override columns and product_categories exists.
+     *
+     * Cached per request. The two methods above call this so that an install
+     * running the new code against an un-migrated database keeps posting
+     * exactly as it did before rather than fatalling mid-invoice.
+     */
+    private static function hasProductAccountMapping(PDO $db): bool
+    {
+        static $has = null;
+        if ($has !== null) return $has;
+
+        $n = (int) $db->query("
+            SELECT COUNT(*) FROM information_schema.columns
+             WHERE table_schema = DATABASE()
+               AND table_name   = 'products'
+               AND column_name IN ('category_id','revenue_account_id','stock_account_id','cogs_account_id')
+        ")->fetchColumn();
+
+        $t = (int) $db->query("
+            SELECT COUNT(*) FROM information_schema.tables
+             WHERE table_schema = DATABASE()
+               AND table_name   = 'product_categories'
+        ")->fetchColumn();
+
+        return $has = ($n === 4 && $t === 1);
     }
 
     /**

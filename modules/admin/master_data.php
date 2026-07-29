@@ -68,6 +68,14 @@ $lang = lpc_i18n_current_lang();
         </div>
     </div>
 
+    <!--
+      Sprint 9: second modal layer, stacked ON TOP of #mdmModal (z-[60] vs
+      z-50) so "＋ Nouvelle catégorie" / "＋ Nouvel emballage" can open without
+      unmounting the half-filled product form underneath. Content is injected
+      by openStacked() in admin-master_data.js.
+    -->
+    <div id="mdmStackedModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/60 backdrop-blur-sm p-4 transition-opacity"></div>
+
     <script src="<?= lpc_asset('/assets/js/modules/admin-master_data.js') ?>" defer></script>
 </body>
 </html>

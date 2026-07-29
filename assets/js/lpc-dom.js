@@ -41,7 +41,21 @@
     if (window.LPC.html) return;   // already loaded
 
     // Sentinel class for "trusted raw HTML".
-    class RawHtml { constructor(s) { this.s = String(s); } }
+    //
+    // toString() matters more than it looks. `coerce()` below unwraps RawHtml
+    // when it goes through an LPC.html`...` tagged template — but a plain
+    // untagged template literal never calls coerce, it calls String(), and the
+    // default Object.prototype.toString yields the literal text
+    // "[object Object]". That is exactly what was rendering in the Actions
+    // column of the Master Data table: `tr += \`...${LPC.raw(btn)}...\`` on an
+    // untagged literal. Roughly ten call sites across the accounting and admin
+    // modules use the same shape, so the fix belongs here rather than in each
+    // of them. Escaping is unaffected: coerce() still intercepts RawHtml first,
+    // and everything that is NOT RawHtml still gets escaped.
+    class RawHtml {
+        constructor(s) { this.s = String(s); }
+        toString() { return this.s; }
+    }
 
     function escapeHtml(str) {
         if (str === null || str === undefined) return '';
