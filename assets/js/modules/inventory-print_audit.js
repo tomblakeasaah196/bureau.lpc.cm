@@ -19,7 +19,7 @@
 
         function downloadPDF() {
             const element = document.getElementById('inventory-document');
-            const reference = "window.PAGE_DATA.v1";
+            const reference = window.PAGE_DATA.v1;
             
             document.querySelector('.print-btn').style.display = 'none';
 

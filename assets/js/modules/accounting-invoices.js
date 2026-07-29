@@ -50,8 +50,13 @@
             dueDate.setDate(dueDate.getDate() + 30); // Default standard Net 30
             document.getElementById('gen_due_date').valueAsDate = dueDate;
             
-            // Navigate to default view
-            switchTab('dashboard');
+            // Navigate to default view. A #hash lets another page deep-link
+            // straight to a register — the sales dashboard's "encours en
+            // retard" card arrives at #invoices_payments. Whitelisted, so an
+            // arbitrary fragment can never reach switchTab.
+            const VALID_TABS = ['dashboard', 'to_invoice', 'invoices_payments', 'wallets'];
+            const hash = (window.location.hash || '').replace('#', '');
+            switchTab(VALID_TABS.includes(hash) ? hash : 'dashboard');
             
             // Pre-fetch clients list for payment UI
             fetchClientsList();

@@ -103,8 +103,8 @@
                         data: {
                             labels: data.charts.budget_vs_actual.labels,
                             datasets: [
-                            { label: 'window.PAGE_DATA.v1', data: data.charts.budget_vs_actual.actuals, backgroundColor: '#005A2B', borderRadius: 4 },
-                            { label: 'window.PAGE_DATA.v2', data: data.charts.budget_vs_actual.targets, backgroundColor: '#8CC63F', borderRadius: 4 }
+                            { label: window.PAGE_DATA.v1, data: data.charts.budget_vs_actual.actuals, backgroundColor: '#005A2B', borderRadius: 4 },
+                            { label: window.PAGE_DATA.v2, data: data.charts.budget_vs_actual.targets, backgroundColor: '#8CC63F', borderRadius: 4 }
                             ]
                         },
                         options: {

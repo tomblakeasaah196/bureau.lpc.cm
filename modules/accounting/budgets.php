@@ -198,11 +198,26 @@ $user_role = $_SESSION['user_role'];
             </div>
 
             <div id="content-performance" class="tab-content flex-col h-full gap-6 overflow-y-auto pr-2">
-                
+
+                <?php /* Until 29 July 2026 every figure on this tab was a
+                         hardcoded constant in budget_controller.php. They are
+                         now real queries — and the targets they compare against
+                         come from `performance_targets`, which had no write
+                         path anywhere in the app. This button is that write
+                         path. */ ?>
+                <?php if (Rbac::hasPermission('accounting.budgets.create')): ?>
+                <div class="flex justify-end shrink-0">
+                    <button type="button" onclick="openTargetsModal()"
+                            class="bg-lpc-dark hover:bg-green-800 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2">
+                        <i class="fas fa-bullseye"></i> Définir les objectifs
+                    </button>
+                </div>
+                <?php endif; ?>
+
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 shrink-0">
                     <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
                         <h3 class="font-black text-gray-800 text-sm uppercase tracking-widest mb-6 border-b border-gray-100 pb-2"><?= htmlspecialchars(__t('ui.x.repartition_revenus_b2b_vs_b2c')) ?></h3>
-                        
+
                         <div class="mb-6">
                             <div class="flex justify-between text-xs font-black uppercase mb-2">
                                 <span class="text-blue-600"><?= htmlspecialchars(__t('ui.x.b2c_menages')) ?></span>
@@ -222,6 +237,13 @@ $user_role = $_SESSION['user_role'];
                                 <div class="bg-indigo-800 h-full transition-all" id="bar_perf_b2b" style="width: 0%"></div>
                             </div>
                         </div>
+
+                        <?php /* Revenue that matched neither segment. Populated
+                                 by renderPerformance(). On current live data
+                                 this is nearly all of it: clients.type holds
+                                 company names, not segments. */ ?>
+                        <p id="perf_unclassified"
+                           class="hidden text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-5"></p>
                     </div>
 
                     <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between">
@@ -364,6 +386,80 @@ $user_role = $_SESSION['user_role'];
 
         </main>
     </div>
+
+    <?php /* ---------------------------------------------------------------
+             Objectifs de performance (performance_targets).
+
+             This modal is the ONLY way a row ever gets into that table. Before
+             it existed the table was empty in production, so the Performance
+             tab above and modules/dashboard/views/sales_dashboard.php had
+             nothing real to compare actuals against — which is how a hardcoded
+             `'b2c_target' => 50000000` ended up being shown to finance as if it
+             were a figure.
+
+             One segment at a time, twelve months at once: that matches how the
+             targets are actually agreed (an annual B2B number and an annual B2C
+             number, split across the year), and keeps the form to one screen.
+             --------------------------------------------------------------- */ ?>
+    <?php if (Rbac::hasPermission('accounting.budgets.create')): ?>
+    <div id="modal-targets" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col animate-slide-up border border-lpc-dark">
+            <div class="bg-lpc-dark px-6 py-5 flex justify-between items-center text-white shrink-0">
+                <h3 class="font-black text-lg tracking-wide flex items-center gap-3">
+                    <i class="fas fa-bullseye"></i> Objectifs de performance
+                </h3>
+                <button type="button" onclick="closeModal('modal-targets')" aria-label="Fermer"
+                        class="text-green-100 hover:text-white transition-colors w-8 h-8 flex items-center justify-center"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="px-6 py-4 bg-slate-50 border-b border-gray-200 shrink-0 flex items-end gap-4">
+                <div>
+                    <label for="tg_segment" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Segment</label>
+                    <select id="tg_segment" class="bg-white border border-gray-200 rounded-xl p-2.5 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
+                        <option value="B2C">B2C — Ménages</option>
+                        <option value="B2B">B2B — Entreprises</option>
+                    </select>
+                </div>
+                <div class="flex-1">
+                    <p class="text-xs text-gray-500 font-medium">
+                        Exercice <span id="tg_year_label" class="font-black text-gray-800">—</span>.
+                        Les objectifs sont rattachés au budget de cet exercice ; sans budget, la saisie est refusée.
+                    </p>
+                </div>
+                <button type="button" onclick="fillTargetsEvenly()"
+                        class="text-xs font-bold text-lpc-dark underline hover:no-underline whitespace-nowrap">
+                    Répartir un total annuel
+                </button>
+            </div>
+
+            <div class="p-6 overflow-y-auto flex-1">
+                <table class="min-w-full text-sm">
+                    <thead>
+                        <tr class="text-[10px] uppercase text-gray-400 font-black tracking-widest">
+                            <th class="text-left pb-3">Mois</th>
+                            <th class="text-right pb-3">CA cible (FCFA)</th>
+                            <th class="text-right pb-3">Vol. 20L</th>
+                            <th class="text-right pb-3">Vol. 1,5L</th>
+                            <th class="text-right pb-3">Dette vides max (%)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tg_rows" class="divide-y divide-gray-100"></tbody>
+                </table>
+            </div>
+
+            <div class="bg-white px-6 py-4 border-t border-gray-200 flex justify-between items-center gap-3 shrink-0">
+                <p id="tg_feedback" role="alert" class="text-xs font-bold"></p>
+                <div class="flex gap-3">
+                    <button type="button" onclick="closeModal('modal-targets')" class="px-5 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900">Annuler</button>
+                    <button type="button" id="tg_save" onclick="saveTargets()"
+                            class="bg-lpc-dark hover:bg-green-800 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all">
+                        Enregistrer
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <div id="modal-transfer" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up border border-amber-500">

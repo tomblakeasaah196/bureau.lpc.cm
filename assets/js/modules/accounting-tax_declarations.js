@@ -164,13 +164,12 @@ async function loadSettings() {
         // Settings aren't in dashboard payload; do a follow-up server round-trip.
     } catch(e){}
     // Fallback: static display fed by PHP-side dump.
-    document.getElementById('s_regime').textContent = 'window.PAGE_DATA.v1';
+    document.getElementById('s_regime').textContent = window.PAGE_DATA.v1;
     document.getElementById('s_air').textContent    = ((window.PAGE_DATA.v2)*100).toFixed(2)+' %';
     document.getElementById('s_tva').textContent    = ((window.PAGE_DATA.v3)*100).toFixed(2)+' %';
     document.getElementById('s_cit').textContent    = ((window.PAGE_DATA.v4)*100).toFixed(2)+' %';
-    document.getElementById('s_cnps').textContent   = 'Groupe window.PAGE_DATA.v5';
-    document.getElementById('s_niu').textContent    = 'window.PAGE_DATA.v6';
+    document.getElementById('s_cnps').textContent   = window.PAGE_DATA.v7 + ' ' + window.PAGE_DATA.v5;
+    document.getElementById('s_niu').textContent    = window.PAGE_DATA.v6;
 }
 
-window.PAGE_DATA.v7
 document.addEventListener('DOMContentLoaded', loadDashboard);

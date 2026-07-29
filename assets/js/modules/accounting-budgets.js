@@ -17,7 +17,13 @@
         const fmt = (num) => LPC.fmt.int(num || 0);
 
         window.onload = () => {
-            switchTab('dashboard');
+            // Honour a #hash so other pages can deep-link to a tab — the sales
+            // dashboard's "aucun objectif défini" banner links here as
+            // budgets.php#performance. Whitelisted, so an arbitrary fragment
+            // can never reach switchTab.
+            const VALID_TABS = ['dashboard', 'budget_lines', 'performance', 'transfers', 'generator'];
+            const hash = (window.location.hash || '').replace('#', '');
+            switchTab(VALID_TABS.includes(hash) ? hash : 'dashboard');
         };
 
         function refreshAllTabs() {
@@ -176,25 +182,62 @@
         }
 
         function renderPerformance(data) {
-            // B2C vs B2B
-            const pctC = data.targets.b2c_target > 0 ? (data.targets.b2c_actual / data.targets.b2c_target)*100 : 0;
-            const pctB = data.targets.b2b_target > 0 ? (data.targets.b2b_actual / data.targets.b2b_target)*100 : 0;
-            
+            /* Every target here can legitimately be null — performance_targets
+               is empty until finance saves one (see the modal on this tab).
+               null renders as "Non défini", never as 0 and never as NaN: a
+               target of zero and an absent target must not look identical
+               (README §5.8). Before 29 July 2026 all six of these numbers were
+               hardcoded constants in budget_controller.php. */
+            const NOT_SET = 'Non défini';
+            const isSet = v => v !== null && v !== undefined && v !== '';
+
+            // B2C vs B2B. A bar with no target behind it stays empty rather
+            // than filling to an imaginary denominator.
+            const pctC = isSet(data.targets.b2c_target) && data.targets.b2c_target > 0
+                ? (data.targets.b2c_actual / data.targets.b2c_target) * 100 : 0;
+            const pctB = isSet(data.targets.b2b_target) && data.targets.b2b_target > 0
+                ? (data.targets.b2b_actual / data.targets.b2b_target) * 100 : 0;
+
             document.getElementById('perf_b2c_actual').innerText = fmt(data.targets.b2c_actual);
-            document.getElementById('perf_b2c_target').innerText = fmt(data.targets.b2c_target);
+            document.getElementById('perf_b2c_target').innerText = isSet(data.targets.b2c_target) ? fmt(data.targets.b2c_target) : NOT_SET;
             document.getElementById('bar_perf_b2c').style.width = Math.min(100, pctC) + '%';
 
             document.getElementById('perf_b2b_actual').innerText = fmt(data.targets.b2b_actual);
-            document.getElementById('perf_b2b_target').innerText = fmt(data.targets.b2b_target);
+            document.getElementById('perf_b2b_target').innerText = isSet(data.targets.b2b_target) ? fmt(data.targets.b2b_target) : NOT_SET;
             document.getElementById('bar_perf_b2b').style.width = Math.min(100, pctB) + '%';
 
-            // KPI
-            const returnRate = parseFloat(data.kpis.empties_return_rate);
-            const rEl = document.getElementById('kpi_return_rate');
-            rEl.innerText = returnRate + '%';
-            rEl.className = `text-2xl font-black ${returnRate < 95 ? 'text-red-500' : 'text-emerald-500'}`;
+            /* Revenue that matched neither B2B nor B2C. On current live data
+               this is most of it, because clients.type holds company names
+               rather than segments. Showing it is the point — a split that
+               silently drops two thirds of the revenue is worse than no split. */
+            const unclEl = document.getElementById('perf_unclassified');
+            if (unclEl) {
+                const u = Number(data.targets.unclassified_actual || 0);
+                unclEl.textContent = u > 0
+                    ? `Non segmenté : ${fmt(u)} F — le champ « type » de ces clients ne contient ni B2B ni B2C.`
+                    : '';
+                unclEl.classList.toggle('hidden', u <= 0);
+            }
 
-            document.getElementById('kpi_vol_20l').innerText = fmt(data.kpis.vol_20l_sold) + ' Btls';
+            // KPI — empties return rate. null means nothing ever went out, so
+            // the ratio is undefined; it must not render as a green 0%.
+            const rEl = document.getElementById('kpi_return_rate');
+            if (isSet(data.kpis.empties_return_rate)) {
+                const returnRate = parseFloat(data.kpis.empties_return_rate);
+                const ceiling = isSet(data.kpis.max_return_debt_rate)
+                    ? 100 - parseFloat(data.kpis.max_return_debt_rate)   // debt ceiling -> return floor
+                    : 95;
+                rEl.innerText = returnRate + '%';
+                rEl.className = `text-2xl font-black ${returnRate < ceiling ? 'text-red-500' : 'text-emerald-500'}`;
+            } else {
+                rEl.innerText = '—';
+                rEl.className = 'text-2xl font-black text-gray-400';
+            }
+
+            const volTarget = data.kpis.vol_20l_target;
+            document.getElementById('kpi_vol_20l').innerText =
+                fmt(data.kpis.vol_20l_sold) + ' Btls' +
+                (isSet(volTarget) ? ` / ${fmt(volTarget)}` : '');
         }
 
         function renderTransfers(data) {
@@ -451,3 +494,150 @@
             btn.innerHTML = LPC.html`<i class="fas fa-file-pdf"></i> Exporter Rapport`;
         }
     
+        /* =====================================================================
+           OBJECTIFS DE PERFORMANCE (performance_targets)
+           ---------------------------------------------------------------------
+           The write path this table never had. Before 29 July 2026 nothing in
+           the application could insert a performance_targets row, so the table
+           was empty in production — which is why the Performance tab shipped
+           with `'b2c_target' => 50000000` hardcoded in budget_controller.php,
+           and why modules/dashboard/views/sales_dashboard.php has to render
+           "Objectif non défini" until a target is saved here.
+
+           Targets hang off `budgets.id`, so the exercise year comes from the
+           page's global year filter and the server resolves the budget itself.
+           ===================================================================== */
+
+        const TG_MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin',
+                           'Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+
+        function tgYear() { return document.getElementById('global_year_filter').value; }
+
+        function tgFeedback(msg, ok) {
+            const el = document.getElementById('tg_feedback');
+            if (!el) return;
+            el.textContent = msg || '';
+            el.className = 'text-xs font-bold ' + (ok ? 'text-emerald-600' : 'text-red-600');
+        }
+
+        /** Render the 12 month rows, pre-filled from whatever is already stored. */
+        function renderTargetRows(rows) {
+            const tbody = document.getElementById('tg_rows');
+            tbody.innerHTML = rows.map((r, i) => LPC.html`
+                <tr>
+                    <td class="py-2 pr-4 font-bold text-gray-700">${TG_MONTHS[i]}</td>
+                    <td class="py-2 px-2">
+                        <label class="sr-only" for="tg_rev_${i}">CA cible ${TG_MONTHS[i]}</label>
+                        <input id="tg_rev_${i}" type="number" min="0" step="1000" value="${r.target_revenue_fcfa ?? ''}"
+                               class="w-40 bg-white border border-gray-200 rounded-lg p-2 text-sm text-right font-bold outline-none focus:ring-2 focus:ring-lpc-light">
+                    </td>
+                    <td class="py-2 px-2">
+                        <label class="sr-only" for="tg_v20_${i}">Volume 20L ${TG_MONTHS[i]}</label>
+                        <input id="tg_v20_${i}" type="number" min="0" value="${r.target_volume_20l ?? ''}"
+                               class="w-24 bg-white border border-gray-200 rounded-lg p-2 text-sm text-right outline-none focus:ring-2 focus:ring-lpc-light">
+                    </td>
+                    <td class="py-2 px-2">
+                        <label class="sr-only" for="tg_v15_${i}">Volume 1,5L ${TG_MONTHS[i]}</label>
+                        <input id="tg_v15_${i}" type="number" min="0" value="${r.target_volume_1_5l ?? ''}"
+                               class="w-24 bg-white border border-gray-200 rounded-lg p-2 text-sm text-right outline-none focus:ring-2 focus:ring-lpc-light">
+                    </td>
+                    <td class="py-2 pl-2">
+                        <label class="sr-only" for="tg_rate_${i}">Dette vides max ${TG_MONTHS[i]}</label>
+                        <input id="tg_rate_${i}" type="number" min="0" max="100" step="0.5" value="${r.max_return_debt_rate ?? '5'}"
+                               class="w-20 bg-white border border-gray-200 rounded-lg p-2 text-sm text-right outline-none focus:ring-2 focus:ring-lpc-light">
+                    </td>
+                </tr>`).join('');
+        }
+
+        async function loadTargets() {
+            const seg = document.getElementById('tg_segment').value;
+            tgFeedback('', true);
+            try {
+                const res = await fetch(`/api/v1/budget_controller.php?tab=performance_targets&year=${encodeURIComponent(tgYear())}&segment=${encodeURIComponent(seg)}`);
+                const data = await res.json();
+                if (data.status !== 'success') { tgFeedback(data.message || 'Chargement impossible.', false); return; }
+                if (!data.data.budget_id) {
+                    tgFeedback(`Aucun budget pour l'exercice ${tgYear()} — créez-le d'abord.`, false);
+                }
+                renderTargetRows(data.data.rows);
+            } catch (e) {
+                console.error('[budgets] loadTargets', e);
+                tgFeedback('Erreur réseau.', false);
+            }
+        }
+
+        async function openTargetsModal() {
+            document.getElementById('tg_year_label').textContent = tgYear();
+            openModal('modal-targets');
+            await loadTargets();
+        }
+
+        /** Split an annual total evenly across the 12 monthly CA inputs. */
+        async function fillTargetsEvenly() {
+            // LPC.modal.prompt(message, opts) — the second argument is an
+            // options object, not a default value. Resolves to null on cancel.
+            const total = await LPC.modal.prompt(
+                'Total annuel du CA cible pour ce segment (FCFA) :',
+                { inputType: 'number', title: 'Répartir un total annuel' });
+            if (total === null) return;
+            const n = Number(total);
+            if (!Number.isFinite(n) || n <= 0) return;
+            const per = Math.round(n / 12);
+            for (let i = 0; i < 12; i++) {
+                document.getElementById(`tg_rev_${i}`).value = per;
+            }
+            tgFeedback(`Réparti : ${LPC.fmt.fcfa(per)} par mois.`, true);
+        }
+
+        async function saveTargets() {
+            const btn = document.getElementById('tg_save');
+            const seg = document.getElementById('tg_segment').value;
+
+            const rows = [];
+            for (let i = 0; i < 12; i++) {
+                rows.push({
+                    month:                 i + 1,
+                    target_revenue_fcfa:   Number(document.getElementById(`tg_rev_${i}`).value  || 0),
+                    target_volume_20l:     Number(document.getElementById(`tg_v20_${i}`).value  || 0),
+                    target_volume_1_5l:    Number(document.getElementById(`tg_v15_${i}`).value  || 0),
+                    max_return_debt_rate:  Number(document.getElementById(`tg_rate_${i}`).value || 5)
+                });
+            }
+
+            btn.disabled = true;
+            tgFeedback('Enregistrement…', true);
+            try {
+                const res = await fetch('/api/v1/budget_controller.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action:      'save_performance_targets',
+                        fiscal_year: Number(tgYear()),
+                        segment:     seg,
+                        rows:        rows
+                    })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    tgFeedback(data.message, true);
+                    // Refresh the tab so the bars reflect the new targets at once.
+                    fetchTabData('performance');
+                } else {
+                    tgFeedback(data.message || 'Enregistrement refusé.', false);
+                }
+            } catch (e) {
+                console.error('[budgets] saveTargets', e);
+                tgFeedback('Erreur réseau.', false);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // Exposed for the inline onclick handlers in budgets.php.
+        window.openTargetsModal  = openTargetsModal;
+        window.fillTargetsEvenly = fillTargetsEvenly;
+        window.saveTargets       = saveTargets;
+        document.addEventListener('DOMContentLoaded', function () {
+            const seg = document.getElementById('tg_segment');
+            if (seg) seg.addEventListener('change', loadTargets);
+        });

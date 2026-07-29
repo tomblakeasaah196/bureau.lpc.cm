@@ -252,6 +252,6 @@
         }
 
         function goToEmpties() {
-            window.location.href = `/modules/operations/empties_collection.php?lang=window.PAGE_DATA.v1&client_id=${currentClientId}`;
+            window.location.href = `/modules/operations/empties_collection.php?lang=${encodeURIComponent(window.PAGE_DATA.v1)}&client_id=${currentClientId}`;
         }    
     

@@ -39,6 +39,7 @@
         crm_clients: { href: '/modules/crm/clients.php', label: 'Base Clients' },
         crm_studio:  { href: '/modules/crm/proposal_studio.php', label: 'Studio Proposition' },
         sales:       { href: '/modules/sales/orders.php', label: 'Ventes & Commandes' },
+        dash_sales:  { href: '/modules/dashboard/views/sales_dashboard.php', label: 'Tableau de Bord Ventes' },
         invoices:    { href: '/modules/accounting/invoices.php', label: 'Facturation & AR' },
         empties:     { href: '/modules/operations/empties_collection.php', label: 'Gestion des Vides' }
     };

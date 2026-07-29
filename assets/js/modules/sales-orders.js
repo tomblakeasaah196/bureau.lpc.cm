@@ -63,7 +63,13 @@
         document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('so_date').valueAsDate = new Date();
             await fetchMetaData();
-            switchTab('orders');
+
+            // Honour a #hash so other pages can deep-link straight to a tab
+            // (the sales dashboard's "en attente de dispatch" card links to
+            // orders.php#dispatch). Validated against `config` rather than
+            // trusted, so an arbitrary #fragment cannot reach switchTab.
+            const hash = (window.location.hash || '').replace('#', '');
+            switchTab(Object.prototype.hasOwnProperty.call(config, hash) ? hash : 'orders');
         });
 
         async function fetchMetaData() {

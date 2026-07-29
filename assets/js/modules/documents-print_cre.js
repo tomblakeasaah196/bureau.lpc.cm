@@ -19,7 +19,7 @@
 
         function downloadPDF() {
             const element = document.getElementById('cre-document');
-            const reference = "window.PAGE_DATA.v1";
+            const reference = window.PAGE_DATA.v1;
             
             // Hide the print button
             document.querySelector('.print-btn').style.display = 'none';
