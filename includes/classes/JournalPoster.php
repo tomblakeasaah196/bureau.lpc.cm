@@ -83,7 +83,18 @@ final class JournalPoster
         // 1. Treasury account (cash or bank) — only if cash was actually received.
         $treasury_coa = null;
         if ($amount > 0) {
-            $treasury_account_id = $treasury_account_id ?? self::resolveTreasuryAccount($db, $pay['payment_method']);
+            // Preference order, most specific first:
+            //   1. what the caller passed (the payment form's account picker)
+            //   2. the account the invoice told the client to pay into
+            //   3. the "first active account of this type" guess
+            // Step 2 is new in Sprint 9. Without it the guess in step 3 was
+            // always what ran, and it takes the lowest id — so with an Afriland
+            // and a microfinance account both active, every bank payment landed
+            // on whichever was created first regardless of where the money
+            // actually went, and neither sub-ledger reconciled.
+            $treasury_account_id = $treasury_account_id
+                ?? self::settlementAccountForInvoice($db, $pay['invoice_id'] ?? null)
+                ?? self::resolveTreasuryAccount($db, $pay['payment_method']);
             if (!$treasury_account_id) {
                 throw new RuntimeException("JournalPoster: no treasury account configured for method {$pay['payment_method']}.");
             }
@@ -864,11 +875,46 @@ final class JournalPoster
     }
 
     /**
-     * Map a treasury_accounts row to a chart_of_accounts.id.
-     * treasury_accounts.type ∈ {'caisse','bank','mobile_money',...} → COA 571 / 521.
+     * treasury_accounts.type → the OHADA parent its movements belong under.
      *
-     * Prefers an explicit coa_account_id column if it exists (added by
-     * migration 015). Otherwise falls back to the OHADA type lookup.
+     * Sprint 9 — this replaced:
+     *
+     *     $ohada = ($row['type'] === 'bank') ? '521' : '571';
+     *
+     * which sent everything that was not a bank to 571 Caisse, so MTN MoMo and
+     * Orange Money collections were booked as physical cash. That makes the
+     * Trésorerie cash reconciliation unusable — a physical count can never
+     * match a balance carrying electronic float — and it is not what SYSCOHADA
+     * révisé says: class 55 exists precisely to stop the approximation.
+     *
+     *   521 Banques
+     *   552 Monnaie électronique — téléphone portable   (MoMo / Orange Money)
+     *   554 Porte-monnaie électronique
+     *   571 Caisse                                      (physical cash only)
+     *
+     * Operator commissions are NOT netted here. They are entered by hand as a
+     * treasury expense against 6317 (Frais sur instruments de monnaie
+     * électronique) at payment time, so the collection books gross.
+     *
+     * 552 and 6317 are seeded by migration 044 — migration 003 only ever
+     * created seven parents and neither of these was among them.
+     */
+    private const TREASURY_OHADA = [
+        'bank'          => '521',
+        'momo'          => '552',
+        'mobile_money'  => '552',
+        'wallet'        => '554',
+        'caisse'        => '571',
+        'cash'          => '571',
+    ];
+
+    /**
+     * Map a treasury_accounts row to a chart_of_accounts.id.
+     *
+     * Prefers an explicit coa_account_id — that is how each account gets its
+     * own sub-ledger (5211 Afriland, 5212 microfinance, 5521 MTN MoMo), so a
+     * journal line can be traced back to one statement. Falls back to the
+     * shared parent above when the column is absent or unset.
      */
     private static function coaFromTreasury(PDO $db, int $treasury_id): int
     {
@@ -890,20 +936,98 @@ final class JournalPoster
 
         if (!empty($row['coa_account_id'])) return (int) $row['coa_account_id'];
 
-        $ohada = ($row['type'] === 'bank') ? '521' : '571';
+        $type  = (string) $row['type'];
+        $ohada = self::TREASURY_OHADA[$type] ?? null;
+        if ($ohada === null) {
+            // Fail loudly rather than silently dumping an unknown instrument
+            // into Caisse, which is exactly how MoMo ended up there.
+            throw new RuntimeException(
+                "JournalPoster: treasury type '{$type}' has no OHADA mapping. "
+                . "Add it to JournalPoster::TREASURY_OHADA."
+            );
+        }
         $coa = self::coaByOhada($db, $ohada);
-        if (!$coa) throw new RuntimeException("JournalPoster: OHADA {$ohada} not mapped (treasury type {$row['type']}).");
+        if (!$coa) {
+            throw new RuntimeException(
+                "JournalPoster: OHADA {$ohada} not mapped (treasury type {$type}). "
+                . "Run migration 044 — it seeds 552 and 6317."
+            );
+        }
         return $coa;
     }
 
-    /** Best-effort: pick a treasury_accounts.id by payment method. */
+    /**
+     * The account the invoice advertised as the one to settle into.
+     * Returns null before migration 044, or for a payment with no invoice.
+     */
+    private static function settlementAccountForInvoice(PDO $db, $invoice_id): ?int
+    {
+        if (empty($invoice_id)) return null;
+
+        static $has_col = null;
+        if ($has_col === null) {
+            $has_col = (int) $db->query("
+                SELECT COUNT(*) FROM information_schema.columns
+                 WHERE table_schema = DATABASE()
+                   AND table_name = 'invoices'
+                   AND column_name = 'settlement_account_id'
+            ")->fetchColumn() > 0;
+        }
+        if (!$has_col) return null;
+
+        $stmt = $db->prepare("SELECT settlement_account_id FROM invoices WHERE id = ?");
+        $stmt->execute([(int) $invoice_id]);
+        $id = $stmt->fetchColumn();
+        return $id ? (int) $id : null;
+    }
+
+    /**
+     * Last-resort guess: the first active account of the matching type.
+     *
+     * This is a guess, not a resolution — with two active bank accounts it
+     * silently picks one. It is kept only so a payment can still post on a
+     * system that has not selected an account anywhere; anything reaching it
+     * is worth a log line, because the books it produces may need correcting.
+     */
     private static function resolveTreasuryAccount(PDO $db, string $method): ?int
     {
         $type = ($method === 'cash') ? 'caisse' : ($method === 'bank' ? 'bank' : $method);
-        $stmt = $db->prepare("SELECT id FROM treasury_accounts WHERE type = ? AND status = 'active' ORDER BY id ASC LIMIT 1");
+
+        // sort_order first (migration 044 seeds it from creation order), so the
+        // guess at least matches the account that appears first in the UI.
+        $order = self::hasColumn($db, 'treasury_accounts', 'sort_order')
+            ? 'sort_order ASC, id ASC'
+            : 'id ASC';
+
+        $stmt = $db->prepare("SELECT id FROM treasury_accounts WHERE type = ? AND status = 'active' ORDER BY {$order}");
         $stmt->execute([$type]);
-        $id = $stmt->fetchColumn();
-        return $id ? (int)$id : null;
+        $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        if (!$ids) return null;
+
+        if (count($ids) > 1) {
+            error_log(
+                "JournalPoster: guessing treasury account #{$ids[0]} for method '{$method}' — "
+                . count($ids) . " active accounts of this type exist and none was specified. "
+                . "Set invoices.settlement_account_id or pass the account explicitly."
+            );
+        }
+        return (int) $ids[0];
+    }
+
+    /** Cached information_schema probe, so migration-optional columns are cheap. */
+    private static function hasColumn(PDO $db, string $table, string $column): bool
+    {
+        static $cache = [];
+        $key = "{$table}.{$column}";
+        if (!array_key_exists($key, $cache)) {
+            $stmt = $db->prepare("
+                SELECT COUNT(*) FROM information_schema.columns
+                 WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?
+            ");
+            $stmt->execute([$table, $column]);
+            $cache[$key] = ((int) $stmt->fetchColumn() > 0);
+        }
+        return $cache[$key];
     }
 
     private static function roundFcfa(float $amount): float

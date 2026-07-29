@@ -35,6 +35,14 @@
  */
 
 require_once __DIR__ . '/../classes/PdfRenderer.php';
+// The letterhead the facture and the devis share. Before it existed each
+// template carried its own, and they disagreed — the invoice printed a
+// placeholder NIU and RC to real customers while the quote showed neither.
+require_once __DIR__ . '/../pdf_templates/document_header.php';
+// Every string on the devis is editable in the Proposal Studio. Required here
+// so the dompdf quote renders the same wording as the HTML page rather than a
+// second, drifting copy — which is exactly what this file used to be.
+require_once __DIR__ . '/proposal_template.php';
 
 /**
  * Public entry point. Types map 1:1 to the pdf_documents.type enum.
@@ -192,6 +200,34 @@ function lpc_load_document(PDO $db, string $type, string $token): ?array
                 $items->execute([$r['id']]);
                 $lines = $items->fetchAll(PDO::FETCH_ASSOC);
             } catch (Throwable $e) { /* proposal_items may not exist */ }
+
+            // The consigne schedule. Articles 1 and 2 of the terms threaten
+            // "des frais de remplacement au tarif en vigueur" without ever
+            // publishing one — the most likely source of a later dispute.
+            // A product is consigned when it has a linked empty, which is how
+            // the empties ledger already identifies them.
+            $r['consigne'] = [];
+            try {
+                $r['consigne'] = $db->query("
+                    SELECT name, format, deposit_value, replacement_value
+                      FROM products
+                     WHERE linked_empty_id IS NOT NULL
+                       AND is_active = 1
+                       AND (deposit_value > 0 OR replacement_value > 0)
+                     ORDER BY name ASC
+                ")->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Throwable $e) { /* migration 045 not yet run */ }
+
+            // Evidence appended to the offer — ANOR certificate, RCCM extract.
+            $r['annexes'] = [];
+            try {
+                $r['annexes'] = $db->query("
+                    SELECT label_fr, file_path, kind FROM company_annexes
+                     WHERE is_active = 1 AND show_on_quote = 1
+                     ORDER BY sort_order ASC, id ASC
+                ")->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Throwable $e) { /* migration 045 not yet run */ }
+
             return lpc_normalize_quote($r, $lines);
 
         case 'cre':
@@ -331,6 +367,14 @@ function lpc_normalize_invoice(array $r, array $lines): array {
         'notes' => $r['notes'] ?? '',
         'source_updated_at' => $r['updated_at'] ?? $r['created_at'] ?? null,
         'status' => $r['status'] ?? 'unpaid',
+        // Frozen at issue by lpc_attach_invoice_payment_accounts(); [] for
+        // invoices raised before migration 044, which then fall back to the
+        // single company_profile account in the template.
+        'payment_blocks' => (function ($json) {
+            if (empty($json)) return [];
+            $d = json_decode((string) $json, true);
+            return is_array($d) ? $d : [];
+        })($r['payment_block_snapshot'] ?? null),
         'stamp' => [
             'created_by' => trim((string)($r['creator_name'] ?? '')),
             'role'       => (string)($r['role_name'] ?? 'Finance / Comptabilité'),
@@ -370,19 +414,98 @@ function lpc_normalize_po(array $r, array $lines): array {
             'items'=>$items, 'totals'=>['subtotal'=>$sub,'discount'=>0,'tax'=>0,'grand_total'=>$sub,'words'=>lpc_amount_in_words($sub)],
             'notes'=>$r['notes'] ?? '', 'source_updated_at'=>$r['updated_at'] ?? $r['created_at'] ?? null];
 }
+/**
+ * Sprint 9 — the devis gained everything the facture already had.
+ *
+ * A quotation is not a fiscal document, so art. 150 CGI's mandatory mentions do
+ * not bind it. But once a client signs "Bon pour accord" it is a contract under
+ * OHADA, and contract formation needs identified parties, a precise object, a
+ * price AND ITS TAX TREATMENT, and a validity. DEV-2607-841B had no tax
+ * treatment at all — one bare figure — no client NIU, no amount in words, and a
+ * validity expressed as "30 Jours à compter de l'émission", which asks the
+ * reader to do arithmetic and offers nothing to hold you to.
+ *
+ * The totals keys mirror lpc_normalize_invoice() exactly, so the two templates
+ * can render the same ladder and the offer can never quote a different tax
+ * treatment from the invoice that follows it.
+ */
 function lpc_normalize_quote(array $r, array $lines): array {
     $items = [];
     foreach ($lines as $l) {
-        $q = (float)($l['quantity'] ?? 0); $u = (float)($l['unit_price'] ?? 0);
-        $items[] = ['name'=>$l['product_name'] ?? $l['name'] ?? '', 'qty'=>$q, 'unit_price'=>$u, 'total'=>$q*$u];
+        $q = (float)($l['quantity'] ?? 0);
+        $u = (float)($l['unit_price'] ?? 0);
+        $items[] = [
+            'name'       => $l['product_name'] ?? $l['name'] ?? '',
+            'format'     => $l['format'] ?? '',
+            'qty'        => $q,
+            'unit_price' => $u,
+            'total'      => isset($l['total_price']) ? (float)$l['total_price'] : $q * $u,
+        ];
     }
-    $sub = array_sum(array_column($items,'total'));
-    $grand = (float)($r['total_amount'] ?? $sub);
-    return ['record_id'=>(int)$r['id'], 'reference'=>$r['reference'] ?? ('QUOTE-'.$r['id']),
-            'date'=>$r['date'] ?? $r['created_at'],
-            'client'=>['name'=>$r['client_name'] ?? $r['prospect_name'] ?? '', 'address'=>$r['client_address'] ?? '', 'niu'=>'', 'phone'=>$r['client_phone'] ?? ''],
-            'items'=>$items, 'totals'=>['subtotal'=>$sub, 'discount'=>0, 'tax'=>0, 'grand_total'=>$grand, 'words'=>lpc_amount_in_words($grand)],
-            'notes'=>$r['notes'] ?? '', 'source_updated_at'=>$r['updated_at'] ?? $r['created_at'] ?? null];
+
+    $line_sum = array_sum(array_column($items, 'total'));
+    $sub      = (float)($r['subtotal'] ?? 0) ?: $line_sum;
+    $excise   = (float)($r['excise_amount'] ?? 0);
+    $tva      = (float)($r['tva_amount'] ?? 0);
+    $grand    = (float)($r['total_amount'] ?? 0) ?: ($sub + $excise + $tva);
+
+    $tva_rate  = (float)($r['tva_rate'] ?? 0);
+    $exemption = trim((string)($r['tva_exemption_reason'] ?? ''));
+    if ($tva_rate <= 0 && $exemption === '') {
+        $exemption = lpc_proposal_text('tbl_exempt_default', 'fr');
+    }
+
+    // Frozen at issue where migration 045 has run; derived for older rows so a
+    // reprint of a 2025 offer still shows the date the client was given rather
+    // than one recomputed from today's validity_days setting.
+    $valid_until = $r['valid_until'] ?? null;
+    if (empty($valid_until) && !empty($r['date'])) {
+        $valid_until = date('Y-m-d', strtotime($r['date'] . ' +' . (int)($r['validity_days'] ?? 30) . ' days'));
+    }
+
+    return [
+        'record_id' => (int)$r['id'],
+        'reference' => $r['reference'] ?? ('QUOTE-' . $r['id']),
+        'revision'  => (int)($r['revision'] ?? 1),
+        'date'      => $r['date'] ?? $r['created_at'],
+        'valid_until'    => $valid_until,
+        'validity_days'  => (int)($r['validity_days'] ?? 30),
+        'client' => [
+            'name'    => $r['client_name'] ?? $r['prospect_name'] ?? '',
+            'contact' => $r['client_contact'] ?? '',
+            'title'   => $r['client_title'] ?? '',
+            'address' => $r['client_address'] ?? '',
+            'niu'     => $r['client_niu'] ?? '',
+            'rccm'    => $r['client_rccm'] ?? '',
+            'phone'   => $r['client_phone'] ?? '',
+            'email'   => $r['client_email'] ?? '',
+        ],
+        'items' => $items,
+        'totals' => [
+            'subtotal'      => $sub,
+            'discount'      => 0.0,
+            'excise_rate'   => (float)($r['excise_rate'] ?? 0) * 100,
+            'excise'        => $excise,
+            'tva_rate'      => $tva_rate,
+            'tax'           => $tva,
+            'tva_exemption' => $exemption,
+            'grand_total'   => $grand,
+            'words'         => lpc_amount_in_words($grand),
+        ],
+        // SLA fields the offer already carried, now surfaced to the template.
+        'sla' => [
+            'frequency'     => $r['delivery_frequency'] ?? '',
+            'buffer_weeks'  => (int)($r['buffer_stock_weeks'] ?? 0),
+            'payment_terms' => $r['payment_terms'] ?? '',
+            'empties'       => $r['empties_policy'] ?? '',
+        ],
+        'consigne'  => $r['consigne'] ?? [],
+        'annexes'   => $r['annexes'] ?? [],
+        'sales_rep' => $r['sales_rep_name'] ?? '',
+        'status'    => $r['status'] ?? 'draft',
+        'notes'     => $r['notes'] ?? '',
+        'source_updated_at' => $r['updated_at'] ?? $r['created_at'] ?? null,
+    ];
 }
 function lpc_normalize_cre(array $r): array {
     return ['record_id'=>(int)$r['id'], 'reference'=>$r['reference'] ?? ('CRE-'.$r['id']),
@@ -460,12 +583,16 @@ function lpc_render_document_html(string $type, array $doc): string
     // filesystem path. '' means no readable file -> the <img> is skipped.
     $lhLogo  = CompanyProfile::logoFsPath('document');
 
-    // Invoices get a dedicated template. The generic body below is a condensed
-    // summary — fine for a bon de commande, not for the one document that has to
-    // stand up to a DGI control and mirror what the customer saw on screen.
+    // Invoices and quotes get dedicated templates. The generic body below is a
+    // condensed summary — fine for a bon de commande, not for the two documents
+    // that have to stand up to a DGI control or form a contract.
     if ($type === 'invoice') {
         ob_end_clean();
         return lpc_render_invoice_pdf_html($doc, $lh, $lhLogo, $token);
+    }
+    if ($type === 'quote') {
+        ob_end_clean();
+        return lpc_render_quote_pdf_html($doc, $lh, $lhLogo, $token);
     }
 
     // Inline template — dompdf handles this fine and it stays in one place.
@@ -644,7 +771,16 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
     ];
     [$sc_border, $sc_bg] = $status_colors[$status_key] ?? $status_colors['unpaid'];
 
-    $bank = CompanyProfile::bankDetails();
+    // The accounts this invoice advertised, frozen at issue (migration 044).
+    // Read the snapshot, never the live treasury_accounts rows — a reprint has
+    // to show what the client was actually told to pay into. Invoices issued
+    // before 041 fall back to the single company_profile account.
+    $payment_blocks = $doc['payment_blocks'] ?? [];
+    if (!$payment_blocks) {
+        $legacy = CompanyProfile::bankDetails();
+        if ($legacy) $payment_blocks = [['title' => 'Coordonnées de règlement', 'lines' => $legacy]];
+    }
+
     $has_withholding = ($t['precompte'] > 0) || ($t['air'] > 0);
 
     ob_start(); ?>
@@ -655,12 +791,8 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
     body  { font-family: 'DejaVu Sans', sans-serif; font-size: 9pt; color: #1F2937;
             margin: 0 0 26mm 0; }
 
-    /* The brand rule that opens the HTML page. */
-    .top-rule { height: 4mm; background: <?= $brand ?>; }
-    .pad      { padding: 0 14mm; }
-
-    h1.doc-title { font-size: 26pt; font-weight: bold; margin: 0; letter-spacing: -1pt;
-                   color: #111827; text-transform: uppercase; }
+<?= lpc_document_header_css($brand) ?>
+<?= lpc_document_footer_css() ?>
 
     table       { width: 100%; border-collapse: collapse; }
     td, th      { vertical-align: top; }
@@ -673,14 +805,6 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
 
     .card       { background: #F9FAFB; border: 0.5pt solid #E5E7EB; border-radius: 3mm;
                   padding: 3.5mm 4mm; }
-
-    .status     { display: inline-block; padding: 1.2mm 3mm; border-radius: 1.5mm;
-                  font-size: 7.5pt; font-weight: bold; letter-spacing: 1pt;
-                  border: 1pt solid <?= $sc_border ?>; color: <?= $sc_border ?>;
-                  background: <?= $sc_bg ?>; }
-
-    .meta td    { padding: 0.9mm 0; font-size: 8pt; }
-    .meta .k    { color: #9CA3AF; font-size: 6.5pt; }
 
     .items th   { border-bottom: 1.5pt solid #111827; padding: 2.5mm 1.5mm;
                   font-size: 6.5pt; color: #9CA3AF; text-transform: uppercase;
@@ -696,79 +820,35 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
     .stamp { border: 1.2pt solid <?= $brand ?>; color: <?= $brand ?>; border-radius: 2mm;
              padding: 2.5mm 3.5mm; font-size: 6.5pt; line-height: 1.5; }
 
-    /* Repeats on every page — the legal mentions are required on each one. */
-    .doc-footer { position: fixed; bottom: 8mm; left: 14mm; right: 14mm;
-                  text-align: center; color: #9CA3AF; font-size: 6pt;
-                  border-top: 0.5pt solid #E5E7EB; padding-top: 2mm; }
     .no-break   { page-break-inside: avoid; }
 </style></head>
 <body>
 
-<div class="top-rule"></div>
+<div class="lpc-rule"></div>
 
-<!-- ── Letterhead ─────────────────────────────────────────────────────────── -->
-<div class="pad" style="padding-top: 9mm;">
-<table>
-    <tr>
-        <td style="width: 52%; padding-right: 6mm;">
-            <?php if ($lhLogo !== ''): ?>
-                <img src="<?= $e($lhLogo) ?>" style="max-height: 15mm; max-width: 48mm; margin-bottom: 2mm;">
-            <?php endif; ?>
-            <div class="b" style="font-size: 11pt; color: #111827;"><?= $e($lh['name']) ?></div>
-            <div class="tiny muted caps" style="margin-top: 1.2mm; line-height: 1.5;">
-                <?= $e($lh['address']) ?>
-            </div>
-            <div class="tiny muted b" style="margin-top: 1mm;"><?= $e($lh['contact']) ?></div>
-            <?php if ($lh['mentions'] !== ''): ?>
-                <div class="xtiny b" style="margin-top: 2mm; padding-top: 1.5mm;
-                            border-top: 0.5pt solid #E5E7EB; color: #4B5563; line-height: 1.5;">
-                    <?= $e($lh['mentions']) ?>
-                </div>
-            <?php endif; ?>
-        </td>
-        <td style="width: 48%; text-align: right;">
-            <h1 class="doc-title">Facture</h1>
-            <div style="margin-top: 2mm;"><span class="status"><?= $e($status_label) ?></span></div>
-
-            <?php
-            // dompdf does not honour `margin-left: auto` on a nested table, so
-            // the meta box is right-aligned with an empty spacer cell instead.
-            // This is the block that came out completely blank in the
-            // html2canvas PDF (FAC-2607-6341) — here it is plain text in the
-            // document tree, so it cannot be lost to a capture race.
-            ?>
-            <table style="margin-top: 5mm;">
-            <tr>
-                <td></td>
-                <td style="width: 62mm;">
-                    <table class="meta card" style="text-align: left;">
-                        <tr>
-                            <td class="k caps">N° Facture :</td>
-                            <td class="num b" style="font-size: 9pt;"><?= $e($doc['reference']) ?></td>
-                        </tr>
-                        <tr>
-                            <td class="k caps">Date :</td>
-                            <td class="num b"><?= $e($fdate($doc['date'])) ?></td>
-                        </tr>
-                        <tr>
-                            <td class="k caps" style="color: #FCA5A5;">Échéance :</td>
-                            <td class="num b" style="color: #DC2626;"><?= $e($fdate($doc['due_date'])) ?></td>
-                        </tr>
-                        <tr>
-                            <td class="k caps" style="border-top: 0.5pt solid #E5E7EB; padding-top: 1.8mm;">Devise :</td>
-                            <td class="num b" style="border-top: 0.5pt solid #E5E7EB; padding-top: 1.8mm;">FCFA (XAF)</td>
-                        </tr>
-                    </table>
-                </td>
-            </tr>
-            </table>
-        </td>
-    </tr>
-</table>
+<!-- ── Letterhead ───────────────────────────────────────────────────────────
+     Shared with the devis — see includes/pdf_templates/document_header.php.
+     Only the title and the meta rows differ between the two documents. The
+     N° / Date / Échéance box below is the block that came out completely
+     BLANK in the html2canvas PDF (FAC-2607-6341): the screenshot was taken
+     before those nodes had settled. Here it is text in the document tree,
+     so no capture race can lose it. -->
+<div class="lpc-pad" style="padding-top: 9mm;">
+<?= lpc_document_header([
+    'title' => 'Facture',
+    'logo'  => $lhLogo,
+    'badge' => [$status_label, $sc_border, $sc_bg],
+    'meta'  => [
+        ['N° Facture', $doc['reference']],
+        ['Date',       $fdate($doc['date'])],
+        ['Échéance',   $fdate($doc['due_date']), 'danger'],
+        ['Devise',     'FCFA (XAF)', 'rule'],
+    ],
+]) ?>
 </div>
 
 <!-- ── Buyer ──────────────────────────────────────────────────────────────── -->
-<div class="pad" style="margin-top: 6mm;">
+<div class="lpc-pad" style="margin-top: 6mm;">
     <div class="card no-break">
         <div class="caps muted xtiny" style="border-bottom: 1pt solid #E5E7EB;
                     display: inline-block; padding-bottom: 1mm; margin-bottom: 2mm;">Facturé à</div>
@@ -799,7 +879,7 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
 </div>
 
 <!-- ── Lines ──────────────────────────────────────────────────────────────── -->
-<div class="pad" style="margin-top: 6mm;">
+<div class="lpc-pad" style="margin-top: 6mm;">
 <table class="items">
     <thead>
         <tr>
@@ -829,7 +909,7 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
 </div>
 
 <!-- ── Payment info + fiscal ladder ───────────────────────────────────────── -->
-<div class="pad" style="margin-top: 7mm;">
+<div class="lpc-pad" style="margin-top: 7mm;">
 <table class="no-break">
     <tr>
         <td style="width: 50%; padding-right: 7mm;">
@@ -840,10 +920,20 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
 
             <div class="caps muted xtiny" style="margin-bottom: 1.5mm;">Informations de Paiement</div>
             <div class="card" style="font-size: 7.5pt; line-height: 1.7;">
-                <?php if ($bank): foreach ($bank as $label => $value): ?>
-                    <div><span class="b" style="color: #111827;"><?= $e($label) ?> :</span> <?= $e($value) ?></div>
-                <?php endforeach; else: ?>
-                    <div class="muted" style="font-style: italic;">Coordonnées bancaires non renseignées.</div>
+                <?php if ($payment_blocks): ?>
+                    <?php foreach ($payment_blocks as $bi => $block): ?>
+                        <?php if (empty($block['lines'])) continue; ?>
+                        <div style="<?= $bi > 0 ? 'margin-top: 2.5mm; padding-top: 2mm; border-top: 0.5pt solid #E5E7EB;' : '' ?>">
+                            <div class="caps b" style="font-size: 6.5pt; color: #111827; margin-bottom: 0.8mm;">
+                                <?= $e($block['title'] ?? '') ?>
+                            </div>
+                            <?php foreach ($block['lines'] as $label => $value): ?>
+                                <div><span class="b" style="color: #111827;"><?= $e($label) ?> :</span> <?= $e($value) ?></div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <div class="muted" style="font-style: italic;">Coordonnées de règlement non renseignées.</div>
                 <?php endif; ?>
             </div>
             <div class="xtiny muted" style="margin-top: 1.5mm; font-style: italic;">
@@ -938,7 +1028,7 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
 </div>
 
 <!-- ── Certification stamp + amount in words ──────────────────────────────── -->
-<div class="pad" style="margin-top: 8mm;">
+<div class="lpc-pad" style="margin-top: 8mm;">
 <table class="no-break">
     <tr>
         <td style="width: 42%;">
@@ -964,9 +1054,552 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
 </table>
 </div>
 
-<div class="doc-footer">
-    <?= $e($lh['footer']) ?>
+<?= lpc_document_footer() ?>
+
+</body></html>
+    <?php
+    return (string) ob_get_clean();
+}
+
+/**
+ * The commercial offer, rendered for dompdf.
+ * -----------------------------------------------------------------------------
+ * Replaces a 4-page html2canvas capture. `pdftotext` extracted FOUR CHARACTERS
+ * from the whole of DEV-2607-841B: every page was a 1588×2246 JPEG at 192 ppi.
+ * A prospect could not copy the price into a budget sheet, could not search it,
+ * and printed it at screen resolution. On the document that wins the business
+ * that mattered more than it did on the invoice.
+ *
+ * Structure, and why each part is here:
+ *   Cover     — the shared header band, then the existing arcs and title, plus
+ *               an "En bref" box so a decision-maker who reads only page 1 has
+ *               the monthly figure and the expiry date.
+ *   Profile   — executive summary, capabilities, references (unchanged copy).
+ *   Offer     — the pricing table, now with the same fiscal ladder as the
+ *               invoice: HT → accises → TVA or its exemption basis → TTC, and
+ *               the total in words. The old version printed one bare figure
+ *               with no indication whether it was HT or TTC.
+ *   Terms     — the six articles, plus the consigne schedule that Article 2
+ *               presupposes, plus delivery zone and transfer of risk.
+ *   Signature — Bon pour accord, with a dated expiry rather than "30 jours".
+ *
+ * Every string comes from lpc_proposal_text() so the Proposal Studio keeps
+ * editing them; every figure comes from the proposals row.
+ */
+function lpc_render_quote_pdf_html(array $doc, array $lh, string $lhLogo, string $token): string
+{
+    $t      = $doc['totals'];
+    $client = $doc['client'];
+    $sla    = $doc['sla'];
+    $brand  = $lh['color'];
+    $accent = $lh['accent'];
+
+    $e = static function ($v) {
+        return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+    };
+    $p = static function ($key) use ($e) {
+        return $e(lpc_proposal_text($key, 'fr'));
+    };
+    $rate = static function ($v) {
+        $s = rtrim(rtrim(number_format((float) $v, 2, ',', ' '), '0'), ',');
+        return $s === '' ? '0' : $s;
+    };
+    $fdate = static function ($v) {
+        return $v ? date('d/m/Y', strtotime((string) $v)) : '—';
+    };
+
+    $logos    = lpc_proposal_logos();
+    $consigne = $doc['consigne'] ?? [];
+    $annexes  = $doc['annexes'] ?? [];
+
+    // The reference a client quotes back at you has to identify the version
+    // they accepted. Rev. 1 is implicit and not printed.
+    $ref_full = $doc['reference'] . ($doc['revision'] > 1 ? ' rév. ' . $doc['revision'] : '');
+
+    ob_start(); ?>
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"><title>Devis <?= $e($doc['reference']) ?></title>
+<style>
+    @page { margin: 0; }
+    body  { font-family: 'DejaVu Sans', sans-serif; font-size: 9pt; color: #1F2937;
+            margin: 0 0 26mm 0; }
+
+<?= lpc_document_header_css($brand) ?>
+<?= lpc_document_footer_css() ?>
+
+    table   { width: 100%; border-collapse: collapse; }
+    td, th  { vertical-align: top; }
+    .num    { text-align: right; }
+    .muted  { color: #6B7280; }
+    .tiny   { font-size: 7.5pt; }
+    .xtiny  { font-size: 6.5pt; }
+    .b      { font-weight: bold; }
+    .caps   { text-transform: uppercase; letter-spacing: 0.6pt; font-weight: bold; }
+    .card   { background: #F9FAFB; border: 0.5pt solid #E5E7EB; border-radius: 3mm;
+              padding: 3.5mm 4mm; }
+    .no-break { page-break-inside: avoid; }
+
+    h2.sec  { font-size: 13pt; color: #111827; margin: 0 0 3mm 0; font-weight: bold; }
+    h3.sub  { font-size: 8pt; color: #111827; margin: 5mm 0 2mm 0;
+              text-transform: uppercase; letter-spacing: 0.8pt; }
+    p       { margin: 0 0 2.5mm 0; line-height: 1.55; text-align: justify; }
+
+    /* Section band — the green strip that headed pages 2-4 of the original. */
+    .band   { background: <?= $brand ?>; color: #fff; padding: 3.5mm 14mm;
+              font-size: 8pt; text-transform: uppercase; letter-spacing: 1pt;
+              font-weight: bold; }
+    .band .ref { color: <?= $accent ?>; }
+
+    .items th { background: <?= $brand ?>; color: #fff; padding: 2.5mm 2mm;
+                font-size: 6.5pt; text-transform: uppercase; letter-spacing: 0.6pt;
+                text-align: left; }
+    .items td { border-bottom: 0.5pt solid #E5E7EB; padding: 3mm 2mm; font-size: 8.5pt; }
+
+    .ladder td        { padding: 1.4mm 0; font-size: 8.5pt; }
+    .ladder .grand td { border-top: 1.5pt solid #111827; padding-top: 2.5mm;
+                        font-size: 11pt; font-weight: bold; }
+    .ladder .exempt   { font-size: 6.5pt; font-style: italic; color: #6B7280;
+                        padding-top: 0; padding-bottom: 2mm; }
+
+    .sla td { padding: 2.5mm 0; border-bottom: 0.5pt solid #E5E7EB; }
+    .art    { margin-bottom: 3mm; }
+    .art .t { font-weight: bold; color: #111827; }
+</style></head>
+<body>
+
+<!-- ══ COVER ═══════════════════════════════════════════════════════════════ -->
+<div class="lpc-rule"></div>
+<div class="lpc-pad" style="padding-top: 9mm;">
+<?php
+// The same header the facture carries, per the decision to run it on every
+// page including the cover. Only the title and the meta rows differ.
+// Validité sits in the meta box because on an offer it matters as much as the
+// date — it used to be buried on page 3 under the SLA as "30 jours".
+$meta = [
+    [lpc_proposal_text('meta_ref', 'fr'), $doc['reference']],
+    [lpc_proposal_text('meta_date', 'fr'), $fdate($doc['date'])],
+    [lpc_proposal_text('meta_valid_until', 'fr'), $fdate($doc['valid_until']), 'danger'],
+];
+if ($doc['revision'] > 1) {
+    $meta[] = [lpc_proposal_text('meta_revision', 'fr'), (string) $doc['revision'], 'rule'];
+}
+echo lpc_document_header([
+    'title' => 'Devis',
+    'logo'  => $lhLogo,
+    'meta'  => $meta,
+]);
+?>
+
+<div style="margin-top: 16mm;">
+    <div style="width: 26mm; height: 1.6mm; background: <?= $accent ?>;"></div>
+    <h1 style="font-size: 26pt; font-weight: bold; color: #111827; margin: 5mm 0 1mm 0;">
+        <?= $p('cover_title') ?>
+    </h1>
+    <div style="font-size: 12pt; color: #6B7280;"><?= $p('cover_subtitle') ?></div>
 </div>
+
+<table style="margin-top: 14mm;">
+    <tr>
+        <td style="width: 56%; padding-right: 8mm;">
+            <div class="card no-break" style="border-left: 1.5mm solid <?= $brand ?>;">
+                <div class="caps xtiny muted" style="margin-bottom: 2mm;"><?= $p('cover_prepared_for') ?></div>
+                <div class="b" style="font-size: 14pt; color: #111827;"><?= $e($client['name']) ?></div>
+                <?php if (!empty($client['contact'])): ?>
+                    <div style="margin-top: 1.5mm; font-size: 9pt;">
+                        Attn : <?= $e($client['contact']) ?><?php
+                        if (!empty($client['title'])) echo ' — ' . $e($client['title']); ?>
+                    </div>
+                <?php endif; ?>
+                <?php if (!empty($client['address'])): ?>
+                    <div class="muted tiny" style="margin-top: 1mm;"><?= $e($client['address']) ?></div>
+                <?php endif; ?>
+                <?php if (!empty($client['phone']) || !empty($client['email'])): ?>
+                    <div class="muted tiny" style="margin-top: 1mm;">
+                        <?= $e(trim(implode(' · ', array_filter([$client['phone'], $client['email']])))) ?>
+                    </div>
+                <?php endif; ?>
+                <?php
+                // The prospect's NIU, collected during the sale rather than
+                // chased after the first invoice is rejected. Printed only when
+                // known — a prospect is not always ready to hand it over on
+                // first contact, and a blank field on a sales document is worse
+                // than no field.
+                if (!empty($client['niu']) || !empty($client['rccm'])): ?>
+                    <div class="tiny b" style="margin-top: 2.5mm; padding-top: 2mm; border-top: 0.5pt solid #E5E7EB;">
+                        <?php if (!empty($client['niu'])): ?>NIU : <?= $e($client['niu']) ?><?php endif; ?>
+                        <?php if (!empty($client['niu']) && !empty($client['rccm'])): ?> &nbsp;|&nbsp; <?php endif; ?>
+                        <?php if (!empty($client['rccm'])): ?>RCCM : <?= $e($client['rccm']) ?><?php endif; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </td>
+        <td style="width: 44%;">
+            <?php
+            // "En bref" — the commercial essentials for a decision-maker who
+            // reads page 1 and forwards the rest to procurement.
+            ?>
+            <div class="card no-break" style="background: #111827; border: 0;">
+                <div class="caps xtiny" style="color: <?= $accent ?>; margin-bottom: 2.5mm;">
+                    <?= $p('cover_summary_title') ?>
+                </div>
+                <div class="xtiny" style="color: #9CA3AF;"><?= $p('cover_summary_total') ?></div>
+                <div class="b" style="color: #fff; font-size: 15pt; margin-top: 0.8mm;">
+                    <?= $e(lpc_fcfa($t['grand_total'])) ?>
+                </div>
+                <div class="xtiny" style="color: #9CA3AF; margin-top: 0.8mm;">
+                    <?= $t['tva_rate'] > 0
+                        ? 'TTC · TVA ' . $e($rate($t['tva_rate'])) . ' %'
+                        : 'HT · ' . $p('tbl_tva') . ' 0 %' ?>
+                </div>
+
+                <div style="margin-top: 4mm; padding-top: 3mm; border-top: 0.5pt solid #374151;">
+                    <div class="xtiny" style="color: #9CA3AF;"><?= $p('meta_valid_until') ?></div>
+                    <div class="b" style="color: #fff; font-size: 10pt; margin-top: 0.8mm;">
+                        <?= $e($fdate($doc['valid_until'])) ?>
+                    </div>
+                </div>
+
+                <?php if (!empty($sla['payment_terms'])): ?>
+                    <div style="margin-top: 3mm;">
+                        <div class="xtiny" style="color: #9CA3AF;"><?= $p('sla_pay') ?></div>
+                        <div class="b" style="color: #fff; font-size: 9pt; margin-top: 0.8mm;">
+                            <?= $e($sla['payment_terms']) ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </td>
+    </tr>
+</table>
+
+<table style="margin-top: 20mm; border-top: 0.5pt solid #E5E7EB;">
+    <tr>
+        <td style="padding-top: 3mm;">
+            <div class="caps xtiny muted"><?= $p('meta_date') ?></div>
+            <div class="b" style="margin-top: 1mm;"><?= $e($fdate($doc['date'])) ?></div>
+        </td>
+        <td style="padding-top: 3mm;">
+            <div class="caps xtiny muted"><?= $p('meta_ref') ?></div>
+            <div class="b" style="margin-top: 1mm;"><?= $e($ref_full) ?></div>
+        </td>
+        <td style="padding-top: 3mm; text-align: right;">
+            <div class="caps xtiny muted"><?= $p('cover_prepared_by') ?></div>
+            <div class="b" style="margin-top: 1mm; color: <?= $brand ?>;"><?= $e($doc['sales_rep']) ?></div>
+        </td>
+    </tr>
+</table>
+</div>
+
+<!-- ══ PROFILE & CONTEXT ═══════════════════════════════════════════════════ -->
+<div style="page-break-before: always;"></div>
+<div class="band"><?= $p('header_p2') ?> <span style="float: right;" class="ref"><?= $e($ref_full) ?></span></div>
+<div class="lpc-pad" style="padding-top: 8mm;">
+    <h2 class="sec"><?= $p('sec1_title') ?></h2>
+    <p><?= $p('sec1_p1') ?></p>
+    <p><?= $p('sec1_p2') ?></p>
+
+    <h2 class="sec" style="margin-top: 7mm;"><?= $p('sec2_title') ?></h2>
+    <p><?= $p('sec2_intro') ?></p>
+
+    <h3 class="sub"><?= $p('sec2_services') ?></h3>
+    <table>
+        <tr>
+            <td style="width: 50%; padding-right: 5mm;">
+                <p class="tiny">✓ <?= $p('sec2_l1') ?></p>
+                <p class="tiny">✓ <?= $p('sec2_l3') ?></p>
+            </td>
+            <td style="width: 50%;">
+                <p class="tiny">✓ <?= $p('sec2_l2') ?></p>
+                <p class="tiny">✓ <?= $p('sec2_l4') ?></p>
+            </td>
+        </tr>
+    </table>
+
+    <p style="margin-top: 3mm;"><?= $p('sec2_body') ?></p>
+
+    <table style="margin-top: 5mm;">
+        <tr>
+            <td style="width: 58%; padding-right: 6mm;">
+                <h3 class="sub" style="margin-top: 0;"><?= $p('sec2_gamme_title') ?></h3>
+                <p class="tiny">• <?= $p('sec2_gamme_1') ?></p>
+                <p class="tiny">• <?= $p('sec2_gamme_3') ?></p>
+                <p class="tiny">• <?= $p('sec2_gamme_2') ?></p>
+                <p class="tiny">• <?= $p('sec2_gamme_4') ?></p>
+
+                <h3 class="sub"><?= $p('sec2_av_title') ?></h3>
+                <table>
+                    <tr>
+                        <td style="width: 50%; padding-right: 3mm;">
+                            <div class="card" style="background: #F0FDF4; border-color: #BBF7D0;">
+                                <div class="b tiny"><?= $p('sec2_av_1_title') ?></div>
+                                <div class="xtiny muted" style="margin-top: 1mm;"><?= $p('sec2_av_1_desc') ?></div>
+                            </div>
+                        </td>
+                        <td style="width: 50%;">
+                            <div class="card" style="background: #F0FDF4; border-color: #BBF7D0;">
+                                <div class="b tiny"><?= $p('sec2_av_2_title') ?></div>
+                                <div class="xtiny muted" style="margin-top: 1mm;"><?= $p('sec2_av_2_desc') ?></div>
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+            <td style="width: 42%;">
+                <div class="card">
+                    <?php foreach ([['b1'], ['b2'], ['b3']] as $i => $blk): ?>
+                        <div style="<?= $i > 0 ? 'margin-top: 3.5mm;' : '' ?>">
+                            <div class="b tiny"><?= $p('sec2_' . $blk[0] . '_title') ?></div>
+                            <div class="xtiny muted" style="margin-top: 1mm;"><?= $p('sec2_' . $blk[0] . '_desc') ?></div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </td>
+        </tr>
+    </table>
+
+    <?php if ($logos): ?>
+        <div class="caps xtiny muted" style="text-align: center; margin-top: 7mm;"><?= $p('sec2_clients') ?></div>
+        <table style="margin-top: 3mm;">
+            <tr>
+            <?php foreach ($logos as $lg):
+                // dompdf needs a filesystem path; a missing file is skipped
+                // rather than rendering a broken-image box on a sales document.
+                $fs = realpath(__DIR__ . '/../..' . $lg['src']);
+                ?>
+                <td style="text-align: center; padding: 0 2mm;">
+                    <?php if ($fs && is_readable($fs)): ?>
+                        <img src="<?= $e($fs) ?>" style="max-height: 9mm; max-width: 24mm;">
+                    <?php else: ?>
+                        <span class="xtiny muted"><?= $e($lg['alt']) ?></span>
+                    <?php endif; ?>
+                </td>
+            <?php endforeach; ?>
+            </tr>
+        </table>
+    <?php endif; ?>
+</div>
+
+<!-- ══ OFFER & PRICING ═════════════════════════════════════════════════════ -->
+<div style="page-break-before: always;"></div>
+<div class="band"><?= $p('header_p3') ?> <span style="float: right;" class="ref"><?= $e($ref_full) ?></span></div>
+<div class="lpc-pad" style="padding-top: 8mm;">
+    <h2 class="sec"><?= $p('sec3_title') ?></h2>
+
+    <table class="items">
+        <thead>
+            <tr>
+                <th><?= $p('tbl_desc') ?></th>
+                <th style="text-align: center; width: 24mm;"><?= $p('tbl_qty') ?></th>
+                <th class="num" style="width: 28mm;"><?= $p('tbl_price') ?></th>
+                <th class="num" style="width: 32mm;"><?= $p('tbl_total') ?></th>
+            </tr>
+        </thead>
+        <tbody>
+        <?php foreach ($doc['items'] as $it): ?>
+            <tr>
+                <td class="b"><?= $e($it['name']) ?><?php
+                    if (!empty($it['format'])) {
+                        echo '<span class="muted" style="font-weight:normal"> — ' . $e($it['format']) . '</span>';
+                    } ?></td>
+                <td style="text-align: center;"><?= $e(lpc_fcfa($it['qty'], '')) ?></td>
+                <td class="num"><?= $e(lpc_fcfa($it['unit_price'], '')) ?></td>
+                <td class="num b"><?= $e(lpc_fcfa($it['total'], '')) ?></td>
+            </tr>
+        <?php endforeach; ?>
+        <?php if (empty($doc['items'])): ?>
+            <tr><td colspan="4" class="muted" style="text-align: center; padding: 12mm 0;">Aucune ligne.</td></tr>
+        <?php endif; ?>
+        </tbody>
+    </table>
+
+    <?php
+    // The fiscal ladder. The old document printed a single figure with no
+    // indication of HT or TTC — the one thing a buyer must know to compare
+    // suppliers or get an approval through their own finance team.
+    ?>
+    <table style="margin-top: 5mm;" class="no-break">
+        <tr>
+            <td style="width: 52%; padding-right: 8mm; vertical-align: bottom;">
+                <p class="xtiny muted" style="font-style: italic;"><?= $p('tbl_note') ?></p>
+            </td>
+            <td style="width: 48%;">
+                <div class="card">
+                <table class="ladder">
+                    <tr>
+                        <td><?= $p('tbl_subtotal') ?></td>
+                        <td class="num b"><?= $e(lpc_fcfa($t['subtotal'])) ?></td>
+                    </tr>
+                    <?php if ($t['excise'] > 0): ?>
+                        <tr>
+                            <td>Droit d'accises (<?= $e($rate($t['excise_rate'])) ?> %)</td>
+                            <td class="num b"><?= $e(lpc_fcfa($t['excise'])) ?></td>
+                        </tr>
+                    <?php endif; ?>
+                    <tr>
+                        <td><?= $p('tbl_tva') ?> (<?= $e($rate($t['tva_rate'])) ?> %)</td>
+                        <td class="num b"><?= $e(lpc_fcfa($t['tax'])) ?></td>
+                    </tr>
+                    <?php if ($t['tva_rate'] <= 0 && !empty($t['tva_exemption'])): ?>
+                        <tr><td colspan="2" class="exempt"><?= $e($t['tva_exemption']) ?></td></tr>
+                    <?php endif; ?>
+                    <tr class="grand">
+                        <td><?= $t['tva_rate'] > 0 ? $p('tbl_ttc') : $p('tbl_grand') ?></td>
+                        <td class="num"><?= $e(lpc_fcfa($t['grand_total'])) ?></td>
+                    </tr>
+                </table>
+                </div>
+            </td>
+        </tr>
+    </table>
+
+    <div class="card no-break" style="margin-top: 4mm;">
+        <span class="muted tiny" style="font-style: italic;"><?= $p('tbl_words') ?></span>
+        <span class="b" style="font-size: 9.5pt;"><?= $e($t['words']) ?></span>
+    </div>
+
+    <h2 class="sec" style="margin-top: 8mm; font-size: 11pt;"><?= $p('sec4_title') ?></h2>
+    <table class="sla">
+        <tr>
+            <td style="width: 50%; padding-right: 6mm;">
+                <div class="caps xtiny muted"><?= $p('sla_freq') ?></div>
+                <div class="b" style="margin-top: 1mm;"><?= $e($sla['frequency'] ?: '—') ?></div>
+            </td>
+            <td style="width: 50%;">
+                <div class="caps xtiny muted"><?= $p('sla_buffer') ?></div>
+                <div class="b" style="margin-top: 1mm;"><?= (int) $sla['buffer_weeks'] ?> <?= $p('sla_weeks') ?></div>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding-right: 6mm;">
+                <div class="caps xtiny muted"><?= $p('sla_pay') ?></div>
+                <div class="b" style="margin-top: 1mm;"><?= $e($sla['payment_terms'] ?: '—') ?></div>
+            </td>
+            <td>
+                <div class="caps xtiny muted"><?= $p('sla_empties') ?></div>
+                <div class="b" style="margin-top: 1mm;"><?= $e($sla['empties'] ?: '—') ?></div>
+            </td>
+        </tr>
+        <tr>
+            <td colspan="2" style="border-bottom: 0;">
+                <div class="caps xtiny muted"><?= $p('sla_validity') ?></div>
+                <div class="b" style="margin-top: 1mm;">
+                    <?= $p('meta_valid_until') ?> <?= $e($fdate($doc['valid_until'])) ?>
+                    <span class="muted" style="font-weight: normal;">
+                        (<?= (int) $doc['validity_days'] ?> <?= $p('meta_days') ?>)
+                    </span>
+                </div>
+            </td>
+        </tr>
+    </table>
+
+    <?php
+    // Delivery zone and transfer of risk. "Livraison rapide, même en zone
+    // dense" was a claim with nothing behind it, and nothing said who carried
+    // the risk between the depot and the client's door.
+    ?>
+    <h2 class="sec" style="margin-top: 8mm; font-size: 11pt;"><?= $p('sec_delivery_title') ?></h2>
+    <table class="sla">
+        <tr>
+            <td style="width: 50%; padding-right: 6mm;">
+                <div class="caps xtiny muted"><?= $p('sec_delivery_zone_label') ?></div>
+                <div style="margin-top: 1mm;" class="tiny"><?= $p('sec_delivery_zone') ?></div>
+            </td>
+            <td style="width: 50%;">
+                <div class="caps xtiny muted"><?= $p('sec_delivery_cost_label') ?></div>
+                <div style="margin-top: 1mm;" class="tiny"><?= $p('sec_delivery_cost') ?></div>
+            </td>
+        </tr>
+        <tr>
+            <td colspan="2" style="border-bottom: 0;">
+                <div class="caps xtiny muted"><?= $p('sec_delivery_risk_label') ?></div>
+                <div style="margin-top: 1mm;" class="tiny"><?= $p('sec_delivery_risk') ?></div>
+            </td>
+        </tr>
+    </table>
+</div>
+
+<!-- ══ TERMS & SIGNATURES ══════════════════════════════════════════════════ -->
+<div style="page-break-before: always;"></div>
+<div class="band"><?= $p('header_p4') ?> <span style="float: right;" class="ref"><?= $e($ref_full) ?></span></div>
+<div class="lpc-pad" style="padding-top: 8mm;">
+    <h2 class="sec"><?= $p('sec5_title') ?></h2>
+    <?php for ($i = 1; $i <= 6; $i++): ?>
+        <div class="art">
+            <span class="t tiny"><?= $p("tc_{$i}_title") ?></span>
+            <span class="tiny"><?= $p("tc_{$i}_body") ?></span>
+        </div>
+    <?php endfor; ?>
+
+    <?php
+    // The schedule Article 2 presupposes. Without published figures, "des frais
+    // de remplacement au tarif en vigueur" is unenforceable and, worse, reads
+    // as an open-ended liability to a cautious buyer.
+    if ($consigne): ?>
+        <h2 class="sec no-break" style="margin-top: 7mm; font-size: 11pt;"><?= $p('sec_consigne_title') ?></h2>
+        <p class="tiny"><?= $p('sec_consigne_intro') ?></p>
+        <table class="items no-break" style="margin-top: 3mm;">
+            <thead>
+                <tr>
+                    <th><?= $p('tbl_consigne_item') ?></th>
+                    <th class="num" style="width: 34mm;"><?= $p('tbl_consigne_deposit') ?></th>
+                    <th class="num" style="width: 34mm;"><?= $p('tbl_consigne_replace') ?></th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php foreach ($consigne as $c): ?>
+                <tr>
+                    <td class="b"><?= $e($c['name']) ?><?php
+                        if (!empty($c['format'])) {
+                            echo '<span class="muted" style="font-weight:normal"> — ' . $e($c['format']) . '</span>';
+                        } ?></td>
+                    <td class="num"><?= $e(lpc_fcfa($c['deposit_value'], '')) ?></td>
+                    <td class="num b"><?= $e(lpc_fcfa($c['replacement_value'], '')) ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
+    <?php if ($annexes): ?>
+        <h2 class="sec no-break" style="margin-top: 7mm; font-size: 11pt;"><?= $p('sec_annex_title') ?></h2>
+        <p class="tiny"><?= $p('sec_annex_intro') ?></p>
+        <div class="card no-break">
+            <?php foreach ($annexes as $a): ?>
+                <div class="tiny" style="padding: 0.8mm 0;">• <?= $e($a['label_fr']) ?></div>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+
+    <table style="margin-top: 10mm;" class="no-break">
+        <tr>
+            <td style="width: 48%; padding-right: 8mm;">
+                <div class="card" style="min-height: 32mm;">
+                    <div class="caps xtiny muted"><?= $p('sig_lpc') ?></div>
+                    <div class="b" style="margin-top: 2mm;"><?= $p('sig_role_lpc') ?></div>
+                    <div style="margin-top: 12mm; border-top: 0.5pt solid #9CA3AF; padding-top: 1.5mm;">
+                        <div class="caps xtiny muted"><?= $p('sig_prep') ?></div>
+                        <div class="b" style="margin-top: 1mm; color: <?= $brand ?>;"><?= $e($doc['sales_rep']) ?></div>
+                        <div class="xtiny muted"><?= $e($fdate($doc['date'])) ?></div>
+                    </div>
+                </div>
+            </td>
+            <td style="width: 52%;">
+                <div style="min-height: 32mm;">
+                    <div class="caps xtiny muted"><?= $p('sig_client') ?></div>
+                    <div style="margin-top: 16mm; border-top: 0.5pt solid #9CA3AF; padding-top: 1.5mm;">
+                        <div class="b" style="font-size: 10pt;"><?= $e($client['name']) ?></div>
+                        <?php if (!empty($client['contact'])): ?>
+                            <div class="tiny muted"><?= $e($client['contact']) ?></div>
+                        <?php endif; ?>
+                        <div class="xtiny muted" style="margin-top: 1.5mm;"><?= $p('sig_date_client') ?></div>
+                    </div>
+                </div>
+            </td>
+        </tr>
+    </table>
+</div>
+
+<?= lpc_document_footer() ?>
 
 </body></html>
     <?php

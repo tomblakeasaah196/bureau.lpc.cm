@@ -113,6 +113,19 @@ function lpc_proposal_defaults(): array
         'tbl_total'    => ['Prix Total', 'Total Price'],
         'tbl_grand'    => ['Montant Total Mensuel Estimé (FCFA) :', 'Estimated Monthly Total (FCFA):'],
         'tbl_note'     => ['* Note : La facturation réelle se fera sur la base des bons de livraison (BL) signés. Les prix sont exprimés en Francs CFA.', '* Note: Actual billing will be based on signed delivery notes (BL). Prices are in CFA Francs.'],
+
+        // --- Sprint 9: the fiscal ladder ------------------------------------
+        // DEV-2607-841B printed one figure, "MONTANT TOTAL MENSUEL ESTIMÉ
+        // (FCFA) : 100 000", with nothing saying whether it was HT or TTC. A
+        // client who budgets TTC and is invoiced HT + 19,25 % has a legitimate
+        // dispute — and since the water is exonerated, the silence also threw
+        // away a selling point. Same wording as the invoice, so the offer and
+        // the eventual facture can never state different tax treatments.
+        'tbl_subtotal'       => ['Total Hors Taxe (HT)', 'Subtotal (excl. tax)'],
+        'tbl_tva'            => ['TVA', 'VAT'],
+        'tbl_ttc'            => ['Montant Total Mensuel Estimé (TTC)', 'Estimated Monthly Total (incl. tax)'],
+        'tbl_exempt_default' => ['Exonéré de TVA — régime applicable au produit facturé (art. 128 CGI).', 'VAT exempt — regime applicable to the goods supplied (s. 128 CGI).'],
+        'tbl_words'          => ['Arrêtée la présente offre à la somme de :', 'This offer is closed at the sum of:'],
         'sec4_title'   => ['4. Accord de Niveau de Service (SLA)', '4. Service Level Agreement (SLA)'],
         'sla_freq'     => ['Fréq. de Livraison', 'Delivery Frequency'],
         'sla_buffer'   => ['Stock de Sécurité Alloué', 'Allocated Buffer Stock'],
@@ -137,6 +150,39 @@ function lpc_proposal_defaults(): array
         'tc_5_body'       => ["Notre service logistique s'adapte à vos horaires pour garantir des livraisons sans perturbation de votre activité. Nos techniciens assurent l'installation, l'entretien régulier des fontaines et une réactivité maximale pour vous éviter toute rupture de stock.", 'Our logistics team adapts to your schedule to ensure deliveries do not disrupt your operations. Our technicians handle installation, regular dispenser maintenance, and guarantee maximum responsiveness to prevent any stock-outs.'],
         'tc_6_title'      => ['Article 6 : Engagement de Satisfaction.', 'Article 6: Satisfaction Commitment.'],
         'tc_6_body'       => ["Votre satisfaction est au cœur de notre démarche. Un conseiller dédié vous est affecté pour analyser vos besoins, ajuster les volumes et intervenir rapidement en cas de requête spécifique. Nous garantissons le remplacement immédiat de tout équipement défectueux.", 'Your satisfaction is at the heart of our approach. A dedicated advisor is assigned to analyze your needs, adjust volumes, and intervene rapidly for any specific requests. We guarantee the prompt replacement of any defective equipment.'],
+        // --- Sprint 9: consigne schedule -------------------------------------
+        // Articles 1 and 2 promise "des frais de remplacement au tarif en
+        // vigueur" and never state one. The amounts come from
+        // products.deposit_value / replacement_value (migration 045).
+        'sec_consigne_title'   => ['Barème des Consignes et Remplacements', 'Deposit & Replacement Schedule'],
+        'sec_consigne_intro'   => ["Les contenants réutilisables sont mis à disposition sous consigne. La consigne est intégralement restituée au retour du contenant en bon état. Le tarif de remplacement s'applique uniquement en cas de perte ou de détérioration majeure, conformément à l'Article 2.", 'Returnable containers are provided against a refundable deposit. The deposit is returned in full when the container is returned in good condition. The replacement tariff applies only in the event of loss or major damage, per Article 2.'],
+        'tbl_consigne_item'    => ['Contenant', 'Container'],
+        'tbl_consigne_deposit' => ['Consigne (FCFA)', 'Deposit (FCFA)'],
+        'tbl_consigne_replace' => ['Remplacement (FCFA)', 'Replacement (FCFA)'],
+
+        // --- Sprint 9: delivery & transfer of risk ---------------------------
+        // "Livraison rapide, même en zone dense" was a claim with no commitment
+        // behind it, and nothing said who bore the risk in transit.
+        'sec_delivery_title'      => ['Livraison et Transfert des Risques', 'Delivery & Transfer of Risk'],
+        'sec_delivery_zone_label' => ['Zone de livraison', 'Delivery area'],
+        'sec_delivery_zone'       => ['Douala et périphérie. Livraison hors zone sur devis complémentaire.', 'Douala and surrounding areas. Deliveries outside this area are quoted separately.'],
+        'sec_delivery_cost_label' => ['Frais de transport', 'Transport cost'],
+        'sec_delivery_cost'       => ['Inclus dans les prix indiqués pour la zone de livraison ci-dessus.', 'Included in the quoted prices within the delivery area above.'],
+        'sec_delivery_risk_label' => ['Transfert des risques', 'Transfer of risk'],
+        'sec_delivery_risk'       => ["Les marchandises voyagent sous la responsabilité de LA PETITE COUR jusqu'à leur réception sur site. Le transfert des risques s'opère à la signature du bon de livraison par le client ou son représentant. Toute réserve doit être portée sur le bon de livraison au moment de la réception.", "Goods travel at LA PETITE COUR's risk until receipt on site. Risk transfers upon signature of the delivery note by the client or their representative. Any reservation must be recorded on the delivery note at the time of receipt."],
+
+        // --- Sprint 9: cover summary + dated validity -------------------------
+        // "30 Jours à compter de l'émission" made the reader do arithmetic and
+        // was buried on page 3 under the SLA.
+        'cover_summary_title' => ['En bref', 'At a glance'],
+        'cover_summary_total' => ['Montant mensuel estimé', 'Estimated monthly amount'],
+        'meta_valid_until'    => ["Offre valable jusqu'au", 'Offer valid until'],
+        'meta_revision'       => ['Révision', 'Revision'],
+
+        // --- Sprint 9: annexes -----------------------------------------------
+        'sec_annex_title' => ['Annexes', 'Appendices'],
+        'sec_annex_intro' => ['Les documents suivants sont joints à la présente offre :', 'The following documents are attached to this offer:'],
+
         'sig_lpc'         => ['Pour La Petite Cour :', 'For La Petite Cour:'],
         'sig_role_lpc'    => ['Le Responsable Commerciale', 'Sales Department'],
         'sig_prep'        => ['Préparé par :', 'Prepared By:'],

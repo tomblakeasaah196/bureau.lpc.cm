@@ -502,44 +502,77 @@
         }
 
 
+        /**
+         * Append one purchase-order line.
+         *
+         * Two changes beyond swapping the <select> for the shared picker:
+         *
+         *  1. purpose:'buy'. The old dropdown auto-filled a PO with
+         *     `base_price` — the SELLING price. Every purchase order this
+         *     screen has ever generated started life priced at what we charge
+         *     the customer rather than what the supplier charges us, and the
+         *     buyer had to know to overwrite it. 'buy' asks the catalogue for
+         *     cump (weighted average cost), falling back to base_price only
+         *     when a product has never been received.
+         *
+         *  2. The catalogue excludes inactive products. procurement_controller
+         *     built its list without `is_active = 1` — the one clause the sales
+         *     copy of the same query had — so retired SKUs stayed orderable
+         *     here long after they disappeared everywhere else.
+         *
+         * rowId was Date.now(), which collides for two rows added in the same
+         * millisecond and makes them share a total cell. Now a counter.
+         */
+        let poRowSeq = 0;
+
         function addPOLine() {
             const container = document.getElementById('po-lines-container');
-            const rowId = Date.now();
-            
-            let prodOptions = '<option value="">Choisir un produit...</option>';
-            metaData.products.forEach(p => {
-                prodOptions += LPC.html`<option value="${p.id}" data-price="${p.base_price}">${p.name} (${p.format || 'Standard'})</option>`;
-            });
+            const rowId = ++poRowSeq;
 
             const tr = document.createElement('tr');
             tr.className = "item-row hover:bg-gray-100 transition-colors";
             tr.innerHTML = LPC.html`
-                <td class="p-1 border-r border-gray-100">
-                    <select class="po-prod-select seamless-input p-2 font-bold text-gray-800" onchange="autoFillPrice(this, ${rowId})" required>
-                        ${LPC.raw(prodOptions)}
-                    </select>
+                <td class="p-1 border-r border-gray-100 align-top">
+                    <select class="po-prod-select" data-lpc-product-picker="buy" aria-label="Produit" required></select>
                 </td>
-                <td class="p-1 border-r border-gray-100">
-                    <input type="number" class="po-qty seamless-input p-2 text-center font-bold text-gray-900" value="1" min="1" oninput="calcRow(${rowId})" id="qty_${rowId}" required>
+                <td class="p-1 border-r border-gray-100 align-top">
+                    <input type="number" class="po-qty seamless-input p-2 text-center font-bold text-gray-900" value="1" min="1" oninput="calcRow(${rowId})" id="qty_${rowId}" aria-label="Quantité" required>
                 </td>
-                <td class="p-1 border-r border-gray-100">
-                    <input type="number" class="po-price seamless-input p-2 text-right font-bold text-gray-900" value="0" min="0" oninput="calcRow(${rowId})" id="price_${rowId}" required>
+                <td class="p-1 border-r border-gray-100 align-top">
+                    <input type="number" class="po-price seamless-input p-2 text-right font-bold text-gray-900" value="0" min="0" oninput="calcRow(${rowId})" id="price_${rowId}" aria-label="Prix unitaire" required>
                 </td>
-                <td class="p-1 border-r border-gray-100 text-right pr-4 font-black text-gray-900" id="total_${rowId}">
+                <td class="p-1 border-r border-gray-100 text-right pr-4 font-black text-gray-900 align-top" id="total_${rowId}">
                     0
                 </td>
-                <td class="p-1 text-center">
-                    <button type="button" onclick="this.closest('tr').remove(); calculatePOTotals();" class="text-red-300 hover:text-red-500 p-1"><i class="fas fa-times"></i></button>
+                <td class="p-1 text-center align-top">
+                    <button type="button" onclick="removePOLine(this)" class="text-red-300 hover:text-red-500 p-1" aria-label="Supprimer la ligne"><i class="fas fa-times"></i></button>
                 </td>
             `;
             container.appendChild(tr);
+
+            window.LPC?.productPicker?.mount(tr.querySelector('.po-prod-select'), {
+                purpose: 'buy',
+                onSelect(product) {
+                    const priceEl = document.getElementById(`price_${rowId}`);
+                    priceEl.value = product ? Math.round(product.price) : 0;
+                    calcRow(rowId);
+                    if (product) {
+                        document.getElementById(`qty_${rowId}`).focus();
+                        document.getElementById(`qty_${rowId}`).select();
+                    }
+                }
+            });
+            return tr;
         }
 
-        function autoFillPrice(selectElement, rowId) {
-            const selectedOption = selectElement.options[selectElement.selectedIndex];
-            const basePrice = selectedOption.getAttribute('data-price') || 0;
-            document.getElementById(`price_${rowId}`).value = basePrice;
-            calcRow(rowId);
+        function removePOLine(btn) {
+            const row = btn.closest('tr');
+            if (!row) return;
+            // The popup lives on <body>; destroy() removes it with the row.
+            const picker = window.LPC?.productPicker?.get(row.querySelector('.po-prod-select'));
+            if (picker) picker.destroy();
+            row.remove();
+            calculatePOTotals();
         }
 
         function calcRow(rowId) {

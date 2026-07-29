@@ -153,6 +153,27 @@ try {
     $regimes = CompanyProfile::FISCAL_REGIMES;
     $regime_key = (string) ($profile['fiscal_regime'] ?? '');
 
+    // --- payment blocks -------------------------------------------------------
+    // The accounts this invoice advertised, frozen at issue. Read the snapshot
+    // rather than the live treasury_accounts rows: a reprint must show what the
+    // client was actually told to pay into, even if that bank has since closed
+    // or the IBAN was restructured.
+    //
+    // Falls back to the single company_profile account for invoices issued
+    // before migration 044, so old documents keep rendering unchanged.
+    $payment_blocks = [];
+    $raw_snapshot = (string) invcol($invData, 'payment_block_snapshot', '');
+    if ($raw_snapshot !== '') {
+        $decoded = json_decode($raw_snapshot, true);
+        if (is_array($decoded)) $payment_blocks = $decoded;
+    }
+    if (!$payment_blocks) {
+        $legacy = CompanyProfile::bankDetails();
+        if ($legacy) {
+            $payment_blocks = [['title' => 'Coordonnées de règlement', 'lines' => $legacy]];
+        }
+    }
+
     // 6. Construct Final JSON Payload
     $response = [
         'status' => 'success',
@@ -171,7 +192,8 @@ try {
                 'fiscal_regime_label' => $regimes[$regime_key] ?? '',
                 'tax_office'          => (string) ($profile['tax_office'] ?? ''),
                 'legal_mentions'      => CompanyProfile::legalMentions(),
-                'bank'                => CompanyProfile::bankDetails(),
+                // One entry per account the client may settle into: {title, lines{}}.
+                'payment_blocks'      => $payment_blocks,
                 'footer'              => CompanyProfile::letterhead('fr')['footer'],
                 'brand_color'         => (string) ($profile['brand_color_primary'] ?? '#005A2B'),
             ],

@@ -20,16 +20,90 @@
         function openProposalModal(clientId, clientName) {
             document.getElementById('prop_client_id').value = clientId;
             document.getElementById('prop_client_name').innerText = clientName;
+
+            // Reset the lines. The modal is a singleton reused for every client,
+            // so without this the second quote of the session opens holding the
+            // first client's products — and the rep only notices after sending.
+            const tbody = document.getElementById('proposal-items-tbody');
+            tbody.innerHTML = '';
+            addProposalRow();
+
             openModal('proposalModal');
         }
 
-        // Add dynamic row to products table
+        /**
+         * Append one line to the quote.
+         *
+         * Stamped from #proposal-row-template, NOT cloned from the row above.
+         * The old version did `tbody.children[0].cloneNode(true)`, which broke
+         * the moment the first row became a product picker: cloneNode copies
+         * the picker's rendered DOM — a wrapper div and an orphaned hidden
+         * input — but none of the JavaScript state behind it. The clone looked
+         * like a picker and selected nothing.
+         *
+         * The <select data-lpc-product-picker> in the template is upgraded
+         * automatically once it is in the document; lpc-product-picker.js
+         * watches for it. Nothing to call here.
+         */
         function addProposalRow() {
             const tbody = document.getElementById('proposal-items-tbody');
-            // Clone the first row as a template
-            const template = tbody.children[0].cloneNode(true);
-            template.querySelector('.prod-qty').value = 1;
-            tbody.appendChild(template);
+            const tpl   = document.getElementById('proposal-row-template');
+            if (!tbody || !tpl) return null;
+
+            const row = tpl.content.firstElementChild.cloneNode(true);
+            tbody.appendChild(row);
+
+            // Auto-fill the unit price from the catalogue on selection, and
+            // flag a price the rep has pushed below the reference — a quote
+            // sent under cost is expensive and silent.
+            const sel = row.querySelector('.prod-id');
+            // Optional-chained: if lpc-product-picker.js failed to load, the
+            // row still renders (as an inert empty select) instead of the whole
+            // modal dying on a TypeError.
+            const picker = window.LPC?.productPicker?.mount(sel, {
+                purpose: 'sell',
+                onSelect(product) {
+                    const priceInput = row.querySelector('.prod-price');
+                    const qtyInput   = row.querySelector('.prod-qty');
+                    if (!product) { priceInput.value = 0; return; }
+
+                    priceInput.value = Math.round(product.price);
+                    priceInput.dataset.refPrice = String(Math.round(product.price));
+                    if (!Number(qtyInput.value)) qtyInput.value = 1;
+                    flagProposalPrice(priceInput);
+                    priceInput.focus();
+                    priceInput.select();
+                }
+            });
+            if (picker) {
+                row.querySelector('.prod-price')
+                   .addEventListener('input', function () { flagProposalPrice(this); });
+            }
+            return row;
+        }
+
+        /** Turn the price field red when it drops under the catalogue price. */
+        function flagProposalPrice(input) {
+            const ref = Number(input.dataset.refPrice || 0);
+            const val = Number(input.value || 0);
+            const under = ref > 0 && val > 0 && val < ref;
+            input.classList.toggle('border-rose-400', under);
+            input.classList.toggle('text-rose-600', under);
+            input.title = under
+                ? `Sous le tarif catalogue (${ref} FCFA)`
+                : '';
+        }
+
+        /** Remove a line, but never the last one — an empty quote is not a state
+         *  the user can do anything useful from. */
+        function removeProposalRow(btn) {
+            const tbody = document.getElementById('proposal-items-tbody');
+            const row   = btn.closest('tr');
+            if (!row) return;
+            const picker = window.LPC?.productPicker?.get(row.querySelector('.prod-id'));
+            if (picker) picker.destroy();   // the popup lives on <body>; take it too
+            row.remove();
+            if (!tbody.querySelector('.item-row')) addProposalRow();
         }
         async function submitClient() {
     const nameInput = document.getElementById('new_client_name');
@@ -88,13 +162,38 @@
             };
 
             // 2. Gather Line Items
-            document.querySelectorAll('.item-row').forEach(row => {
+            //
+            // Scoped to the proposal tbody, not document-wide: '.item-row' is
+            // also the class the client modal's rows use, and a document-wide
+            // query would have swept those in had both modals ever been open.
+            //
+            // Lines with no product are DROPPED rather than sent. The picker
+            // clears its id the moment the typed text stops matching, so a
+            // half-typed line is a real possibility, and create_proposal.php
+            // would happily write it as "Produit ID: " with no name.
+            const rows = document.querySelectorAll('#proposal-items-tbody .item-row');
+            let blank = 0;
+            rows.forEach(row => {
+                const id  = row.querySelector('.prod-id').value;
+                const qty = Number(row.querySelector('.prod-qty').value);
+                if (!id) { blank++; return; }
                 payload.items.push({
-                    product_id: row.querySelector('.prod-id').value,
-                    quantity: row.querySelector('.prod-qty').value,
+                    product_id: id,
+                    quantity:   qty > 0 ? qty : 1,
                     unit_price: row.querySelector('.prod-price').value
                 });
             });
+
+            if (!payload.items.length) {
+                LPC.modal.alert("Sélectionnez au moins un produit.");
+                return;
+            }
+            if (blank) {
+                const ok = await LPC.modal.confirm(
+                    `${blank} ligne(s) sans produit ${blank > 1 ? 'seront ignorées' : 'sera ignorée'}. Continuer ?`
+                );
+                if (!ok) return;
+            }
 
             // 3. Send to API
             try {

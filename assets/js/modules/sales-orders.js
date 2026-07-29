@@ -233,32 +233,72 @@
             document.getElementById('orderModal').classList.remove('hidden');
         }
 
+        /**
+         * Append one order line.
+         *
+         * The <select> here used to be built by looping metaData.products into
+         * <option> tags — one full copy of the catalogue per line, rebuilt on
+         * every "Ajouter Produit", showing nothing but a name and a format.
+         * It is now a single empty <select> upgraded in place by
+         * lpc-product-picker.js, which is searchable, shows SKU / stock / price
+         * / consigne, and hides emballages behind a toggle. The catalogue is
+         * fetched once per page and shared by every line.
+         *
+         * `Date.now()` was the row id, which collides when two rows are added
+         * inside the same millisecond — trivial to do by holding Enter on the
+         * add button, and the result is two rows writing to one another's
+         * total cell. A counter cannot collide.
+         */
+        let soRowSeq = 0;
+
         function addOrderLine() {
             const container = document.getElementById('so-lines-container');
-            const rowId = Date.now();
-            
-            let prodOptions = '<option value="">Choisir un produit...</option>';
-            // Note: In Sales, we look at client-specific pricing. If metaData includes custom prices, we handle it via backend. For UI, we use base_price as fallback.
-            metaData.products.forEach(p => {
-                prodOptions += LPC.html`<option value="${p.id}" data-price="${p.base_price}">${p.name} (${p.format || ''})</option>`;
-            });
+            const rowId = ++soRowSeq;
 
             const tr = document.createElement('tr');
             tr.className = "item-row hover:bg-gray-100 transition-colors";
             tr.innerHTML = LPC.html`
-                <td class="p-1 border-r border-gray-100"><select class="so-prod-select seamless-input p-2 font-bold text-gray-800" onchange="autoFillPrice(this, ${rowId})" required>${LPC.raw(prodOptions)}</select></td>
-                <td class="p-1 border-r border-gray-100"><input type="number" class="so-qty seamless-input p-2 text-center font-bold text-gray-900" value="1" min="1" oninput="calcRow(${rowId})" id="qty_${rowId}" required></td>
-                <td class="p-1 border-r border-gray-100"><input type="number" class="so-price seamless-input p-2 text-right font-bold text-gray-900" value="0" min="0" oninput="calcRow(${rowId})" id="price_${rowId}" required></td>
-                <td class="p-1 border-r border-gray-100 text-right pr-4 font-black text-gray-900" id="total_${rowId}">0</td>
-                <td class="p-1 text-center"><button type="button" onclick="this.closest('tr').remove(); calculateOrderTotals();" class="text-red-300 hover:text-red-500 p-1"><i class="fas fa-times"></i></button></td>
+                <td class="p-1 border-r border-gray-100 align-top"><select class="so-prod-select" data-lpc-product-picker="sell" aria-label="Produit" required></select></td>
+                <td class="p-1 border-r border-gray-100 align-top"><input type="number" class="so-qty seamless-input p-2 text-center font-bold text-gray-900" value="1" min="1" oninput="calcRow(${rowId})" id="qty_${rowId}" aria-label="Quantité" required></td>
+                <td class="p-1 border-r border-gray-100 align-top"><input type="number" class="so-price seamless-input p-2 text-right font-bold text-gray-900" value="0" min="0" oninput="calcRow(${rowId})" id="price_${rowId}" aria-label="Prix unitaire" required></td>
+                <td class="p-1 border-r border-gray-100 text-right pr-4 font-black text-gray-900 align-top" id="total_${rowId}">0</td>
+                <td class="p-1 text-center align-top"><button type="button" onclick="removeOrderLine(this)" class="text-red-300 hover:text-red-500 p-1" aria-label="Supprimer la ligne"><i class="fas fa-times"></i></button></td>
             `;
             container.appendChild(tr);
+
+            window.LPC?.productPicker?.mount(tr.querySelector('.so-prod-select'), {
+                purpose: 'sell',
+                clientId: document.getElementById('so_client')?.value || null,
+                onSelect(product) {
+                    const priceEl = document.getElementById(`price_${rowId}`);
+                    priceEl.value = product ? Math.round(product.price) : 0;
+                    calcRow(rowId);
+                    if (product) {
+                        // Land the cursor on the price: on a sales order the
+                        // price is the field most likely to be overridden, and
+                        // the qty already defaults to something usable.
+                        priceEl.focus();
+                        priceEl.select();
+                        // Out-of-stock is a warning, not a block — orders are
+                        // routinely taken against next week's delivery.
+                        if (product.stock_state === 'out') {
+                            LPC.toast(`${product.name} — rupture de stock.`, 'warning');
+                        }
+                    }
+                }
+            });
+            return tr;
         }
 
-        function autoFillPrice(selectElement, rowId) {
-            const price = selectElement.options[selectElement.selectedIndex].getAttribute('data-price') || 0;
-            document.getElementById(`price_${rowId}`).value = price;
-            calcRow(rowId);
+        function removeOrderLine(btn) {
+            const row = btn.closest('tr');
+            if (!row) return;
+            // The picker's popup is appended to <body>, so removing the row
+            // alone would strand it. destroy() takes both.
+            const picker = window.LPC?.productPicker?.get(row.querySelector('.so-prod-select'));
+            if (picker) picker.destroy();
+            row.remove();
+            calculateOrderTotals();
         }
 
         function calcRow(rowId) {

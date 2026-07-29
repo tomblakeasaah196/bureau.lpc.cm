@@ -199,14 +199,25 @@
             setText('dyn_paid_amount', LPC.fmt.fcfa(inv.paid_amount));
             setText('dyn_balance', LPC.fmt.fcfa(inv.balance));
 
-            // -- Bank / Mobile Money, from company_profile --------------------
+            // -- Payment accounts ---------------------------------------------
+            // One card per account the client may settle into — typically a
+            // bank for the transfer and a MoMo number for a small balance.
+            // These come from the invoice's frozen snapshot, not from live
+            // settings, so a reprint shows what the client was actually told.
             const bankBlock = document.getElementById('dyn_bank_block');
             if (bankBlock) {
-                const entries = Object.entries(co.bank || {});
-                bankBlock.innerHTML = entries.length
-                    ? entries.map(([label, value]) =>
-                        LPC.html`<p><strong class="text-gray-900">${label}:</strong> ${value}</p>`).join('')
-                    : LPC.html`<p class="text-gray-400 italic">Coordonnées bancaires non renseignées.</p>`;
+                const blocks = Array.isArray(co.payment_blocks) ? co.payment_blocks : [];
+                const rendered = blocks
+                    .filter(b => b && b.lines && Object.keys(b.lines).length)
+                    .map(b => LPC.html`
+                        <div class="pb-2 mb-2 border-b border-gray-200 last:border-0 last:pb-0 last:mb-0">
+                            <p class="text-[10px] font-black text-gray-900 uppercase tracking-widest mb-1">${b.title}</p>
+                            ${LPC.raw(Object.entries(b.lines).map(([label, value]) =>
+                                LPC.html`<p><strong class="text-gray-900">${label}:</strong> ${value}</p>`).join(''))}
+                        </div>`)
+                    .join('');
+                bankBlock.innerHTML = rendered ||
+                    LPC.html`<p class="text-gray-400 italic">Coordonnées de règlement non renseignées.</p>`;
             }
 
             // -- Statutory footer ---------------------------------------------

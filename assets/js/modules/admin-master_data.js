@@ -48,11 +48,27 @@ const mdmConfig = {
         columns: [
             { key: 'client_name', label: 'Client', render: v => `<span class="font-black text-gray-900">${v}</span>` },
             { key: 'product_name', label: 'Produit', render: v => `<span class="font-bold text-gray-600">${v}</span>` },
-            { key: 'custom_price', label: 'Prix Négocié', render: v => `<span class="font-black text-lpc-dark">${LPC.fmt.int(v)} FCFA</span>` }
+            // The negotiated price is meaningless on its own — it is only ever
+            // "X instead of Y". Showing the default it replaces, and the delta,
+            // turns the row from a number into a decision you can audit.
+            { key: 'base_price',   label: 'Prix Défaut', render: v => `<span class="text-xs font-bold text-gray-400">${LPC.fmt.int(v)} FCFA</span>` },
+            { key: 'custom_price', label: 'Prix Négocié', render: v => `<span class="font-black text-lpc-dark">${LPC.fmt.int(v)} FCFA</span>` },
+            { key: 'delta', label: 'Écart', render: v => {
+                const d = Number(v || 0);
+                if (!d) return '<span class="text-[10px] font-bold text-gray-400 uppercase">Identique</span>';
+                const cls = d < 0 ? 'text-amber-600 bg-amber-50' : 'text-emerald-600 bg-emerald-50';
+                const sign = d < 0 ? '' : '+';
+                return `<span class="px-2 py-1 rounded text-[10px] font-black ${cls}">${sign}${LPC.fmt.int(d)} FCFA</span>`;
+            }}
         ],
         form: [
-            { name: 'client_id', label: 'Client', type: 'dynamic_select', source: 'clients', width: 'col-span-1' },
-            { name: 'product_id', label: 'Produit', type: 'dynamic_select', source: 'products', width: 'col-span-1' },
+            // Both were `dynamic_select`, which reads metaData[source] — and the
+            // controller never populated meta for this module, so both rendered
+            // as a dropdown containing only "Sélectionner…". They are pickers
+            // now: same component as the devis and order line editors, so a
+            // 2000-client list is searchable instead of scrollable.
+            { name: 'client_id',    label: 'Client',  type: 'picker', source: 'clients',  width: 'col-span-1' },
+            { name: 'product_id',   label: 'Produit', type: 'picker', source: 'products', width: 'col-span-1' },
             { name: 'custom_price', label: 'Prix Négocié (FCFA)', type: 'number', width: 'col-span-2' }
         ]
     },
@@ -176,8 +192,241 @@ async function fetchData() {
 
         renderTable(moduleData);
         renderPager();
+        renderModulePanel();
     } catch (error) {
         tbody.innerHTML = LPC.html`<tr><td colspan="${colspan}" class="py-8 text-center text-red-500 font-bold">Erreur API: ${error.message}</td></tr>`;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 2b. MODULE PANEL — the price ladder (Prix & Tarifs only)
+// ---------------------------------------------------------------------------
+/**
+ * A price in this system resolves in three steps, and until now only the first
+ * two existed anywhere a user could see them:
+ *
+ *   1. client_prices.custom_price   the negotiated tarif — the table below
+ *   2. products.base_price          the default — buried in the Produits form
+ *   3. price_fallback_amount        a floor, if base_price is 0 (migration 042)
+ *
+ * Step 2 living on another tab is why "what does this client actually pay?" was
+ * unanswerable without opening two screens, and step 3 not existing is why a
+ * product with base_price = 0 quoted at zero, silently. This panel puts all
+ * three in one place and makes 2 and 3 editable where they are read.
+ */
+function renderModulePanel() {
+    const panel = document.getElementById('mdm-panel');
+    if (!panel) return;
+
+    if (currentModule !== 'pricing') {
+        panel.classList.add('hidden');
+        panel.innerHTML = '';
+        return;
+    }
+
+    const fb       = metaData.fallback_price || { amount: 0, mode: 'warn', exposed_products: 0, configurable: true };
+    const products = metaData.products || [];
+    const unpriced = products.filter(p => !Number(p.price));
+
+    panel.classList.remove('hidden');
+    panel.innerHTML = LPC.html`
+      <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h3 class="text-sm font-black text-gray-900">Comment le prix est choisi</h3>
+            <p class="text-[11px] text-gray-500 mt-0.5">Le premier palier qui donne un prix l'emporte.</p>
+          </div>
+          <button type="button" onclick="togglePricePanel()" id="price-panel-toggle"
+                  class="text-[11px] font-black uppercase tracking-wider text-lpc-dark hover:underline">
+            Configurer
+          </button>
+        </div>
+
+        <div class="px-6 py-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+          ${LPC.raw(ladderStep('1', 'Tarif négocié', 'client_prices', `${LPC.fmt.int(pageState.total || 0)} tarif(s) actifs`, 'bg-lpc-dark text-white'))}
+          ${LPC.raw(ladderStep('2', 'Prix par défaut', 'products.base_price', `${products.length} produit(s)`, 'bg-gray-100 text-gray-700'))}
+          ${LPC.raw(ladderStep('3', 'Prix de repli', 'préférence globale',
+              Number(fb.amount) > 0 ? `${LPC.fmt.int(fb.amount)} FCFA` : 'non défini',
+              unpriced.length ? 'bg-amber-50 text-amber-800' : 'bg-gray-100 text-gray-700'))}
+        </div>
+
+        ${LPC.raw(unpriced.length ? LPC.html`
+          <div class="mx-6 mb-4 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-medium text-amber-800">
+            <strong>${unpriced.length} produit(s) sans prix par défaut.</strong>
+            Sans prix de repli, ces produits sont devisés à 0 FCFA.
+            <button type="button" onclick="togglePricePanel(true)" class="underline font-black ml-1">Corriger</button>
+          </div>` : '')}
+
+        <div id="price-panel-body" class="hidden border-t border-gray-100">
+
+          <div class="px-6 py-5 bg-gray-50 border-b border-gray-100">
+            <h4 class="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-3">Palier 3 — prix de repli</h4>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+              <div>
+                <label class="${LABEL_CLS}" for="fb_amount">Montant (FCFA)</label>
+                <input type="number" id="fb_amount" min="0" step="1" value="${Math.round(Number(fb.amount) || 0)}"
+                       class="${INPUT_CLS}">
+                <p class="text-[10px] text-gray-400 mt-1 ml-1">0 = pas de repli.</p>
+              </div>
+              <div>
+                <label class="${LABEL_CLS}" for="fb_mode">Ligne à prix nul</label>
+                <select id="fb_mode" class="${INPUT_CLS}">
+                  <option value="zero"  ${fb.mode === 'zero'  ? 'selected' : ''}>Autoriser (silencieux)</option>
+                  <option value="warn"  ${fb.mode === 'warn'  ? 'selected' : ''}>Avertir</option>
+                  <option value="block" ${fb.mode === 'block' ? 'selected' : ''}>Bloquer l'enregistrement</option>
+                </select>
+              </div>
+              <div>
+                <button type="button" onclick="saveFallback()" id="fb-save"
+                        class="w-full px-6 py-2.5 bg-lpc-dark hover:bg-green-800 text-white rounded-xl font-bold text-sm shadow-md">
+                  Enregistrer
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="px-6 py-5">
+            <div class="flex items-center justify-between mb-3">
+              <h4 class="text-[10px] font-black uppercase tracking-widest text-gray-500">Palier 2 — prix par défaut</h4>
+              <label class="flex items-center gap-2 text-[11px] font-bold text-gray-500 cursor-pointer">
+                <input type="checkbox" id="fb-only-unpriced" onchange="renderDefaultPrices()"
+                       ${unpriced.length ? 'checked' : ''} class="accent-lpc-dark">
+                Sans prix uniquement
+              </label>
+            </div>
+            <div id="default-price-list" class="divide-y divide-gray-100 max-h-80 overflow-y-auto"></div>
+          </div>
+
+        </div>
+      </div>`;
+
+    renderDefaultPrices();
+}
+
+function ladderStep(n, title, source, meta, chipCls) {
+    return LPC.html`
+      <div class="rounded-xl border border-gray-200 p-3">
+        <div class="flex items-center gap-2">
+          <span class="w-5 h-5 rounded-full grid place-items-center text-[10px] font-black ${chipCls}">${n}</span>
+          <span class="text-xs font-black text-gray-900">${title}</span>
+        </div>
+        <p class="text-[10px] text-gray-400 mt-1.5 font-mono">${source}</p>
+        <p class="text-[11px] font-bold text-gray-600 mt-0.5">${meta}</p>
+      </div>`;
+}
+
+function togglePricePanel(force) {
+    const body = document.getElementById('price-panel-body');
+    const btn  = document.getElementById('price-panel-toggle');
+    if (!body) return;
+    const open = force === true ? true : body.classList.contains('hidden');
+    body.classList.toggle('hidden', !open);
+    if (btn) btn.innerText = open ? 'Masquer' : 'Configurer';
+}
+
+/**
+ * The editable default-price list.
+ *
+ * Defaults to showing ONLY products with no price when any exist — that is the
+ * actionable subset, and a full list of fourteen rows where two need attention
+ * buries the two.
+ */
+function renderDefaultPrices() {
+    const box = document.getElementById('default-price-list');
+    if (!box) return;
+
+    const onlyUnpriced = (document.getElementById('fb-only-unpriced') || {}).checked;
+    let rows = metaData.products || [];
+    if (onlyUnpriced) rows = rows.filter(p => !Number(p.price));
+
+    if (!rows.length) {
+        box.innerHTML = `<p class="py-6 text-center text-xs font-bold text-gray-400">
+            ${onlyUnpriced ? 'Tous les produits ont un prix par défaut.' : 'Aucun produit.'}</p>`;
+        return;
+    }
+
+    box.innerHTML = rows.map(p => LPC.html`
+      <div class="flex items-center gap-3 py-2.5">
+        <div class="min-w-0 flex-1">
+          <p class="text-xs font-bold text-gray-900 truncate">${p.name}</p>
+          <p class="text-[10px] text-gray-400 font-mono">${p.code || ''}${p.format ? ' · ' + p.format : ''}</p>
+        </div>
+        <input type="number" min="0" step="1" value="${Math.round(Number(p.price) || 0)}"
+               data-default-price-id="${p.id}"
+               aria-label="Prix par défaut ${p.name}"
+               class="w-32 border border-gray-300 rounded-lg p-2 text-xs text-right font-bold focus:ring-2 focus:ring-lpc-light outline-none">
+        <button type="button" onclick="saveDefaultPrice(${p.id}, this)"
+                class="px-3 py-2 rounded-lg bg-gray-100 hover:bg-lpc-dark hover:text-white text-[10px] font-black uppercase tracking-wide transition-colors">
+          OK
+        </button>
+      </div>`).join('');
+}
+
+async function saveDefaultPrice(productId, btn) {
+    const input = document.querySelector(`[data-default-price-id="${productId}"]`);
+    if (!input) return;
+
+    const price = Number(input.value);
+    if (!Number.isFinite(price) || price < 0) { notify('Prix invalide.', 'error'); return; }
+
+    btn.disabled = true;
+    const label = btn.innerText;
+    btn.innerText = '…';
+
+    try {
+        const fd = new FormData();
+        fd.append('product_id', productId);
+        fd.append('price', price);
+        const r = await fetch('/api/v1/mdm_controller.php?action=save_default_price&module=pricing',
+                              { method: 'POST', body: fd });
+        const j = await r.json();
+        if (j.status !== 'success') throw new Error(j.message || 'Échec');
+
+        // Keep the in-memory copy in step so the ladder counts and the picker
+        // prefill do not go stale until the next fetch.
+        const p = (metaData.products || []).find(x => String(x.id) === String(productId));
+        if (p) p.price = j.base_price;
+        if (LPC.picker) LPC.picker.refresh();     // catalogue price changed
+
+        notify(j.tarifs_above
+            ? `Prix enregistré. ${j.tarifs_above} tarif(s) négocié(s) sont désormais AU-DESSUS du défaut.`
+            : 'Prix par défaut enregistré.',
+            j.tarifs_above ? 'warning' : 'success');
+
+        fetchData();
+    } catch (e) {
+        notify('Erreur : ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerText = label;
+    }
+}
+
+async function saveFallback() {
+    const btn = document.getElementById('fb-save');
+    const amount = Number((document.getElementById('fb_amount') || {}).value || 0);
+    const mode   = (document.getElementById('fb_mode') || {}).value || 'warn';
+
+    if (!Number.isFinite(amount) || amount < 0) { notify('Montant invalide.', 'error'); return; }
+
+    btn.disabled = true;
+    try {
+        const fd = new FormData();
+        fd.append('amount', amount);
+        fd.append('mode', mode);
+        const r = await fetch('/api/v1/mdm_controller.php?action=save_fallback&module=pricing',
+                              { method: 'POST', body: fd });
+        const j = await r.json();
+        if (j.status !== 'success') throw new Error(j.message || 'Échec');
+
+        metaData.fallback_price = j.fallback;
+        notify('Politique de prix enregistrée.');
+        renderModulePanel();
+        togglePricePanel(true);
+    } catch (e) {
+        notify('Erreur : ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
     }
 }
 
@@ -407,6 +656,11 @@ function openModal(id = null) {
         if (field.type === 'select') {
             const opts = field.options.map(o => LPC.html`<option value="${o.v}" ${value === o.v ? 'selected' : ''}>${o.l}</option>`).join('');
             inputHTML = LPC.html`<select required id="f_${field.name}" name="${field.name}" class="${INPUT_CLS}">${LPC.raw(opts)}</select>`;
+        } else if (field.type === 'picker') {
+            // Rendered as a bare <select>, then upgraded after the form is in
+            // the DOM (see the mountFormPickers() call below) — the picker needs
+            // a real parentNode to replace itself into.
+            inputHTML = LPC.html`<select id="f_${field.name}" name="${field.name}" data-picker-source="${field.source}" data-picker-value="${value}"></select>`;
         } else if (field.type === 'dynamic_select') {
             const opts = (metaData[field.source] || []).map(o => LPC.html`<option value="${o.id}" ${value == o.id ? 'selected' : ''}>${o.name}</option>`).join('');
             inputHTML = LPC.html`<select required id="f_${field.name}" name="${field.name}" class="${INPUT_CLS}"><option value="">Sélectionner...</option>${LPC.raw(opts)}</select>`;
@@ -420,7 +674,113 @@ function openModal(id = null) {
         form.innerHTML += LPC.html`<div class="${field.width}"><label class="${LABEL_CLS}">${field.label}</label>${LPC.raw(inputHTML)}</div>`;
     });
 
+    mountFormPickers(form);
     document.getElementById('mdmModal').classList.remove('hidden');
+}
+
+/**
+ * Upgrade every [data-picker-source] in the form to a searchable picker.
+ *
+ * Runs after the form's innerHTML is final. The picker replaces its source
+ * element in the DOM and leaves a hidden input carrying the same id and name,
+ * so saveRecord()'s FormData(form) still collects `client_id` and `product_id`
+ * exactly as it did with the <select> — nothing downstream changes.
+ *
+ * Products come from the shared catalogue endpoint (so the row shows SKU,
+ * stock and consigne, and emballages sit behind the toggle); clients come from
+ * meta.clients, which the read action now returns.
+ *
+ * allowEmpties is TRUE here, unlike the devis and order editors. A consigne is
+ * not sold, but its deposit amount is genuinely negotiated per client — that is
+ * what client_prices is for — so the emballage toggle has to be reachable on
+ * this form even though it must not be on a quote.
+ */
+function mountFormPickers(form) {
+    if (!window.LPC || !LPC.picker) return;
+
+    form.querySelectorAll('[data-picker-source]').forEach(sel => {
+        const source = sel.dataset.pickerSource;
+        const preset = sel.dataset.pickerValue || '';
+        let picker;
+
+        if (source === 'products') {
+            picker = LPC.picker.mount(sel, {
+                purpose: 'sell',
+                allowEmpties: true,
+                placeholder: 'Rechercher un produit…',
+                onSelect(product) {
+                    // Prefill the negotiated price with the current default, so
+                    // the field starts from the number being negotiated away
+                    // from rather than from an empty box.
+                    const priceEl = document.getElementById('f_custom_price');
+                    if (product && priceEl && !priceEl.value) {
+                        priceEl.value = Math.round(product.price);
+                    }
+                    renderTarifHint();
+                }
+            });
+        } else {
+            picker = LPC.picker.mountList(sel, {
+                items: metaData[source] || [],
+                cacheKey: 'mdm-' + source,
+                placeholder: source === 'clients' ? 'Rechercher un client…' : 'Rechercher…',
+                onSelect: renderTarifHint
+            });
+        }
+
+        if (picker && preset) picker.setValue(preset, { silent: true });
+    });
+
+    const priceEl = document.getElementById('f_custom_price');
+    if (priceEl) priceEl.addEventListener('input', renderTarifHint);
+    renderTarifHint();
+}
+
+/**
+ * Live "X instead of Y" line under the tarif form.
+ *
+ * A negotiated price entered without the default in view is a number with no
+ * meaning — this is the difference between "1500" and "1500, which is 350 under
+ * the 1850 default". It also catches the direction mistake: a tarif ABOVE list
+ * is legal but almost always a typo.
+ */
+function renderTarifHint() {
+    const form = document.getElementById('dynamic-form');
+    if (!form || currentModule !== 'pricing') return;
+
+    let box = document.getElementById('tarif-hint');
+    if (!box) {
+        box = document.createElement('div');
+        box.id = 'tarif-hint';
+        box.className = 'col-span-2';
+        form.appendChild(box);
+    }
+
+    const prodPicker = LPC.picker && LPC.picker.get(document.getElementById('f_product_id'));
+    const product    = prodPicker && prodPicker.getProduct();
+    const entered    = Number((document.getElementById('f_custom_price') || {}).value || 0);
+
+    if (!product) { box.innerHTML = ''; return; }
+
+    const base  = Number(product.price || 0);
+    const delta = entered - base;
+
+    let tone = 'bg-gray-50 border-gray-200 text-gray-600';
+    let msg  = `Prix par défaut : <strong>${LPC.fmt.int(base)} FCFA</strong>`;
+
+    if (entered > 0 && delta < 0) {
+        tone = 'bg-amber-50 border-amber-200 text-amber-800';
+        msg += ` · remise de <strong>${LPC.fmt.int(Math.abs(delta))} FCFA</strong> (${Math.round(Math.abs(delta) / base * 100)} %)`;
+    } else if (entered > 0 && delta > 0) {
+        tone = 'bg-emerald-50 border-emerald-200 text-emerald-800';
+        msg += ` · <strong>${LPC.fmt.int(delta)} FCFA au-dessus</strong> du tarif — vérifiez.`;
+    }
+    if (entered > 0 && base > 0 && entered < base * 0.5) {
+        tone = 'bg-rose-50 border-rose-200 text-rose-800';
+        msg += ' · plus de 50 % sous le tarif.';
+    }
+
+    box.innerHTML = `<div class="border rounded-xl px-4 py-3 text-xs font-medium ${tone}">${msg}</div>`;
 }
 
 function closeModal() { document.getElementById('mdmModal').classList.add('hidden'); }

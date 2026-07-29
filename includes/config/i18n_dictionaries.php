@@ -25,6 +25,34 @@ $LPC_I18N = [
         // keys are here so the EN build is not silently half-translated.
         // ---------------------------------------------------------------
         'ui.common.close' => 'Fermer',
+        // ---------------------------------------------------------------
+        // Sprint 9 · product picker (assets/js/lpc-product-picker.js).
+        // Read through window.LPC.t(). Every one of these has a French
+        // fallback hardcoded in the JS, so a missing key degrades to French
+        // rather than printing the key — but they live here so the EN build
+        // is not silently half-translated.
+        // ---------------------------------------------------------------
+        'ui.picker.placeholder' => 'Choisir un produit…',
+        'ui.picker.list_label' => 'Produits',
+        'ui.picker.clear' => 'Effacer la sélection',
+        'ui.picker.loading' => 'Chargement du catalogue…',
+        'ui.picker.n_result' => 'produit',
+        'ui.picker.n_results' => 'produits',
+        'ui.picker.none' => 'Aucun produit',
+        'ui.picker.no_match' => 'Aucun produit ne correspond',
+        'ui.picker.capped' => 'affinez la recherche',
+        'ui.picker.hint_empties' => 'Un emballage correspond — activez la case ci-dessous.',
+        'ui.picker.show_empties' => 'Afficher les emballages (consigne)',
+        'ui.picker.consigne' => 'consigne',
+        'ui.picker.pack' => 'pack',
+        'ui.picker.in_stock' => 'en stock',
+        'ui.picker.stock_low' => 'stock bas',
+        'ui.picker.stock_out' => 'rupture',
+        'ui.picker.stock_out_warn' => 'rupture de stock',
+        'ui.picker.error' => 'Catalogue indisponible',
+        'ui.picker.error_sub' => 'La liste des produits n\'a pas pu être chargée.',
+        'ui.picker.retry' => 'Réessayer',
+        'ui.x.supprimer_la_ligne' => 'Supprimer la ligne',
         'ui.common.cancel' => 'Annuler',
         'ui.account.title' => 'Mon profil',
         'ui.account.tab_profile' => 'Profil',
@@ -1184,6 +1212,28 @@ $LPC_I18N = [
         // keys are here so the EN build is not silently half-translated.
         // ---------------------------------------------------------------
         'ui.common.close' => 'Close',
+        // Sprint 9 · product picker. See the FR block for why these exist.
+        'ui.picker.placeholder' => 'Choose a product…',
+        'ui.picker.list_label' => 'Products',
+        'ui.picker.clear' => 'Clear selection',
+        'ui.picker.loading' => 'Loading catalogue…',
+        'ui.picker.n_result' => 'product',
+        'ui.picker.n_results' => 'products',
+        'ui.picker.none' => 'No products',
+        'ui.picker.no_match' => 'No product matches',
+        'ui.picker.capped' => 'narrow your search',
+        'ui.picker.hint_empties' => 'An empty container matches — tick the box below.',
+        'ui.picker.show_empties' => 'Show empties (deposit)',
+        'ui.picker.consigne' => 'deposit',
+        'ui.picker.pack' => 'pack',
+        'ui.picker.in_stock' => 'in stock',
+        'ui.picker.stock_low' => 'low stock',
+        'ui.picker.stock_out' => 'out of stock',
+        'ui.picker.stock_out_warn' => 'out of stock',
+        'ui.picker.error' => 'Catalogue unavailable',
+        'ui.picker.error_sub' => 'The product list could not be loaded.',
+        'ui.picker.retry' => 'Retry',
+        'ui.x.supprimer_la_ligne' => 'Remove line',
         'ui.common.cancel' => 'Cancel',
         'ui.account.title' => 'My profile',
         'ui.account.tab_profile' => 'Profile',

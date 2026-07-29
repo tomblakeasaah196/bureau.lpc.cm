@@ -202,6 +202,16 @@ if ($__force_light) {
      handler never ran). See the header of lpc-toast.js. -->
 <script src="<?= lpc_asset('/assets/js/lpc-toast.js') ?>" defer></script>
 <script src="<?= lpc_asset('/assets/js/lpc-a11y.js') ?>" defer></script>
+<!-- Product picker. Shipped app-wide rather than per-page on purpose: it
+     upgrades any [data-lpc-product-picker] element it finds, and watches for
+     ones added later, so adopting it on a new screen is one attribute and no
+     <script> tag. Inert on the ~20 pages with no such element — it finds
+     nothing, attaches one MutationObserver, and costs a parse.
+
+     Order matters only in that it must come after lpc-dom (LPC.fmt) and
+     lpc-i18n (LPC.t); both are above. All three are deferred, so they execute
+     in document order before any page module script. -->
+<script src="<?= lpc_asset('/assets/js/lpc-product-picker.js') ?>" defer></script>
 <script src="<?= lpc_asset('/assets/js/lpc-deeplink.js') ?>" defer></script>
 <!-- CSS stops at the edge of a <canvas>, so charts are themed in JS. Deferred
      like the rest, which puts it before every page's own deferred module script

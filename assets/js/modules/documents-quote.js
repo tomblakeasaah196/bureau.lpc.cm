@@ -258,16 +258,96 @@ document.getElementById('input_email_body').value =
             });
         }
 
-        // 7. MULTI-PAGE PDF GENERATOR (The core fix)
+        // 7. PDF GENERATOR
+        // ---------------------------------------------------------------------
+        // Server-side dompdf is the source of truth; the html2canvas capture
+        // below is the lifeboat.
+        //
+        // The capture-only version this replaced produced a document with NO
+        // TEXT IN IT. `pdftotext` extracted four characters from the whole of
+        // DEV-2607-841B — all four pages were 1588×2246 JPEGs at 192 ppi. A
+        // prospect could not copy the price into a budget sheet, could not
+        // search the terms, and printed the thing at screen resolution. On the
+        // document that wins the business, that costs more than it did on the
+        // invoice.
+        //
+        // ?pdf=1 renders the same offer through dompdf as real vector text.
+        // ---------------------------------------------------------------------
         async function generatePDF() {
             if(!apiData) { LPC.modal.alert("Attendez le chargement des données / Wait for data to load"); return; }
-            
+
             const btn = document.getElementById('btn-download');
             const originalHTML = btn.innerHTML;
             btn.innerHTML = LPC.html`<i class="fas fa-spinner fa-spin"></i> Traitement...`;
             btn.classList.add('opacity-75', 'cursor-not-allowed');
 
+            const filename = `LPC_Devis_${apiData.proposal.reference}.pdf`;
+
             try {
+                await downloadServerQuotePDF(filename);
+                return;
+            } catch (serverError) {
+                console.warn('[devis] dompdf indisponible, repli sur la capture client :', serverError);
+            } finally {
+                btn.innerHTML = originalHTML;
+                btn.classList.remove('opacity-75', 'cursor-not-allowed');
+            }
+
+            // Fallback only — reached when the server route fails outright.
+            btn.innerHTML = LPC.html`<i class="fas fa-spinner fa-spin"></i> Traitement...`;
+            btn.classList.add('opacity-75', 'cursor-not-allowed');
+            try {
+                await downloadCanvasQuotePDF(filename);
+                if (window.LPC && LPC.toast) {
+                    LPC.toast(
+                        "PDF généré en mode dégradé (image). Le texte ne sera pas sélectionnable.",
+                        'warning'
+                    );
+                }
+            } catch (canvasError) {
+                console.error('[devis] échec des deux moteurs PDF :', canvasError);
+                LPC.modal.alert("Impossible de générer le PDF. Vérifiez votre connexion, puis réessayez.");
+            } finally {
+                btn.innerHTML = originalHTML;
+                btn.classList.remove('opacity-75', 'cursor-not-allowed');
+            }
+        }
+
+        /** Primary path — dompdf via ?pdf=1. Vector text, selectable, small. */
+        async function downloadServerQuotePDF(filename) {
+            const params = new URLSearchParams(window.location.search);
+            const token = params.get('token') || '';
+            const response = await fetch(`?token=${encodeURIComponent(token)}&pdf=1`, {
+                headers: { 'Accept': 'application/pdf' },
+                cache: 'no-store'
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            const blob = await response.blob();
+            // A PHP fatal can still arrive with a 200 on some hosts. Trust the
+            // payload, not the status line.
+            if (blob.type && blob.type.indexOf('pdf') === -1) throw new Error(`type inattendu : ${blob.type}`);
+            if (blob.size < 1000) throw new Error(`réponse trop courte : ${blob.size} octets`);
+
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            // Safari aborts the download if the object URL disappears
+            // synchronously after the click.
+            setTimeout(() => URL.revokeObjectURL(url), 4000);
+        }
+
+        /** Fallback — the original page-by-page html2canvas capture. */
+        async function downloadCanvasQuotePDF(filename) {
+                // Wait for webfonts before painting; capturing mid-load is what
+                // blanked blocks in the invoice capture.
+                if (document.fonts && document.fonts.ready) {
+                    await document.fonts.ready;
+                }
                 // Initialize PDF (A4 Portrait)
                 const pdf = new jspdf.jsPDF('p', 'mm', 'a4');
                 const pdfWidth = pdf.internal.pageSize.getWidth();
@@ -296,16 +376,7 @@ document.getElementById('input_email_body').value =
                 }
 
                 // Download the final assembled PDF
-                pdf.save(`LPC_Devis_${apiData.proposal.reference}.pdf`);
-
-            } catch (error) {
-                console.error("PDF Generation failed:", error);
-                LPC.modal.alert("Erreur lors de la génération du PDF. Essayez sur un ordinateur / Error generating PDF.");
-            } finally {
-                // Restore button state
-                btn.innerHTML = originalHTML;
-                btn.classList.remove('opacity-75', 'cursor-not-allowed');
-            }
+                pdf.save(filename);
         }
 
         // Init App

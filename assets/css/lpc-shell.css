@@ -2171,3 +2171,369 @@ html[data-lpc-reduce-motion="1"] .lpc-rail-toggle.is-hinting {
 }
 html[data-lpc-reduce-motion="1"] .lpc-toast--enter,
 html[data-lpc-reduce-motion="1"] .lpc-toast--leave { animation: none; }
+
+/* ===========================================================================
+   11. PRODUCT PICKER  (.lpc-pp-*)
+   ---------------------------------------------------------------------------
+   Styles for assets/js/lpc-product-picker.js — the combobox that replaced the
+   native <select> in the devis, sales-order and purchase-order line editors.
+
+   WHY THE STYLES LIVE HERE AND NOT IN TAILWIND
+   --------------------------------------------
+   The picker builds its DOM in JavaScript. Tailwind's JIT only emits classes it
+   can see in a source file it scans, and it does not scan for strings assembled
+   at runtime — which is exactly how lpc-toast.js lost `animate-toast-enter` and
+   left every toast the app ever showed stuck on screen (see that file's header).
+   Hand-written CSS in this file cannot be purged, so the picker cannot lose its
+   styling the same way.
+
+   THEMING IS FREE
+   ---------------
+   Every colour below is a shell variable, and §10.2 already redefines those
+   under html[data-lpc-theme="dark"] — including --lpc-accent-on-light, which
+   borrows the on-dark accent because the light-surface green fails contrast on
+   a dark surface. So this section needs no dark-mode block of its own: it
+   inverts correctly because it never names a colour.
+
+   That is also the fix for what the screenshots showed. The native <select>
+   rendered as a white Windows listbox on top of the dark theme, with black text
+   on a blue highlight, because the OS draws that control and no stylesheet can
+   reach inside it. This popup is ordinary DOM, so it obeys the theme.
+
+   Z-INDEX
+   -------
+   The popup is appended to <body> and must clear the modals it opens from.
+   Those sit at z-50 (Tailwind). 1200 clears them and stays under .lpc-toast
+   (1400), so a toast fired while the picker is open is still readable.
+   ========================================================================= */
+
+.lpc-pp {
+    position: relative;
+    width: 100%;
+}
+
+/* ---- the field ---------------------------------------------------------- */
+.lpc-pp__field {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: .25rem;
+    background: var(--lpc-surface);
+    border: 1px solid var(--lpc-border);
+    border-radius: .6rem;
+    transition: border-color .12s ease, box-shadow .12s ease;
+}
+.lpc-pp.is-open   .lpc-pp__field,
+.lpc-pp__field:focus-within {
+    border-color: var(--lpc-accent-on-light);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--lpc-accent-on-light) 18%, transparent);
+}
+
+.lpc-pp__input {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: transparent;
+    border: 0;
+    outline: 0;
+    padding: .55rem .25rem .55rem .7rem;
+    font-size: .8125rem;
+    font-weight: 700;
+    color: var(--lpc-ink);
+    text-overflow: ellipsis;
+}
+.lpc-pp__input::placeholder {
+    color: var(--lpc-ink-mute);
+    font-weight: 500;
+}
+
+.lpc-pp__clear,
+.lpc-pp__caret {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    font-size: .7rem;
+    color: var(--lpc-ink-mute);
+    background: transparent;
+    border: 0;
+    border-radius: .4rem;
+}
+.lpc-pp__clear { cursor: pointer; }
+.lpc-pp__clear:hover { color: var(--lpc-ink); background: var(--lpc-surface-sunken); }
+.lpc-pp__clear:focus-visible {
+    outline: 2px solid var(--lpc-accent-on-light);
+    outline-offset: 1px;
+}
+.lpc-pp__caret { margin-right: .3rem; pointer-events: none; transition: transform .15s ease; }
+.lpc-pp.is-open .lpc-pp__caret { transform: rotate(180deg); }
+
+/* ---- the confirmation line under the field ------------------------------
+   Shown only once a product is committed. The input has room for a name and
+   nothing else; this is where the SKU, the price and the consigne that will
+   follow the sale become visible without opening the popup again. */
+.lpc-pp__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .3rem .5rem;
+    margin-top: .3rem;
+    padding: 0 .15rem;
+    font-size: .625rem;
+    font-weight: 600;
+    color: var(--lpc-ink-soft);
+}
+.lpc-pp__meta-sku {
+    font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+    letter-spacing: -.02em;
+    color: var(--lpc-ink-mute);
+}
+.lpc-pp__meta-price    { font-weight: 800; color: var(--lpc-ink); }
+.lpc-pp__meta-consigne { color: #B45309; }
+.lpc-pp__meta-warn {
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: #B91C1C;
+}
+
+/* ---- the popup ---------------------------------------------------------- */
+.lpc-pp__pop {
+    position: fixed;
+    z-index: 1200;
+    display: flex;
+    flex-direction: column;
+    background: var(--lpc-surface);
+    border: 1px solid var(--lpc-border);
+    border-radius: .7rem;
+    box-shadow: 0 18px 40px -12px rgba(0, 0, 0, .3), 0 4px 10px -4px rgba(0, 0, 0, .18);
+    overflow: hidden;
+    animation: lpc-pp-in .12s ease both;
+}
+.lpc-pp__pop[hidden] { display: none; }
+.lpc-pp__pop.is-flipped { transform-origin: bottom; }
+
+@keyframes lpc-pp-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .lpc-pp__pop { animation: none; }
+}
+html[data-lpc-reduce-motion="1"] .lpc-pp__pop { animation: none; }
+
+/* Result count. role="status" — it is announced, so it must also be visible,
+   or sighted and screen-reader users get different information. */
+.lpc-pp__status {
+    flex: 0 0 auto;
+    padding: .4rem .7rem;
+    font-size: .5625rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--lpc-ink-mute);
+    background: var(--lpc-surface-sunken);
+    border-bottom: 1px solid var(--lpc-border);
+}
+.lpc-pp__status:empty { display: none; }
+
+.lpc-pp__list {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;   /* don't scroll the modal behind it */
+    padding: .25rem;
+}
+.lpc-pp__list::-webkit-scrollbar { width: 6px; }
+.lpc-pp__list::-webkit-scrollbar-thumb {
+    background-color: var(--lpc-border);
+    border-radius: 4px;
+}
+
+/* ---- category headers ---------------------------------------------------
+   Sticky, so the group a row belongs to stays visible while scrolling a long
+   category. role="presentation" in the DOM — they are not options and must not
+   be counted as such by a screen reader. */
+.lpc-pp__group {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: .4rem .55rem .25rem;
+    font-size: .5625rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: .09em;
+    color: var(--lpc-ink-mute);
+    background: var(--lpc-surface);
+}
+
+/* ---- one product -------------------------------------------------------- */
+.lpc-pp__opt {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .6rem;
+    padding: .45rem .55rem;
+    border-radius: .5rem;
+    cursor: pointer;
+    border: 1px solid transparent;
+}
+.lpc-pp__opt.is-active {
+    background: color-mix(in srgb, var(--lpc-accent-on-light) 12%, transparent);
+    border-color: color-mix(in srgb, var(--lpc-accent-on-light) 35%, transparent);
+}
+.lpc-pp__opt.is-selected .lpc-pp__name-txt { color: var(--lpc-accent-on-light); }
+.lpc-pp__opt.is-empty-row { opacity: .85; }
+
+.lpc-pp__main { min-width: 0; flex: 1 1 auto; }
+
+.lpc-pp__name {
+    display: flex;
+    align-items: baseline;
+    gap: .35rem;
+    min-width: 0;
+}
+.lpc-pp__name-txt {
+    font-size: .8125rem;
+    font-weight: 700;
+    color: var(--lpc-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.lpc-pp__fmt {
+    flex: 0 0 auto;
+    font-size: .625rem;
+    font-weight: 700;
+    color: var(--lpc-ink-mute);
+}
+.lpc-pp__tag {
+    flex: 0 0 auto;
+    padding: .05rem .3rem;
+    border-radius: .25rem;
+    font-size: .5rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: #92400E;
+    background: #FEF3C7;
+}
+
+.lpc-pp__sub {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .25rem .45rem;
+    margin-top: .15rem;
+    font-size: .5625rem;
+    font-weight: 600;
+}
+.lpc-pp__sku {
+    font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+    letter-spacing: -.02em;
+    color: var(--lpc-ink-mute);
+}
+.lpc-pp__pack,
+.lpc-pp__consigne { color: var(--lpc-ink-soft); }
+.lpc-pp__consigne { color: #B45309; font-weight: 700; }
+
+/* Stock chip. Three coarse states — the picker answers "can I promise this?",
+   not "what is my inventory position". */
+.lpc-pp__chip {
+    padding: .05rem .3rem;
+    border-radius: .25rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    white-space: nowrap;
+}
+.lpc-pp__chip--ok   { color: #166534; background: #DCFCE7; }
+.lpc-pp__chip--low  { color: #92400E; background: #FEF3C7; }
+.lpc-pp__chip--out  { color: #991B1B; background: #FEE2E2; }
+
+.lpc-pp__price {
+    flex: 0 0 auto;
+    font-size: .8125rem;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    color: var(--lpc-ink);
+    white-space: nowrap;
+}
+.lpc-pp__cur {
+    font-size: .5625rem;
+    font-weight: 700;
+    color: var(--lpc-ink-mute);
+}
+
+/* ---- empty / loading / error -------------------------------------------- */
+.lpc-pp__empty,
+.lpc-pp__error,
+.lpc-pp__loading {
+    padding: 1.4rem 1rem;
+    text-align: center;
+    color: var(--lpc-ink-soft);
+}
+.lpc-pp__empty-icon   { font-size: 1.25rem; color: var(--lpc-ink-mute); margin-bottom: .4rem; }
+.lpc-pp__empty-title,
+.lpc-pp__error-title  { font-size: .75rem; font-weight: 800; color: var(--lpc-ink); }
+.lpc-pp__empty-sub,
+.lpc-pp__error-sub    { font-size: .6875rem; margin-top: .15rem; }
+.lpc-pp__empty-hint {
+    margin-top: .5rem;
+    font-size: .625rem;
+    font-weight: 700;
+    color: #B45309;
+}
+.lpc-pp__loading { font-size: .75rem; font-weight: 600; }
+
+.lpc-pp__retry {
+    margin-top: .6rem;
+    padding: .35rem .8rem;
+    border: 1px solid var(--lpc-border);
+    border-radius: .4rem;
+    background: var(--lpc-surface-sunken);
+    font-size: .6875rem;
+    font-weight: 800;
+    color: var(--lpc-ink);
+    cursor: pointer;
+}
+.lpc-pp__retry:hover { border-color: var(--lpc-accent-on-light); }
+
+/* ---- footer: the emballage toggle ---------------------------------------
+   Off by default and hidden entirely when the catalogue has no empties in it.
+   Consignes are lent against a deposit, not sold, so they must not be one
+   careless click away in a quote — but the rare deposit-as-a-line quote should
+   not need a developer either. */
+.lpc-pp__foot {
+    flex: 0 0 auto;
+    border-top: 1px solid var(--lpc-border);
+    background: var(--lpc-surface-sunken);
+}
+.lpc-pp__foot:empty { display: none; }
+
+.lpc-pp__toggle {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .45rem .7rem;
+    font-size: .625rem;
+    font-weight: 700;
+    color: var(--lpc-ink-soft);
+    cursor: pointer;
+}
+.lpc-pp__toggle[hidden] { display: none; }
+.lpc-pp__toggle:hover   { color: var(--lpc-ink); }
+.lpc-pp__toggle-cb {
+    width: .8rem;
+    height: .8rem;
+    accent-color: var(--lpc-accent-on-light);
+    cursor: pointer;
+}
+
+/* ---- narrow screens -----------------------------------------------------
+   The JS pins the popup to the field's width. Under 480px that is most of the
+   viewport anyway, so the rows get room by dropping the price onto its own
+   line rather than competing with the name for horizontal space. */
+@media (max-width: 480px) {
+    .lpc-pp__opt   { flex-wrap: wrap; }
+    .lpc-pp__price { width: 100%; text-align: right; }
+}

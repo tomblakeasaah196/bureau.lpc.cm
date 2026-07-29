@@ -70,6 +70,86 @@ function notifyAdminFinance($db, $title, $message) {
     }
 }
 
+/**
+ * Record which collection accounts an invoice advertises.
+ *
+ * Selection order, most specific first:
+ *   1. what the user ticked in the generation modal
+ *   2. the client's default account (Afriland for the large accounts,
+ *      microfinance for the rest — set once on the client, not remembered by
+ *      whoever happens to raise the invoice)
+ *   3. every account flagged "show on invoice", in display order
+ *
+ * The first surviving account becomes invoices.settlement_account_id, which is
+ * what JournalPoster uses to decide which treasury sub-ledger a payment debits.
+ * Before this existed it fell through to "first active account of this type",
+ * so with two banks configured every bank payment posted to whichever was
+ * created first regardless of where the money actually landed.
+ *
+ * Degrades silently when migration 044 has not run: the tables and columns are
+ * probed, and an invoice still issues without a payment block rather than
+ * failing mid-deploy.
+ */
+function lpc_attach_invoice_payment_accounts(PDO $db, int $invoice_id, $requested, int $client_id): void
+{
+    $has_table = (int) $db->query("
+        SELECT COUNT(*) FROM information_schema.tables
+         WHERE table_schema = DATABASE() AND table_name = 'invoice_payment_accounts'
+    ")->fetchColumn() > 0;
+    if (!$has_table) return;
+
+    $ids = [];
+    if (is_array($requested)) {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $requested))));
+    }
+
+    if (!$ids) {
+        $stmt = $db->prepare("SELECT default_payment_account_id FROM clients WHERE id = ?");
+        $stmt->execute([$client_id]);
+        $default = (int) $stmt->fetchColumn();
+        if ($default > 0) $ids = [$default];
+    }
+
+    if (!$ids) {
+        $ids = array_map('intval', $db->query("
+            SELECT id FROM treasury_accounts
+             WHERE status = 'active' AND show_on_invoice = 1
+             ORDER BY sort_order ASC, id ASC
+        ")->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    if (!$ids) return;   // nothing configured yet — invoice issues without a payment block
+
+    // Re-read from the database rather than trusting the ids the browser sent:
+    // an inactive or non-invoiceable account must not reach a customer document.
+    $ph = implode(',', array_fill(0, count($ids), '?'));
+    $stmt = $db->prepare("
+        SELECT * FROM treasury_accounts
+         WHERE id IN ($ph) AND status = 'active' AND show_on_invoice = 1
+         ORDER BY FIELD(id, $ph)
+    ");
+    $stmt->execute(array_merge($ids, $ids));
+    $accounts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$accounts) return;
+
+    $link = $db->prepare("
+        INSERT INTO invoice_payment_accounts (invoice_id, treasury_account_id, sort_order)
+        VALUES (?, ?, ?)
+    ");
+    $snapshot = [];
+    foreach ($accounts as $i => $acc) {
+        $link->execute([$invoice_id, (int) $acc['id'], $i]);
+        $snapshot[] = TreasuryAccount::printBlock($acc);
+    }
+
+    $db->prepare("UPDATE invoices SET settlement_account_id = ?, payment_block_snapshot = ? WHERE id = ?")
+       ->execute([
+           (int) $accounts[0]['id'],
+           json_encode($snapshot, JSON_UNESCAPED_UNICODE),
+           $invoice_id,
+       ]);
+}
+
 try {
     $db = Database::getInstance()->getConnection();
     // Force PDO to throw catchable exceptions instead of silent fatal errors
@@ -93,6 +173,59 @@ try {
     }
 
     switch ($action) {
+
+        // ==========================================
+        // ACTION: PAYMENT ACCOUNTS (invoice modal picker)
+        // ==========================================
+        // The collection accounts offerable on an invoice, plus this client's
+        // default so the modal can pre-tick it. Read-only; safe to call before
+        // migration 044 has run, in which case it returns an empty list and the
+        // invoice is issued without a payment block.
+        case 'payment_accounts':
+            $client_id = (int) ($_GET['client_id'] ?? 0);
+
+            $has_col = (int) $db->query("
+                SELECT COUNT(*) FROM information_schema.columns
+                 WHERE table_schema = DATABASE()
+                   AND table_name = 'treasury_accounts'
+                   AND column_name = 'show_on_invoice'
+            ")->fetchColumn() > 0;
+
+            if (!$has_col) {
+                echo json_encode(['status' => 'success', 'accounts' => [], 'default_account_id' => null]);
+                break;
+            }
+
+            require_once __DIR__ . '/../../includes/classes/TreasuryAccount.php';
+            $accounts = array_map(static function (array $a) {
+                // Only what the picker renders. Balances and internal ids for
+                // other accounts have no business in this response.
+                return [
+                    'id'             => (int) $a['id'],
+                    'name'           => $a['name'],
+                    'type'           => $a['type'],
+                    'bank_name'      => $a['bank_name'] ?? null,
+                    'account_number' => $a['account_number'] ?? null,
+                ];
+            }, TreasuryAccount::invoiceable());
+
+            $default_id = null;
+            if ($client_id > 0) {
+                $stmt = $db->prepare("SELECT default_payment_account_id FROM clients WHERE id = ?");
+                $stmt->execute([$client_id]);
+                $default_id = (int) $stmt->fetchColumn() ?: null;
+            }
+            // Only honour the client default if it is still offerable.
+            if ($default_id && !in_array($default_id, array_column($accounts, 'id'), true)) {
+                $default_id = null;
+            }
+
+            echo json_encode([
+                'status'             => 'success',
+                'accounts'           => $accounts,
+                'default_account_id' => $default_id ?: ($accounts[0]['id'] ?? null),
+            ], JSON_UNESCAPED_UNICODE);
+            break;
 
         // ==========================================
         // ACTION: READ TABS (Dynamic AR Dashboard)
@@ -168,16 +301,92 @@ try {
                 $responseData['top_debtors'] = $topDebtors;
 
             } elseif ($tab === 'to_invoice') {
-                $responseData['deliveries'] = safeQueryAll($db, "
-                    SELECT d.id, d.reference as bl_ref, d.date, d.client_id, d.payment_collected,
-                           c.name as client_name,
-                           so.reference as so_ref, so.subtotal as sales_subtotal
+                // ---------------------------------------------------------------
+                // Sprint 9 — this list was an unbounded fetchAll with a fixed
+                // ORDER BY. The DATE and CLIENT column headings carried a
+                // cursor-pointer and a fa-sort icon but no click handler at all,
+                // so they looked sortable and were not; and the search box only
+                // hid rows in the DOM, which silently stopped being the truth
+                // once the list outgrew what had been rendered.
+                //
+                // Sorting, filtering and paging now all resolve here. Sort keys
+                // are whitelisted — the column name is never taken from input.
+                // ---------------------------------------------------------------
+                $SORTABLE = [
+                    'date'   => 'd.date',
+                    'client' => 'c.name',
+                    'bl'     => 'd.reference',
+                    'order'  => 'so.reference',
+                    'cash'   => 'd.payment_collected',
+                ];
+                $sort_key = (string) ($_GET['sort'] ?? 'date');
+                $sort_col = $SORTABLE[$sort_key] ?? $SORTABLE['date'];
+                $dir      = strtoupper((string) ($_GET['dir'] ?? 'ASC')) === 'DESC' ? 'DESC' : 'ASC';
+
+                $body = "
                     FROM deliveries d
                     JOIN clients c ON d.client_id = c.id
                     JOIN sales_orders so ON d.sales_order_id = so.id
                     LEFT JOIN invoice_deliveries idel ON d.id = idel.delivery_id
                     WHERE d.status = 'completed' AND idel.invoice_id IS NULL
-                    ORDER BY d.client_id ASC, d.date ASC
+                ";
+                $params = [];
+
+                // Picking a client hides every other client's DNs. An invoice
+                // can only ever group one client's notes, so this is also what
+                // the batching flow downstream actually wants.
+                $filter_client = (int) ($_GET['client_id'] ?? 0);
+                if ($filter_client > 0) {
+                    $body .= " AND d.client_id = :client_id";
+                    $params[':client_id'] = $filter_client;
+                }
+
+                $lpc_q = trim((string) ($_GET['q'] ?? ''));
+                if ($lpc_q !== '') {
+                    [$body, $params] = Paginator::addWhere(
+                        $body, $params, $lpc_q,
+                        ['c.name', 'd.reference', 'so.reference']
+                    );
+                }
+
+                // d.id as the tiebreaker keeps paging stable when many rows
+                // share a date — without it a row can appear on two pages.
+                $body .= " ORDER BY {$sort_col} {$dir}, d.id ASC";
+
+                try {
+                    $page = Paginator::paginate($db, $body, $params,
+                        "d.id, d.reference as bl_ref, d.date, d.client_id, d.payment_collected,
+                         c.name as client_name,
+                         so.reference as so_ref, so.subtotal as sales_subtotal",
+                        null, (int) ($_GET['per_page'] ?? 50), "invoices.read.to_invoice",
+                        "COUNT(DISTINCT d.id)");
+
+                    $responseData['deliveries'] = $page['data'];
+                    $responseData['pagination'] = [
+                        'page'        => $page['page'],
+                        'per_page'    => $page['per_page'],
+                        'total'       => $page['total'],
+                        'total_pages' => $page['total_pages'],
+                        'has_prev'    => $page['has_prev'],
+                        'has_next'    => $page['has_next'],
+                    ];
+                    $responseData['sort'] = ['key' => $sort_key, 'dir' => $dir];
+                } catch (Throwable $e) {
+                    error_log('to_invoice tab: ' . $e->getMessage());
+                    $responseData['deliveries'] = [];
+                }
+
+                // Clients that actually have something uninvoiced, for the
+                // filter dropdown. Cheap, and it keeps the list free of the
+                // hundreds of clients with nothing outstanding.
+                $responseData['filter_clients'] = safeQueryAll($db, "
+                    SELECT c.id, c.name, COUNT(DISTINCT d.id) AS pending
+                      FROM deliveries d
+                      JOIN clients c ON c.id = d.client_id
+                      LEFT JOIN invoice_deliveries idel ON d.id = idel.delivery_id
+                     WHERE d.status = 'completed' AND idel.invoice_id IS NULL
+                     GROUP BY c.id, c.name
+                     ORDER BY c.name ASC
                 ");
 
             } elseif ($tab === 'invoices') {
@@ -408,6 +617,28 @@ try {
             foreach ($grouped_items as $pid => $data) {
                 $stmtInvItem->execute([$invoice_id, $pid, $data['name'], $data['quantity'], $data['unit_price']]);
             }
+
+            // ---------------------------------------------------------------
+            // Payment accounts the invoice advertises (Sprint 9).
+            //
+            // The client ticks a set — typically a bank for the transfer plus a
+            // MoMo number for a small balance. The FIRST one is the settlement
+            // account: the one a payment is assumed to land on, which is what
+            // decides the treasury sub-ledger the payment JE debits.
+            //
+            // A frozen JSON snapshot is written alongside the foreign keys.
+            // The keys are the accounting link; the snapshot is the document of
+            // record, so a reprint years later shows the account exactly as the
+            // client saw it even if the bank has since closed or the IBAN was
+            // restructured.
+            // ---------------------------------------------------------------
+            require_once __DIR__ . '/../../includes/classes/TreasuryAccount.php';
+            lpc_attach_invoice_payment_accounts(
+                $db,
+                (int) $invoice_id,
+                $jsonData['payment_account_ids'] ?? null,
+                $client_id
+            );
 
             // Auto-post the sale JE: Dr 411/4424 · Cr 701/4432.
             // Any account-mapping error rolls the whole transaction back.

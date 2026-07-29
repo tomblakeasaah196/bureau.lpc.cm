@@ -390,31 +390,53 @@ $lang = lpc_i18n_current_lang();
                                         <th class="py-3 px-4 w-10"></th>
                                     </tr>
                                 </thead>
-                                <tbody id="proposal-items-tbody" class="divide-y divide-gray-100">
-                                    <tr class="item-row">
-                                        <td class="p-2">
-                                            <select class="prod-id w-full bg-transparent text-sm font-bold text-gray-800 outline-none p-2 border border-transparent focus:border-gray-300 rounded-lg">
-                                                <option value="1">Opur 20L (Recharge d'Eau)</option>
-                                                <option value="2">Supermont 10L (Recharge d'Eau)</option>
-                                                <option value="3"><?= htmlspecialchars(__t('ui.x.emballage_vide_20l_vente_consigne')) ?></option>
-                                            </select>
-                                        </td>
-                                        <td class="p-2">
-                                            <input type="number" class="prod-qty w-full border border-gray-300 rounded-lg p-2 text-sm text-center font-bold focus:ring-2 focus:ring-lpc-light outline-none" value="100" min="1">
-                                        </td>
-                                        <td class="p-2">
-                                            <input type="number" class="prod-price w-full border border-gray-300 rounded-lg p-2 text-sm text-right font-bold focus:ring-2 focus:ring-lpc-light outline-none" value="1000">
-                                        </td>
-                                        <td class="p-2 text-center">
-                                            <button type="button" onclick="this.closest('tr').remove()" class="text-red-300 hover:text-red-500 p-1">
-                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                </tbody>
+                                <!-- Starts EMPTY. openProposalModal() stamps the first row from the
+                                     <template> below.
+
+                                     It used to carry a hardcoded first row that addProposalRow() then
+                                     cloned with cloneNode(true). That cannot survive the picker: once
+                                     the row is upgraded, cloning it copies the picker's rendered DOM —
+                                     a wrapper div and a dead hidden input — with none of the JS state
+                                     that makes it a picker. The clone would look right and select
+                                     nothing. Stamping every row from pristine markup means row 1 and
+                                     row 9 go through exactly the same code path. -->
+                                <tbody id="proposal-items-tbody" class="divide-y divide-gray-100"></tbody>
                             </table>
                         </div>
                     </div>
+
+                    <!-- Row template. Cloned by addProposalRow() for every line, including
+                         the first. The <select> inside is upgraded to a searchable picker
+                         by lpc-product-picker.js the moment the clone lands in the DOM
+                         (its MutationObserver watches for the attribute), and the picker
+                         leaves behind a hidden input carrying the .prod-id class — so
+                         submitProposal()'s row.querySelector('.prod-id').value is
+                         unchanged and still returns a real product id.
+
+                         Content inside <template> is inert: not rendered, not upgraded,
+                         no request fired. -->
+                    <template id="proposal-row-template">
+                        <tr class="item-row">
+                            <td class="p-2 align-top">
+                                <select class="prod-id" data-lpc-product-picker="sell"
+                                        aria-label="<?= htmlspecialchars(__t('ui.x.produit')) ?>"></select>
+                            </td>
+                            <td class="p-2 align-top">
+                                <input type="number" class="prod-qty w-full border border-gray-300 rounded-lg p-2 text-sm text-center font-bold focus:ring-2 focus:ring-lpc-light outline-none" value="1" min="1"
+                                       aria-label="<?= htmlspecialchars(__t('ui.x.qte')) ?>">
+                            </td>
+                            <td class="p-2 align-top">
+                                <input type="number" class="prod-price w-full border border-gray-300 rounded-lg p-2 text-sm text-right font-bold focus:ring-2 focus:ring-lpc-light outline-none" value="0" min="0"
+                                       aria-label="<?= htmlspecialchars(__t('ui.x.prix_unitaire')) ?>">
+                            </td>
+                            <td class="p-2 text-center align-top">
+                                <button type="button" onclick="removeProposalRow(this)" class="text-red-300 hover:text-red-500 p-1"
+                                        aria-label="<?= htmlspecialchars(__t('ui.x.supprimer_la_ligne')) ?>">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
 
                 </form>
             </div>

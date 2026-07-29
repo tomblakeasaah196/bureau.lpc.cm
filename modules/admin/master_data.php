@@ -41,6 +41,12 @@ $lang = lpc_i18n_current_lang();
                 </button>
             </div>
 
+            <!-- Per-tab panel, rendered above the table. Only Prix & Tarifs uses
+                 it today: the price ladder (client tarif -> default price ->
+                 fallback) is policy, not a row, and it has nowhere to live in a
+                 table of records. Empty and display:none on every other tab. -->
+            <div id="mdm-panel" class="hidden mb-6"></div>
+
             <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                 <div class="overflow-x-auto">
                     <table class="min-w-full text-left border-collapse">
@@ -69,12 +75,20 @@ $lang = lpc_i18n_current_lang();
     </div>
 
     <!--
-      Sprint 9: second modal layer, stacked ON TOP of #mdmModal (z-[60] vs
+      Sprint 9: second modal layer, stacked ON TOP of #mdmModal (z-[100] vs
       z-50) so "＋ Nouvelle catégorie" / "＋ Nouvel emballage" can open without
       unmounting the half-filled product form underneath. Content is injected
       by openStacked() in admin-master_data.js.
+
+      z-[100], not z-[60]: 60 is taken by shell chrome (.lpc-pop dropdowns and
+      the sidebar collapse handle, lpc-shell.css) and — the reason this was
+      visibly broken — `.z-[60]` is not in the compiled tailwind.css at all, so
+      the class resolved to nothing, the layer fell back to z-index:auto and
+      painted UNDER #mdmModal's z-50. z-[100] is already compiled and is what
+      driver_dashboard.php / fuel_log.php use for the same overlay tier.
+      Toasts stay above everything at 9999.
     -->
-    <div id="mdmStackedModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/60 backdrop-blur-sm p-4 transition-opacity"></div>
+    <div id="mdmStackedModal" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/60 backdrop-blur-sm p-4 transition-opacity"></div>
 
     <script src="<?= lpc_asset('/assets/js/modules/admin-master_data.js') ?>" defer></script>
 </body>

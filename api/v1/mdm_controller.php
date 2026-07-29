@@ -49,6 +49,57 @@ const MDM_UOMS = [
     ['v' => 'palette',   'l' => 'Palette'],
 ];
 
+/**
+ * The last rung of the price ladder (migration 042).
+ *
+ * Prices resolve in three steps, and this is step three:
+ *   1. client_prices.custom_price   negotiated tarif for this client+product
+ *   2. products.base_price          the catalogue price
+ *   3. price_fallback_amount        a floor, for when base_price is 0/NULL
+ *
+ * Returned as a shape rather than a bare number so the UI can render the whole
+ * policy — the amount, the behaviour on a zero line, and how many products
+ * would actually hit it today. That last count is the honest part: a fallback
+ * nobody can see the blast radius of is a setting people set once and forget.
+ *
+ * Degrades to defaults when migration 042 has not been applied, so the tab
+ * renders on an un-migrated database instead of 500-ing.
+ */
+function mdm_fallback_price(PDO $db): array
+{
+    $amount = 0.0;
+    $mode   = 'warn';
+
+    if (class_exists('Prefs')) {
+        try {
+            $amount = (float) Prefs::float('price_fallback_amount', 0.0);
+            $mode   = (string) Prefs::str('price_fallback_mode', 'warn');
+        } catch (Throwable $e) {
+            // Preferences table missing or migration not run — keep the defaults.
+            error_log('mdm_fallback_price: ' . $e->getMessage());
+        }
+    }
+    if (!in_array($mode, ['zero', 'warn', 'block'], true)) $mode = 'warn';
+
+    // Products that would fall through to the floor as things stand.
+    $exposed = 0;
+    try {
+        $exposed = (int) $db->query("
+            SELECT COUNT(*) FROM products
+             WHERE is_active = 1 AND (base_price IS NULL OR base_price = 0)
+        ")->fetchColumn();
+    } catch (Throwable $e) {
+        error_log('mdm_fallback_price count: ' . $e->getMessage());
+    }
+
+    return [
+        'amount'          => $amount,
+        'mode'            => $mode,
+        'exposed_products'=> $exposed,
+        'configurable'    => class_exists('Prefs'),
+    ];
+}
+
 /** True once migration 041 is applied. Cached per request. */
 function mdm_has_product_master_v2(PDO $db): bool
 {
@@ -327,6 +378,75 @@ try {
             ];
             $response['meta']['roles'] = $db->query("SELECT id, name FROM roles ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
         }
+        elseif ($module === 'pricing') {
+            // -----------------------------------------------------------------
+            // This branch did not exist. `action=read&module=pricing` fell
+            // through every `if` above and returned the initialiser —
+            // data: [], meta: [] — with status 'success', so the Prix & Tarifs
+            // tab rendered an empty table and, worse, the Nouveau Tarif modal's
+            // two dynamic_select fields (which read meta.clients and
+            // meta.products) rendered as a dropdown containing nothing but
+            // "Sélectionner…". The form could be opened but never completed.
+            //
+            // Nothing logged, because nothing failed: the endpoint answered 200
+            // with a well-formed empty payload for a module it did not handle.
+            // -----------------------------------------------------------------
+            $body = "
+                FROM client_prices cp
+                JOIN clients  c ON c.id = cp.client_id
+                JOIN products p ON p.id = cp.product_id
+            ";
+            $params = [];
+            if ($lpc_q !== '') {
+                [$body, $params] = Paginator::addWhere(
+                    $body, $params, $lpc_q, ['c.name', 'p.name', 'p.code']
+                );
+            }
+            $body .= " ORDER BY c.name ASC, p.name ASC";
+
+            // client_prices is a composite-key pivot with no surrogate id, so
+            // the UI addresses a row as "clientId_productId" (see the `pk` in
+            // admin-master_data.js). base_price rides along so the table can
+            // show the negotiated price against the default it replaces —
+            // a tarif is only meaningful next to what it is a discount from.
+            $page = Paginator::paginate($db, $body, $params,
+                "cp.client_id, cp.product_id, cp.custom_price,
+                 c.name AS client_name,
+                 p.name AS product_name, p.code AS product_code,
+                 p.base_price,
+                 (cp.custom_price - p.base_price) AS delta",
+                null, null, "mdm.read.pricing");
+
+            $response['data'] = $page['data'];
+            $response['pagination'] = [
+                'page'        => $page['page'],
+                'per_page'    => $page['per_page'],
+                'total'       => $page['total'],
+                'total_pages' => $page['total_pages'],
+                'has_prev'    => $page['has_prev'],
+                'has_next'    => $page['has_next'],
+            ];
+
+            // The two lists the modal's pickers read. Capped rather than
+            // paginated: both are small, and a picker that can only search the
+            // first page is worse than useless.
+            $response['meta']['clients'] = $db->query(
+                "SELECT id, name, lpc_code AS code, type AS subtitle
+                   FROM clients
+                  WHERE status = 'active' OR status IS NULL
+                  ORDER BY name ASC LIMIT 2000"
+            )->fetchAll(PDO::FETCH_ASSOC);
+
+            $response['meta']['products'] = $db->query(
+                "SELECT id, name, code, format, base_price AS price
+                   FROM products
+                  WHERE is_active = 1
+                  ORDER BY name ASC LIMIT 1000"
+            )->fetchAll(PDO::FETCH_ASSOC);
+
+            // The fallback rung of the price ladder. See ACTION: SAVE_FALLBACK.
+            $response['meta']['fallback_price'] = mdm_fallback_price($db);
+        }
 
         echo json_encode($response); exit;
     }
@@ -365,6 +485,93 @@ try {
     // account would just fall back to the blanket 701 and quietly recreate the
     // problem this sprint exists to fix.
     // =========================================================================
+    // =========================================================================
+    // ACTION: SAVE_DEFAULT_PRICE — inline edit of products.base_price.
+    // -------------------------------------------------------------------------
+    // The default price IS the fallback for every client without a negotiated
+    // tarif, so it belongs in Prix & Tarifs next to the tarifs it backs — not
+    // only in the Produits form, which is where it used to live and where a
+    // sales manager looking for "the default price" would never think to go.
+    //
+    // Scoped to one column on purpose. This endpoint cannot rename a product,
+    // move its category or change its accounts; the full product form still
+    // owns all of that.
+    // =========================================================================
+    if ($action === 'save_default_price' && $module === 'pricing') {
+        Rbac::requirePermission('admin.master_data.edit');
+
+        $pid   = (int) ($_POST['product_id'] ?? 0);
+        $price = $_POST['price'] ?? null;
+
+        if ($pid <= 0)          throw new MdmValidationException("Produit introuvable.");
+        if (!is_numeric($price)) throw new MdmValidationException("Prix invalide.");
+
+        $price = round((float) $price, 2);
+        if ($price < 0)          throw new MdmValidationException("Le prix ne peut pas être négatif.");
+        // base_price is DECIMAL(10,2) — 8 digits before the point. Say so here
+        // rather than letting MySQL truncate silently to 99999999.99.
+        if ($price > 99999999.99) throw new MdmValidationException("Prix hors limites (99 999 999 max).");
+
+        $stmt = $db->prepare("UPDATE products SET base_price = ? WHERE id = ?");
+        $stmt->execute([$price, $pid]);
+
+        // How many negotiated tarifs now sit ABOVE the default. Not an error —
+        // a client can legitimately pay more than list — but it is almost always
+        // a sign the default was raised past a tarif that should have moved too,
+        // so the UI surfaces the count rather than leaving it to be discovered
+        // on an invoice.
+        $above = $db->prepare("
+            SELECT COUNT(*) FROM client_prices WHERE product_id = ? AND custom_price > ?
+        ");
+        $above->execute([$pid, $price]);
+
+        echo json_encode([
+            'status'        => 'success',
+            'product_id'    => $pid,
+            'base_price'    => $price,
+            'tarifs_above'  => (int) $above->fetchColumn(),
+        ]);
+        exit;
+    }
+
+    // =========================================================================
+    // ACTION: SAVE_FALLBACK — the global floor + zero-line policy (migration 042).
+    // =========================================================================
+    if ($action === 'save_fallback' && $module === 'pricing') {
+        Rbac::requirePermission('admin.master_data.edit');
+
+        if (!class_exists('Prefs')) {
+            throw new MdmValidationException("Préférences indisponibles (migration 034 requise).");
+        }
+
+        $amount = $_POST['amount'] ?? null;
+        $mode   = trim((string) ($_POST['mode'] ?? 'warn'));
+
+        if (!is_numeric($amount))  throw new MdmValidationException("Montant invalide.");
+        $amount = round((float) $amount, 2);
+        if ($amount < 0)           throw new MdmValidationException("Le montant ne peut pas être négatif.");
+        if (!in_array($mode, ['zero', 'warn', 'block'], true)) {
+            throw new MdmValidationException("Politique de prix nul inconnue.");
+        }
+
+        try {
+            Prefs::setMany([
+                'price_fallback_amount' => $amount,
+                'price_fallback_mode'   => $mode,
+            ], $_SESSION['user_id'] ?? null);
+        } catch (RuntimeException $e) {
+            // setMany throws this when the preference rows are missing, which
+            // means 042 has not been run. That is actionable, so it is shown.
+            throw new MdmValidationException(
+                "Migration 042 requise avant de configurer le prix de repli."
+            );
+        }
+
+        Prefs::flush();
+        echo json_encode(['status' => 'success', 'fallback' => mdm_fallback_price($db)]);
+        exit;
+    }
+
     if ($action === 'save_category') {
         if (!mdm_has_product_master_v2($db)) {
             throw new MdmValidationException("Migration 041 requise avant d'ajouter des catégories.");
@@ -685,9 +892,35 @@ try {
             exit;
         }
         elseif ($module === 'pricing') {
+            // Validate before touching the table. The three values used to go
+            // straight from $_POST into the statement, so an unsubmitted picker
+            // sent client_id='' — which MySQL coerces to 0 — and the insert
+            // died on the foreign key with a 500 and a generic "Erreur serveur"
+            // instead of telling the user which field was empty.
+            $cid   = (int) ($_POST['client_id'] ?? 0);
+            $pid   = (int) ($_POST['product_id'] ?? 0);
+            $price = $_POST['custom_price'] ?? null;
+
+            if ($cid <= 0)           throw new MdmValidationException("Sélectionnez un client.");
+            if ($pid <= 0)           throw new MdmValidationException("Sélectionnez un produit.");
+            if (!is_numeric($price)) throw new MdmValidationException("Prix négocié invalide.");
+
+            $price = round((float) $price, 2);
+            if ($price < 0)           throw new MdmValidationException("Le prix ne peut pas être négatif.");
+            if ($price > 99999999.99) throw new MdmValidationException("Prix hors limites (99 999 999 max).");
+
+            // Fail with a readable message rather than a foreign-key error.
+            $chk = $db->prepare("SELECT 1 FROM clients WHERE id = ? LIMIT 1");
+            $chk->execute([$cid]);
+            if (!$chk->fetchColumn()) throw new MdmValidationException("Client introuvable.");
+
+            $chk = $db->prepare("SELECT 1 FROM products WHERE id = ? LIMIT 1");
+            $chk->execute([$pid]);
+            if (!$chk->fetchColumn()) throw new MdmValidationException("Produit introuvable.");
+
             // Pricing uses ON DUPLICATE KEY UPDATE because it's a pivot table
             $stmt = $db->prepare("INSERT INTO client_prices (client_id, product_id, custom_price) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE custom_price=?");
-            $stmt->execute([$_POST['client_id'], $_POST['product_id'], $_POST['custom_price'], $_POST['custom_price']]);
+            $stmt->execute([$cid, $pid, $price, $price]);
         }
         elseif ($module === 'suppliers') {
             $name = trim($_POST['name'] ?? '');

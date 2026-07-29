@@ -70,6 +70,7 @@ const sandbox = {
             int: n => new Intl.NumberFormat('fr-FR').format(Math.round(Number(n) || 0)),
         },
         html: (s, ...v) => s.reduce((a, p, i) => a + p + (v[i - 1] !== undefined ? '' : ''), ''),
+        raw: v => ({ __raw: String(v) }),
         toast: () => {},
         modal: { alert: () => {} },
     },
@@ -78,8 +79,11 @@ const sandbox = {
     setTimeout,
     URL: { createObjectURL: () => 'blob:', revokeObjectURL: () => {} },
 };
+sandbox.LPC.raw = v => ({ __raw: String(v) });
 sandbox.LPC.html = (strings, ...values) =>
-    strings.reduce((out, s, i) => out + s + (i < values.length ? String(values[i] ?? '') : ''), '');
+    strings.reduce((out, s, i) => out + s + (i < values.length
+        ? (values[i] && values[i].__raw !== undefined ? values[i].__raw : String(values[i] ?? ''))
+        : ''), '');
 sandbox.window.onload = null;
 vm.createContext(sandbox);
 vm.runInContext(js + '\n;globalThis.__injectData = injectData; globalThis.__setApi = d => { apiData = d; };', sandbox);
@@ -91,7 +95,10 @@ const base = {
         contact: 'Tél. +237 696 291 800 · info@lpc.cm',
         legal_mentions: 'RCCM RC/DLA/2019/A/A/687 · NIU M1219800000L · Capital social 5 000 000 FCFA · CDI Douala-Bonanjo',
         fiscal_regime_label: 'Régime du Réel',
-        bank: { 'Mobile Money': '696 291 800', Banque: 'UBA Cameroun', IBAN: 'CM21 1003 3052 0123 4567 8901' },
+        payment_blocks: [
+            { title: 'Afriland First Bank', lines: { Banque: 'Afriland First Bank', RIB: '10005 00012 3456789012 34', IBAN: 'CM21 1000 5000 1234 5678 9012 34' } },
+            { title: 'MTN MoMo', lines: { 'Numéro': '696 291 800', 'Au nom de': 'La Petite Cour' } },
+        ],
         footer: 'La Petite Cour ETS · RCCM RC/DLA/2019/A/A/687 · NIU M1219800000L',
     },
     client: { name: 'BASE CAMEROON LTD', address: '82, Rue Dikoume Bell, Bali', phone: '+237 656 17 36 68', email: null, niu: null, rccm: null, is_b2b: true },
@@ -176,6 +183,8 @@ failures += run('A · exonerated water sale, no withholding', A, () => [
     ['client NIU placeholder', txt('dyn_client_niu'), '—'],
     ['grand total', txt('dyn_grandtotal'), '150 000 FCFA'],
     ['legal footer populated', txt('dyn_legal_footer').length > 0, 'true'],
+    ['both payment accounts printed', /Afriland First Bank[\s\S]*MTN MoMo/.test(store['dyn_bank_block'].innerHTML), 'true'],
+    ['IBAN reaches the payment block', /CM21 1000 5000/.test(store['dyn_bank_block'].innerHTML), 'true'],
 ]);
 
 failures += run('B · 19,25 % + accises + précompte + AIR', B, () => [

@@ -166,9 +166,19 @@ $user_role = $_SESSION['user_role'];
                         <h3 class="font-black text-blue-900 text-sm uppercase tracking-widest flex items-center"><i class="fas fa-truck-loading mr-2"></i> <?= htmlspecialchars(__t('ui.x.bordereaux_de_livraison_bl_non_factures')) ?></h3>
                         <p class="text-xs text-blue-700/80 font-bold mt-1.5"><?= htmlspecialchars(__t('ui.x.regroupez_plusieurs_bl')) ?> <b><?= htmlspecialchars(__t('ui.x.d_un_meme_client')) ?></b> <?= htmlspecialchars(__t('ui.x.pour_generer_une_facture_unique_structur')) ?></p>
                     </div>
-                    <div class="relative w-full md:w-80">
-                        <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-blue-300"></i>
-                        <input type="text" id="search-to-invoice" onkeyup="filterTable('table-body-to-invoice', this.value)" placeholder="Filtrer par client, BL, commande..." class="w-full pl-11 pr-4 py-3 bg-white border border-blue-100 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-shadow">
+                    <!-- Both controls query the server. The search box used to
+                         call filterTable(), which only hid rows already in the
+                         DOM — once the list is paged that is a lie, because the
+                         match may be on another page. -->
+                    <div class="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+                        <select id="filter-to-invoice-client" onchange="toInvoiceSetClient(this.value)"
+                                class="w-full sm:w-56 px-4 py-3 bg-white border border-blue-100 rounded-xl text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm cursor-pointer">
+                            <option value="">Tous les clients</option>
+                        </select>
+                        <div class="relative w-full sm:w-72">
+                            <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-blue-300"></i>
+                            <input type="text" id="search-to-invoice" oninput="toInvoiceSearch(this.value)" placeholder="Filtrer par client, BL, commande..." class="w-full pl-11 pr-4 py-3 bg-white border border-blue-100 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-shadow">
+                        </div>
                     </div>
                 </div>
 
@@ -180,16 +190,36 @@ $user_role = $_SESSION['user_role'];
                                     <th class="py-4 px-6 w-16 text-center">
                                         <i class="fas fa-check-double text-gray-300"></i>
                                     </th>
-                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest cursor-pointer hover:text-gray-600 transition-colors"><?= htmlspecialchars(__t('ui.x.date_bl')) ?> <i class="fas fa-sort ml-1"></i></th>
-                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest cursor-pointer hover:text-gray-600 transition-colors"><?= htmlspecialchars(__t('ui.x.client')) ?> <i class="fas fa-sort ml-1"></i></th>
-                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest"><?= htmlspecialchars(__t('ui.x.ref_bl')) ?></th>
-                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest"><?= htmlspecialchars(__t('ui.x.ref_commande')) ?></th>
-                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right"><?= htmlspecialchars(__t('ui.x.cash_chauffeur_associe')) ?></th>
+                                    <!-- These two used to carry cursor-pointer and a
+                                         sort icon with no handler behind them. The
+                                         data-sort key is whitelisted server-side. -->
+                                    <th onclick="toInvoiceSort('date')" data-sort="date" class="th-sort py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest cursor-pointer hover:text-gray-600 transition-colors select-none"><?= htmlspecialchars(__t('ui.x.date_bl')) ?> <i class="fas fa-sort ml-1"></i></th>
+                                    <th onclick="toInvoiceSort('client')" data-sort="client" class="th-sort py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest cursor-pointer hover:text-gray-600 transition-colors select-none"><?= htmlspecialchars(__t('ui.x.client')) ?> <i class="fas fa-sort ml-1"></i></th>
+                                    <th onclick="toInvoiceSort('bl')" data-sort="bl" class="th-sort py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest cursor-pointer hover:text-gray-600 transition-colors select-none"><?= htmlspecialchars(__t('ui.x.ref_bl')) ?> <i class="fas fa-sort ml-1"></i></th>
+                                    <th onclick="toInvoiceSort('order')" data-sort="order" class="th-sort py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest cursor-pointer hover:text-gray-600 transition-colors select-none"><?= htmlspecialchars(__t('ui.x.ref_commande')) ?> <i class="fas fa-sort ml-1"></i></th>
+                                    <th onclick="toInvoiceSort('cash')" data-sort="cash" class="th-sort py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right cursor-pointer hover:text-gray-600 transition-colors select-none"><?= htmlspecialchars(__t('ui.x.cash_chauffeur_associe')) ?> <i class="fas fa-sort ml-1"></i></th>
                                 </tr>
                             </thead>
                             <tbody id="table-body-to-invoice" class="divide-y divide-gray-100 text-sm">
                                 </tbody>
                         </table>
+                    </div>
+
+                    <!-- 50 rows a page, resolved server-side. Selections survive
+                         paging: the batch keeps the BL reference it needs, so a
+                         BL ticked on page 1 still invoices correctly from page 3. -->
+                    <div id="to-invoice-pagination" class="hidden shrink-0 border-t border-gray-200 bg-gray-50/60 px-6 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <p class="text-xs font-bold text-gray-500" id="to-invoice-page-info">—</p>
+                        <div class="flex items-center gap-2">
+                            <button type="button" onclick="toInvoicePage(-1)" id="to-invoice-prev"
+                                    class="px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                                <i class="fas fa-chevron-left mr-1"></i> Précédent
+                            </button>
+                            <button type="button" onclick="toInvoicePage(1)" id="to-invoice-next"
+                                    class="px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                                Suivant <i class="fas fa-chevron-right ml-1"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -363,6 +393,25 @@ $user_role = $_SESSION['user_role'];
                             <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.notes_conditions_specifiques')) ?></label>
                             <textarea id="gen_notes" rows="3" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-medium text-gray-900 outline-none focus:ring-2 focus:ring-gray-900 resize-none transition-all" placeholder="Ex: Paiement à réception. Pénalité de retard applicable..."></textarea>
                         </div>
+                    </div>
+
+                    <!-- Which accounts this invoice tells the client to pay into.
+                         Populated from treasury_accounts (Paramètres → Entreprise →
+                         Comptes d'encaissement). The FIRST ticked account is the
+                         settlement account: it decides which treasury sub-ledger
+                         the payment journal entry debits, so ticking Afriland here
+                         is what makes the Afriland ledger reconcile later. -->
+                    <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-4">
+                        <h4 class="text-[11px] font-black text-gray-800 uppercase tracking-widest border-b border-gray-100 pb-3 flex items-center gap-2">
+                            <i class="fas fa-building-columns text-gray-400"></i> Comptes d'Encaissement
+                        </h4>
+                        <div id="gen_payment_accounts" class="space-y-2">
+                            <p class="text-xs text-gray-400 italic">Chargement...</p>
+                        </div>
+                        <p class="text-[10px] text-gray-400 leading-relaxed">
+                            Le premier compte coché est celui sur lequel le règlement est attendu.
+                            Gérez la liste dans <span class="font-bold">Paramètres → Entreprise</span>.
+                        </p>
                     </div>
                 </div>
 
