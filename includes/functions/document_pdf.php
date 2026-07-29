@@ -1062,37 +1062,88 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
 }
 
 /**
- * The commercial offer, rendered for dompdf.
+ * The commercial offer, rendered for dompdf — ONE A4 PAGE, ALWAYS.
  * -----------------------------------------------------------------------------
- * Replaces a 4-page html2canvas capture. `pdftotext` extracted FOUR CHARACTERS
- * from the whole of DEV-2607-841B: every page was a 1588×2246 JPEG at 192 ppi.
- * A prospect could not copy the price into a budget sheet, could not search it,
- * and printed it at screen resolution. On the document that wins the business
- * that mattered more than it did on the invoice.
+ * There are two devis deliverables and they are not interchangeable:
  *
- * Structure, and why each part is here:
- *   Cover     — the shared header band, then the existing arcs and title, plus
- *               an "En bref" box so a decision-maker who reads only page 1 has
- *               the monthly figure and the expiry date.
- *   Profile   — executive summary, capabilities, references (unchanged copy).
- *   Offer     — the pricing table, now with the same fiscal ladder as the
- *               invoice: HT → accises → TVA or its exemption basis → TTC, and
- *               the total in words. The old version printed one bare figure
- *               with no indication whether it was HT or TTC.
- *   Terms     — the six articles, plus the consigne schedule that Article 2
- *               presupposes, plus delivery zone and transfer of risk.
- *   Signature — Bon pour accord, with a dated expiry rather than "30 jours".
+ *   public/documents/quote.php        the 4-page bilingual proposal. The HTML IS
+ *                                    the document — the prospect opens it from a
+ *                                    WhatsApp link, reads it in their language,
+ *                                    and exports it themselves via html2canvas.
+ *   …?pdf=1  (this function)          the one-page "offre commerciale". What a
+ *                                    buyer prints, initials and walks into a
+ *                                    procurement meeting with.
  *
- * Every string comes from lpc_proposal_text() so the Proposal Studio keeps
- * editing them; every figure comes from the proposals row.
+ * A previous pass rebuilt this as a 4-page dompdf replica of the HTML, with
+ * three `page-break-before: always` rules. That made the two deliverables
+ * duplicates of each other and left the one-pager with no implementation at
+ * all. This is the one-pager, restored.
+ *
+ * ONE PAGE IS A HARD CONSTRAINT, NOT AN ASPIRATION
+ * ------------------------------------------------
+ * Nothing here may introduce a page break, so the height of every block is
+ * budgeted. A4 is 297 mm and `body` reserves 16 mm at the foot for the fixed
+ * statutory footer, leaving 281 mm. Measured off the CSS below, at the worst
+ * case for each block (company name wrapping to two lines, the longest fiscal
+ * ladder — HT + accises + TVA + TTC — and four lines of small print):
+ *
+ *     rule + top padding .........  10 mm
+ *     header band ................  31 mm   logo 17mm vs. title + 3 meta rows
+ *     legal identity (compact) ...  12 mm
+ *     client card row ............  38 mm
+ *     h2 + items table header ....  16 mm
+ *     priced rows ................ 6.4 mm each  <- the only variable block
+ *     ladder (words ride beside)..  31 mm
+ *     h2 + conditions + fine .....  35 mm
+ *     signatures .................  30 mm
+ *     ---------------------------------------
+ *     fixed ...................... 204 mm     -> 77 mm for priced rows
+ *
+ * 77 mm buys 12 plain rows, 10 if two descriptions wrap, 9 if four do. The
+ * clamp below is therefore 9 — the pessimistic figure, not the optimistic one.
+ * Past 9 the tail is summed into a single "autres articles (N)" row: the ladder
+ * still reconciles to the same total, and the full itemisation is one click away
+ * in the HTML proposal. Truncating silently would be worse than spilling onto
+ * page 2; summing visibly is not.
+ *
+ * If you change a font size, a padding or a margin in here, re-run
+ * scripts/tests/quote_onepager.test.php. It renders nine records through dompdf
+ * — including 40 line items and a two-line client name — and asserts one page
+ * each. The budget above is arithmetic; that test is the fact.
+ *
+ * What the 4-page proposal carries and this deliberately does not: the cover
+ * title block, the company profile and capability prose, the reference logos,
+ * the six articles in full, the consigne schedule and the annex list. Their
+ * existence is asserted in one contractual line instead, so a signed one-pager
+ * still incorporates them.
+ *
+ * What it does carry, because a signed devis is a contract under OHADA and a
+ * buyer cannot approve a figure they cannot classify: the shared letterhead and
+ * legal identity, the client's own identifiers, the priced lines, the full
+ * fiscal ladder (HT -> accises -> TVA or its exemption basis -> TTC), the total
+ * in words, the validity date, the four commercial terms that decide the deal,
+ * and Bon pour accord.
+ *
+ * Written against dompdf's CSS subset: tables and floats, no flexbox, no grid.
+ *
+ * Wording comes from lpc_proposal_text() so the Proposal Studio keeps editing
+ * it, and every figure comes from the proposals row. Two exceptions inherited
+ * from the previous template and left alone here: the "Droit d'accises" ladder
+ * label, and the fact that tbl_grand's seeded value carries its own trailing
+ * colon. Both are shared with the facture and worth fixing together, not in a
+ * layout change.
  */
 function lpc_render_quote_pdf_html(array $doc, array $lh, string $lhLogo, string $token): string
 {
+    // $token is unused here, as it is in lpc_render_invoice_pdf_html: the
+    // signature is uniform across the per-type templates so the dispatcher can
+    // call any of them the same way. $lh['accent'] is likewise not used — the
+    // accent was the 4-page replica's cover flourish, and a document meant to be
+    // photocopied and faxed reads better in one colour.
     $t      = $doc['totals'];
     $client = $doc['client'];
     $sla    = $doc['sla'];
     $brand  = $lh['color'];
-    $accent = $lh['accent'];
 
     $e = static function ($v) {
         return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
@@ -1108,21 +1159,39 @@ function lpc_render_quote_pdf_html(array $doc, array $lh, string $lhLogo, string
         return $v ? date('d/m/Y', strtotime((string) $v)) : '—';
     };
 
-    $logos    = lpc_proposal_logos();
     $consigne = $doc['consigne'] ?? [];
     $annexes  = $doc['annexes'] ?? [];
 
-    // The reference a client quotes back at you has to identify the version
-    // they accepted. Rev. 1 is implicit and not printed.
+    // The reference a client quotes back at you has to identify the version they
+    // accepted. Rev. 1 is implicit and not printed. It rides on the meta box's
+    // référence row rather than taking a fourth row of its own — the budget
+    // above allows three.
     $ref_full = $doc['reference'] . ($doc['revision'] > 1 ? ' rév. ' . $doc['revision'] : '');
+
+    // ---- the one variable-height block, clamped ----------------------------
+    // 9 = the pessimistic row count from the height budget in the docblock. The
+    // table never renders more than 9 rows: either 9 priced ones, or 8 plus the
+    // summed tail. $t['subtotal'] is untouched, so the ladder still adds up.
+    $max_rows = 9;
+    $rows     = $doc['items'];
+    $spill    = [];
+    if (count($rows) > $max_rows) {
+        $spill = array_slice($rows, $max_rows - 1);
+        $rows  = array_slice($rows, 0, $max_rows - 1);
+    }
+    $spill_total = array_sum(array_column($spill, 'total'));
 
     ob_start(); ?>
 <!DOCTYPE html>
 <html lang="fr"><head><meta charset="UTF-8"><title>Devis <?= $e($doc['reference']) ?></title>
 <style>
+    /* One page. No rule in here may create a break, and nothing declares
+       page-break-before — see the height budget in the function docblock. */
     @page { margin: 0; }
+    /* 16mm clears the fixed footer: it sits at bottom 8mm and is 6pt text over a
+       2mm padded rule, so it occupies ~13mm. */
     body  { font-family: 'DejaVu Sans', sans-serif; font-size: 9pt; color: #1F2937;
-            margin: 0 0 26mm 0; }
+            margin: 0 0 16mm 0; }
 
 <?= lpc_document_header_css($brand) ?>
 <?= lpc_document_footer_css() ?>
@@ -1135,468 +1204,256 @@ function lpc_render_quote_pdf_html(array $doc, array $lh, string $lhLogo, string
     .xtiny  { font-size: 6.5pt; }
     .b      { font-weight: bold; }
     .caps   { text-transform: uppercase; letter-spacing: 0.6pt; font-weight: bold; }
-    .card   { background: #F9FAFB; border: 0.5pt solid #E5E7EB; border-radius: 3mm;
-              padding: 3.5mm 4mm; }
-    .no-break { page-break-inside: avoid; }
+    .card   { background: #F9FAFB; border: 0.5pt solid #E5E7EB; border-radius: 2mm;
+              padding: 2.5mm 3mm; }
 
-    h2.sec  { font-size: 13pt; color: #111827; margin: 0 0 3mm 0; font-weight: bold; }
-    h3.sub  { font-size: 8pt; color: #111827; margin: 5mm 0 2mm 0;
-              text-transform: uppercase; letter-spacing: 0.8pt; }
-    p       { margin: 0 0 2.5mm 0; line-height: 1.55; text-align: justify; }
+    /* Section headings earn 4mm of air above, not 6 — three of them at 6mm cost
+       a priced row between them. */
+    h2.sec  { font-size: 9.5pt; color: #111827; margin: 4mm 0 2mm 0; font-weight: bold;
+              text-transform: uppercase; letter-spacing: 0.7pt; }
 
-    /* Section band — the green strip that headed pages 2-4 of the original. */
-    .band   { background: <?= $brand ?>; color: #fff; padding: 3.5mm 14mm;
-              font-size: 8pt; text-transform: uppercase; letter-spacing: 1pt;
-              font-weight: bold; }
-    .band .ref { color: <?= $accent ?>; }
-
-    .items th { background: <?= $brand ?>; color: #fff; padding: 2.5mm 2mm;
+    /* 6.4mm per row at 8pt with 1.5mm padding — the divisor the row budget in the
+       docblock uses. Change either and the clamp is wrong. */
+    .items th { background: <?= $brand ?>; color: #fff; padding: 1.8mm;
                 font-size: 6.5pt; text-transform: uppercase; letter-spacing: 0.6pt;
                 text-align: left; }
-    .items td { border-bottom: 0.5pt solid #E5E7EB; padding: 3mm 2mm; font-size: 8.5pt; }
+    .items td { border-bottom: 0.5pt solid #E5E7EB; padding: 1.5mm 2mm; font-size: 8pt; }
+    .items tr.spill td { background: #F9FAFB; font-style: italic; }
 
-    .ladder td        { padding: 1.4mm 0; font-size: 8.5pt; }
-    .ladder .grand td { border-top: 1.5pt solid #111827; padding-top: 2.5mm;
+    .ladder td        { padding: 0.8mm 0; font-size: 8.5pt; }
+    .ladder .grand td { border-top: 1.5pt solid #111827; padding-top: 1.6mm;
                         font-size: 11pt; font-weight: bold; }
     .ladder .exempt   { font-size: 6.5pt; font-style: italic; color: #6B7280;
-                        padding-top: 0; padding-bottom: 2mm; }
+                        padding-top: 0; padding-bottom: 1.2mm; }
 
-    .sla td { padding: 2.5mm 0; border-bottom: 0.5pt solid #E5E7EB; }
-    .art    { margin-bottom: 3mm; }
-    .art .t { font-weight: bold; color: #111827; }
+    .terms td   { padding: 0 6mm 2mm 0; }
+    /* The small print. One paragraph, 6.5pt, because it is read once by a lawyer
+       and never by the buyer — but it has to be on the page. */
+    .fine       { font-size: 6.5pt; color: #6B7280; line-height: 1.45; }
 </style></head>
 <body>
 
-<!-- ══ COVER ═══════════════════════════════════════════════════════════════ -->
 <div class="lpc-rule"></div>
-<div class="lpc-pad" style="padding-top: 9mm;">
+<div class="lpc-pad" style="padding-top: 6mm;">
 <?php
-// The same header the facture carries, per the decision to run it on every
-// page including the cover. Only the title and the meta rows differ.
-// Validité sits in the meta box because on an offer it matters as much as the
-// date — it used to be buried on page 3 under the SLA as "30 jours".
-$meta = [
-    [lpc_proposal_text('meta_ref', 'fr'), $doc['reference']],
-    [lpc_proposal_text('meta_date', 'fr'), $fdate($doc['date'])],
-    [lpc_proposal_text('meta_valid_until', 'fr'), $fdate($doc['valid_until']), 'danger'],
-];
-if ($doc['revision'] > 1) {
-    $meta[] = [lpc_proposal_text('meta_revision', 'fr'), (string) $doc['revision'], 'rule'];
-}
+// The same letterhead the facture carries, with the mentions folded onto two
+// lines — see 'identity' => 'compact' in document_header.php. Validité sits in
+// the meta box because on an offer it governs the price as much as the date
+// does, and putting it there means the client card below need not repeat it.
 echo lpc_document_header([
-    'title' => 'Devis',
-    'logo'  => $lhLogo,
-    'meta'  => $meta,
+    'title'    => 'Devis',
+    'logo'     => $lhLogo,
+    'identity' => 'compact',
+    'meta'     => [
+        [lpc_proposal_text('meta_ref', 'fr'),         $ref_full],
+        [lpc_proposal_text('meta_date', 'fr'),        $fdate($doc['date'])],
+        [lpc_proposal_text('meta_valid_until', 'fr'), $fdate($doc['valid_until']), 'danger'],
+    ],
 ]);
 ?>
 
-<div style="margin-top: 16mm;">
-    <div style="width: 26mm; height: 1.6mm; background: <?= $accent ?>;"></div>
-    <h1 style="font-size: 26pt; font-weight: bold; color: #111827; margin: 5mm 0 1mm 0;">
-        <?= $p('cover_title') ?>
-    </h1>
-    <div style="font-size: 12pt; color: #6B7280;"><?= $p('cover_subtitle') ?></div>
-</div>
-
-<table style="margin-top: 14mm;">
+<!-- ══ WHO IT IS FOR, WHO WROTE IT ═════════════════════════════════════════ -->
+<table style="margin-top: 4.5mm;">
     <tr>
-        <td style="width: 56%; padding-right: 8mm;">
-            <div class="card no-break" style="border-left: 1.5mm solid <?= $brand ?>;">
-                <div class="caps xtiny muted" style="margin-bottom: 2mm;"><?= $p('cover_prepared_for') ?></div>
-                <div class="b" style="font-size: 14pt; color: #111827;"><?= $e($client['name']) ?></div>
+        <td style="width: 66%; padding-right: 6mm;">
+            <div class="card" style="border-left: 1.2mm solid <?= $brand ?>;">
+                <div class="caps xtiny muted" style="margin-bottom: 1.2mm;"><?= $p('cover_prepared_for') ?></div>
+                <div class="b" style="font-size: 11pt; color: #111827;"><?= $e($client['name']) ?></div>
                 <?php if (!empty($client['contact'])): ?>
-                    <div style="margin-top: 1.5mm; font-size: 9pt;">
+                    <div class="tiny" style="margin-top: 0.8mm;">
                         Attn : <?= $e($client['contact']) ?><?php
                         if (!empty($client['title'])) echo ' — ' . $e($client['title']); ?>
                     </div>
                 <?php endif; ?>
-                <?php if (!empty($client['address'])): ?>
-                    <div class="muted tiny" style="margin-top: 1mm;"><?= $e($client['address']) ?></div>
-                <?php endif; ?>
-                <?php if (!empty($client['phone']) || !empty($client['email'])): ?>
-                    <div class="muted tiny" style="margin-top: 1mm;">
-                        <?= $e(trim(implode(' · ', array_filter([$client['phone'], $client['email']])))) ?>
-                    </div>
-                <?php endif; ?>
                 <?php
-                // The prospect's NIU, collected during the sale rather than
-                // chased after the first invoice is rejected. Printed only when
-                // known — a prospect is not always ready to hand it over on
-                // first contact, and a blank field on a sales document is worse
-                // than no field.
-                if (!empty($client['niu']) || !empty($client['rccm'])): ?>
-                    <div class="tiny b" style="margin-top: 2.5mm; padding-top: 2mm; border-top: 0.5pt solid #E5E7EB;">
-                        <?php if (!empty($client['niu'])): ?>NIU : <?= $e($client['niu']) ?><?php endif; ?>
-                        <?php if (!empty($client['niu']) && !empty($client['rccm'])): ?> &nbsp;|&nbsp; <?php endif; ?>
-                        <?php if (!empty($client['rccm'])): ?>RCCM : <?= $e($client['rccm']) ?><?php endif; ?>
+                // Address, phone and email share one line: three stacked lines
+                // cost 8mm, which is more than a priced row is worth. Anything
+                // unknown disappears rather than printing a blank field on a
+                // document that leaves the building.
+                $reach = array_filter([
+                    preg_replace('/\s*\R\s*/u', ', ', trim((string) $client['address'])),
+                    $client['phone'],
+                    $client['email'],
+                ]);
+                if ($reach): ?>
+                    <div class="muted xtiny" style="margin-top: 0.8mm;"><?= $e(implode(' · ', $reach)) ?></div>
+                <?php endif; ?>
+                <?php $ids = array_filter([
+                        !empty($client['niu'])  ? 'NIU : '  . $client['niu']  : '',
+                        !empty($client['rccm']) ? 'RCCM : ' . $client['rccm'] : '',
+                      ]);
+                if ($ids): ?>
+                    <div class="xtiny b" style="margin-top: 1.4mm; padding-top: 1.2mm; border-top: 0.5pt solid #E5E7EB;">
+                        <?= $e(implode('  |  ', $ids)) ?>
                     </div>
                 <?php endif; ?>
             </div>
         </td>
-        <td style="width: 44%;">
-            <?php
-            // "En bref" — the commercial essentials for a decision-maker who
-            // reads page 1 and forwards the rest to procurement.
-            ?>
-            <div class="card no-break" style="background: #111827; border: 0;">
-                <div class="caps xtiny" style="color: <?= $accent ?>; margin-bottom: 2.5mm;">
-                    <?= $p('cover_summary_title') ?>
-                </div>
-                <div class="xtiny" style="color: #9CA3AF;"><?= $p('cover_summary_total') ?></div>
-                <div class="b" style="color: #fff; font-size: 15pt; margin-top: 0.8mm;">
-                    <?= $e(lpc_fcfa($t['grand_total'])) ?>
-                </div>
-                <div class="xtiny" style="color: #9CA3AF; margin-top: 0.8mm;">
-                    <?= $t['tva_rate'] > 0
-                        ? 'TTC · TVA ' . $e($rate($t['tva_rate'])) . ' %'
-                        : 'HT · ' . $p('tbl_tva') . ' 0 %' ?>
-                </div>
-
-                <div style="margin-top: 4mm; padding-top: 3mm; border-top: 0.5pt solid #374151;">
-                    <div class="xtiny" style="color: #9CA3AF;"><?= $p('meta_valid_until') ?></div>
-                    <div class="b" style="color: #fff; font-size: 10pt; margin-top: 0.8mm;">
-                        <?= $e($fdate($doc['valid_until'])) ?>
-                    </div>
-                </div>
-
-                <?php if (!empty($sla['payment_terms'])): ?>
-                    <div style="margin-top: 3mm;">
-                        <div class="xtiny" style="color: #9CA3AF;"><?= $p('sla_pay') ?></div>
-                        <div class="b" style="color: #fff; font-size: 9pt; margin-top: 0.8mm;">
-                            <?= $e($sla['payment_terms']) ?>
-                        </div>
-                    </div>
-                <?php endif; ?>
-            </div>
-        </td>
-    </tr>
-</table>
-
-<table style="margin-top: 20mm; border-top: 0.5pt solid #E5E7EB;">
-    <tr>
-        <td style="padding-top: 3mm;">
-            <div class="caps xtiny muted"><?= $p('meta_date') ?></div>
-            <div class="b" style="margin-top: 1mm;"><?= $e($fdate($doc['date'])) ?></div>
-        </td>
-        <td style="padding-top: 3mm;">
-            <div class="caps xtiny muted"><?= $p('meta_ref') ?></div>
-            <div class="b" style="margin-top: 1mm;"><?= $e($ref_full) ?></div>
-        </td>
-        <td style="padding-top: 3mm; text-align: right;">
+        <td style="width: 34%;">
             <div class="caps xtiny muted"><?= $p('cover_prepared_by') ?></div>
-            <div class="b" style="margin-top: 1mm; color: <?= $brand ?>;"><?= $e($doc['sales_rep']) ?></div>
+            <div class="b" style="margin-top: 1mm; color: <?= $brand ?>; font-size: 10pt;">
+                <?= $e($doc['sales_rep'] ?: '—') ?>
+            </div>
+            <div class="xtiny muted" style="margin-top: 0.8mm;">
+                <?= $e($fdate($doc['date'])) ?> ·
+                <?= $p('sla_validity') ?> <?= (int) $doc['validity_days'] ?> <?= $p('meta_days') ?>
+            </div>
         </td>
     </tr>
 </table>
-</div>
 
-<!-- ══ PROFILE & CONTEXT ═══════════════════════════════════════════════════ -->
-<div style="page-break-before: always;"></div>
-<div class="band"><?= $p('header_p2') ?> <span style="float: right;" class="ref"><?= $e($ref_full) ?></span></div>
-<div class="lpc-pad" style="padding-top: 8mm;">
-    <h2 class="sec"><?= $p('sec1_title') ?></h2>
-    <p><?= $p('sec1_p1') ?></p>
-    <p><?= $p('sec1_p2') ?></p>
-
-    <h2 class="sec" style="margin-top: 7mm;"><?= $p('sec2_title') ?></h2>
-    <p><?= $p('sec2_intro') ?></p>
-
-    <h3 class="sub"><?= $p('sec2_services') ?></h3>
-    <table>
+<!-- ══ THE OFFER ═══════════════════════════════════════════════════════════ -->
+<h2 class="sec"><?= $p('sec3_title') ?></h2>
+<table class="items">
+    <thead>
         <tr>
-            <td style="width: 50%; padding-right: 5mm;">
-                <p class="tiny">✓ <?= $p('sec2_l1') ?></p>
-                <p class="tiny">✓ <?= $p('sec2_l3') ?></p>
-            </td>
-            <td style="width: 50%;">
-                <p class="tiny">✓ <?= $p('sec2_l2') ?></p>
-                <p class="tiny">✓ <?= $p('sec2_l4') ?></p>
-            </td>
+            <th><?= $p('tbl_desc') ?></th>
+            <th style="text-align: center; width: 24mm;"><?= $p('tbl_qty') ?></th>
+            <th class="num" style="width: 28mm;"><?= $p('tbl_price') ?></th>
+            <th class="num" style="width: 32mm;"><?= $p('tbl_total') ?></th>
         </tr>
-    </table>
-
-    <p style="margin-top: 3mm;"><?= $p('sec2_body') ?></p>
-
-    <table style="margin-top: 5mm;">
+    </thead>
+    <tbody>
+    <?php foreach ($rows as $it): ?>
         <tr>
-            <td style="width: 58%; padding-right: 6mm;">
-                <h3 class="sub" style="margin-top: 0;"><?= $p('sec2_gamme_title') ?></h3>
-                <p class="tiny">• <?= $p('sec2_gamme_1') ?></p>
-                <p class="tiny">• <?= $p('sec2_gamme_3') ?></p>
-                <p class="tiny">• <?= $p('sec2_gamme_2') ?></p>
-                <p class="tiny">• <?= $p('sec2_gamme_4') ?></p>
-
-                <h3 class="sub"><?= $p('sec2_av_title') ?></h3>
-                <table>
-                    <tr>
-                        <td style="width: 50%; padding-right: 3mm;">
-                            <div class="card" style="background: #F0FDF4; border-color: #BBF7D0;">
-                                <div class="b tiny"><?= $p('sec2_av_1_title') ?></div>
-                                <div class="xtiny muted" style="margin-top: 1mm;"><?= $p('sec2_av_1_desc') ?></div>
-                            </div>
-                        </td>
-                        <td style="width: 50%;">
-                            <div class="card" style="background: #F0FDF4; border-color: #BBF7D0;">
-                                <div class="b tiny"><?= $p('sec2_av_2_title') ?></div>
-                                <div class="xtiny muted" style="margin-top: 1mm;"><?= $p('sec2_av_2_desc') ?></div>
-                            </div>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-            <td style="width: 42%;">
-                <div class="card">
-                    <?php foreach ([['b1'], ['b2'], ['b3']] as $i => $blk): ?>
-                        <div style="<?= $i > 0 ? 'margin-top: 3.5mm;' : '' ?>">
-                            <div class="b tiny"><?= $p('sec2_' . $blk[0] . '_title') ?></div>
-                            <div class="xtiny muted" style="margin-top: 1mm;"><?= $p('sec2_' . $blk[0] . '_desc') ?></div>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            </td>
+            <td class="b"><?= $e($it['name']) ?><?php
+                if (!empty($it['format'])) {
+                    echo '<span class="muted" style="font-weight:normal"> — ' . $e($it['format']) . '</span>';
+                } ?></td>
+            <td style="text-align: center;"><?= $e(lpc_fcfa($it['qty'], '')) ?></td>
+            <td class="num"><?= $e(lpc_fcfa($it['unit_price'], '')) ?></td>
+            <td class="num b"><?= $e(lpc_fcfa($it['total'], '')) ?></td>
         </tr>
-    </table>
-
-    <?php if ($logos): ?>
-        <div class="caps xtiny muted" style="text-align: center; margin-top: 7mm;"><?= $p('sec2_clients') ?></div>
-        <table style="margin-top: 3mm;">
-            <tr>
-            <?php foreach ($logos as $lg):
-                // dompdf needs a filesystem path; a missing file is skipped
-                // rather than rendering a broken-image box on a sales document.
-                $fs = realpath(__DIR__ . '/../..' . $lg['src']);
-                ?>
-                <td style="text-align: center; padding: 0 2mm;">
-                    <?php if ($fs && is_readable($fs)): ?>
-                        <img src="<?= $e($fs) ?>" style="max-height: 9mm; max-width: 24mm;">
-                    <?php else: ?>
-                        <span class="xtiny muted"><?= $e($lg['alt']) ?></span>
-                    <?php endif; ?>
-                </td>
-            <?php endforeach; ?>
-            </tr>
-        </table>
+    <?php endforeach; ?>
+    <?php if ($spill): ?>
+        <tr class="spill">
+            <td><?= $p('onepager_more_lines') ?> (<?= count($spill) ?>)</td>
+            <td style="text-align: center;">—</td>
+            <td class="num">—</td>
+            <td class="num b"><?= $e(lpc_fcfa($spill_total, '')) ?></td>
+        </tr>
     <?php endif; ?>
-</div>
+    <?php if (empty($rows)): ?>
+        <tr><td colspan="4" class="muted" style="text-align: center; padding: 8mm 0;">Aucune ligne.</td></tr>
+    <?php endif; ?>
+    </tbody>
+</table>
 
-<!-- ══ OFFER & PRICING ═════════════════════════════════════════════════════ -->
-<div style="page-break-before: always;"></div>
-<div class="band"><?= $p('header_p3') ?> <span style="float: right;" class="ref"><?= $e($ref_full) ?></span></div>
-<div class="lpc-pad" style="padding-top: 8mm;">
-    <h2 class="sec"><?= $p('sec3_title') ?></h2>
-
-    <table class="items">
-        <thead>
-            <tr>
-                <th><?= $p('tbl_desc') ?></th>
-                <th style="text-align: center; width: 24mm;"><?= $p('tbl_qty') ?></th>
-                <th class="num" style="width: 28mm;"><?= $p('tbl_price') ?></th>
-                <th class="num" style="width: 32mm;"><?= $p('tbl_total') ?></th>
-            </tr>
-        </thead>
-        <tbody>
-        <?php foreach ($doc['items'] as $it): ?>
-            <tr>
-                <td class="b"><?= $e($it['name']) ?><?php
-                    if (!empty($it['format'])) {
-                        echo '<span class="muted" style="font-weight:normal"> — ' . $e($it['format']) . '</span>';
-                    } ?></td>
-                <td style="text-align: center;"><?= $e(lpc_fcfa($it['qty'], '')) ?></td>
-                <td class="num"><?= $e(lpc_fcfa($it['unit_price'], '')) ?></td>
-                <td class="num b"><?= $e(lpc_fcfa($it['total'], '')) ?></td>
-            </tr>
-        <?php endforeach; ?>
-        <?php if (empty($doc['items'])): ?>
-            <tr><td colspan="4" class="muted" style="text-align: center; padding: 12mm 0;">Aucune ligne.</td></tr>
-        <?php endif; ?>
-        </tbody>
-    </table>
-
-    <?php
-    // The fiscal ladder. The old document printed a single figure with no
-    // indication of HT or TTC — the one thing a buyer must know to compare
-    // suppliers or get an approval through their own finance team.
-    ?>
-    <table style="margin-top: 5mm;" class="no-break">
-        <tr>
-            <td style="width: 52%; padding-right: 8mm; vertical-align: bottom;">
-                <p class="xtiny muted" style="font-style: italic;"><?= $p('tbl_note') ?></p>
-            </td>
-            <td style="width: 48%;">
-                <div class="card">
-                <table class="ladder">
-                    <tr>
-                        <td><?= $p('tbl_subtotal') ?></td>
-                        <td class="num b"><?= $e(lpc_fcfa($t['subtotal'])) ?></td>
-                    </tr>
-                    <?php if ($t['excise'] > 0): ?>
-                        <tr>
-                            <td>Droit d'accises (<?= $e($rate($t['excise_rate'])) ?> %)</td>
-                            <td class="num b"><?= $e(lpc_fcfa($t['excise'])) ?></td>
-                        </tr>
-                    <?php endif; ?>
-                    <tr>
-                        <td><?= $p('tbl_tva') ?> (<?= $e($rate($t['tva_rate'])) ?> %)</td>
-                        <td class="num b"><?= $e(lpc_fcfa($t['tax'])) ?></td>
-                    </tr>
-                    <?php if ($t['tva_rate'] <= 0 && !empty($t['tva_exemption'])): ?>
-                        <tr><td colspan="2" class="exempt"><?= $e($t['tva_exemption']) ?></td></tr>
-                    <?php endif; ?>
-                    <tr class="grand">
-                        <td><?= $t['tva_rate'] > 0 ? $p('tbl_ttc') : $p('tbl_grand') ?></td>
-                        <td class="num"><?= $e(lpc_fcfa($t['grand_total'])) ?></td>
-                    </tr>
-                </table>
-                </div>
-            </td>
-        </tr>
-    </table>
-
-    <div class="card no-break" style="margin-top: 4mm;">
-        <span class="muted tiny" style="font-style: italic;"><?= $p('tbl_words') ?></span>
-        <span class="b" style="font-size: 9.5pt;"><?= $e($t['words']) ?></span>
-    </div>
-
-    <h2 class="sec" style="margin-top: 8mm; font-size: 11pt;"><?= $p('sec4_title') ?></h2>
-    <table class="sla">
-        <tr>
-            <td style="width: 50%; padding-right: 6mm;">
-                <div class="caps xtiny muted"><?= $p('sla_freq') ?></div>
-                <div class="b" style="margin-top: 1mm;"><?= $e($sla['frequency'] ?: '—') ?></div>
-            </td>
-            <td style="width: 50%;">
-                <div class="caps xtiny muted"><?= $p('sla_buffer') ?></div>
-                <div class="b" style="margin-top: 1mm;"><?= (int) $sla['buffer_weeks'] ?> <?= $p('sla_weeks') ?></div>
-            </td>
-        </tr>
-        <tr>
-            <td style="padding-right: 6mm;">
-                <div class="caps xtiny muted"><?= $p('sla_pay') ?></div>
-                <div class="b" style="margin-top: 1mm;"><?= $e($sla['payment_terms'] ?: '—') ?></div>
-            </td>
-            <td>
-                <div class="caps xtiny muted"><?= $p('sla_empties') ?></div>
-                <div class="b" style="margin-top: 1mm;"><?= $e($sla['empties'] ?: '—') ?></div>
-            </td>
-        </tr>
-        <tr>
-            <td colspan="2" style="border-bottom: 0;">
-                <div class="caps xtiny muted"><?= $p('sla_validity') ?></div>
-                <div class="b" style="margin-top: 1mm;">
-                    <?= $p('meta_valid_until') ?> <?= $e($fdate($doc['valid_until'])) ?>
-                    <span class="muted" style="font-weight: normal;">
-                        (<?= (int) $doc['validity_days'] ?> <?= $p('meta_days') ?>)
-                    </span>
-                </div>
-            </td>
-        </tr>
-    </table>
-
-    <?php
-    // Delivery zone and transfer of risk. "Livraison rapide, même en zone
-    // dense" was a claim with nothing behind it, and nothing said who carried
-    // the risk between the depot and the client's door.
-    ?>
-    <h2 class="sec" style="margin-top: 8mm; font-size: 11pt;"><?= $p('sec_delivery_title') ?></h2>
-    <table class="sla">
-        <tr>
-            <td style="width: 50%; padding-right: 6mm;">
-                <div class="caps xtiny muted"><?= $p('sec_delivery_zone_label') ?></div>
-                <div style="margin-top: 1mm;" class="tiny"><?= $p('sec_delivery_zone') ?></div>
-            </td>
-            <td style="width: 50%;">
-                <div class="caps xtiny muted"><?= $p('sec_delivery_cost_label') ?></div>
-                <div style="margin-top: 1mm;" class="tiny"><?= $p('sec_delivery_cost') ?></div>
-            </td>
-        </tr>
-        <tr>
-            <td colspan="2" style="border-bottom: 0;">
-                <div class="caps xtiny muted"><?= $p('sec_delivery_risk_label') ?></div>
-                <div style="margin-top: 1mm;" class="tiny"><?= $p('sec_delivery_risk') ?></div>
-            </td>
-        </tr>
-    </table>
-</div>
-
-<!-- ══ TERMS & SIGNATURES ══════════════════════════════════════════════════ -->
-<div style="page-break-before: always;"></div>
-<div class="band"><?= $p('header_p4') ?> <span style="float: right;" class="ref"><?= $e($ref_full) ?></span></div>
-<div class="lpc-pad" style="padding-top: 8mm;">
-    <h2 class="sec"><?= $p('sec5_title') ?></h2>
-    <?php for ($i = 1; $i <= 6; $i++): ?>
-        <div class="art">
-            <span class="t tiny"><?= $p("tc_{$i}_title") ?></span>
-            <span class="tiny"><?= $p("tc_{$i}_body") ?></span>
-        </div>
-    <?php endfor; ?>
-
-    <?php
-    // The schedule Article 2 presupposes. Without published figures, "des frais
-    // de remplacement au tarif en vigueur" is unenforceable and, worse, reads
-    // as an open-ended liability to a cautious buyer.
-    if ($consigne): ?>
-        <h2 class="sec no-break" style="margin-top: 7mm; font-size: 11pt;"><?= $p('sec_consigne_title') ?></h2>
-        <p class="tiny"><?= $p('sec_consigne_intro') ?></p>
-        <table class="items no-break" style="margin-top: 3mm;">
-            <thead>
+<?php
+// The fiscal ladder. A single bare figure with no indication of HT or TTC is the
+// one thing a buyer cannot work with: they can neither compare suppliers nor get
+// the number through their own finance team.
+?>
+<table style="margin-top: 3mm;">
+    <tr>
+        <td style="width: 52%; padding-right: 8mm; vertical-align: bottom;">
+            <p class="xtiny muted" style="font-style: italic; margin: 0 0 2mm 0;"><?= $p('tbl_note') ?></p>
+            <?php
+            // The words go under the note rather than in a full-width card of
+            // their own: as its own strip it cost 12mm, here it costs nothing —
+            // the ladder beside it is taller either way.
+            ?>
+            <div class="xtiny" style="border-top: 0.5pt solid #E5E7EB; padding-top: 1.5mm;">
+                <span class="muted" style="font-style: italic;"><?= $p('tbl_words') ?></span>
+                <span class="b"><?= $e($t['words']) ?></span>
+            </div>
+        </td>
+        <td style="width: 48%;">
+            <div class="card">
+            <table class="ladder">
                 <tr>
-                    <th><?= $p('tbl_consigne_item') ?></th>
-                    <th class="num" style="width: 34mm;"><?= $p('tbl_consigne_deposit') ?></th>
-                    <th class="num" style="width: 34mm;"><?= $p('tbl_consigne_replace') ?></th>
+                    <td><?= $p('tbl_subtotal') ?></td>
+                    <td class="num b"><?= $e(lpc_fcfa($t['subtotal'])) ?></td>
                 </tr>
-            </thead>
-            <tbody>
-            <?php foreach ($consigne as $c): ?>
+                <?php if ($t['excise'] > 0): ?>
+                    <tr>
+                        <td>Droit d'accises (<?= $e($rate($t['excise_rate'])) ?> %)</td>
+                        <td class="num b"><?= $e(lpc_fcfa($t['excise'])) ?></td>
+                    </tr>
+                <?php endif; ?>
                 <tr>
-                    <td class="b"><?= $e($c['name']) ?><?php
-                        if (!empty($c['format'])) {
-                            echo '<span class="muted" style="font-weight:normal"> — ' . $e($c['format']) . '</span>';
-                        } ?></td>
-                    <td class="num"><?= $e(lpc_fcfa($c['deposit_value'], '')) ?></td>
-                    <td class="num b"><?= $e(lpc_fcfa($c['replacement_value'], '')) ?></td>
+                    <td><?= $p('tbl_tva') ?> (<?= $e($rate($t['tva_rate'])) ?> %)</td>
+                    <td class="num b"><?= $e(lpc_fcfa($t['tax'])) ?></td>
                 </tr>
-            <?php endforeach; ?>
-            </tbody>
-        </table>
-    <?php endif; ?>
+                <?php if ($t['tva_rate'] <= 0 && !empty($t['tva_exemption'])): ?>
+                    <tr><td colspan="2" class="exempt"><?= $e($t['tva_exemption']) ?></td></tr>
+                <?php endif; ?>
+                <tr class="grand">
+                    <td><?= $t['tva_rate'] > 0 ? $p('tbl_ttc') : $p('tbl_grand') ?></td>
+                    <td class="num"><?= $e(lpc_fcfa($t['grand_total'])) ?></td>
+                </tr>
+            </table>
+            </div>
+        </td>
+    </tr>
+</table>
 
-    <?php if ($annexes): ?>
-        <h2 class="sec no-break" style="margin-top: 7mm; font-size: 11pt;"><?= $p('sec_annex_title') ?></h2>
-        <p class="tiny"><?= $p('sec_annex_intro') ?></p>
-        <div class="card no-break">
-            <?php foreach ($annexes as $a): ?>
-                <div class="tiny" style="padding: 0.8mm 0;">• <?= $e($a['label_fr']) ?></div>
-            <?php endforeach; ?>
-        </div>
-    <?php endif; ?>
+<!-- ══ THE FOUR TERMS THAT DECIDE THE DEAL ═════════════════════════════════ -->
+<h2 class="sec"><?= $p('onepager_conditions_title') ?></h2>
+<table class="terms">
+    <tr>
+        <td style="width: 25%;">
+            <div class="caps xtiny muted"><?= $p('sla_freq') ?></div>
+            <div class="b tiny" style="margin-top: 1mm;"><?= $e($sla['frequency'] ?: '—') ?></div>
+        </td>
+        <td style="width: 25%;">
+            <div class="caps xtiny muted"><?= $p('sla_pay') ?></div>
+            <div class="b tiny" style="margin-top: 1mm;"><?= $e($sla['payment_terms'] ?: '—') ?></div>
+        </td>
+        <td style="width: 25%;">
+            <div class="caps xtiny muted"><?= $p('sla_buffer') ?></div>
+            <div class="b tiny" style="margin-top: 1mm;"><?= (int) $sla['buffer_weeks'] ?> <?= $p('sla_weeks') ?></div>
+        </td>
+        <td style="width: 25%; padding-right: 0;">
+            <div class="caps xtiny muted"><?= $p('sla_empties') ?></div>
+            <div class="b tiny" style="margin-top: 1mm;"><?= $e($sla['empties'] ?: '—') ?></div>
+        </td>
+    </tr>
+</table>
 
-    <table style="margin-top: 10mm;" class="no-break">
-        <tr>
-            <td style="width: 48%; padding-right: 8mm;">
-                <div class="card" style="min-height: 32mm;">
-                    <div class="caps xtiny muted"><?= $p('sig_lpc') ?></div>
-                    <div class="b" style="margin-top: 2mm;"><?= $p('sig_role_lpc') ?></div>
-                    <div style="margin-top: 12mm; border-top: 0.5pt solid #9CA3AF; padding-top: 1.5mm;">
-                        <div class="caps xtiny muted"><?= $p('sig_prep') ?></div>
-                        <div class="b" style="margin-top: 1mm; color: <?= $brand ?>;"><?= $e($doc['sales_rep']) ?></div>
-                        <div class="xtiny muted"><?= $e($fdate($doc['date'])) ?></div>
-                    </div>
-                </div>
-            </td>
-            <td style="width: 52%;">
-                <div style="min-height: 32mm;">
-                    <div class="caps xtiny muted"><?= $p('sig_client') ?></div>
-                    <div style="margin-top: 16mm; border-top: 0.5pt solid #9CA3AF; padding-top: 1.5mm;">
-                        <div class="b" style="font-size: 10pt;"><?= $e($client['name']) ?></div>
-                        <?php if (!empty($client['contact'])): ?>
-                            <div class="tiny muted"><?= $e($client['contact']) ?></div>
-                        <?php endif; ?>
-                        <div class="xtiny muted" style="margin-top: 1.5mm;"><?= $p('sig_date_client') ?></div>
-                    </div>
-                </div>
-            </td>
-        </tr>
-    </table>
+<?php
+// The small print, as ONE paragraph. Two stacked blocks cost 15mm; run together
+// they cost 9mm, and nobody reads them differently for it.
+//
+// The second half is load-bearing: the articles, the consigne schedule and the
+// annexes are not printed on a one-pager, so this clause is what incorporates
+// them when the client signs Bon pour accord. It names what is being
+// incorporated and where to read it, which a bare "voir CGV" would not.
+$carried = [];
+if ($consigne) $carried[] = lpc_proposal_text('sec_consigne_title', 'fr');
+if ($annexes)  $carried[] = lpc_proposal_text('sec_annex_title', 'fr');
+?>
+<div class="fine">
+    <span class="b"><?= $p('sec_delivery_risk_label') ?> :</span> <?= $p('sec_delivery_risk') ?>
+    <?= $p('onepager_terms_ref') ?>
+    <?php if ($carried): ?><span class="b"><?= $e(implode(' · ', $carried)) ?>.</span><?php endif; ?>
+</div>
+
+<!-- ══ SIGNATURES ══════════════════════════════════════════════════════════ -->
+<?php
+// 11mm and 13mm of clear space above the rules. Enough for a signature, and the
+// client side gets the extra 2mm because a cachet d'entreprise is bigger than a
+// signature and is stamped over the line, not beside it.
+?>
+<table style="margin-top: 5mm;">
+    <tr>
+        <td style="width: 48%; padding-right: 8mm;">
+            <div class="caps xtiny muted"><?= $p('sig_lpc') ?></div>
+            <div class="b tiny" style="margin-top: 0.8mm;"><?= $p('sig_role_lpc') ?></div>
+            <div style="margin-top: 11mm; border-top: 0.5pt solid #9CA3AF; padding-top: 1.2mm;">
+                <div class="caps xtiny muted"><?= $p('sig_prep') ?></div>
+                <div class="b tiny" style="color: <?= $brand ?>;"><?= $e($doc['sales_rep'] ?: '—') ?></div>
+            </div>
+        </td>
+        <td style="width: 52%;">
+            <div class="caps xtiny muted"><?= $p('sig_client') ?></div>
+            <div style="margin-top: 13mm; border-top: 0.5pt solid #9CA3AF; padding-top: 1.2mm;">
+                <div class="b tiny"><?= $e($client['name']) ?></div>
+                <div class="xtiny muted"><?= $p('sig_date_client') ?></div>
+            </div>
+        </td>
+    </tr>
+</table>
 </div>
 
 <?= lpc_document_footer() ?>

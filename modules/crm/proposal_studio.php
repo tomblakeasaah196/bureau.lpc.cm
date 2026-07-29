@@ -24,6 +24,17 @@ $groups = lpc_proposal_studio_payload();
 $labels = lpc_proposal_group_labels();
 $order  = ['brand', 'p1', 'p2', 'logos', 'p3', 'p4', 'share', 'ui'];
 
+// Both loops below skip any group not in $order, so a seeded row whose
+// group_key isn't listed here is saved to the database and never shown. That
+// happened: migration 045 seeded its fields under 'offer', 'terms' and 'cover',
+// and every one of them — the fiscal labels, the exemption mention, the consigne
+// and delivery wording — was invisible in this editor until 046 remapped them.
+// Appending unknown groups means the failure is now a tab with a raw key as its
+// name, which someone will notice and fix, rather than silence.
+foreach (array_keys($groups) as $g) {
+    if (!in_array($g, $order, true)) $order[] = $g;
+}
+
 // If migration 030 hasn't run yet the payload is empty. Say so plainly rather
 // than rendering an empty editor that silently saves nothing.
 $needsMigration = ($groups === []);

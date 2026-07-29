@@ -94,13 +94,21 @@ function lpc_document_header_css(string $brand): string
     .lpc-identity  { margin-top: 5mm; padding-top: 2.5mm; border-top: 0.5pt solid #E5E7EB;
                      font-size: 7pt; color: #4B5563; line-height: 1.6; }
     .lpc-identity .nm { font-weight: bold; color: #111827; font-size: 8.5pt; }
+    /* 'identity' => 'compact': same mentions, two lines instead of four, for a
+       document with a hard height budget. The devis one-pager needs the ~8mm;
+       the facture, which may run to several pages, does not and keeps the airier
+       block. Nothing is dropped — only the line breaks are. */
+    .lpc-identity-c { margin-top: 3.5mm; padding-top: 2mm; border-top: 0.5pt solid #E5E7EB;
+                      font-size: 6.5pt; color: #4B5563; line-height: 1.35; }
+    .lpc-identity-c .nm { font-weight: bold; color: #111827; font-size: 7.5pt; }
 CSS;
 }
 
 /**
  * Render the header.
  *
- * @param array $opts title, meta[[label,value,style?]], badge[label,fg,bg], logo
+ * @param array $opts title, meta[[label,value,style?]], badge[label,fg,bg], logo,
+ *                    identity ('compact' folds the mentions onto two lines)
  * @return string HTML
  */
 function lpc_document_header(array $opts): string
@@ -166,12 +174,24 @@ function lpc_document_header(array $opts): string
     </tr>
 </table>
 
-<div class="lpc-identity">
-    <span class="nm"><?= $e($lh['name']) ?></span><br>
-    <?= $e($lh['address']) ?><br>
-    <?php if ($lh['mentions'] !== ''): ?><?= $e($lh['mentions']) ?><br><?php endif; ?>
-    <?= $e($lh['contact']) ?>
-</div>
+<?php if (($opts['identity'] ?? '') === 'compact'): ?>
+    <?php // Same mentions, joined rather than stacked. See .lpc-identity-c. ?>
+    <div class="lpc-identity-c">
+        <span class="nm"><?= $e($lh['name']) ?></span> ·
+        <?= $e(implode(' · ', array_filter([
+                preg_replace('/\s*\R\s*/u', ', ', (string) $lh['address']),
+                $lh['mentions'],
+                $lh['contact'],
+            ]))) ?>
+    </div>
+<?php else: ?>
+    <div class="lpc-identity">
+        <span class="nm"><?= $e($lh['name']) ?></span><br>
+        <?= $e($lh['address']) ?><br>
+        <?php if ($lh['mentions'] !== ''): ?><?= $e($lh['mentions']) ?><br><?php endif; ?>
+        <?= $e($lh['contact']) ?>
+    </div>
+<?php endif; ?>
 <?php
     return (string) ob_get_clean();
 }

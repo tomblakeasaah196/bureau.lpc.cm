@@ -727,6 +727,47 @@ The gate lives in `quote.php`, not in `document_pdf.php`, so no other
 document type is affected. If you add a document whose HTML view is the
 real deliverable, copy this pattern rather than editing the dispatcher.
 
+#### The two devis exports are different documents. Do not merge them.
+
+The devis has **two** deliverables, and each button on the proposal page
+owns one:
+
+| | `#btn-download` | `#btn-offer` |
+|---|---|---|
+| Route | client-side, no request | `?pdf=1` |
+| Engine | html2canvas + jsPDF | dompdf |
+| Output | 4 pages, raster | **1 page**, vector text |
+| Fidelity | pixel-identical to the page, in whichever language is toggled | FR, condensed, its own layout |
+| For | the prospect reading and forwarding it | the buyer printing, initialling and filing it |
+
+Neither substitutes for the other. The capture is not searchable and its
+text cannot be copied; the one-pager does not look like the page and does
+not carry the profile prose or the reference logos.
+
+**This has already been broken once.** A commit repointed `#btn-download`
+at `?pdf=1` — reasoning, correctly, that `pdftotext` extracted four
+characters from a whole devis because every page was a 1588×2246 JPEG —
+and in the same pass rebuilt the dompdf template as a 4-page replica of
+the HTML with three `page-break-before: always` rules. Net effect: both
+buttons produced the same file, the WYSIWYG export was gone, and the
+one-pager had no implementation at all. The correct fix for unselectable
+text was to make the *one-pager* excellent, which is what it now is.
+
+Guards, because "how many pages did that come out as" was asserted
+nowhere:
+
+- `scripts/tests/document_header.test.py` — static. The template declares
+  no page break, the row clamp is present, and the two buttons stay
+  distinct (`pdf=1` must not appear in `documents-quote.js` code).
+- `scripts/tests/quote_onepager.test.php` — runtime. Renders nine records
+  through dompdf, including 40 line items and a two-line client name, and
+  asserts one page each plus extractable text. **Run this after any change
+  to a font size, padding or margin in `lpc_render_quote_pdf_html()`.**
+
+One page is a budget, not a hope: the docblock on
+`lpc_render_quote_pdf_html()` accounts for all 281 mm, and priced rows are
+clamped to 9 with the tail summed into one reconciling row.
+
 **Share links are built from the token, never `window.location.href`**
 (`assets/js/modules/documents-quote.js`). The page is reachable with
 `&html=1` / `&pdf=1` appended, and neither belongs in a URL pasted into a
@@ -832,12 +873,27 @@ Rules for anyone touching this:
 > `Rbac::loadFromDb()` caches the permission set into `$_SESSION['rbac']`
 > at login (§4.1), so after any grant migration, sign out and back in.
 
-Known boundary: the one-page dompdf export (`?pdf=1`) still uses the
-generic document template in `includes/functions/document_pdf.php`, whose
-letterhead ("Ets. La Petite Cour", NIU, phone) is shared with invoices,
-BLs and bons de commande. Making *that* parametric is a separate
-company-identity setting, not a proposal setting — doing it here would
-have quietly changed every invoice too.
+The one-page dompdf export (`?pdf=1`) once used the generic document
+template with a hardcoded letterhead. It now has its own —
+`lpc_render_quote_pdf_html()` — and the letterhead comes from
+`CompanyProfile` via the shared `lpc_document_header()`, so editing the
+company identity in Settings restyles the devis and the facture together.
+
+Known boundary, and it is a real one: **the one-pager is FR only.** The
+HTML proposal is bilingual and toggles client-side; the dompdf render calls
+`lpc_proposal_text($key, 'fr')` throughout. An anglophone buyer gets a
+French one-pager. Every string already has its `value_en` in
+`proposal_template_settings`, so the fix is to thread a `$lang` through the
+template — but the height budget was measured against the French copy, and
+English runs shorter in some places and longer in others, so it needs the
+page-count test re-run per language rather than a find-and-replace.
+
+Second boundary: the copy is length-bounded, not layout-aware.
+`lpc_proposal_limit()` caps each field at roughly +10% of its seeded length
+(§ Proposal Studio), which is what stops an admin's longer sentence pushing
+the one-pager onto page 2. It is a proxy, not a guarantee — the real check
+is `scripts/tests/quote_onepager.test.php`, and it exercises the *default*
+wording only.
 
 ### 5.8 KPI cards, deep links, and a lesson about `catch { $x = 0; }`
 

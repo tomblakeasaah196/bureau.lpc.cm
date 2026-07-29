@@ -9,11 +9,27 @@
 if (!defined('LPC_FORCE_LIGHT')) { define('LPC_FORCE_LIGHT', true); }
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/functions/document_pdf.php';
-// The rich 4-page HTML proposal IS the client-facing deliverable (bilingual,
-// shareable by WhatsApp/email, self-service PDF export), so it renders by
-// default. The server-side dompdf render is the condensed one-page "offre
-// commerciale", served on demand via ?pdf=1. This is now the contract for every
-// document type except payslip; see includes/functions/document_pdf.php.
+// TWO DELIVERABLES, AND THEY ARE NOT INTERCHANGEABLE.
+//
+//   bare ?token=…   the 4-page bilingual HTML proposal. The prospect opens it
+//                   from a WhatsApp link, reads it in their language, and
+//                   exports it themselves — #btn-download captures these four
+//                   .a4-page blocks with html2canvas, so the export is
+//                   pixel-identical to what they are looking at.
+//                   SHARE LINKS MUST USE THIS FORM.
+//   ?token=…&pdf=1  the one-page "offre commerciale" through dompdf. Vector
+//                   text, so a buyer can paste the figure into a budget sheet.
+//                   Reached from #btn-offer. See lpc_render_quote_pdf_html().
+//
+// Both were nearly lost at once: one commit rebuilt the dompdf side as a 4-page
+// replica of the HTML and repointed #btn-download at it, leaving two buttons
+// serving the same file and neither document being what it claimed. If you
+// touch either path, scripts/tests/document_header.test.py asserts they stay
+// distinct and scripts/tests/quote_onepager.test.php asserts the one-pager is
+// still one page.
+//
+// The gate below is the inverse of every other document type, where the PDF IS
+// the deliverable; see includes/functions/document_pdf.php.
 if (($_GET['pdf'] ?? '') === '1') {
     lpc_serve_document_pdf('quote');   // exits after streaming
 }

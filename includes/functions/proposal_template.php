@@ -171,17 +171,33 @@ function lpc_proposal_defaults(): array
         'sec_delivery_risk_label' => ['Transfert des risques', 'Transfer of risk'],
         'sec_delivery_risk'       => ["Les marchandises voyagent sous la responsabilité de LA PETITE COUR jusqu'à leur réception sur site. Le transfert des risques s'opère à la signature du bon de livraison par le client ou son représentant. Toute réserve doit être portée sur le bon de livraison au moment de la réception.", "Goods travel at LA PETITE COUR's risk until receipt on site. Risk transfers upon signature of the delivery note by the client or their representative. Any reservation must be recorded on the delivery note at the time of receipt."],
 
-        // --- Sprint 9: cover summary + dated validity -------------------------
+        // --- Sprint 9: dated validity ----------------------------------------
         // "30 Jours à compter de l'émission" made the reader do arithmetic and
         // was buried on page 3 under the SLA.
-        'cover_summary_title' => ['En bref', 'At a glance'],
-        'cover_summary_total' => ['Montant mensuel estimé', 'Estimated monthly amount'],
+        //
+        // cover_summary_title / cover_summary_total were here too. They fed the
+        // "En bref" box on the 4-page dompdf replica of the proposal; that
+        // replica is gone and the one-pager shows the same figure in the fiscal
+        // ladder, where it also carries its tax treatment. Migration 046 drops
+        // the rows. A key that renders nowhere is worse than no key at all — an
+        // admin edits it in the Studio, saves, and the document is unchanged.
         'meta_valid_until'    => ["Offre valable jusqu'au", 'Offer valid until'],
         'meta_revision'       => ['Révision', 'Revision'],
 
         // --- Sprint 9: annexes -----------------------------------------------
         'sec_annex_title' => ['Annexes', 'Appendices'],
         'sec_annex_intro' => ['Les documents suivants sont joints à la présente offre :', 'The following documents are attached to this offer:'],
+
+        // --- One-page offre commerciale (?pdf=1) ------------------------------
+        // The one-pager prints neither the six articles, nor the consigne
+        // schedule, nor the annex list — there is no room for them on a page a
+        // buyer initials. `onepager_terms_ref` is therefore the clause that
+        // incorporates them by reference, which is what makes a signed
+        // one-pager a complete contract rather than a price note. Edit it with
+        // that in mind.
+        'onepager_conditions_title' => ['Conditions essentielles', 'Key Terms'],
+        'onepager_terms_ref'        => ["Les conditions générales de service (articles 1 à 6), le barème des consignes et les annexes font partie intégrante de la présente offre et sont remis avec la proposition commerciale complète.", 'The general terms of service (articles 1 to 6), the deposit schedule and the appendices form an integral part of this offer and are supplied with the full commercial proposal.'],
+        'onepager_more_lines'       => ['Autres articles', 'Further items'],
 
         'sig_lpc'         => ['Pour La Petite Cour :', 'For La Petite Cour:'],
         'sig_role_lpc'    => ['Le Responsable Commerciale', 'Sales Department'],

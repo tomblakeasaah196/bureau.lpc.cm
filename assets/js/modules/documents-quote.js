@@ -258,20 +258,32 @@ document.getElementById('input_email_body').value =
             });
         }
 
-        // 7. PDF GENERATOR
+        // 7. PDF GENERATOR — the WYSIWYG capture of the 4-page proposal
         // ---------------------------------------------------------------------
-        // Server-side dompdf is the source of truth; the html2canvas capture
-        // below is the lifeboat.
+        // TWO BUTTONS, TWO DELIBERATELY DIFFERENT DOCUMENTS. Do not merge them.
         //
-        // The capture-only version this replaced produced a document with NO
-        // TEXT IN IT. `pdftotext` extracted four characters from the whole of
-        // DEV-2607-841B — all four pages were 1588×2246 JPEGs at 192 ppi. A
-        // prospect could not copy the price into a budget sheet, could not
-        // search the terms, and printed the thing at screen resolution. On the
-        // document that wins the business, that costs more than it did on the
-        // invoice.
+        //   #btn-download (this)  html2canvas + jsPDF over the four .a4-page
+        //                         blocks. Pixel-identical to what the prospect
+        //                         is looking at: the arcs, the gradients, the
+        //                         reference logos, whichever language they
+        //                         toggled to. Raster, so the text in it is not
+        //                         selectable.
+        //   #btn-offer            a plain link to ?pdf=1 — dompdf's one-page
+        //                         offre commerciale, vector text, selectable
+        //                         and searchable. See
+        //                         lpc_render_quote_pdf_html().
         //
-        // ?pdf=1 renders the same offer through dompdf as real vector text.
+        // An earlier pass pointed THIS button at ?pdf=1 as its primary path and
+        // demoted the capture to a fallback, on the grounds that `pdftotext`
+        // extracted four characters from DEV-2607-841B because all four pages
+        // were 1588×2246 JPEGs. The diagnosis was right and the remedy was
+        // wrong: it deleted the WYSIWYG deliverable instead of adding the
+        // machine-readable one, and left both buttons serving the same file.
+        //
+        // Selectable text is a real requirement and it belongs to the one-pager,
+        // which is what a buyer pastes into a budget sheet. Looking exactly like
+        // the page you are reading is also a real requirement, and it belongs
+        // here. Neither substitutes for the other.
         // ---------------------------------------------------------------------
         async function generatePDF() {
             if(!apiData) { LPC.modal.alert("Attendez le chargement des données / Wait for data to load"); return; }
@@ -281,80 +293,21 @@ document.getElementById('input_email_body').value =
             btn.innerHTML = LPC.html`<i class="fas fa-spinner fa-spin"></i> Traitement...`;
             btn.classList.add('opacity-75', 'cursor-not-allowed');
 
-            const filename = `LPC_Devis_${apiData.proposal.reference}.pdf`;
-
             try {
-                await downloadServerQuotePDF(filename);
-                return;
-            } catch (serverError) {
-                console.warn('[devis] dompdf indisponible, repli sur la capture client :', serverError);
-            } finally {
-                btn.innerHTML = originalHTML;
-                btn.classList.remove('opacity-75', 'cursor-not-allowed');
-            }
-
-            // Fallback only — reached when the server route fails outright.
-            btn.innerHTML = LPC.html`<i class="fas fa-spinner fa-spin"></i> Traitement...`;
-            btn.classList.add('opacity-75', 'cursor-not-allowed');
-            try {
-                await downloadCanvasQuotePDF(filename);
-                if (window.LPC && LPC.toast) {
-                    LPC.toast(
-                        "PDF généré en mode dégradé (image). Le texte ne sera pas sélectionnable.",
-                        'warning'
-                    );
-                }
-            } catch (canvasError) {
-                console.error('[devis] échec des deux moteurs PDF :', canvasError);
-                LPC.modal.alert("Impossible de générer le PDF. Vérifiez votre connexion, puis réessayez.");
-            } finally {
-                btn.innerHTML = originalHTML;
-                btn.classList.remove('opacity-75', 'cursor-not-allowed');
-            }
-        }
-
-        /** Primary path — dompdf via ?pdf=1. Vector text, selectable, small. */
-        async function downloadServerQuotePDF(filename) {
-            const params = new URLSearchParams(window.location.search);
-            const token = params.get('token') || '';
-            const response = await fetch(`?token=${encodeURIComponent(token)}&pdf=1`, {
-                headers: { 'Accept': 'application/pdf' },
-                cache: 'no-store'
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-            const blob = await response.blob();
-            // A PHP fatal can still arrive with a 200 on some hosts. Trust the
-            // payload, not the status line.
-            if (blob.type && blob.type.indexOf('pdf') === -1) throw new Error(`type inattendu : ${blob.type}`);
-            if (blob.size < 1000) throw new Error(`réponse trop courte : ${blob.size} octets`);
-
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            // Safari aborts the download if the object URL disappears
-            // synchronously after the click.
-            setTimeout(() => URL.revokeObjectURL(url), 4000);
-        }
-
-        /** Fallback — the original page-by-page html2canvas capture. */
-        async function downloadCanvasQuotePDF(filename) {
                 // Wait for webfonts before painting; capturing mid-load is what
                 // blanked blocks in the invoice capture.
                 if (document.fonts && document.fonts.ready) {
                     await document.fonts.ready;
                 }
+
                 // Initialize PDF (A4 Portrait)
                 const pdf = new jspdf.jsPDF('p', 'mm', 'a4');
                 const pdfWidth = pdf.internal.pageSize.getWidth();
                 const pdfHeight = pdf.internal.pageSize.getHeight();
-                
+
                 // Select all the A4 page div blocks
                 const pages = document.querySelectorAll('.a4-page');
+                if (!pages.length) throw new Error('aucun bloc .a4-page à capturer');
 
                 // Loop through each DOM page, capture it, and add it to the PDF
                 for (let i = 0; i < pages.length; i++) {
@@ -366,17 +319,34 @@ document.getElementById('input_email_body').value =
                     });
 
                     const imgData = canvas.toDataURL('image/jpeg', 1.0);
-                    
+
                     if (i > 0) {
                         pdf.addPage(); // Add a new blank page for page 2, 3, etc.
                     }
-                    
+
                     // Add the captured image to the current PDF page
                     pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
                 }
 
                 // Download the final assembled PDF
-                pdf.save(filename);
+                pdf.save(`LPC_Devis_${apiData.proposal.reference}.pdf`);
+
+            } catch (error) {
+                // The capture runs entirely in the browser, so a failure here is
+                // memory or a tainted canvas — not the network. Point at the
+                // one-pager, which is served by PHP and unaffected.
+                console.error('[devis] échec de la capture html2canvas :', error);
+                LPC.modal.alert(
+                    "Erreur lors de la génération du PDF. Essayez sur un ordinateur, "
+                    + "ou utilisez « Offre commerciale » pour la version d'une page.\n\n"
+                    + "Error generating PDF. Try on a desktop, or use “Commercial Offer” "
+                    + "for the one-page version."
+                );
+            } finally {
+                // Restore button state
+                btn.innerHTML = originalHTML;
+                btn.classList.remove('opacity-75', 'cursor-not-allowed');
+            }
         }
 
         // Init App
