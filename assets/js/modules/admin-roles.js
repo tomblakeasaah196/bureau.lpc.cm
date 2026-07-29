@@ -55,15 +55,15 @@ async function api(action, payload, method='GET') {
     return j.data;
 }
 
+/**
+ * Delegated to LPC.toast (assets/js/lpc-toast.js).
+ *
+ * The single reused #toast node this replaced kept one shared hide timer, so
+ * two messages inside 3.2 s meant the first one's timeout swallowed the second
+ * — and there was no way to dismiss either by hand.
+ */
 function toast(msg, type='success') {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.className = 'fixed bottom-6 right-6 z-50 px-4 py-3 rounded-lg text-sm font-medium '
-                + (type==='success'
-                    ? 'bg-emerald-500/20 text-emerald-100 border border-emerald-400/30'
-                    : 'bg-red-500/20 text-red-100 border border-red-400/30');
-    setTimeout(() => t.classList.add('hidden'), 3200);
-    t.classList.remove('hidden');
+    return LPC.toast(msg, type);
 }
 
 async function loadRoles() {

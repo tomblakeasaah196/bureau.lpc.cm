@@ -14,25 +14,13 @@
         let charts = {};
         let driversList = []; // Cached for assignment dropdown
 
-        /** Custom Toast Notification System */
+        /**
+         * Toast notifications — delegated to LPC.toast (assets/js/lpc-toast.js).
+         * The copy that used to live here waited on an `animationend` from CSS
+         * classes that were never defined, so nothing was ever removed.
+         */
         function showToast(message, type = 'success') {
-            const container = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            
-            const colors = type === 'success' 
-                ? 'bg-gray-900 border-lpc-light text-white' 
-                : 'bg-red-50 border-red-500 text-red-900';
-            const icon = type === 'success' ? 'fa-check-circle text-lpc-light' : 'fa-exclamation-circle text-red-500';
-            
-            toast.className = `flex items-center gap-3 px-5 py-4 rounded-xl border-l-4 shadow-2xl animate-toast-enter ${colors}`;
-            toast.innerHTML = LPC.html`<i class="fas ${icon} text-lg"></i> <span class="font-bold text-sm">${message}</span>`;
-            
-            container.appendChild(toast);
-            
-            setTimeout(() => {
-                toast.classList.replace('animate-toast-enter', 'animate-toast-leave');
-                toast.addEventListener('animationend', () => toast.remove());
-            }, 4000);
+            return LPC.toast(message, type);
         }
 
         /** Initialization Hook */

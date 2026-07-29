@@ -2073,3 +2073,101 @@ html.lpc-collapsed .lpc-rail-toggle svg { transform: scaleX(-1); }
 html[data-lpc-reduce-motion="1"] .lpc-rail-toggle.is-hinting {
     animation: lpc-rail-hint-glow 1.6s ease-in-out 3;
 }
+
+
+/* =============================================================================
+   TOASTS — see assets/js/lpc-toast.js
+   -----------------------------------------------------------------------------
+   These @keyframes are the whole reason toasts used to hang around forever.
+   The old per-module showToast() used `animate-toast-enter` / `animate-toast-leave`,
+   two Tailwind-shaped class names that were never declared in tailwind.config.js
+   and so were never emitted into tailwind.css. No animation meant no
+   `animationend`, and `animationend` was the only thing that called .remove().
+
+   They live in this hand-written stylesheet rather than the Tailwind config on
+   purpose: nothing here can be purged by a JIT scan that fails to spot a class
+   name assembled at runtime.
+   ========================================================================== */
+
+.lpc-toast-stack {
+    position: fixed;
+    bottom: 1.25rem;
+    right: 1.25rem;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-width: min(26rem, calc(100vw - 2.5rem));
+    pointer-events: none;          /* clicks fall through the gaps */
+}
+
+.lpc-toast {
+    pointer-events: auto;          /* …but not through a toast itself */
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.9rem 1rem;
+    border-radius: 0.75rem;
+    border-left: 4px solid transparent;
+    box-shadow: 0 12px 28px -8px rgba(0, 0, 0, .35), 0 2px 6px -2px rgba(0, 0, 0, .2);
+    font-size: 0.875rem;
+    line-height: 1.35;
+}
+
+.lpc-toast__icon  { font-size: 1.05rem; margin-top: 0.1rem; flex-shrink: 0; }
+.lpc-toast__msg   { font-weight: 700; flex: 1 1 auto; overflow-wrap: anywhere; }
+
+.lpc-toast__close {
+    flex-shrink: 0;
+    margin: -0.25rem -0.35rem -0.25rem 0;
+    width: 1.75rem;
+    height: 1.75rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: inherit;
+    opacity: .55;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: opacity .15s ease, background-color .15s ease;
+}
+.lpc-toast__close:hover        { opacity: 1; background: rgba(127, 127, 127, .18); }
+.lpc-toast__close:focus-visible { opacity: 1; outline: 2px solid currentColor; outline-offset: 1px; }
+
+/* Variants ---------------------------------------------------------------- */
+.lpc-toast--success { background: #111827; color: #fff;    border-left-color: var(--lpc-brand-light, #8CC63F); }
+.lpc-toast--success .lpc-toast__icon { color: var(--lpc-brand-light, #8CC63F); }
+
+.lpc-toast--error   { background: #FEF2F2; color: #7F1D1D; border-left-color: #EF4444; }
+.lpc-toast--error   .lpc-toast__icon { color: #EF4444; }
+
+.lpc-toast--warning { background: #FFFBEB; color: #78350F; border-left-color: #F59E0B; }
+.lpc-toast--warning .lpc-toast__icon { color: #F59E0B; }
+
+.lpc-toast--info    { background: #111827; color: #fff;    border-left-color: #60A5FA; }
+.lpc-toast--info    .lpc-toast__icon { color: #60A5FA; }
+
+/* Motion ------------------------------------------------------------------ */
+@keyframes lpc-toast-in {
+    from { opacity: 0; transform: translateY(14px) scale(.97); }
+    to   { opacity: 1; transform: translateY(0)    scale(1);   }
+}
+@keyframes lpc-toast-out {
+    from { opacity: 1; transform: translateX(0)    scale(1);   }
+    to   { opacity: 0; transform: translateX(18px) scale(.97); }
+}
+
+.lpc-toast--enter { animation: lpc-toast-in  .2s  cubic-bezier(.21,1.02,.73,1) both; }
+.lpc-toast--leave { animation: lpc-toast-out .22s ease-in both; }
+
+/* The JS removes the node on a timer regardless, so killing the animation
+   here only removes the slide — it can never strand a toast on screen. */
+@media (prefers-reduced-motion: reduce) {
+    .lpc-toast--enter,
+    .lpc-toast--leave { animation: none; }
+}
+html[data-lpc-reduce-motion="1"] .lpc-toast--enter,
+html[data-lpc-reduce-motion="1"] .lpc-toast--leave { animation: none; }

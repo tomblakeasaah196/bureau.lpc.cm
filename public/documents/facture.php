@@ -131,40 +131,50 @@ if (($_GET['pdf'] ?? '') === '1') {
                 
                 <div class="h-3 w-full bg-lpc-dark shrink-0"></div>
 
-                <div class="px-16 pt-12 pb-8 flex justify-between items-start shrink-0">
-                    <div class="w-1/2">
-                        <img src="/assets/img/full_logo.svg" alt="LPC Logo" class="h-16 w-auto mb-4" onerror="this.outerHTML='<h2 class=\\'text-3xl font-black text-lpc-dark\\'>LPC</h2>'">
-                        <p class="text-[10px] text-gray-500 mt-2 leading-relaxed font-bold uppercase tracking-wider">
-                            Entrée Compagnie de Gendarmerie de Ndogbong<br>
-                            B.P. 5120 Douala, Cameroun<br>
-                            Tél: +237 696 291 800 | info@lpc.cm<br>
-                            NIU: M123456789012A | RC: DLA/2026/B/1234
-                        </p>
+                <!-- LETTERHEAD.
+                     Everything here used to be four hardcoded lines, including a
+                     NIU and an RC that were placeholders and went out on real
+                     customer invoices. They now come from company_profile via
+                     the API, editable at Administration → Paramètres → Entreprise.
+                     Raison sociale + forme juridique, RCCM, NIU, capital social,
+                     régime fiscal and centre des impôts are the identifiers a
+                     Cameroonian invoice is required to carry. -->
+                <div class="px-16 pt-12 pb-6 flex justify-between items-start shrink-0">
+                    <div class="w-1/2 pr-6">
+                        <img src="/assets/img/full_logo.svg" alt="Logo" class="h-16 w-auto mb-3" onerror="this.outerHTML='<h2 class=\\'text-3xl font-black text-lpc-dark\\'>LPC</h2>'">
+                        <p class="text-sm font-black text-gray-900 leading-tight" id="dyn_co_name">...</p>
+                        <p class="text-[10px] text-gray-500 mt-1.5 leading-relaxed font-bold uppercase tracking-wider" id="dyn_co_address">...</p>
+                        <p class="text-[10px] text-gray-500 mt-1 leading-relaxed font-bold" id="dyn_co_contact">...</p>
+                        <p class="text-[9px] text-gray-600 mt-2 leading-relaxed font-bold border-t border-gray-200 pt-2" id="dyn_co_legal">...</p>
                     </div>
                     <div class="w-1/2 text-right">
                         <h1 class="text-4xl font-black text-gray-900 uppercase tracking-tighter" data-i18n="doc_title">Facture</h1>
                         <div id="dyn_status_badge" class="mt-2 inline-block px-3 py-1 rounded text-xs font-black uppercase tracking-widest status-unpaid">
                             NON PAYÉE
                         </div>
-                        
-                        <div class="mt-6 inline-block text-left bg-gray-50 p-4 rounded-xl border border-gray-200 min-w-[240px]">
-                            <div class="flex justify-between items-center mb-2">
+
+                        <div class="mt-6 inline-block text-left bg-gray-50 p-4 rounded-xl border border-gray-200 min-w-[250px]">
+                            <div class="flex justify-between items-center gap-6 mb-2">
                                 <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest" data-i18n="lbl_inv_num">N° Facture :</span>
                                 <span class="text-sm font-black text-gray-900" id="dyn_ref">...</span>
                             </div>
-                            <div class="flex justify-between items-center mb-2">
+                            <div class="flex justify-between items-center gap-6 mb-2">
                                 <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest" data-i18n="lbl_date">Date :</span>
                                 <span class="text-sm font-bold text-gray-800" id="dyn_date">...</span>
                             </div>
-                            <div class="flex justify-between items-center">
+                            <div class="flex justify-between items-center gap-6 mb-2">
                                 <span class="text-[10px] font-black text-red-400 uppercase tracking-widest" data-i18n="lbl_due_date">Échéance :</span>
                                 <span class="text-sm font-black text-red-600" id="dyn_due_date">...</span>
+                            </div>
+                            <div class="flex justify-between items-center gap-6 border-t border-gray-200 pt-2">
+                                <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest" data-i18n="lbl_currency">Devise :</span>
+                                <span class="text-xs font-bold text-gray-800">FCFA (XAF)</span>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="px-16 pb-8 shrink-0">
+                <div class="px-16 pb-6 shrink-0">
                     <div class="bg-gray-50 p-6 rounded-xl border border-gray-100">
                         <h3 class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 border-b-2 border-gray-200 inline-block pb-1" data-i18n="lbl_client">Facturé à</h3>
                         <p class="text-xl font-black text-gray-900" id="dyn_client_name">...</p>
@@ -173,6 +183,19 @@ if (($_GET['pdf'] ?? '') === '1') {
                             <i class="fas fa-phone text-gray-400 text-xs mr-1"></i> <span id="dyn_client_phone">...</span>
                             <span class="mx-2 text-gray-300">|</span>
                             <i class="fas fa-envelope text-gray-400 text-xs mr-1"></i> <span id="dyn_client_email">...</span>
+                        </p>
+                        <!-- The buyer's NIU is what makes the transaction deductible
+                             for them. Its absence is flagged rather than hidden, so
+                             whoever issues the invoice sees the gap before the
+                             client's accountant does. -->
+                        <p class="text-xs font-bold text-gray-700 mt-2 pt-2 border-t border-gray-200" id="client_fiscal_line">
+                            <span data-i18n="lbl_client_niu">NIU :</span> <span id="dyn_client_niu" class="font-mono">—</span>
+                            <span class="mx-2 text-gray-300">|</span>
+                            <span data-i18n="lbl_client_rccm">RCCM :</span> <span id="dyn_client_rccm" class="font-mono">—</span>
+                        </p>
+                        <p id="dyn_client_niu_warning" class="hidden mt-2 text-[10px] font-black uppercase tracking-widest text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 inline-block">
+                            <i class="fas fa-triangle-exclamation mr-1"></i>
+                            <span data-i18n="warn_no_niu">NIU client manquant — requis pour la déductibilité B2B</span>
                         </p>
                     </div>
                 </div>
@@ -201,30 +224,80 @@ if (($_GET['pdf'] ?? '') === '1') {
                             
                             <div>
                                 <h4 class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2" data-i18n="lbl_payment_info">Informations de Paiement</h4>
-                                <div class="bg-gray-50 p-4 rounded-lg border border-gray-100 text-xs text-gray-600 space-y-2 font-medium">
-                                    <p><strong class="text-gray-900">Mobile Money:</strong> 696 291 800 (La Petite Cour)</p>
-                                    <p><strong class="text-gray-900">Banque:</strong> UBA Cameroun</p>
-                                    <p><strong class="text-gray-900">IBAN:</strong> CM21 1003 3052 0123 4567 8901</p>
-                                    <p class="mt-2 text-[10px] text-gray-400 italic">Merci de préciser le N° de facture en motif.</p>
+                                <!-- Rendered from company_profile.bank_* / mobile_money_number.
+                                     The IBAN printed here was previously a literal in the
+                                     markup, so changing bank meant editing a PHP file. -->
+                                <div id="dyn_bank_block" class="bg-gray-50 p-4 rounded-lg border border-gray-100 text-xs text-gray-600 space-y-1.5 font-medium">
                                 </div>
+                                <p class="mt-2 text-[10px] text-gray-400 italic" data-i18n="pay_reference_hint">Merci de préciser le N° de facture en motif du règlement.</p>
+                            </div>
+
+                            <div>
+                                <h4 class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2" data-i18n="lbl_terms">Conditions de Règlement</h4>
+                                <p class="text-[10px] text-gray-500 leading-relaxed font-medium" id="terms_text">
+                                    Paiement exigible au plus tard à la date d'échéance indiquée.
+                                    Passé ce délai, une pénalité de retard est applicable de plein droit,
+                                    sans mise en demeure préalable. Les marchandises restent la propriété
+                                    du vendeur jusqu'au paiement intégral du prix.
+                                </p>
                             </div>
                         </div>
 
                         <div class="w-1/2">
+                            <!-- FISCAL LADDER.
+                                 The old block was HT → TVA → TTC, which cannot show
+                                 how a Cameroonian total is actually built. Accises are
+                                 assessed on the HT and then join the TVA base, so TVA
+                                 applies to (HT + accises). Précompte and AIR are
+                                 withholdings: they leave the TTC the client owes
+                                 untouched and instead split it between us and the DGI —
+                                 hence the separate "net à nous virer" line. Rows with a
+                                 zero amount are hidden by injectData(). -->
                             <div class="bg-gray-50 p-5 rounded-xl border border-gray-200">
-                                <div class="flex justify-between items-center mb-3">
+                                <div class="flex justify-between items-center mb-2.5">
                                     <span class="text-xs font-bold text-gray-600" data-i18n="tot_sub">Total Hors Taxe (HT)</span>
                                     <span class="text-sm font-black text-gray-900" id="dyn_subtotal">...</span>
                                 </div>
-                                <div class="flex justify-between items-center mb-3">
+
+                                <div class="flex justify-between items-center mb-2.5 hidden" id="row_excise">
+                                    <span class="text-xs font-bold text-gray-600"><span data-i18n="tot_excise">Droit d'accises</span> (<span id="dyn_excise_rate">0</span>%)</span>
+                                    <span class="text-sm font-black text-gray-900" id="dyn_excise_amount">...</span>
+                                </div>
+
+                                <div class="flex justify-between items-center mb-2.5">
                                     <span class="text-xs font-bold text-gray-600">TVA (<span id="dyn_tva_rate">0</span>%)</span>
                                     <span class="text-sm font-black text-gray-900" id="dyn_tva_amount">...</span>
                                 </div>
-                                <div class="border-t-2 border-gray-900 pt-3 mb-3 flex justify-between items-center">
+
+                                <!-- A bare "TVA 0%" is the single most common reason a
+                                     Cameroonian invoice gets rejected: the buyer cannot
+                                     tell an exoneration from an omission. The basis is
+                                     printed instead. -->
+                                <p id="row_tva_exemption" class="hidden text-[9px] italic text-gray-500 leading-snug -mt-1 mb-2.5 pl-1 border-l-2 border-gray-300">
+                                    <span id="dyn_tva_exemption"></span>
+                                </p>
+
+                                <div class="border-t-2 border-gray-900 pt-2.5 mb-2.5 flex justify-between items-center">
                                     <span class="text-sm font-black text-gray-900" data-i18n="tot_grand">NET À PAYER (TTC)</span>
                                     <span class="text-lg font-black text-gray-900" id="dyn_grandtotal">...</span>
                                 </div>
-                                
+
+                                <div id="withholding_block" class="hidden border-t border-dashed border-gray-300 pt-2.5 space-y-2 mb-2">
+                                    <p class="text-[9px] font-black uppercase tracking-widest text-gray-400" data-i18n="lbl_withholding">Retenues à la source</p>
+                                    <div class="flex justify-between items-center hidden" id="row_precompte">
+                                        <span class="text-[11px] font-bold text-gray-600"><span data-i18n="tot_precompte">Précompte sur achats</span> (<span id="dyn_precompte_rate">0</span>%)</span>
+                                        <span class="text-xs font-black text-gray-700" id="dyn_precompte_amount">...</span>
+                                    </div>
+                                    <div class="flex justify-between items-center hidden" id="row_air">
+                                        <span class="text-[11px] font-bold text-gray-600"><span data-i18n="tot_air">AIR — Acompte d'Impôt sur le Revenu</span> (<span id="dyn_air_rate">0</span>%)</span>
+                                        <span class="text-xs font-black text-gray-700" id="dyn_air_amount">...</span>
+                                    </div>
+                                    <div class="flex justify-between items-center bg-gray-900 text-white px-3 py-2 rounded-lg">
+                                        <span class="text-[10px] font-black uppercase tracking-widest" data-i18n="tot_net_transfer">Net à virer au fournisseur</span>
+                                        <span class="text-sm font-black" id="dyn_net_payable">...</span>
+                                    </div>
+                                </div>
+
                                 <div id="payment_history_block" class="border-t border-gray-200 pt-3 space-y-2 mt-2">
                                     <div class="flex justify-between items-center text-emerald-600">
                                         <span class="text-[10px] font-black uppercase tracking-widest" data-i18n="tot_paid">Déjà Réglé (Avances)</span>
@@ -255,6 +328,14 @@ if (($_GET['pdf'] ?? '') === '1') {
                                 <strong class="text-gray-900 text-sm not-italic" id="dyn_amount_words">...</strong>
                             </p>
                         </div>
+                    </div>
+
+                    <!-- Statutory footer. Required on every page of a Cameroonian
+                         invoice and previously absent from the HTML view entirely
+                         (the dompdf path already had it). Sourced from
+                         company_profile so it can never drift from the letterhead. -->
+                    <div class="pb-8 -mt-4">
+                        <p class="text-[8px] text-gray-400 text-center leading-relaxed border-t border-gray-200 pt-3" id="dyn_legal_footer"></p>
                     </div>
                 </div>
             </div>

@@ -328,9 +328,15 @@ $user_role = $_SESSION['user_role'];
                 <button type="button" onclick="closeModal('modal-generate-invoice')" class="text-gray-400 hover:text-white transition-colors w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-800"><i class="fas fa-times text-xl"></i></button>
             </div>
             
-            <div class="flex-1 overflow-y-auto p-8 bg-slate-50 flex flex-col lg:flex-row gap-8">
-                
-                <div class="w-full lg:w-1/3 space-y-6">
+            <!-- Sprint 9 fix — the preview panel used to be clipped top and bottom.
+                 This row is the modal's single scroll container; its children used to
+                 `stretch` to the *viewport* height, and the preview card below then
+                 hid its own overflow, so the "Aperçu" heading and the recovery banner
+                 were cut off with no way to scroll to them. `lg:items-start` lets each
+                 column take its natural height and the row scroll normally. -->
+            <div class="flex-1 min-h-0 overflow-y-auto p-8 bg-slate-50 flex flex-col lg:flex-row lg:items-start gap-8">
+
+                <div class="w-full lg:w-1/3 space-y-6 shrink-0">
                     <input type="hidden" id="gen_client_id">
                     
                     <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-5">
@@ -360,16 +366,18 @@ $user_role = $_SESSION['user_role'];
                     </div>
                 </div>
 
-                <div class="w-full lg:w-2/3 flex flex-col">
-                    <div class="bg-white p-0 rounded-2xl border border-gray-200 shadow-sm flex-1 flex flex-col overflow-hidden">
-                        <div class="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+                <div class="w-full lg:w-2/3 min-w-0">
+                    <div class="bg-white p-0 rounded-2xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
+                        <div class="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center shrink-0">
                             <h4 class="text-[11px] font-black text-gray-800 uppercase tracking-widest flex items-center gap-2">
                                 <i class="fas fa-eye text-gray-400"></i> Aperçu de la Facture
                             </h4>
                             <span class="text-xs font-bold text-gray-400" id="prev_item_count">0 BL Inclus</span>
                         </div>
                         
-                        <div class="overflow-y-auto flex-1 p-6 bg-white min-h-[200px]">
+                        <!-- Bounded, not flex-1: the list scrolls on its own past ~15 BLs
+                             instead of fighting the modal for height. -->
+                        <div class="overflow-y-auto p-6 bg-white min-h-[200px] max-h-[42vh]">
                             <table class="w-full text-left text-sm">
                                 <thead class="text-[10px] uppercase text-gray-400 font-black border-b-2 border-gray-100">
                                     <tr>
@@ -382,7 +390,7 @@ $user_role = $_SESSION['user_role'];
                             </table>
                         </div>
 
-                        <div class="bg-gray-900 p-6 space-y-3 mt-auto rounded-b-xl border-t-4 border-lpc-light">
+                        <div class="bg-gray-900 p-6 space-y-3 shrink-0 border-t-4 border-lpc-light">
                             <div class="flex justify-between items-center text-sm font-bold text-gray-400">
                                 <span><?= htmlspecialchars(__t('ui.x.sous_total_hors_taxe_ht')) ?></span><span id="prev_subtotal" class="text-white">0 F</span>
                             </div>

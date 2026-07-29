@@ -19,27 +19,19 @@
         let activeBatchClientName = "";
         let pendingCashInBatch = 0;
 
-        /** Custom Toast Notification System */
+        /**
+         * Toast notifications — delegated to LPC.toast (assets/js/lpc-toast.js).
+         *
+         * The local implementation that used to live here never removed
+         * anything: it swapped `animate-toast-enter` for `animate-toast-leave`
+         * and waited for an `animationend` that could not fire, because neither
+         * class was ever defined in the stylesheet. Toasts accumulated in the
+         * corner until the page was reloaded. The shared version removes on a
+         * timer (5 s, 8 s for errors), pauses while hovered, and ships a close
+         * button.
+         */
         function showToast(message, type = 'success') {
-            const container = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            
-            // Define styling based on type
-            const colors = type === 'success' 
-                ? 'bg-gray-900 border-lpc-light text-white' 
-                : 'bg-red-50 border-red-500 text-red-900';
-            const icon = type === 'success' ? 'fa-check-circle text-lpc-light' : 'fa-exclamation-circle text-red-500';
-            
-            toast.className = `flex items-center gap-3 px-5 py-4 rounded-xl border-l-4 shadow-2xl animate-toast-enter ${colors}`;
-            toast.innerHTML = LPC.html`<i class="fas ${icon} text-lg"></i> <span class="font-bold text-sm">${message}</span>`;
-            
-            container.appendChild(toast);
-            
-            // Auto remove after 4 seconds
-            setTimeout(() => {
-                toast.classList.replace('animate-toast-enter', 'animate-toast-leave');
-                toast.addEventListener('animationend', () => toast.remove());
-            }, 4000);
+            return LPC.toast(message, type);
         }
 
         /** Initialization Hook */

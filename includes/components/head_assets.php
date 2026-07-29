@@ -197,6 +197,10 @@ if ($__force_light) {
 <script src="<?= lpc_asset('/assets/js/lpc-dom.js') ?>" defer></script>
 <script src="<?= lpc_asset('/assets/js/lpc-i18n.js') ?>" defer></script>
 <script src="<?= lpc_asset('/assets/js/lpc-modal.js') ?>" defer></script>
+<!-- Shipped app-wide: the two page-local showToast() copies it replaces both
+     leaked their toasts permanently (dead animation classes -> the removal
+     handler never ran). See the header of lpc-toast.js. -->
+<script src="<?= lpc_asset('/assets/js/lpc-toast.js') ?>" defer></script>
 <script src="<?= lpc_asset('/assets/js/lpc-a11y.js') ?>" defer></script>
 <script src="<?= lpc_asset('/assets/js/lpc-deeplink.js') ?>" defer></script>
 <!-- CSS stops at the edge of a <canvas>, so charts are themed in JS. Deferred
