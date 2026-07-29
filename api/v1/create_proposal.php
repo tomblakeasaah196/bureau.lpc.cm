@@ -90,26 +90,55 @@ try {
 
     $proposal_id = $db->lastInsertId();
 
-    // 5. Insert Line Items (Mapped exactly to your 7 columns)
+    // 5. Insert Line Items (Mapped exactly to your 7 columns, plus pack_note
+    //    from migration 047 — see that file for why this is snapshotted
+    //    rather than joined at read time.)
     $itemStmt = $db->prepare("
-        INSERT INTO proposal_items (proposal_id, product_description, product_format, quantity, unit_price) 
-        VALUES (:proposal_id, :product_description, :product_format, :quantity, :unit_price)
+        INSERT INTO proposal_items (proposal_id, product_description, product_format, pack_note, quantity, unit_price)
+        VALUES (:proposal_id, :product_description, :product_format, :pack_note, :quantity, :unit_price)
     ");
+
+    // units_per_pack / unit_of_measure only exist on schema-v2 databases
+    // (migration 041). Checked once, not per row, the same way
+    // product_catalog.php guards the same two columns.
+    $colStmt = $db->prepare("
+        SELECT COUNT(*) FROM information_schema.columns
+         WHERE table_schema = DATABASE() AND table_name = 'products'
+           AND column_name IN ('units_per_pack', 'unit_of_measure')
+    ");
+    $colStmt->execute();
+    $has_pack_cols = ((int) $colStmt->fetchColumn() === 2);
 
     foreach ($data['items'] as $item) {
         // Look up the product details from your MDM products table
         // (Adjust 'name' and 'format' if your products table columns are named differently)
-        $prodStmt = $db->prepare("SELECT name, format FROM products WHERE id = ?");
+        $prodCols = 'name, format' . ($has_pack_cols ? ', units_per_pack, unit_of_measure' : '');
+        $prodStmt = $db->prepare("SELECT $prodCols FROM products WHERE id = ?");
         $prodStmt->execute([$item['product_id']]);
         $product = $prodStmt->fetch(PDO::FETCH_ASSOC);
 
         $p_name = $product ? $product['name'] : 'Produit ID: ' . $item['product_id'];
         $p_format = $product ? $product['format'] : null;
 
+        // "pack de 12 bouteilles" — same wording as the Master Data Hub badge
+        // (admin-master_data.js:packBadge()), so a rep and a client reading
+        // both screens see the same phrase. Left NULL when the product is
+        // sold by the unit; there is nothing to disclose.
+        $p_pack_note = null;
+        if ($product && $has_pack_cols) {
+            $per = (int) ($product['units_per_pack'] ?? 1);
+            if ($per > 1) {
+                $uom = (!empty($product['unit_of_measure']) && $product['unit_of_measure'] !== 'unite')
+                    ? $product['unit_of_measure'] : 'unité';
+                $p_pack_note = "pack de {$per} {$uom}s";
+            }
+        }
+
         $itemStmt->execute([
             'proposal_id'         => $proposal_id,
             'product_description' => $p_name,
             'product_format'      => $p_format,
+            'pack_note'           => $p_pack_note,
             'quantity'            => (int)$item['quantity'],
             'unit_price'          => (float)$item['unit_price']
         ]);

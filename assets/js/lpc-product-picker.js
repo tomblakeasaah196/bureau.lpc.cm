@@ -421,7 +421,9 @@
     Picker.prototype._bind = function () {
         var self = this;
 
-        this.input.addEventListener('focus', function () { self.openPop(); });
+        this.input.addEventListener('focus', function () {
+            if (!self._suppressFocusOpen) self.openPop();
+        });
         this.input.addEventListener('click', function () { self.openPop(); });
 
         this.input.addEventListener('input', function () {
@@ -844,8 +846,15 @@
     // -------------------------------------------------------------------------
     Picker.prototype.select = function (p) {
         this._commit(p, { silent: false });
+        // closePop() is immediately followed by focus() below, and focus()
+        // fires the 'focus' listener bound in _bind(), which calls openPop()
+        // — so without this guard every selection closed the popup and
+        // reopened it in the same tick. The flag is only up for the duration
+        // of this synchronous call.
+        this._suppressFocusOpen = true;
         this.closePop();
         this.input.focus();
+        this._suppressFocusOpen = false;
     };
 
     Picker.prototype.clear = function () {

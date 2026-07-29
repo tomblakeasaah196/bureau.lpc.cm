@@ -43,10 +43,18 @@ try {
     }
 
     // 2. Fetch Line Items (NO JOINS! Reading pure snapshot data)
+    // pack_note (migration 047) may not exist on an un-migrated database;
+    // guarded the same way create_proposal.php guards writing it, so this
+    // endpoint keeps serving old devis instead of 500ing on a missing column.
+    $hasPackNote = (int) $db->query("
+        SELECT COUNT(*) FROM information_schema.columns
+         WHERE table_schema = DATABASE() AND table_name = 'proposal_items' AND column_name = 'pack_note'
+    ")->fetchColumn() > 0;
+
     $itemsStmt = $db->prepare("
-        SELECT 
-            product_description, product_format, quantity, unit_price, total_price
-        FROM proposal_items 
+        SELECT
+            product_description, product_format, " . ($hasPackNote ? 'pack_note, ' : '') . "quantity, unit_price, total_price
+        FROM proposal_items
         WHERE proposal_id = :proposal_id
     ");
     $itemsStmt->execute(['proposal_id' => $proposalData['proposal_id']]);
@@ -57,7 +65,10 @@ try {
     foreach ($itemsResult as $item) {
         $items[] = [
             'desc' => $item['product_description'],
-            'format' => $item['product_format'], 
+            'format' => $item['product_format'],
+            // "pack de 12 bouteilles" — see migration 047. Null when the
+            // product is sold by the unit, or on a pre-047 devis.
+            'pack_note' => $hasPackNote ? $item['pack_note'] : null,
             'qty' => (int)$item['quantity'],
             'unit_price' => (float)$item['unit_price'],
             'total_price' => (float)$item['total_price']

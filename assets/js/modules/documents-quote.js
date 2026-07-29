@@ -140,11 +140,19 @@
                 // Escaped by the inner LPC.html, then marked raw for the outer
                 // template. See documents-bon_commande.js for the reasoning.
                 const formatHtml = item.format ? LPC.raw(LPC.html`<div class="text-xs text-gray-500 mt-1">${item.format}</div>`) : '';
+                // pack_note (migration 047) — "pack de 12 bouteilles". Without
+                // this, a packed product's unit_price reads as a per-bottle
+                // price with nothing correcting that impression; see the
+                // migration file for the full reasoning.
+                const packHtml = item.pack_note
+                    ? LPC.raw(LPC.html`<div class="text-xs font-bold text-indigo-600 mt-1">${item.pack_note}</div>`)
+                    : '';
                 tbody.innerHTML += LPC.html`
                     <tr>
                         <td class="py-4 px-6 border-b border-gray-100">
                             <div class="font-bold text-gray-900">${item.desc}</div>
                             ${formatHtml}
+                            ${packHtml}
                         </td>
                         <td class="py-4 px-6 border-b border-gray-100 text-center font-medium">${item.qty}</td>
                         <td class="py-4 px-6 border-b border-gray-100 text-right text-gray-700">${formatCurrency(item.unit_price)}</td>
