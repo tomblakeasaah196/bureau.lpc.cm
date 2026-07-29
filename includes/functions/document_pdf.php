@@ -4,17 +4,29 @@
  * -----------------------------------------------------------------------------
  * Bureau LPC ERP — Sprint 4 (parallel) · shared PDF dispatcher.
  *
- * Called from each public/documents/*.php file:
+ * HTML-first contract
+ * -------------------
+ * Every document page owns a rich, branded, client-facing HTML view. That view
+ * is the deliverable: customers open it from a token link, sign it, share it by
+ * WhatsApp/email, and export it themselves with html2canvas + jsPDF. So the
+ * HTML always renders by default and this dispatcher is strictly opt-in.
+ *
+ * Called from each document page like so:
  *
  *   require_once __DIR__ . '/../../includes/bootstrap.php';
  *   require_once __DIR__ . '/../../includes/functions/document_pdf.php';
- *   lpc_serve_document_pdf('invoice');   // exits after streaming
+ *   if (($_GET['pdf'] ?? '') === '1') {
+ *       lpc_serve_document_pdf('invoice');   // exits after streaming
+ *   }
+ *   // ...page's own HTML follows and renders in every other case.
  *
- * The dispatcher looks at $_GET['token'] and $_GET['html']:
- *   - html=1 → returns immediately, letting the calling file render its
- *              existing legacy HTML view for debugging.
- *   - html=0/absent → loads the source record, builds the HTML from an
- *              inline template, hands to PdfRenderer, streams the PDF, exits.
+ * When it is called, the dispatcher loads the source record, builds a condensed
+ * one-page HTML from the inline template below, hands it to PdfRenderer,
+ * streams the PDF and exits. Absent a token it returns and the page renders.
+ *
+ * payslip.php is the one exception: it has no designed HTML page (only a plain
+ * amounts table for verification), so it still PDFs by default via ?html=1.
+ * The html=1 early-return below exists for it.
  *
  * Cache: PdfRenderer::saveDocument SHA-256's the source HTML — if nothing
  * has changed we serve the cached file straight from /uploads/documents/
@@ -31,7 +43,8 @@ require_once __DIR__ . '/../classes/PdfRenderer.php';
  */
 function lpc_serve_document_pdf(string $type): void
 {
-    // Explicit HTML fallback for debugging.
+    // Explicit HTML fallback. Only payslip.php still reaches the dispatcher
+    // without an explicit ?pdf=1; every other page gates the call itself.
     if (!empty($_GET['html']) && $_GET['html'] === '1') {
         return;
     }

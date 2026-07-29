@@ -139,12 +139,23 @@
             badge.classList.remove('hidden');
 
             pos.forEach(po => {
+                // expected_items is [{qty, product_name}, ...] from the API. It
+                // used to be a `product_details` string with the <span> already
+                // baked in by SQL, which this template then escaped -- which is
+                // why the column read
+                //     <span class="font-black">10x</span> 20L Opur
+                // instead of showing a bolded quantity. The markup is built here
+                // now, so every product name goes through LPC.html on the way in.
+                const expected = LPC.raw((po.expected_items || [])
+                    .map(it => LPC.html`<span class="font-black">${it.qty}x</span> ${it.product_name}`)
+                    .join('<br>'));
+
                 tbody.innerHTML += LPC.html`
                     <tr class="hover:bg-blue-50/20 border-b border-gray-50">
                         <td class="py-3 px-6 text-xs font-bold text-gray-500">${po.date}</td>
                         <td class="py-3 px-6 font-black text-gray-900">${po.reference}</td>
                         <td class="py-3 px-6 font-bold text-blue-700">${po.supplier_name}</td>
-                        <td class="py-3 px-6 text-xs text-gray-600 leading-relaxed">${po.product_details}</td>
+                        <td class="py-3 px-6 text-xs text-gray-600 leading-relaxed">${expected}</td>
                         <td class="py-3 px-6 text-center font-black text-gray-800 bg-gray-50/50">${po.total_items} Unités</td>
                         <td class="py-3 px-6 text-right">
                             <button onclick="openReception(${po.id}, '${po.reference}')" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm hover:bg-blue-700">Recevoir</button>
@@ -297,7 +308,7 @@
                     const tbody = document.getElementById('tbody-summary');
                     tbody.innerHTML = '';
                     result.summary.forEach(item => {
-                        let warning = item.shortage > 0 ? `<span class="text-[9px] text-red-500 block">(-${item.shortage} manquants)</span>` : '';
+                        let warning = item.shortage > 0 ? LPC.raw(LPC.html`<span class="text-[9px] text-red-500 block">(-${item.shortage} manquants)</span>`) : '';
                         tbody.innerHTML += LPC.html`
                             <tr>
                                 <td class="py-2 px-4 font-bold text-gray-700">${item.product_name} ${warning}</td>

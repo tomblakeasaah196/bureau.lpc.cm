@@ -141,7 +141,9 @@
             if(data.length === 0) return tbody.innerHTML = LPC.html`<tr><td colspan="6" class="py-8 text-center text-gray-400 italic">Aucun mouvement sur les tiers.</td></tr>`;
 
             data.forEach(t => {
-                let initial = t.solde_ouv > 0 ? `<span class="text-emerald-600">D ${fmt(t.solde_ouv)}</span>` : (t.solde_ouv < 0 ? `<span class="text-rose-600">C ${fmt(Math.abs(t.solde_ouv))}</span>` : '-');
+                // LPC.raw: fmt() emits digits and spaces only. Unwrapped, the
+                // opening balance column rendered its own <span> as text.
+                let initial = t.solde_ouv > 0 ? LPC.raw(`<span class="text-emerald-600">D ${fmt(t.solde_ouv)}</span>`) : (t.solde_ouv < 0 ? LPC.raw(`<span class="text-rose-600">C ${fmt(Math.abs(t.solde_ouv))}</span>`) : '-');
                 
                 tbody.innerHTML += LPC.html`
                     <tr class="hover:bg-gray-50 border-b border-gray-100">

@@ -9,7 +9,14 @@
 if (!defined('LPC_FORCE_LIGHT')) { define('LPC_FORCE_LIGHT', true); }
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/functions/document_pdf.php';
-lpc_serve_document_pdf('delivery');
+// The HTML page below IS the client-facing deliverable: it is what the customer
+// opens from the WhatsApp/email token link, what they sign, and what
+// html2canvas + jsPDF rasterise when they tap Download. It renders by default.
+// The condensed server-side dompdf render stays available on demand via ?pdf=1
+// — same opt-in contract as quote.php.
+if (($_GET['pdf'] ?? '') === '1') {
+    lpc_serve_document_pdf('delivery');   // exits after streaming
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">

@@ -99,7 +99,12 @@
             const tbody = document.getElementById('dyn_items_table');
             tbody.innerHTML = '';
             apiData.items.forEach(item => {
-                const formatHtml = item.format ? `<span class="text-xs text-gray-500 ml-1">(${item.format})</span>` : '';
+                // item.format is supplier-supplied text, so it is escaped by the
+                // inner LPC.html first; LPC.raw then marks the finished snippet
+                // safe for the outer template. Wrapping the bare string in
+                // LPC.raw instead would fix the display bug by opening an
+                // injection hole — the inner escape is what makes it safe.
+                const formatHtml = item.format ? LPC.raw(LPC.html`<span class="text-xs text-gray-500 ml-1">(${item.format})</span>`) : '';
                 tbody.innerHTML += LPC.html`
                     <tr>
                         <td class="py-4 px-2">

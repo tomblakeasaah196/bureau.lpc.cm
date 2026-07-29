@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 import os
+import re
+import glob
+import colorsys
+
+APP_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 """
 Generates assets/css/lpc-theme.css — the dark-mode bridge layer.
 
@@ -35,8 +40,21 @@ DARK = 'html[data-lpc-theme="dark"]'
 
 
 def esc(cls):
-    """Tailwind class name -> CSS selector fragment (escape the variant colon)."""
-    return cls.replace(':', r'\:')
+    """
+    Tailwind class name -> CSS selector fragment.
+
+    Both the variant colon AND the opacity slash have to be escaped. The slash
+    was missed for a long time, and the failure mode is silent: `.bg-gray-900/50`
+    is not an invalid *rule*, it is an invalid *selector*, so the browser drops
+    the whole rule at parse time without a console warning. Forty-four rules —
+    every modal scrim in §8 and every fractional wash in §2 — were being written
+    to the file and then thrown away by the parser, which is why the scrims
+    stayed white-ish and the tinted panels never inverted.
+
+    Escaping it is the whole fix; check_selectors_are_valid() below now refuses
+    to write the file if a bare slash or colon ever reappears in a selector.
+    """
+    return cls.replace(':', r'\:').replace('/', r'\/')
 
 
 def rules(cls, decls, variant=None):
@@ -347,6 +365,281 @@ for hue in sorted(HUES):
     for shade in ('400', '500'):
         w(emit('text-%s-%s' % (hue, shade), [('color', c['textm'])]))
     w('\n')
+
+# ---------------------------------------------------------------------------
+w('''
+/* ===========================================================================
+   5b. Tinted chips — fractional variants
+   ---------------------------------------------------------------------------
+   §5 above remaps `bg-blue-50`. It did not remap `bg-blue-50/80`, and the two
+   are unrelated selectors as far as CSS is concerned. That gap produced the
+   worst contrast failures in the app, because it broke a pair asymmetrically:
+   the panel header on Facturation is `bg-blue-50/80` wearing `text-blue-900`,
+   so the TEXT was remapped to a light blue by §5 while the PANEL stayed a 95%-
+   lightness blue. Light-on-light — 1.08:1, an invisible heading. The same shape
+   hit Trésorerie (`bg-purple-50/80`, 1.09:1) and the budget hard-stop banner
+   (`bg-amber-50/80`, 1.11:1).
+
+   The fractional forms are therefore mixed to `transparent` rather than into
+   the surface: that preserves the see-through intent of the original utility
+   and composites correctly over whatever step is behind it, which for these
+   panels is sometimes a card and sometimes the page.
+
+   Only the alphas the codebase actually uses are emitted — generating all 100
+   for 16 hues would add ~19k rules to serve about thirty.
+   ========================================================================= */
+''')
+
+# Scan the source for the fractional tinted utilities that actually exist, so
+# this section tracks the markup instead of guessing at it.
+def scan_fractional_utilities():
+    """-> {(kind, hue, shade): set(alpha)} for bg-/text-/border- hue utilities."""
+    import collections
+    used = collections.defaultdict(set)
+    pat = re.compile(
+        r'\b(?:hover:|focus:|group-hover:)?'
+        r'(bg|text|border)-([a-z]+)-(\d{2,3})/(\d{1,3})\b')
+    paths = []
+    for root in ('modules', 'includes', 'assets/js', 'public'):
+        for ext in ('*.php', '*.js'):
+            paths += glob.glob(os.path.join(APP_ROOT, root, '**', ext), recursive=True)
+    paths.append(os.path.join(APP_ROOT, 'index.php'))
+    for path in sorted(set(paths)):
+        try:
+            src = open(path, encoding='utf-8', errors='replace').read()
+        except OSError:
+            continue
+        for kind, hue, shade, alpha in pat.findall(src):
+            if hue in HUES:
+                used[(kind, hue, shade)].add(int(alpha))
+    return used
+
+
+FRACTIONAL = scan_fractional_utilities()
+
+# Same pigment strengths as §5, so a /100 lands exactly where the solid does.
+TINT_PCT = {'50': 14, '100': 22, '200': 30}
+
+_frac_count = 0
+for (kind, hue, shade), alphas in sorted(FRACTIONAL.items()):
+    c = HUES[hue]
+    for alpha in sorted(alphas):
+        cls = '%s-%s-%s/%d' % (kind, hue, shade, alpha)
+        if kind == 'bg' and shade in TINT_PCT:
+            # Tint strength scales with the alpha; the remainder is transparent
+            # so the element still shows what is behind it.
+            pct = TINT_PCT[shade] * alpha / 100.0
+            w(emit(cls, [('background-color',
+                          'color-mix(in srgb, %s %.1f%%, transparent)' % (c['base'], pct))]))
+        elif kind == 'bg':
+            # A saturated fill (-300 and up) at partial alpha: keep the hue,
+            # keep the alpha, it is already a wash rather than a panel.
+            w(emit(cls, [('background-color',
+                          'color-mix(in srgb, %s %d%%, transparent)' % (c['base'], alpha))]))
+        elif kind == 'text':
+            shade_i = int(shade)
+            tone = c['text'] if shade_i >= 600 else c['textm'] if shade_i >= 400 else c['text']
+            # Alpha on text is a softening device; on a dark ground it eats the
+            # contrast we just bought, so it is folded into the tone instead of
+            # being reapplied.
+            w(emit(cls, [('color', tone)]))
+        else:
+            w(emit(cls, [('border-color',
+                          'color-mix(in srgb, %s %d%%, var(--lpc-border))'
+                          % (c['base'], max(38, alpha)))]))
+        _frac_count += 1
+
+w('''
+/* Neutral fractionals. `text-gray-900/90` is the same trap as the tinted ones
+   — the solid form is remapped by §3 and the /90 form was not, so one heading
+   in the error monitor stayed near-black on a near-black card (1.00:1). Alpha
+   on neutral ink is dropped rather than preserved: it was a softening device
+   chosen against white, and on a dark ground the ink ramp already encodes that
+   softening in three steps. */
+''')
+NEUTRAL_INK = {
+    '900': 'var(--lpc-ink)',       '800': 'var(--lpc-ink)',
+    '700': 'var(--lpc-ink)',       '600': 'var(--lpc-ink-soft)',
+    '500': 'var(--lpc-ink-soft)',  '400': 'var(--lpc-ink-mute)',
+    '300': 'var(--lpc-ink-mute)',
+}
+NEUTRAL_SURF = {
+    '50': 'var(--lpc-surface-sunken)',  '100': 'var(--lpc-surface-chip)',
+    '200': 'var(--lpc-surface-well)',   '300': 'var(--lpc-surface-well)',
+}
+
+
+def scan_neutral_fractionals():
+    import collections
+    used = collections.defaultdict(set)
+    pat = re.compile(
+        r'\b(?:hover:|focus:|group-hover:)?'
+        r'(bg|text|border)-(gray|slate|zinc)-(\d{2,3})/(\d{1,3})\b')
+    paths = []
+    for root in ('modules', 'includes', 'assets/js', 'public'):
+        for ext in ('*.php', '*.js'):
+            paths += glob.glob(os.path.join(APP_ROOT, root, '**', ext), recursive=True)
+    paths.append(os.path.join(APP_ROOT, 'index.php'))
+    for path in sorted(set(paths)):
+        try:
+            src = open(path, encoding='utf-8', errors='replace').read()
+        except OSError:
+            continue
+        for kind, hue, shade, alpha in pat.findall(src):
+            used[(kind, hue, shade)].add(int(alpha))
+    return used
+
+
+for (kind, hue, shade), alphas in sorted(scan_neutral_fractionals().items()):
+    for alpha in sorted(alphas):
+        cls = '%s-%s-%s/%d' % (kind, hue, shade, alpha)
+        if kind == 'text' and shade in NEUTRAL_INK:
+            w(emit(cls, [('color', NEUTRAL_INK[shade])]))
+            _frac_count += 1
+        elif kind == 'border':
+            w(emit(cls, [('border-color', 'var(--lpc-border)')]))
+            _frac_count += 1
+        elif kind == 'bg' and shade in NEUTRAL_SURF:
+            # gray-900/800 backgrounds are the modal scrims; §8 owns those and
+            # comes later in the file, so they are deliberately not touched here.
+            w(emit(cls, [('background-color',
+                          'color-mix(in srgb, %s %d%%, transparent)'
+                          % (NEUTRAL_SURF[shade], alpha))]))
+            _frac_count += 1
+
+w('\n/* %d fractional utilities found in the markup and remapped. */\n'
+  % _frac_count)
+
+# ---------------------------------------------------------------------------
+w('''
+/* ===========================================================================
+   5c. Brand and module-accent tokens
+   ---------------------------------------------------------------------------
+   tailwind.config.js defines the brand pair (lpc-dark #005A2B / lpc-light
+   #8CC63F) and eight module palettes (finance-, rev-, acc-, pay-, dash-,
+   asset-, fin-, treasury-) that are all aliases of that same pair. Roughly 360
+   utilities across the app use them, and this file previously mapped exactly
+   one: `text-lpc-dark`.
+
+   Mapping one half of a pair is worse than mapping neither, and it produced the
+   most conspicuous single bug in the app. `text-lpc-dark` was re-pointed at
+   --lpc-accent-on-light, which in dark mode resolves to --lpc-accent-on-dark =
+   #8CC63F. The "Valider Inventaire" button is `bg-lpc-light text-lpc-dark`.
+   Its fill was never remapped, so it stayed #8CC63F too: green text on a green
+   button, 1.00:1, a button that renders as a blank green slab.
+
+   So both halves are handled here, in this order:
+     · the dark tokens (#005A2B) become the light accent, because #005A2B on a
+       #16201B card is 1.42:1;
+     · then the bright FILLS re-assert dark ink for any dark-token text inside
+       them, at higher specificity, which is what keeps the button legible.
+   ========================================================================= */
+''')
+
+BRAND_FAMILIES = ['lpc', 'finance', 'rev', 'acc', 'pay', 'dash', 'asset', 'fin', 'treasury']
+# The "dark" end of each pair (#005A2B) and the "bright" end (#8CC63F).
+DARK_TOKENS   = ['%s-dark' % f for f in BRAND_FAMILIES]
+BRIGHT_TOKENS = ['lpc-light', 'treasury-light', 'treasury-alert'] + \
+                ['%s-highlight' % f for f in BRAND_FAMILIES if f != 'lpc']
+
+# Ink on a bright brand fill. Near-black green rather than pure black so the
+# button still reads as part of the brand rather than as a system control.
+ON_BRIGHT = '#0A2412'
+
+for tok in DARK_TOKENS:
+    w(emit('text-%s' % tok, [('color', 'var(--lpc-accent-on-light)')]))
+    w(emit('border-%s' % tok, [
+        ('border-color', 'color-mix(in srgb, #8CC63F 38%, var(--lpc-border))')]))
+w('\n')
+
+w('''/* The re-assertion. Descendant AND self forms, because the text utility sits
+   on the button itself as often as on a <span> inside it. Specificity (0,3,1)
+   and (0,3,0) both beat the (0,2,1) rules above. */
+''')
+# Every text utility that lands on a bright brand fill, not just the dark
+# tokens. `bg-lpc-light` is worn by save buttons that variously carry
+# text-lpc-dark, text-white and text-gray-900; white on #8CC63F is 2.05:1, so
+# the fill and the ink have to be decided together rather than per utility.
+#
+# The fill stays bright: it is the brand green and the primary call to action,
+# and it is what light mode shows. So the INK moves — every one of them lands
+# on the same near-black green. That also makes the dark theme agree with the
+# light theme's majority case (text-lpc-dark on bg-lpc-light), instead of
+# inventing a third treatment.
+ON_BRIGHT_TEXT = DARK_TOKENS + [
+    'white', 'black', 'gray-900', 'gray-800', 'gray-700', 'gray-600',
+    'gray-500', 'gray-400', 'gray-300', 'slate-900', 'slate-800', 'slate-700',
+    'lpc-light', 'green-800', 'green-900', 'emerald-800', 'emerald-900',
+]
+for fill in BRIGHT_TOKENS:
+    for tok in ON_BRIGHT_TEXT:
+        w('%s .bg-%s .text-%s { color: %s; }\n' % (DARK, esc(fill), esc(tok), ON_BRIGHT))
+        w('%s .bg-%s.text-%s  { color: %s; }\n' % (DARK, esc(fill), esc(tok), ON_BRIGHT))
+    # Anything with no colour utility of its own inherits it too.
+    w('%s .bg-%s { color: %s; }\n' % (DARK, esc(fill), ON_BRIGHT))
+w('\n')
+
+w('''/* The mirror case: the DARK brand fills (#005A2B). Muted neutral ink was
+   picked against a white page and measures 2.94:1 on that green, so inside a
+   dark brand fill the ink ramp steps up the same way it does inside a raised
+   island (§2). */
+''')
+for fill in ['bg-%s-dark' % f for f in BRAND_FAMILIES]:
+    for tok in ['gray-300', 'gray-400', 'gray-500', 'gray-600',
+                'slate-300', 'slate-400', 'slate-500']:
+        w('%s .%s .text-%s { color: #E8EFEA; }\n' % (DARK, esc(fill), esc(tok)))
+        w('%s .%s.text-%s  { color: #E8EFEA; }\n' % (DARK, esc(fill), esc(tok)))
+w('\n')
+
+w('''/* Hover pairs. `bg-lpc-light hover:bg-green-500` is used on both save
+   buttons; §5 leaves bg-green-500 alone, so the hover state has to carry the
+   same dark ink or the label disappears on mouseover instead of at rest. */
+''')
+for tok in DARK_TOKENS:
+    for fill in ['green-500', 'green-400', 'lime-500', 'emerald-400']:
+        w('%s .hover\\:bg-%s:hover .text-%s { color: %s; }\n' % (DARK, esc(fill), esc(tok), ON_BRIGHT))
+        w('%s .hover\\:bg-%s:hover.text-%s  { color: %s; }\n' % (DARK, esc(fill), esc(tok), ON_BRIGHT))
+w('\n')
+
+# ---------------------------------------------------------------------------
+w('''
+/* ===========================================================================
+   5d. Saturated fills that carry white text
+   ---------------------------------------------------------------------------
+   §5's header claims the -500/-600 fills "already carry white text and work on
+   either background". Measured, several of them do not, and never did in light
+   mode either: white on bg-amber-500 is 2.15:1, on bg-green-500 2.28:1, on
+   bg-rose-500 3.67:1. These are Enregistrer / Valider / Supprimer buttons and
+   status pills, so the failure lands on the primary action of a page.
+
+   Only the dark theme is corrected here — that is this file's whole remit, and
+   silently restyling light mode from a file that documents itself as inert in
+   light mode would be worse than the bug. The light-mode instances are listed
+   in docs/ for a separate pass.
+
+   Each fill is deepened to the shade where white clears 4.5:1, keeping the hue.
+   ========================================================================= */
+''')
+# shade chosen per hue as the darkest step that stays recognisably the same
+# colour while giving white >= 4.5:1.
+WHITE_TEXT_FILLS = {
+    'bg-amber-500':   '#8f6100',
+    'bg-amber-600':   '#8a5a00',
+    'bg-yellow-500':  '#846a00',
+    'bg-lime-500':    '#4d7c0f',
+    'bg-green-500':   '#15803d',
+    'bg-green-600':   '#166534',
+    'bg-emerald-500': '#047857',
+    'bg-emerald-600': '#065f46',
+    'bg-teal-500':    '#0f766e',
+    'bg-cyan-500':    '#0e7490',
+    'bg-sky-500':     '#0369a1',
+    'bg-red-500':     '#b91c1c',
+    'bg-rose-500':    '#be123c',
+    'bg-orange-500':  '#c2410c',
+}
+for cls, val in sorted(WHITE_TEXT_FILLS.items()):
+    w(emit(cls, [('background-color', val)]))
 
 # ---------------------------------------------------------------------------
 w('''
@@ -671,11 +964,8 @@ w('%s .lpc-help-skeleton { background: linear-gradient(90deg, var(--lpc-surface-
 # .lpc-input:focus` is (0,3,1). That holds even for a page that puts its <style>
 # after head_assets.php (none do today, but it costs nothing to be order-proof).
 # =============================================================================
-import colorsys
-import glob
-import re
-
-APP_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+# colorsys / glob / re / APP_ROOT are imported at the top of this file, because
+# §5b needs them to scan the markup for fractional utilities.
 
 # Pages whose <style> blocks must NOT be themed.
 #   pdf_templates / documents / document_pdf : rendered onto white paper
@@ -1043,8 +1333,139 @@ def check_no_light_mode_leak(css):
     return True
 
 
+# =============================================================================
+# Self-check 2: every selector must actually be a VALID selector.
+# -----------------------------------------------------------------------------
+# This is the check that would have caught the bug that made this pass
+# necessary. `.bg-gray-900/50` and `.hover:bg-white` are not invalid *rules* —
+# they are invalid *selectors*, so a browser drops the entire rule while
+# parsing and says nothing. Forty-four rules were written to this file and
+# discarded by every browser that loaded it, for as long as the file has
+# existed, with no symptom other than "dark mode looks wrong in places".
+#
+# A bare `/` or `:` inside a class token is the whole failure mode, so it is
+# asserted directly rather than by round-tripping through a CSS parser.
+# =============================================================================
+def check_selectors_are_valid(css):
+    body = re.sub(r'/\*.*?\*/', '', css, flags=re.S)
+
+    offenders = []
+    for block in re.finditer(r'([^{}]+)\{[^{}]*\}', body):
+        group = block.group(1).strip()
+        if not group or group.startswith('@'):
+            continue
+        for sel in group.split(','):
+            sel = sel.strip()
+            # Walk the class tokens only; attribute selectors and pseudo
+            # classes legitimately contain both characters.
+            for token in re.findall(r'\.((?:[^\s.,:>+~\[\]{}\\]|\\.)+)', sel):
+                unescaped = re.sub(r'\\.', '', token)
+                if '/' in unescaped or ':' in unescaped:
+                    offenders.append(sel)
+                    break
+
+    if offenders:
+        raise SystemExit(
+            'REFUSING TO WRITE: %d selector(s) contain an unescaped "/" or ":" '
+            'inside a class token.\n'
+            'A browser drops these rules silently at parse time. Escape them in '
+            'esc().\nFirst offenders:\n  %s'
+            % (len(offenders), '\n  '.join(offenders[:8]))
+        )
+    return True
+
+
+# =============================================================================
+# Self-check 3: the pairings this file creates must clear WCAG AA.
+# -----------------------------------------------------------------------------
+# The two checks above are about the file being well-formed. This one is about
+# it being *right*: it re-derives the ink/surface pairings from the values
+# actually emitted and fails the build if any of them drops below 4.5:1.
+#
+# Every failure fixed in this pass would have been caught here, which is the
+# argument for it existing. It is cheap — a few dozen pairs — and it means the
+# next person to tune a surface value finds out at build time instead of from a
+# screenshot.
+# =============================================================================
+def check_contrast(css):
+    def _hex2rgb(h):
+        h = h.strip().lstrip('#')
+        if len(h) == 3:
+            h = ''.join(ch * 2 for ch in h)
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+    def _lum(rgb):
+        def f(c):
+            c /= 255.0
+            return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+        r, g, b = rgb
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+
+    def ratio(fg, bg):
+        l1, l2 = _lum(fg), _lum(bg)
+        if l1 < l2:
+            l1, l2 = l2, l1
+        return (l1 + 0.05) / (l2 + 0.05)
+
+    def _mix(base, pct, other):
+        a, b = _hex2rgb(base), other
+        return tuple(round(a[i] * pct + b[i] * (1 - pct)) for i in range(3))
+
+    # Values are read back out of lpc-shell.css so the two files cannot drift.
+    shell = open(os.path.join(APP_ROOT, 'assets', 'css', 'lpc-shell.css'),
+                 encoding='utf-8', errors='replace').read()
+    darkblock = re.search(r'html\[data-lpc-theme="dark"\]\s*\{(.*?)\}', shell, re.S)
+    V = dict(re.findall(r'(--lpc-[\w-]+):\s*(#[0-9A-Fa-f]{3,6});',
+                        darkblock.group(1) if darkblock else ''))
+    for k, v in re.findall(r'(--lpc-surface-[\w-]+|--lpc-border-strong):\s*(#[0-9A-Fa-f]{3,6});', css):
+        V.setdefault(k, v)
+
+    surfaces = {k: _hex2rgb(v) for k, v in V.items()
+                if k in ('--lpc-page-bg', '--lpc-surface', '--lpc-surface-sunken',
+                         '--lpc-surface-chip', '--lpc-surface-well')}
+    inks = {k: _hex2rgb(v) for k, v in V.items()
+            if k in ('--lpc-ink', '--lpc-ink-soft', '--lpc-ink-mute')}
+
+    failures = []
+    for iname, ink in sorted(inks.items()):
+        for sname, surf in sorted(surfaces.items()):
+            r = ratio(ink, surf)
+            if r < 4.5:
+                failures.append('%s on %s = %.2f:1' % (iname, sname, r))
+
+    # Tinted chips: the -300/-400 text tone on its own -50 tint.
+    surface = _hex2rgb(V['--lpc-surface'])
+    for hue, c in sorted(HUES.items()):
+        tint = _mix(c['base'], 0.14, surface)
+        r = ratio(_hex2rgb(c['text']), tint)
+        if r < 4.5:
+            failures.append('text-%s-800 on bg-%s-50 = %.2f:1' % (hue, hue, r))
+
+    # White on the fills §5d deepened.
+    for cls, val in sorted(WHITE_TEXT_FILLS.items()):
+        r = ratio((255, 255, 255), _hex2rgb(val))
+        if r < 4.5:
+            failures.append('text-white on %s = %.2f:1' % (cls, r))
+
+    # Dark ink on the bright brand fill (the Valider Inventaire button).
+    r = ratio(_hex2rgb(ON_BRIGHT), _hex2rgb('#8CC63F'))
+    if r < 4.5:
+        failures.append('ON_BRIGHT on bg-lpc-light = %.2f:1' % r)
+
+    if failures:
+        raise SystemExit(
+            'REFUSING TO WRITE: %d pairing(s) below WCAG AA (4.5:1):\n  %s'
+            % (len(failures), '\n  '.join(failures)))
+    return True
+
+
 css_out = ''.join(L)
 check_no_light_mode_leak(css_out)
+check_selectors_are_valid(css_out)
+check_contrast(css_out)
 
 open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'assets', 'css', 'lpc-theme.css'), 'w').write(css_out)
-print("bytes: %d  ·  light-mode leak check: PASS" % len(css_out))
+print("bytes: %d" % len(css_out))
+print("light-mode leak check: PASS")
+print("selector validity check: PASS")
+print("contrast check (AA 4.5:1): PASS")

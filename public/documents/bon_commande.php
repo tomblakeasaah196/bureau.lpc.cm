@@ -9,7 +9,13 @@
 if (!defined('LPC_FORCE_LIGHT')) { define('LPC_FORCE_LIGHT', true); }
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/functions/document_pdf.php';
-lpc_serve_document_pdf('po');
+// The HTML page below is the deliverable suppliers receive from the token link,
+// and the DOM html2canvas + jsPDF capture on Download. It renders by default.
+// The condensed server-side dompdf render stays available on demand via ?pdf=1
+// — same opt-in contract as quote.php.
+if (($_GET['pdf'] ?? '') === '1') {
+    lpc_serve_document_pdf('po');   // exits after streaming
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">

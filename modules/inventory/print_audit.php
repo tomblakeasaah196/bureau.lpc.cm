@@ -3,7 +3,11 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 Rbac::requirePermission('inventory.stock.audit');
 require_once __DIR__ . '/../../includes/functions/document_pdf.php';
-lpc_serve_document_pdf('audit');   // returns immediately if ?html=1 / no token
+// The HTML report below renders by default; the condensed server-side dompdf
+// render stays available on demand via ?pdf=1.
+if (($_GET['pdf'] ?? '') === '1') {
+    lpc_serve_document_pdf('audit');   // exits after streaming
+}
 
 $token = $_GET['token'] ?? '';
 $report = null;

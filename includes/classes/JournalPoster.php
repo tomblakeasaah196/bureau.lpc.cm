@@ -302,20 +302,336 @@ final class JournalPoster
         return $je_id;
     }
 
+    // ========================================================================
+    // PURCHASING
+    // ------------------------------------------------------------------------
+    // Added when the purchase module was migrated off its inline SQL (see
+    // migration 038 for the full account of what that inline path got wrong).
+    //
+    // The three methods below are deliberately separate entries rather than one
+    // combined entry per event. A purchase order can be cancelled after it has
+    // been received, and cancellation has to unwind the goods, the rebate
+    // earned and the rebate spent independently — a single fused entry would
+    // force an all-or-nothing reversal.
+    //
+    // Over the full life of a discounted, fully received order the three
+    // together produce:
+    //     601  debit   S            (goods, at order prices)
+    //     401  credit  S - D        (what the supplier is actually owed)
+    //     4098 debit   R - D        (rebate earned but not yet spent)
+    //     6019 credit  R            (rebate income, reducing cost of goods)
+    // where S is the received subtotal, R = S x 2.47% and D the discount
+    // applied. Each line is individually balanced, and 4098 tracks the same
+    // number supplier_rebate_ledger shows in the Ristournes SDP panel.
+    // ========================================================================
+
+    /**
+     * Goods received against a purchase order.
+     *
+     *   Debit  601  Achats de marchandises      — the value received
+     *   Credit 401x the supplier's own account  — what we now owe them
+     *
+     * $goods_value must be computed from purchase_order_items, never from the
+     * request body. The reception endpoint used to take unit prices straight
+     * off the client payload, which let a caller book any purchase value it
+     * liked and mint rebate to match.
+     *
+     * @return int journal_entries.id
+     */
+    public static function postGoodsReceipt(
+        int $po_id,
+        int $supplier_id,
+        float $goods_value,
+        string $date,
+        string $po_reference
+    ): int {
+        $db      = Database::getInstance()->getConnection();
+        $user_id = (int) ($_SESSION['user_id'] ?? 0);
+
+        $goods_value = self::roundFcfa($goods_value);
+        if ($goods_value <= 0) {
+            throw new RuntimeException("JournalPoster: goods receipt for PO #{$po_id} has non-positive value.");
+        }
+
+        $purchases_coa = self::coaByOhada($db, '601');
+        if (!$purchases_coa) {
+            throw new RuntimeException(
+                "JournalPoster: OHADA 601 (Achats de marchandises) is not mapped in chart_of_accounts. Apply migration 038."
+            );
+        }
+        $supplier_coa = self::coaForSupplier($db, $supplier_id);
+
+        $je_id = self::createDraftJe(
+            $db, 'JRN-AC-' . date('ym'), 'AC', $date,
+            "Réception achat réf: {$po_reference}", $user_id,
+            'purchase_order', $po_id
+        );
+        self::addLine($db, $je_id, $purchases_coa, $goods_value, 0.0);
+        self::addLine($db, $je_id, $supplier_coa,  0.0, $goods_value);
+        self::post($db, $je_id, $user_id);
+
+        return $je_id;
+    }
+
+    /**
+     * SDP ristourne earned on reception (2.47% of the value actually received).
+     *
+     *   Debit  4098 Fournisseurs - RRR à obtenir  — the supplier now owes us this
+     *   Credit 6019 RRR obtenus sur achats        — contra-expense, reduces COGS
+     *
+     * Booked at reception rather than when the rebate is spent, because that is
+     * when it is earned: the goods have arrived and the entitlement is
+     * unconditional. Recognising it only on use would understate both the
+     * balance sheet and the margin for as long as the credit sits unused.
+     *
+     * @return int journal_entries.id
+     */
+    public static function postRebateAccrual(
+        int $po_id,
+        int $supplier_id,
+        float $amount,
+        string $date,
+        string $po_reference
+    ): int {
+        $db      = Database::getInstance()->getConnection();
+        $user_id = (int) ($_SESSION['user_id'] ?? 0);
+
+        $amount = self::roundFcfa($amount);
+        if ($amount <= 0) {
+            throw new RuntimeException("JournalPoster: rebate accrual for PO #{$po_id} is non-positive.");
+        }
+
+        $receivable_coa = self::coaByOhada($db, '4098');
+        $income_coa     = self::coaByOhada($db, '6019');
+        if (!$receivable_coa || !$income_coa) {
+            throw new RuntimeException(
+                "JournalPoster: OHADA 4098/6019 not mapped in chart_of_accounts. Apply migration 038."
+            );
+        }
+
+        $je_id = self::createDraftJe(
+            $db, 'JRN-AC-' . date('ym'), 'AC', $date,
+            "Ristourne 2,47% acquise — réf: {$po_reference}", $user_id,
+            'rebate_accrual', $po_id
+        );
+        self::addLine($db, $je_id, $receivable_coa, $amount, 0.0);
+        self::addLine($db, $je_id, $income_coa,     0.0, $amount);
+        self::post($db, $je_id, $user_id);
+
+        return $je_id;
+    }
+
+    /**
+     * Ristourne spent as a discount on a new order.
+     *
+     *   Debit  401x the supplier's account       — we owe them that much less
+     *   Credit 4098 Fournisseurs - RRR à obtenir — the credit is consumed
+     *
+     * Posted at order creation, which is where procurement_controller writes
+     * the matching 'deduction' row into supplier_rebate_ledger. Keeping both
+     * writes in the same transaction is what stops the Ristournes SDP panel and
+     * the general ledger from drifting apart.
+     *
+     * Until the goods arrive this leaves the supplier account carrying a debit
+     * — correct, and it is precisely a credit note held against them. The
+     * reception entry then credits the gross value, leaving the net payable.
+     *
+     * @return int journal_entries.id
+     */
+    public static function postRebateUsage(
+        int $po_id,
+        int $supplier_id,
+        float $amount,
+        string $date,
+        string $po_reference
+    ): int {
+        $db      = Database::getInstance()->getConnection();
+        $user_id = (int) ($_SESSION['user_id'] ?? 0);
+
+        $amount = self::roundFcfa($amount);
+        if ($amount <= 0) {
+            throw new RuntimeException("JournalPoster: rebate usage for PO #{$po_id} is non-positive.");
+        }
+
+        $receivable_coa = self::coaByOhada($db, '4098');
+        if (!$receivable_coa) {
+            throw new RuntimeException(
+                "JournalPoster: OHADA 4098 not mapped in chart_of_accounts. Apply migration 038."
+            );
+        }
+        $supplier_coa = self::coaForSupplier($db, $supplier_id);
+
+        $je_id = self::createDraftJe(
+            $db, 'JRN-AC-' . date('ym'), 'AC', $date,
+            "Utilisation ristourne — réf: {$po_reference}", $user_id,
+            'rebate_usage', $po_id
+        );
+        self::addLine($db, $je_id, $supplier_coa,   $amount, 0.0);
+        self::addLine($db, $je_id, $receivable_coa, 0.0, $amount);
+        self::post($db, $je_id, $user_id);
+
+        return $je_id;
+    }
+
+    /**
+     * Reverse every posted entry produced by a given source document.
+     *
+     * Migration 004 forbids deleting a posted entry, and rightly so — the
+     * correction for a mistake in the books is an opposing entry, not an
+     * erasure. This mirrors each line (debits become credits), posts the
+     * mirror, then stamps the original 'reversed' and points it at its mirror.
+     *
+     * The reversal is dated today, not on the original entry's date: back-
+     * dating it would drop the correction into a period that may already be
+     * closed, and migration 005's triggers would refuse the write anyway.
+     *
+     * Entries already marked 'reversed' are skipped, so calling this twice on
+     * the same document is harmless.
+     *
+     * @param  string   $source_type e.g. 'purchase_order', 'rebate_accrual'
+     * @param  int      $source_id
+     * @param  string   $reason      shown in the reversing entry's description
+     * @return int[]                 ids of the reversing entries created
+     */
+    public static function reverseSource(string $source_type, int $source_id, string $reason = ''): array
+    {
+        $db      = Database::getInstance()->getConnection();
+        $user_id = (int) ($_SESSION['user_id'] ?? 0);
+
+        if (!self::hasSourceColumns($db)) {
+            throw new RuntimeException(
+                "JournalPoster: cannot reverse by source — migration 038 has not been applied."
+            );
+        }
+
+        $stmt = $db->prepare("
+            SELECT id, reference, journal_code, description
+              FROM journal_entries
+             WHERE source_type = ? AND source_id = ? AND status = 'posted'
+             ORDER BY id ASC
+             FOR UPDATE
+        ");
+        $stmt->execute([$source_type, $source_id]);
+        $entries = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $lineStmt = $db->prepare("SELECT account_id, debit, credit FROM journal_lines WHERE journal_entry_id = ?");
+        $created  = [];
+
+        foreach ($entries as $entry) {
+            $lineStmt->execute([$entry['id']]);
+            $lines = $lineStmt->fetchAll(PDO::FETCH_ASSOC);
+            if (!$lines) continue;
+
+            $desc = 'EXTOURNE — ' . $entry['description'];
+            if ($reason !== '') $desc .= " ({$reason})";
+
+            $rev_id = self::createDraftJe(
+                $db, 'JRN-EXT-' . date('ym'), $entry['journal_code'], date('Y-m-d'),
+                $desc, $user_id, $source_type . '_reversal', $source_id
+            );
+
+            // Swap each line. debit XOR credit is enforced by migration 004's
+            // bi_jl_xor trigger, so a mirrored line stays valid by construction.
+            foreach ($lines as $l) {
+                self::addLine($db, $rev_id, (int) $l['account_id'], (float) $l['credit'], (float) $l['debit']);
+            }
+            self::post($db, $rev_id, $user_id);
+
+            $db->prepare("UPDATE journal_entries SET status = 'reversed', reversed_by_entry_id = ? WHERE id = ?")
+               ->execute([$rev_id, $entry['id']]);
+
+            $created[] = $rev_id;
+        }
+
+        return $created;
+    }
+
     // ------------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------------
 
-    private static function createDraftJe(PDO $db, string $ref, string $journal_code, string $date, string $desc, int $user_id): int
+    /**
+     * The supplier's own 401xxx sub-account.
+     *
+     * mdm_controller creates one per supplier at registration and stores it on
+     * suppliers.account_id. Resolving it here — instead of the old
+     * `code LIKE '401%' LIMIT 1` — is what makes the accounts-payable
+     * sub-ledger mean anything: before, every supplier's debt landed on
+     * whichever 401 row sorted first.
+     *
+     * Throws rather than falling back. A supplier with no account is a data
+     * problem to fix in Fournisseurs, and silently booking their purchases
+     * onto someone else's account is how the books got into this state.
+     */
+    private static function coaForSupplier(PDO $db, int $supplier_id): int
     {
+        $stmt = $db->prepare("
+            SELECT s.account_id, s.name, c.id AS coa_id
+              FROM suppliers s
+              LEFT JOIN chart_of_accounts c ON c.id = s.account_id
+             WHERE s.id = ?
+        ");
+        $stmt->execute([$supplier_id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$row) {
+            throw new RuntimeException("JournalPoster: supplier #{$supplier_id} not found.");
+        }
+        if (empty($row['coa_id'])) {
+            throw new RuntimeException(
+                "JournalPoster: supplier « {$row['name']} » has no chart-of-accounts entry. "
+                . "Open Fournisseurs and re-save the supplier to generate its 401 account."
+            );
+        }
+        return (int) $row['coa_id'];
+    }
+
+    private static function createDraftJe(
+        PDO $db,
+        string $ref,
+        string $journal_code,
+        string $date,
+        string $desc,
+        int $user_id,
+        ?string $source_type = null,
+        ?int $source_id = null
+    ): int {
         // Append a random suffix so re-runs in the same second still get a
         // unique reference (matches the existing pattern in inventory_controller).
         $ref .= '-' . strtoupper(bin2hex(random_bytes(2)));
-        $db->prepare("
-            INSERT INTO journal_entries (reference, journal_code, date, description, status, created_by)
-            VALUES (?, ?, ?, ?, 'draft', ?)
-        ")->execute([$ref, $journal_code, $date, $desc, $user_id]);
+
+        // source_type / source_id arrived in migration 038 and let an entry be
+        // traced back to the document that produced it. Detected rather than
+        // assumed: this class is loaded on installs that may not have run 038
+        // yet, and an unconditional INSERT naming a missing column would take
+        // down every payment and invoice posting, not just purchasing.
+        if (self::hasSourceColumns($db)) {
+            $db->prepare("
+                INSERT INTO journal_entries
+                    (reference, journal_code, date, description, status, created_by, source_type, source_id)
+                VALUES (?, ?, ?, ?, 'draft', ?, ?, ?)
+            ")->execute([$ref, $journal_code, $date, $desc, $user_id, $source_type, $source_id]);
+        } else {
+            $db->prepare("
+                INSERT INTO journal_entries (reference, journal_code, date, description, status, created_by)
+                VALUES (?, ?, ?, ?, 'draft', ?)
+            ")->execute([$ref, $journal_code, $date, $desc, $user_id]);
+        }
         return (int) $db->lastInsertId();
+    }
+
+    /** True once migration 038 has added journal_entries.source_type. Cached per request. */
+    private static function hasSourceColumns(PDO $db): bool
+    {
+        static $has = null;
+        if ($has !== null) return $has;
+        $chk = $db->query("
+            SELECT COUNT(*) FROM information_schema.columns
+             WHERE table_schema = DATABASE()
+               AND table_name   = 'journal_entries'
+               AND column_name  = 'source_type'
+        ")->fetchColumn();
+        return $has = ((int) $chk > 0);
     }
 
     private static function addLine(PDO $db, int $entry_id, int $account_id, float $debit, float $credit): void

@@ -1,6 +1,7 @@
 <?php
-// Sprint-4 (parallel): server-side PDF renders by default. Legacy HTML falls
-// through when ?html=1 is present (for debugging / accessibility).
+// The rich HTML invoice below renders by default — it is the client-facing
+// deliverable, shared by WhatsApp/email and exported by html2canvas + jsPDF.
+// The condensed server-side dompdf render is served on demand via ?pdf=1.
 
 // This page is a DOCUMENT, not an app screen: a customer opens it from a token
 // link, and it is the exact DOM html2canvas rasterises into the PDF. It must
@@ -11,7 +12,9 @@
 if (!defined('LPC_FORCE_LIGHT')) { define('LPC_FORCE_LIGHT', true); }
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/functions/document_pdf.php';
-lpc_serve_document_pdf('invoice');
+if (($_GET['pdf'] ?? '') === '1') {
+    lpc_serve_document_pdf('invoice');   // exits after streaming
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">

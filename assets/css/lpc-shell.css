@@ -1083,7 +1083,23 @@ html[data-lpc-theme="dark"] {
     --lpc-border:         #24322B;
     --lpc-ink:            #E8EFEA;
     --lpc-ink-soft:       #9DB0A5;
-    --lpc-ink-mute:       #6F8378;
+
+    /* Was #6F8378, which measured 4.13:1 on --lpc-surface and 4.39:1 on
+       --lpc-surface-sunken — both under AA. That is not a rounding-error miss:
+       text-gray-400 is the single most-used colour utility in the app (556
+       occurrences) and it lands here, almost always on a 9-11px uppercase
+       label. The faintest step in the ramp was the one carrying the smallest
+       type.
+
+       #8B9D93 is the same hue and saturation lifted to 58% lightness, which
+       clears AA on every surface step (surface 5.84, sunken 6.21, chip 5.33,
+       well 4.82, page 6.46) while staying a clear step below --lpc-ink-soft
+       (7.31 on surface), so the three-level hierarchy still reads.
+
+       --lpc-surface-raised is the one surface it still misses at 4.20:1;
+       that pairing is handled where it occurs by the raised-island rule in
+       lpc-theme.css §2, which escalates mute to soft inside those boxes. */
+    --lpc-ink-mute:       #8B9D93;
 
     /* The light-surface accent is tuned for white; on a dark surface it fails
        contrast, so dark mode borrows the on-dark value. */

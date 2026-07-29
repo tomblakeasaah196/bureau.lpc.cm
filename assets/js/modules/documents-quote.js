@@ -137,7 +137,9 @@
             const tbody = document.getElementById('dyn_items_table');
             tbody.innerHTML = '';
             apiData.items.forEach(item => {
-                const formatHtml = item.format ? `<div class="text-xs text-gray-500 mt-1">${item.format}</div>` : '';
+                // Escaped by the inner LPC.html, then marked raw for the outer
+                // template. See documents-bon_commande.js for the reasoning.
+                const formatHtml = item.format ? LPC.raw(LPC.html`<div class="text-xs text-gray-500 mt-1">${item.format}</div>`) : '';
                 tbody.innerHTML += LPC.html`
                     <tr>
                         <td class="py-4 px-6 border-b border-gray-100">

@@ -180,9 +180,13 @@
             tbody.innerHTML = '';
             
             globalData.contracts.forEach(c => {
-                let activeBadge = c.is_active == 1
+                // LPC.raw: static markup. This is the green/red status dot before
+                // each employee name; unwrapped, every row in the contracts table
+                // printed the literal `<span class="w-2 h-2 rounded-full ...">`
+                // ahead of the name.
+                let activeBadge = LPC.raw(c.is_active == 1
                     ? `<span class="w-2 h-2 rounded-full bg-emerald-500 inline-block mr-2"></span>`
-                    : `<span class="w-2 h-2 rounded-full bg-rose-500 inline-block mr-2"></span>`;
+                    : `<span class="w-2 h-2 rounded-full bg-rose-500 inline-block mr-2"></span>`);
                 const totalAllow = Number(c.housing_allowance || 0) + Number(c.transport_allowance || 0);
                 tbody.innerHTML += LPC.html`
                     <tr class="hover:bg-gray-50 border-b border-gray-100">
@@ -297,8 +301,11 @@
                 const trClass = isPaid ? "bg-gray-50 opacity-75" : "hover:bg-indigo-50/30";
                 const readOnly = isPaid ? "disabled readonly" : "";
 
+                // The token goes into an href, so it is escaped by the inner
+                // LPC.html before the snippet is marked raw — that is what stops
+                // a token containing a quote from breaking out of the attribute.
                 let pdfLink = isPaid
-                    ? `<a href="/public/documents/payslip.php?token=${e.token}" target="_blank" class="text-rose-500 hover:text-rose-700" title="Imprimer Fiche"><i class="fas fa-file-pdf text-lg"></i></a>`
+                    ? LPC.raw(LPC.html`<a href="/public/documents/payslip.php?token=${e.token}" target="_blank" class="text-rose-500 hover:text-rose-700" title="Imprimer Fiche"><i class="fas fa-file-pdf text-lg"></i></a>`)
                     : '-';
 
                 tbody.innerHTML += LPC.html`

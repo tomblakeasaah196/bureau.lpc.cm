@@ -122,7 +122,9 @@
             });
             // Total Passif Row
             let diffN = totalActif.netN - totalPassif.netN;
-            let checkIcon = Math.abs(diffN) < 1 ? '<i class="fas fa-check-circle text-emerald-400" title="Équilibré"></i>' : '<i class="fas fa-exclamation-triangle text-rose-500" title="Déséquilibré"></i>';
+            // LPC.raw: static markup. This is the balance-sheet tie-out icon;
+            // unwrapped it printed its own <i> tag next to "Total Passif".
+            let checkIcon = LPC.raw(Math.abs(diffN) < 1 ? '<i class="fas fa-check-circle text-emerald-400" title="Équilibré"></i>' : '<i class="fas fa-exclamation-triangle text-rose-500" title="Déséquilibré"></i>');
             
             tbodyP.innerHTML += LPC.html`
                 <tr class="row-total">

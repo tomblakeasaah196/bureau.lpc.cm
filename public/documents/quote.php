@@ -9,11 +9,11 @@
 if (!defined('LPC_FORCE_LIGHT')) { define('LPC_FORCE_LIGHT', true); }
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/functions/document_pdf.php';
-// Quotes are the one document type that defaults to the rich 4-page HTML
-// proposal — that page IS the client-facing deliverable (bilingual, shareable
-// by WhatsApp/email, self-service PDF export). The server-side dompdf render is
-// the condensed one-page "offre commerciale", served on demand via ?pdf=1.
-// Every other document type still PDFs by default; see includes/functions/document_pdf.php.
+// The rich 4-page HTML proposal IS the client-facing deliverable (bilingual,
+// shareable by WhatsApp/email, self-service PDF export), so it renders by
+// default. The server-side dompdf render is the condensed one-page "offre
+// commerciale", served on demand via ?pdf=1. This is now the contract for every
+// document type except payslip; see includes/functions/document_pdf.php.
 if (($_GET['pdf'] ?? '') === '1') {
     lpc_serve_document_pdf('quote');   // exits after streaming
 }

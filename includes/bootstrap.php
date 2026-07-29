@@ -62,6 +62,13 @@ require_once __DIR__ . '/classes/Csrf.php';
 require_once __DIR__ . '/classes/RateLimiter.php';
 Csrf::init();
 
+// 4a. Exception types. Loaded here rather than per-controller because a
+//     `catch (UserFacingException $e)` block referencing a class PHP has not
+//     seen does not fail loudly — it simply never matches, and the handler
+//     silently falls through to the generic 500. Making it unconditional
+//     removes that failure mode.
+require_once __DIR__ . '/classes/UserFacingException.php';
+
 // 4b. Composer autoload — idempotent. Present once `composer install` has
 //     populated vendor/. Silently degrades if vendor/ isn't populated yet so
 //     non-PDF code paths keep working during a partial deploy.

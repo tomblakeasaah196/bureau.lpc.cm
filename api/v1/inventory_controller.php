@@ -1,8 +1,13 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/Paginator.php';   // Sprint 5
+require_once __DIR__ . '/../../includes/classes/JournalPoster.php';
+require_once __DIR__ . '/../../includes/functions/procurement.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
+// Baseline gate only. Write actions re-check with their own permission —
+// see 'receive_po', which posts to the general ledger and requires
+// inventory.procurement.approve on top of this.
 Rbac::requirePermission('inventory.stock.view');
 // api/v1/inventory_controller.php
 header('Content-Type: application/json');
@@ -151,25 +156,80 @@ try {
                            (
                                SELECT SUM(poi.quantity - COALESCE((SELECT SUM(quantity) FROM inventory_movements WHERE reference_id = po.id AND product_id = poi.product_id AND movement_type = 'in_supplier'), 0))
                                FROM purchase_order_items poi WHERE poi.purchase_order_id = po.id
-                           ) as total_items,
-                           (
-                               SELECT GROUP_CONCAT(
-                                   CONCAT('<span class=\"font-black\">', 
-                                       (poi.quantity - COALESCE((SELECT SUM(quantity) FROM inventory_movements WHERE reference_id = po.id AND product_id = poi.product_id AND movement_type = 'in_supplier'), 0)), 
-                                   'x</span> ', p.name) SEPARATOR '<br>'
-                               )
-                               FROM purchase_order_items poi 
-                               JOIN products p ON poi.product_id = p.id 
-                               WHERE poi.purchase_order_id = po.id 
-                               AND (poi.quantity - COALESCE((SELECT SUM(quantity) FROM inventory_movements WHERE reference_id = po.id AND product_id = poi.product_id AND movement_type = 'in_supplier'), 0)) > 0
-                           ) as product_details
+                           ) as total_items
                     FROM purchase_orders po
                     JOIN suppliers s ON po.supplier_id = s.id
-                    WHERE po.status IN ('pending', 'partial') 
+                    WHERE po.status IN ('pending', 'partial')
                     HAVING total_items > 0
                     ORDER BY po.date ASC
                 ");
-                $responseData['pending_pos'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                $pendingPos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                /*
+                 * Outstanding lines per PO, as DATA.
+                 *
+                 * This column used to be a `product_details` string that the SQL
+                 * built out of HTML:
+                 *     CONCAT('<span class="font-black">', qty, 'x</span> ', p.name)
+                 * That broke twice over. The renderer escapes its interpolations,
+                 * so the Réceptions Fournisseurs queue displayed the literal text
+                 *     <span class="font-black">10x</span> 20L Opur
+                 * in the Produits Attendus column; and a product name containing
+                 * "<" would have become live markup anywhere that string was
+                 * rendered unescaped.
+                 *
+                 * A data API returns data. The <span> now lives in
+                 * renderReceptions() in assets/js/modules/inventory-stock.js,
+                 * alongside every other bit of this table's markup, and the qty
+                 * and name travel as separate fields — so there is no separator
+                 * to collide with a product name and nothing to escape on the
+                 * way out.
+                 */
+                $responseData['pending_pos'] = [];
+                if ($pendingPos) {
+                    $poIds = array_column($pendingPos, 'id');
+                    $place = implode(',', array_fill(0, count($poIds), '?'));
+
+                    /*
+                     * The outstanding-quantity filter sits in an outer WHERE over
+                     * a derived table rather than in a bare HAVING. HAVING without
+                     * GROUP BY is a MySQL extension and errors out under
+                     * ONLY_FULL_GROUP_BY, which is the default from MySQL 5.7 on;
+                     * this form is plain standard SQL and runs anywhere.
+                     */
+                    $lineStmt = $db->prepare("
+                        SELECT purchase_order_id, product_name, outstanding_qty
+                        FROM (
+                            SELECT poi.purchase_order_id,
+                                   p.name AS product_name,
+                                   (poi.quantity - COALESCE((
+                                       SELECT SUM(im.quantity) FROM inventory_movements im
+                                       WHERE im.reference_id  = poi.purchase_order_id
+                                         AND im.product_id    = poi.product_id
+                                         AND im.movement_type = 'in_supplier'
+                                   ), 0)) AS outstanding_qty
+                            FROM purchase_order_items poi
+                            JOIN products p ON poi.product_id = p.id
+                            WHERE poi.purchase_order_id IN ($place)
+                        ) AS po_lines
+                        WHERE outstanding_qty > 0
+                        ORDER BY product_name ASC
+                    ");
+                    $lineStmt->execute($poIds);
+
+                    $linesByPo = [];
+                    foreach ($lineStmt->fetchAll(PDO::FETCH_ASSOC) as $line) {
+                        $linesByPo[$line['purchase_order_id']][] = [
+                            'product_name' => $line['product_name'],
+                            'qty'          => (int) $line['outstanding_qty'],
+                        ];
+                    }
+
+                    foreach ($pendingPos as $po) {
+                        $po['expected_items'] = $linesByPo[$po['id']] ?? [];
+                        $responseData['pending_pos'][] = $po;
+                    }
+                }
 
             } elseif ($tab === 'movements') {
                 $period = $_GET['period'] ?? 'month';
@@ -268,77 +328,123 @@ try {
         // ACTION: RECEIVE PO (INVENTORY + FINANCE)
         // ==========================================
         case 'receive_po':
+            // Receiving goods writes stock, recomputes CUMP and posts to the
+            // general ledger. Viewing stock is not authority to do any of that.
+            Rbac::requirePermission('inventory.procurement.approve');
+
             $db->beginTransaction();
 
             $po_id = (int)$jsonData['po_id'];
             $items = $jsonData['items'] ?? [];
 
-            if (empty($items)) throw new Exception("Aucun article à recevoir.");
+            if (empty($items)) throw new UserFacingException("Aucun article à recevoir.");
 
-            $stmtPO = $db->prepare("SELECT reference, supplier_id, subtotal, date FROM purchase_orders WHERE id = ? FOR UPDATE");
+            $stmtPO = $db->prepare("SELECT reference, supplier_id, subtotal, date, status FROM purchase_orders WHERE id = ? FOR UPDATE");
             $stmtPO->execute([$po_id]);
             $po = $stmtPO->fetch(PDO::FETCH_ASSOC);
-            if (!$po) throw new Exception("Bon de commande introuvable.");
+            if (!$po) throw new UserFacingException("Bon de commande introuvable.");
+            if ($po['status'] === 'cancelled') {
+                throw new UserFacingException("Ce bon de commande a été annulé : réception impossible.");
+            }
+
+            // ---------------------------------------------------------------
+            // Authoritative prices.
+            //
+            // Unit prices used to be read straight off $jsonData — the client
+            // told the server what the goods were worth. That value drove the
+            // stock valuation (CUMP), the journal entry AND the 2.47% ristourne
+            // accrual, so any caller able to reach this endpoint could mint
+            // rebate credit and inflate the books by editing one number in the
+            // request body. Prices now come from purchase_order_items, which is
+            // the only place they were ever agreed. The payload is trusted for
+            // "which product, how many" and nothing else.
+            // ---------------------------------------------------------------
+            $stmtPrices = $db->prepare("SELECT product_id, unit_price FROM purchase_order_items WHERE purchase_order_id = ?");
+            $stmtPrices->execute([$po_id]);
+            $po_prices = [];
+            foreach ($stmtPrices->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $po_prices[(int) $r['product_id']] = (float) $r['unit_price'];
+            }
 
             $stmtMove = $db->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, reference_id, logged_by) VALUES (?, 'in_supplier', ?, ?, ?)");
             $stmtGetProd = $db->prepare("SELECT name, cump, COALESCE((SELECT SUM(CASE WHEN movement_type LIKE 'in_%' THEN quantity ELSE -quantity END) FROM inventory_movements WHERE product_id = ?), 0) as current_qty FROM products WHERE id = ? FOR UPDATE");
             $stmtUpdateCUMP = $db->prepare("UPDATE products SET cump = ? WHERE id = ?");
-            
+
             // STRICT SECURITY: Query to find EXACT remaining balance in DB
             $stmtCheckRem = $db->prepare("
-                SELECT (quantity - COALESCE((SELECT SUM(quantity) FROM inventory_movements WHERE reference_id = ? AND product_id = ? AND movement_type = 'in_supplier'), 0)) as rem 
+                SELECT (quantity - COALESCE((SELECT SUM(quantity) FROM inventory_movements WHERE reference_id = ? AND product_id = ? AND movement_type = 'in_supplier'), 0)) as rem
                 FROM purchase_order_items WHERE purchase_order_id = ? AND product_id = ?
             ");
 
             $summary_data = [];
+            $received_value = 0.0;   // running total, at contracted prices
 
             foreach ($items as $item) {
                 $pid = (int)$item['product_id'];
-                $ordered_qty_frontend = (int)$item['ordered_qty'];
                 $received_qty = (int)$item['received_qty'];
-                $unit_price = (float)$item['unit_price'];
 
-                if ($received_qty > 0) {
-                    
-                    // VERIFY AGAINST DATABASE
-                    $stmtCheckRem->execute([$po_id, $pid, $po_id, $pid]);
-                    $actual_remaining = (int)$stmtCheckRem->fetchColumn();
+                if ($received_qty <= 0) continue;
 
-                    if ($received_qty > $actual_remaining) {
-                        throw new Exception("Sécurité: Tentative de réception supérieure au reste à livrer.");
-                    }
-
-                    // 1. Stock In
-                    $stmtMove->execute([$pid, $received_qty, $po_id, $user_id]);
-
-                    // 2. CUMP Recalculation
-                    $stmtGetProd->execute([$pid, $pid]);
-                    $prod = $stmtGetProd->fetch(PDO::FETCH_ASSOC);
-                    
-                    $old_qty = (int)$prod['current_qty'];
-                    $old_cump = (float)$prod['cump'];
-
-                    if ($old_qty <= 0) {
-                        $new_cump = $unit_price;
-                    } else {
-                        $total_value_old = $old_qty * $old_cump;
-                        $total_value_new = $received_qty * $unit_price;
-                        $new_cump = ($total_value_old + $total_value_new) / ($old_qty + $received_qty);
-                    }
-                    $stmtUpdateCUMP->execute([$new_cump, $pid]);
-                    
-                    // Build Summary
-                    $summary_data[] = [
-                        'product_name' => $prod['name'],
-                        'received' => $received_qty,
-                        'ordered' => $actual_remaining,
-                        'new_stock' => $old_qty + $received_qty,
-                        'shortage' => $actual_remaining - $received_qty
-                    ];
+                if (!array_key_exists($pid, $po_prices)) {
+                    throw new UserFacingException("Sécurité: article hors bon de commande (produit #{$pid}).");
                 }
+                $unit_price = $po_prices[$pid];
+
+                // VERIFY AGAINST DATABASE
+                $stmtCheckRem->execute([$po_id, $pid, $po_id, $pid]);
+                $actual_remaining = (int)$stmtCheckRem->fetchColumn();
+
+                if ($received_qty > $actual_remaining) {
+                    throw new UserFacingException("Sécurité: Tentative de réception supérieure au reste à livrer.");
+                }
+
+                // 1. Read stock state BEFORE writing the movement.
+                //
+                //    This used to run the other way round: the movement was
+                //    inserted first, then current_qty was read — so `current_qty`
+                //    already contained the quantity being received, and the
+                //    weighted-average below divided by (qty + received) while
+                //    the numerator used that same inflated qty. Every reception
+                //    dragged CUMP back toward the old cost instead of blending
+                //    the new one, and the summary reported stock one delivery
+                //    higher than reality. Read, compute, then write.
+                $stmtGetProd->execute([$pid, $pid]);
+                $prod = $stmtGetProd->fetch(PDO::FETCH_ASSOC);
+                if (!$prod) throw new UserFacingException("Produit #{$pid} introuvable.");
+
+                $qty_before  = (int)$prod['current_qty'];
+                $old_cump    = (float)$prod['cump'];
+
+                // 2. Stock In
+                $stmtMove->execute([$pid, $received_qty, $po_id, $user_id]);
+
+                // 3. CUMP Recalculation — weighted average over pre-receipt stock.
+                if ($qty_before <= 0) {
+                    $new_cump = $unit_price;
+                } else {
+                    $total_value_old = $qty_before * $old_cump;
+                    $total_value_new = $received_qty * $unit_price;
+                    $new_cump = ($total_value_old + $total_value_new) / ($qty_before + $received_qty);
+                }
+                $stmtUpdateCUMP->execute([$new_cump, $pid]);
+
+                $received_value += $received_qty * $unit_price;
+
+                // Build Summary
+                $summary_data[] = [
+                    'product_name' => $prod['name'],
+                    'received' => $received_qty,
+                    'ordered' => $actual_remaining,
+                    'new_stock' => $qty_before + $received_qty,
+                    'shortage' => $actual_remaining - $received_qty
+                ];
             }
 
-            // 3. Mark PO as Received or Partial dynamically based on overall remaining items
+            if ($received_value <= 0) {
+                throw new UserFacingException("Aucune quantité reçue.");
+            }
+
+            // 4. Mark PO as Received or Partial dynamically based on overall remaining items
             $stmtCheckTotalRem = $db->prepare("
                 SELECT SUM(poi.quantity - COALESCE((SELECT SUM(quantity) FROM inventory_movements WHERE reference_id = poi.purchase_order_id AND product_id = poi.product_id AND movement_type = 'in_supplier'), 0))
                 FROM purchase_order_items poi WHERE poi.purchase_order_id = ?
@@ -351,47 +457,60 @@ try {
                ->execute([$new_status, $po_id]);
 
             // ==========================================
-            // 4. SDP RISTOURNE ACCRUAL (EARNED 2.47%)
+            // 5. ACCOUNTING — goods received
+            //
+            // Debit 601 Achats / Credit the supplier's own 401 sub-account,
+            // posted through JournalPoster so the entry is created as 'draft',
+            // balance-checked by post_journal_entry() and stamped 'posted'.
+            //
+            // What this replaced wrote status='pending' (not a member of
+            // journal_entries.status ENUM), never called post_journal_entry, and
+            // resolved both accounts with `code LIKE '401%' LIMIT 1` style
+            // lookups that landed on an arbitrary supplier — see migration 038
+            // for the full history.
             // ==========================================
-            $stmtCheckSDP = $db->prepare("SELECT name FROM suppliers WHERE id = ?");
-            $stmtCheckSDP->execute([$po['supplier_id']]);
-            $supplier_name = $stmtCheckSDP->fetchColumn();
+            JournalPoster::postGoodsReceipt(
+                $po_id,
+                (int) $po['supplier_id'],
+                $received_value,
+                date('Y-m-d'),
+                $po['reference']
+            );
 
-            if (stripos($supplier_name, 'Source du Pays') !== false || stripos($supplier_name, 'SDP') !== false) {
-                $actual_subtotal = 0;
-                foreach($items as $i) { $actual_subtotal += ($i['received_qty'] * $i['unit_price']); }
-                
-                $earned_ristourne = $actual_subtotal * 0.0247;
+            // ==========================================
+            // 6. SDP RISTOURNE ACCRUAL (EARNED 2.47%)
+            //
+            // Now double-booked on purpose: the operational ledger that feeds
+            // the Ristournes SDP panel, and the general ledger
+            // (Debit 4098 / Credit 6019). Both writes sit inside this one
+            // transaction, so the panel and the books cannot drift.
+            // ==========================================
+            $rebate_rate = lpc_supplier_rebate_rate($db, (int) $po['supplier_id']);
+            if ($rebate_rate > 0) {
+                $earned_ristourne = round($received_value * $rebate_rate, 0, PHP_ROUND_HALF_UP);
+                $rate_label = rtrim(rtrim(number_format($rebate_rate * 100, 2, ',', ' '), '0'), ',') . '%';
+
                 if ($earned_ristourne > 0) {
-                    $stmtLedgerIn = $db->prepare("INSERT INTO supplier_rebate_ledger (supplier_id, date, reference, type, amount, notes, created_by) VALUES (?, ?, ?, 'accrual', ?, ?, ?)");
-                    $stmtLedgerIn->execute([$po['supplier_id'], date('Y-m-d'), $po['reference'], $earned_ristourne, "Ristourne 2.47% gagnée à la réception", $user_id]);
+                    lpc_rebate_ledger_add(
+                        $db,
+                        (int) $po['supplier_id'],
+                        $po_id,
+                        date('Y-m-d'),
+                        $po['reference'],
+                        'accrual',
+                        $earned_ristourne,
+                        "Ristourne {$rate_label} gagnée à la réception",
+                        $user_id
+                    );
+
+                    JournalPoster::postRebateAccrual(
+                        $po_id,
+                        (int) $po['supplier_id'],
+                        $earned_ristourne,
+                        date('Y-m-d'),
+                        $po['reference']
+                    );
                 }
-            }
-
-            // ==========================================
-            // 5. ACCOUNTING AUTO-GENERATION
-            // ==========================================
-            $actual_subtotal = 0;
-            foreach($items as $i) { $actual_subtotal += ($i['received_qty'] * $i['unit_price']); }
-
-            if ($actual_subtotal > 0) {
-                $journal_code = 'AC';
-                $journal_desc = "Réception Achat Réf: " . $po['reference'];
-                
-                // FIX: Generate a UNIQUE reference for the Journal Entry so partial receptions don't crash
-                $je_hash = strtoupper(substr(md5(uniqid(rand(), true)), 0, 4));
-                $je_reference = 'JRN-' . $journal_code . '-' . date('ym') . '-' . $je_hash;
-
-                $stmtJE = $db->prepare("INSERT INTO journal_entries (reference, journal_code, date, description, status, created_by) VALUES (?, ?, ?, ?, 'pending', ?)");
-                $stmtJE->execute([$je_reference, $journal_code, date('Y-m-d'), $journal_desc, $user_id]);
-                $je_id = $db->lastInsertId();
-
-                $supplier_acc = $db->query("SELECT id FROM chart_of_accounts WHERE code LIKE '401%' LIMIT 1")->fetchColumn() ?: 3; 
-                $stock_acc = $db->query("SELECT id FROM chart_of_accounts WHERE code LIKE '311%' OR code LIKE '601%' LIMIT 1")->fetchColumn() ?: 6;
-
-                $stmtJLine = $db->prepare("INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit) VALUES (?, ?, ?, ?)");
-                $stmtJLine->execute([$je_id, $stock_acc, $actual_subtotal, 0]); 
-                $stmtJLine->execute([$je_id, $supplier_acc, 0, $actual_subtotal]); 
             }
 
             $operator_name = $_SESSION['user_name'];
@@ -492,7 +611,7 @@ try {
                 // Lock the product row so a concurrent dispatch waits.
                 $stmtProdLock->execute([$pid]);
                 $pname = $stmtProdLock->fetchColumn();
-                if (!$pname) throw new Exception("Produit #{$pid} introuvable.");
+                if (!$pname) throw new UserFacingException("Produit #{$pid} introuvable.");
 
                 // Record line item in the report
                 $stmtItem->execute([$report_id, $pid, $theo, $real, $diff]);
@@ -650,11 +769,21 @@ try {
             throw new Exception("Action inconnue.");
     }
 
-} catch (Exception $e) {
+} catch (UserFacingException $e) {
+    // Operator-actionable refusal — see includes/classes/UserFacingException.php.
+    // "Réception supérieure au reste à livrer" is useless to the person on the
+    // loading bay if it arrives as "Erreur serveur".
+    if (isset($db) && $db->inTransaction()) {
+        $db->rollBack();
+    }
+    http_response_code($e->getHttpStatus());
+    echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+
+} catch (Throwable $e) {
     if (isset($db) && $db->inTransaction()) {
         $db->rollBack();
     }
     http_response_code(500);
-    error_log('API error: ' . $e->getMessage());
+    error_log('API error: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     echo json_encode(['status' => 'error', 'message' => 'Erreur serveur. Veuillez réessayer.']);
 }

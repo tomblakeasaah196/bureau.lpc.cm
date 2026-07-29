@@ -404,12 +404,15 @@
                         // Dynamically generate Empties Input if the product requires it
                         let emptyInputHtml = '';
                         if (item.linked_empty_id) {
-                            emptyInputHtml = `
+                            // empty_name comes from master data and lands both in
+                            // text and next to a data-* attribute, so it is escaped
+                            // by the inner LPC.html before being marked raw.
+                            emptyInputHtml = LPC.raw(LPC.html`
                                 <div class="mt-2 p-2 bg-amber-50 rounded-lg border border-amber-200 flex justify-between items-center shadow-sm">
                                     <span class="text-[10px] font-black text-amber-800 uppercase tracking-wide"><i class="fas fa-undo mr-1"></i> Vides rendus (${item.empty_name})</span>
                                     <input type="number" class="empty-qty-input w-16 bg-white border border-amber-300 rounded p-1 text-center font-black text-amber-900 outline-none focus:ring-2 focus:ring-amber-500" data-item-id="${item.id}" value="0" min="0">
                                 </div>
-                            `;
+                            `);
                         }
 
                         container.innerHTML += LPC.html`

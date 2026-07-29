@@ -24,11 +24,22 @@
                     { key: 'date', label: 'Date', render: v => `<span class="text-xs font-bold text-gray-500">${new Date(v).toLocaleDateString('fr-FR')}</span>` },
                     { key: 'reference', label: 'Référence PO', render: v => `<span class="font-black text-gray-900 bg-gray-100 px-2 py-1 rounded border border-gray-200">${v}</span>` },
                     { key: 'supplier_name', label: 'Fournisseur', render: v => `<span class="font-bold text-gray-700">${v}</span>` },
-                    { key: 'payment_status', label: 'Paiement', render: v => v === 'paid' ? '<span class="text-green-600 bg-green-50 px-2 py-1 rounded text-[10px] font-black uppercase"><i class="fas fa-check mr-1"></i>Payé</span>' : '<span class="text-red-600 bg-red-50 px-2 py-1 rounded text-[10px] font-black uppercase"><i class="fas fa-hourglass-half mr-1"></i>À Crédit</span>' },
+                    // A cancelled order is no longer owed, whatever its payment
+                    // status column still says — show that first so a reversed
+                    // order can never be read as an outstanding debt.
+                    { key: 'payment_status', label: 'Paiement', render: (v, row) =>
+                        row.status === 'cancelled'
+                            ? '<span class="text-gray-500 bg-gray-100 px-2 py-1 rounded text-[10px] font-black uppercase"><i class="fas fa-ban mr-1"></i>Annulé</span>'
+                            : (v === 'paid'
+                                ? '<span class="text-green-600 bg-green-50 px-2 py-1 rounded text-[10px] font-black uppercase"><i class="fas fa-check mr-1"></i>Payé</span>'
+                                : '<span class="text-red-600 bg-red-50 px-2 py-1 rounded text-[10px] font-black uppercase"><i class="fas fa-hourglass-half mr-1"></i>À Crédit</span>') },
                     { key: 'total_amount', label: 'Net à Payer', render: v => `<span class="font-black text-lpc-dark text-base">${LPC.fmt.int(v)} FCFA</span>` }
                 ],
                 kpis: [
-                    { id: 'kpi_inv_total', label: 'Total Achats (Mois)', icon: 'fa-chart-line', color: 'text-indigo-600', bg: 'bg-indigo-50' },
+                    // "(Période)" not "(Mois)": these figures follow the period
+                    // selector, so a hardcoded "Mois" was actively lying
+                    // whenever the user picked YTD, Tout, or a custom range.
+                    { id: 'kpi_inv_total', label: 'Total Achats (Période)', icon: 'fa-chart-line', color: 'text-indigo-600', bg: 'bg-indigo-50' },
                     { id: 'kpi_inv_unpaid', label: 'Dettes Fournisseurs', icon: 'fa-hand-holding-usd', color: 'text-red-600', bg: 'bg-red-50' },
                     { id: 'kpi_inv_discount', label: 'Remises Obtenues', icon: 'fa-tags', color: 'text-emerald-600', bg: 'bg-emerald-50' },
                     { id: 'kpi_inv_count', label: 'Volume Commandes', icon: 'fa-boxes', color: 'text-blue-600', bg: 'bg-blue-50' }
@@ -46,7 +57,7 @@
                     { key: 'amount', label: 'Montant', render: v => `<span class="font-black text-gray-900">${LPC.fmt.int(v)} FCFA</span>` }
                 ],
                 kpis: [
-                    { id: 'kpi_oh_total', label: 'Total OPEX (Mois)', icon: 'fa-calculator', color: 'text-gray-900', bg: 'bg-gray-200' },
+                    { id: 'kpi_oh_total', label: 'Total OPEX (Période)', icon: 'fa-calculator', color: 'text-gray-900', bg: 'bg-gray-200' },
                     { id: 'kpi_oh_log', label: 'Dépenses Logistique', icon: 'fa-truck', color: 'text-amber-600', bg: 'bg-amber-50' },
                     { id: 'kpi_oh_unpaid', label: 'Factures en Attente', icon: 'fa-clock', color: 'text-red-600', bg: 'bg-red-50' },
                     { id: 'kpi_oh_count', label: 'Nbre de Lignes', icon: 'fa-receipt', color: 'text-blue-600', bg: 'bg-blue-50' }
@@ -209,20 +220,70 @@
             document.getElementById('kpiDetailsModal').classList.remove('hidden');
         }
 
+        // Human-readable description of the filter currently in force, for the
+        // empty state. An empty table has two very different causes — "nothing
+        // happened in this period" and "the data is gone" — and the old
+        // "Aucune donnée disponible." was indistinguishable from the second.
+        function describeActivePeriod() {
+            const sel = document.getElementById('kpi_period_type');
+            const type = sel ? sel.value : 'ytd';
+            const today = new Date();
+
+            if (type === 'current_month') {
+                return today.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+            }
+            if (type === 'ytd')  return `l'année ${today.getFullYear()}`;
+            if (type === 'all')  return 'tout l\'historique';
+            if (type === 'custom') {
+                const sm = document.getElementById('kpi_start_month').value;
+                const em = document.getElementById('kpi_end_month').value;
+                return (sm && em) ? `${sm} → ${em}` : 'la plage choisie';
+            }
+            return 'la période choisie';
+        }
+
         function renderTable(dataArray) {
             const tbody = document.getElementById('table-body');
             tbody.innerHTML = '';
-            if(dataArray.length === 0) return tbody.innerHTML = LPC.html`<tr><td colspan="10" class="py-8 text-center text-gray-400 font-medium">Aucune donnée disponible.</td></tr>`;
+
+            if (dataArray.length === 0) {
+                const period = describeActivePeriod();
+                const showWidenButton = document.getElementById('kpi_period_type').value !== 'all';
+
+                // Name the filter and offer the way out. Widening the period is
+                // one click, so nobody has to guess whether their records still
+                // exist.
+                const widen = showWidenButton ? LPC.raw(`
+                    <button onclick="widenToAllHistory()"
+                            class="mt-4 px-4 py-2 bg-lpc-dark text-white rounded-lg text-xs font-black uppercase tracking-widest hover:opacity-90 transition-opacity">
+                        <i class="fas fa-history mr-2"></i>Voir tout l'historique
+                    </button>`) : '';
+
+                tbody.innerHTML = LPC.html`
+                    <tr><td colspan="10" class="py-12 text-center">
+                        <p class="text-gray-500 font-bold text-sm">Aucune commande pour ${period}.</p>
+                        <p class="text-gray-400 text-xs mt-1">Vos données ne sont pas perdues — seul le filtre de période est en cause.</p>
+                        ${widen}
+                    </td></tr>`;
+                return;
+            }
 
             dataArray.forEach(row => {
-                let tr = '<tr class="hover:bg-gray-50 transition-colors">';
+                const cancelled = row.status === 'cancelled';
+                let tr = `<tr class="${cancelled ? 'opacity-50 ' : ''}hover:bg-gray-50 transition-colors">`;
                 config[currentTab].columns.forEach(col => tr += `<td class="py-4 px-6 border-b border-gray-50">${col.render(row[col.key], row)}</td>`);
-                
+
                 let actions = '';
                 if(currentTab === 'inventory') {
+                    // Already-cancelled orders keep their PDF link but lose the
+                    // cancel button — the server rejects a second cancellation
+                    // anyway, and offering an action that can only fail is worse
+                    // than not offering it.
+                    const cancelBtn = cancelled ? '' : `
+                        <button onclick="cancelPurchaseOrder(${row.id}, '${String(row.reference).replace(/'/g, "\\'")}')"
+                                class="text-red-400 hover:text-red-600 p-2" title="Annuler Commande" aria-label="Annuler Commande"><i class="fas fa-ban"></i></button>`;
                     actions = `
-                        <a href="/bon_commande.php?token=${row.token}" target="_blank" class="text-lpc-dark hover:text-green-700 bg-green-50 p-2 rounded-lg mr-2" title="Voir PDF"><i class="fas fa-file-pdf"></i></a>
-                        <button onclick="deleteRecord(${row.id})" class="text-red-400 hover:text-red-600 p-2" title="Annuler Commande" aria-label="Annuler Commande"><i class="fas fa-trash-alt"></i></button>`;
+                        <a href="/bon_commande.php?token=${row.token}" target="_blank" class="text-lpc-dark hover:text-green-700 bg-green-50 p-2 rounded-lg mr-2" title="Voir PDF"><i class="fas fa-file-pdf"></i></a>${cancelBtn}`;
                 } else {
                     actions = `
                         <button onclick="openActionModal(${row.id})" class="text-gray-400 hover:text-gray-900 p-2 mr-2" title="Modifier" aria-label="Modifier"><i class="fas fa-edit"></i></button>
@@ -239,6 +300,13 @@
             renderTable(moduleData.filter(i => Object.values(i).some(v => String(v).toLowerCase().includes(q))));
         }
         
+        // Target of the "Voir tout l'historique" button in the empty state.
+        function widenToAllHistory() {
+            const sel = document.getElementById('kpi_period_type');
+            sel.value = 'all';
+            handlePeriodUI();
+        }
+
         function handlePeriodUI() {
             const type = document.getElementById('kpi_period_type').value;
             const customWrap = document.getElementById('custom_period_wrapper');
@@ -253,17 +321,32 @@
             }
         }
 
+        // Format a Date as YYYY-MM-DD in LOCAL time.
+        //
+        // This function used to build every boundary with
+        // `new Date(y, m, 1).toISOString().split('T')[0]`. The Date is
+        // constructed in local time but toISOString() renders it in UTC, so at
+        // WAT (UTC+1) midnight on the 1st becomes 23:00 on the last day of the
+        // previous month and the "start of month" boundary silently landed one
+        // day early — quietly pulling the previous month's last day into every
+        // monthly figure, and dropping a day off custom ranges. Same class of
+        // bug as the period default: invisible until the numbers matter.
+        function toLocalIso(d) {
+            const pad = n => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        }
+
         function getActiveDateRange() {
             const type = document.getElementById('kpi_period_type').value;
             const today = new Date();
             let start, end;
 
             if (type === 'current_month') {
-                start = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-                end = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0]; // Last day of month
+                start = toLocalIso(new Date(today.getFullYear(), today.getMonth(), 1));
+                end   = toLocalIso(new Date(today.getFullYear(), today.getMonth() + 1, 0)); // Last day of month
             } else if (type === 'ytd') {
-                start = new Date(today.getFullYear(), 0, 1).toISOString().split('T')[0]; // Jan 1st
-                end = new Date(today.getFullYear(), 11, 31).toISOString().split('T')[0]; // Dec 31st
+                start = toLocalIso(new Date(today.getFullYear(), 0, 1));   // Jan 1st
+                end   = toLocalIso(new Date(today.getFullYear(), 11, 31)); // Dec 31st
             } else if (type === 'all') {
                 start = '2000-01-01';
                 end = '2099-12-31';
@@ -271,10 +354,14 @@
                 const sm = document.getElementById('kpi_start_month').value; // YYYY-MM
                 const em = document.getElementById('kpi_end_month').value;   // YYYY-MM
                 if (!sm || !em) return null; // Don't fetch if range is incomplete
-                
+                if (em < sm) {
+                    LPC.modal.alert("La date de fin doit être postérieure à la date de début.");
+                    return null;
+                }
+
                 start = sm + '-01';
-                let [eYear, eMonth] = em.split('-');
-                end = new Date(eYear, eMonth, 0).toISOString().split('T')[0]; // Last day of end month
+                const [eYear, eMonth] = em.split('-');
+                end = toLocalIso(new Date(Number(eYear), Number(eMonth), 0)); // Last day of end month
             }
             return { start, end };
         }
@@ -371,16 +458,34 @@
                     } else {
                         result.data.ledger.forEach(l => {
                             const isAccrual = l.type === 'accrual';
-                            const badge = isAccrual 
+                            const isReversed = Number(l.reversed) === 1;
+
+                            // LPC.raw, not a bare string. Every ${…} inside an
+                            // LPC.html`…` template is HTML-escaped by default
+                            // (see assets/js/lpc-dom.js) — that is the whole
+                            // point of the helper. Interpolating pre-built
+                            // markup without raw() printed the <span> tags as
+                            // visible text in the ledger instead of rendering
+                            // the badge, which is what made this panel look
+                            // like a broken dark-mode stylesheet.
+                            const badge = LPC.raw(isAccrual
                                 ? '<span class="px-2 py-1 bg-emerald-100 text-emerald-800 text-[9px] font-black uppercase rounded"><i class="fas fa-plus mr-1"></i>Crédité</span>'
-                                : '<span class="px-2 py-1 bg-rose-100 text-rose-800 text-[9px] font-black uppercase rounded"><i class="fas fa-minus mr-1"></i>Déduit</span>';
-                            
-                            const color = isAccrual ? 'text-emerald-600' : 'text-rose-600';
+                                : '<span class="px-2 py-1 bg-rose-100 text-rose-800 text-[9px] font-black uppercase rounded"><i class="fas fa-minus mr-1"></i>Déduit</span>');
+
+                            // Reversed rows stay visible but are struck through
+                            // and muted: a clawed-back credit is part of the
+                            // history, not something to hide.
+                            const color = isReversed
+                                ? 'text-gray-400 line-through'
+                                : (isAccrual ? 'text-emerald-600' : 'text-rose-600');
                             const prefix = isAccrual ? '+' : '-';
+                            const rowClass = isReversed
+                                ? 'opacity-60 hover:bg-gray-50 transition-colors'
+                                : 'hover:bg-gray-50 transition-colors';
 
                             tbody.innerHTML += LPC.html`
-                                <tr class="hover:bg-gray-50 transition-colors">
-                                    <td class="py-4 px-6 text-xs text-gray-500 font-bold">${new Date(l.date).toLocaleDateString('fr-FR')}<br><span class="text-[10px] text-amber-600 font-mono tracking-wide">${l.reference}</span></td>
+                                <tr class="${rowClass}">
+                                    <td class="py-4 px-6 text-xs text-gray-500 font-bold">${LPC.fmt.date(l.date)}<br><span class="text-[10px] text-amber-600 font-mono tracking-wide">${l.reference}</span></td>
                                     <td class="py-4 px-6">${badge}</td>
                                     <td class="py-4 px-6 text-xs font-bold text-gray-700">${l.notes}</td>
                                     <td class="py-4 px-6 text-right font-black ${color}">${prefix} ${LPC.fmt.int(l.amount)}</td>
@@ -534,9 +639,44 @@
             } catch (e) { LPC.modal.alert("Erreur système."); }
         }
 
+        /**
+         * Cancel a purchase order.
+         *
+         * The wording matters here. The old prompt said the action was
+         * "irréversible" — and under the old hard-delete endpoint it was: the
+         * order and its lines were destroyed while its journal entries and
+         * ristourne credits stayed behind, orphaned. The server now reverses
+         * instead of deleting, so the honest message is that the order is kept
+         * and its accounting entries are extourned.
+         */
+        async function cancelPurchaseOrder(id, reference) {
+            const ok = await LPC.modal.confirm(
+                `Annuler la commande ${reference} ?\n\n` +
+                `· Les écritures comptables seront extournées (contre-passées), pas supprimées.\n` +
+                `· Le stock reçu sera retiré et le CUMP recalculé.\n` +
+                `· Toute ristourne gagnée ou utilisée sur cette commande sera reprise.\n\n` +
+                `La commande restera visible, marquée « Annulée ».`
+            );
+            if (!ok) return;
+
+            const fd = new FormData();
+            fd.append('action', 'cancel_inventory');
+            fd.append('id', id);
+
+            try {
+                const response = await fetch('/api/v1/procurement_controller.php', { method: 'POST', body: fd });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    loadTabData();
+                    if (result.message) LPC.modal.alert(result.message);
+                } else LPC.modal.alert("Erreur: " + result.message);
+            } catch (e) { LPC.modal.alert("Erreur système."); }
+        }
+
+        /** Overheads only — they carry no stock and no reversal chain. */
         async function deleteRecord(id) {
             if(!(await LPC.modal.confirm("⚠️ ATTENTION : Voulez-vous vraiment supprimer cet enregistrement ? Cette action est irréversible et impactera la comptabilité."))) return;
-            
+
             const fd = new FormData();
             fd.append('action', `delete_${currentTab}`);
             fd.append('id', id);

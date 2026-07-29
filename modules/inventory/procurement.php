@@ -61,8 +61,26 @@ $user_role = $_SESSION['user_role'];
                 <div class="flex flex-wrap items-center gap-3">
                     <label class="text-xs font-bold text-gray-500 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.periode_2')) ?></label>
                     <select id="kpi_period_type" onchange="handlePeriodUI()" class="bg-white border border-gray-200 rounded-lg px-4 py-2 text-sm font-black text-lpc-dark focus:ring-2 focus:ring-lpc-light outline-none cursor-pointer shadow-sm">
+                        <?php
+                        /*
+                         * Default is "Année en cours", not "Ce mois".
+                         *
+                         * With a monthly default, opening this page in a month
+                         * where nothing has been ordered yet shows an empty
+                         * table, four zeroed KPIs and no indication that a
+                         * filter is responsible — which reads exactly like the
+                         * purchase history has been wiped. That is not a
+                         * hypothetical: it is what prompted this whole change.
+                         *
+                         * YTD is the smallest default that cannot produce a
+                         * blank page for an active business, and the KPI labels
+                         * below now say "Période" rather than hardcoding
+                         * "(Mois)" so the numbers always describe the filter
+                         * actually in force.
+                         */
+                        ?>
+                        <option value="ytd" selected><?= htmlspecialchars(__t('ui.x.annee_en_cours_ytd')) ?></option>
                         <option value="current_month"><?= htmlspecialchars(__t('ui.ce_mois')) ?></option>
-                        <option value="ytd"><?= htmlspecialchars(__t('ui.x.annee_en_cours_ytd')) ?></option>
                         <option value="all"><?= htmlspecialchars(__t('ui.x.tout_l_historique')) ?></option>
                         <option value="custom"><?= htmlspecialchars(__t('ui.x.plage_personnalisee')) ?></option>
                     </select>
@@ -111,7 +129,12 @@ $user_role = $_SESSION['user_role'];
             <div class="bg-lpc-dark px-8 py-5 flex justify-between items-center text-white shrink-0">
                 <div>
                     <h3 class="font-black text-xl tracking-wide flex items-center"><i class="fas fa-file-invoice mr-3"></i> <span id="po-modal-title"><?= htmlspecialchars(__t('ui.x.nouveau_bon_de_commande')) ?></span></h3>
-                    <p class="text-xs text-lpc-light font-bold mt-1 uppercase"><?= htmlspecialchars(__t('ui.x.aucune_entree_en_stock_la_reception_modu')) ?></p>
+                    <!-- text-lpc-light (#8CC63F) on bg-lpc-dark (#005A2B) is 4.11:1 —
+                         under AA for this 12px line, in both themes. The brand green
+                         is right for an icon or a 20px heading, not for small caps on
+                         the dark green. White at 80% keeps the header subordinate to
+                         the title without giving up legibility. -->
+                    <p class="text-xs text-white/80 font-bold mt-1 uppercase"><?= htmlspecialchars(__t('ui.x.aucune_entree_en_stock_la_reception_modu')) ?></p>
                 </div>
                 <button type="button" onclick="closeModal('poModal')" class="text-white/70 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
             </div>

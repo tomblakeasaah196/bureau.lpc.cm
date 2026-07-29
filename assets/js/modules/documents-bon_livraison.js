@@ -109,12 +109,14 @@
             const tbody = document.getElementById('dyn_items_table');
             tbody.innerHTML = '';
             apiData.items.forEach(item => {
-                const formatHtml = item.format ? `<span class="text-xs text-gray-500 ml-1">(${item.format})</span>` : '';
+                // Escaped by the inner LPC.html, then marked raw for the outer
+                // template. See documents-bon_commande.js for the reasoning.
+                const formatHtml = item.format ? LPC.raw(LPC.html`<span class="text-xs text-gray-500 ml-1">(${item.format})</span>`) : '';
                 // If completed, we assume item.qty is what was received for visual purposes on this simple view, 
                 // but realistically your backend might send accepted_qty. We'll show the solid number if completed.
-                const receivedHtml = isCompleted 
-                    ? `<span class="font-black text-lg text-blue-700">${item.qty}</span>` 
-                    : `<div class="w-16 h-8 border-b-2 border-dotted border-gray-400 mx-auto"></div>`;
+                const receivedHtml = isCompleted
+                    ? LPC.raw(LPC.html`<span class="font-black text-lg text-blue-700">${item.qty}</span>`)
+                    : LPC.raw(`<div class="w-16 h-8 border-b-2 border-dotted border-gray-400 mx-auto"></div>`);
 
                 tbody.innerHTML += LPC.html`
                     <tr>

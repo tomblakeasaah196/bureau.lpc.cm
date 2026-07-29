@@ -104,7 +104,10 @@
             globalData.transactions.slice(0, 15).forEach(t => {
                 let amtColor = t.type_direction === 'in' ? 'text-emerald-600' : 'text-red-600';
                 let amtSign = t.type_direction === 'in' ? '+' : '-';
-                let lockIcon = t.is_reconciled == 1 ? '<i class="fas fa-lock text-emerald-500"></i>' : '<i class="fas fa-unlock text-gray-300"></i>';
+                // LPC.raw: static markup, no interpolation. Without it the
+                // tagged template below escapes the tag and the cell prints
+                // `<i class="fas fa-lock">` as text instead of drawing a padlock.
+                let lockIcon = LPC.raw(t.is_reconciled == 1 ? '<i class="fas fa-lock text-emerald-500"></i>' : '<i class="fas fa-unlock text-gray-300"></i>');
 
                 tbody.innerHTML += LPC.html`
                     <tr class="hover:bg-gray-50 border-b border-gray-50">
@@ -332,8 +335,9 @@
                 let rowClass = isRec ? 'reconciled-row' : 'hover:bg-gray-50';
                 let checkProp = isRec ? 'checked disabled' : '';
                 
-                let amtIn = t.type_direction === 'in' ? `<span class="text-emerald-600 font-black">+${fmt(t.amount)}</span>` : '-';
-                let amtOut = t.type_direction === 'out' ? `<span class="text-rose-600 font-black">-${fmt(t.amount)}</span>` : '-';
+                // fmt() returns digits and spaces only, so LPC.raw is safe here.
+                let amtIn = t.type_direction === 'in' ? LPC.raw(`<span class="text-emerald-600 font-black">+${fmt(t.amount)}</span>`) : '-';
+                let amtOut = t.type_direction === 'out' ? LPC.raw(`<span class="text-rose-600 font-black">-${fmt(t.amount)}</span>`) : '-';
 
                 tbody.innerHTML += LPC.html`
                     <tr class="${rowClass} border-b border-gray-100">

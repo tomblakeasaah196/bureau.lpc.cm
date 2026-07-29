@@ -6,7 +6,12 @@
 // Bootstrap: env + DB + hardened session cookies. Public/token-gated page — no Rbac gate here.
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/functions/document_pdf.php';
-lpc_serve_document_pdf('cre');   // returns immediately if ?html=1 or no token
+// The HTML certificate below renders by default — it is what the client opens
+// from the signature confirmation link and what html2canvas + jsPDF export.
+// The condensed server-side dompdf render stays available on demand via ?pdf=1.
+if (($_GET['pdf'] ?? '') === '1') {
+    lpc_serve_document_pdf('cre');   // exits after streaming
+}
 $token = $_GET['token'] ?? '';
 $cre = null;
 $items = [];

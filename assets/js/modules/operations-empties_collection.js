@@ -109,7 +109,9 @@
                 }
 
                 result.data.forEach(row => {
-                    const siteName = row.site_name ? `<span class="text-xs text-blue-600 block">${row.site_name}</span>` : '';
+                    // row.site_name is client-entered, so the inner LPC.html
+                    // escapes it before LPC.raw marks the snippet safe.
+                    const siteName = row.site_name ? LPC.raw(LPC.html`<span class="text-xs text-blue-600 block">${row.site_name}</span>`) : '';
                     tbody.innerHTML += LPC.html`
                         <tr class="hover:bg-gray-50 border-b border-gray-50 transition-colors">
                             <td class="py-3 px-4 font-black text-gray-900">${row.client_name} ${siteName}</td>
@@ -303,12 +305,25 @@
                 if (result.data.length === 0) return container.innerHTML = '<p class="text-center py-8 text-gray-400 font-bold">Aucun historique de collecte.</p>';
 
                 result.data.forEach(cre => {
-                    let statusUI = cre.status === 'en_transit' ? '<span class="bg-amber-100 text-amber-700 px-2 py-1 rounded text-[9px] font-black uppercase"><i class="fas fa-clock"></i> En Attente</span>' :
+                    // LPC.raw: static markup, no interpolation.
+                    let statusUI = LPC.raw(
+                                   cre.status === 'en_transit' ? '<span class="bg-amber-100 text-amber-700 px-2 py-1 rounded text-[9px] font-black uppercase"><i class="fas fa-clock"></i> En Attente</span>' :
                                    cre.status === 'signed' ? '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-[9px] font-black uppercase"><i class="fas fa-check-double"></i> Signé</span>' :
-                                   '<span class="bg-rose-100 text-rose-700 px-2 py-1 rounded text-[9px] font-black uppercase"><i class="fas fa-times"></i> Refusé</span>';
-                    
-                    let actionBtn = cre.status === 'en_transit' ? `<button onclick="showShareModal('${cre.reference}', '${cre.token}', '${cre.client_phone}')" class="text-lpc-dark font-black text-xs bg-green-50 px-3 py-2 rounded-lg border border-green-200 w-full mt-3">Renvoyer Lien</button>` :
-                                    cre.status === 'signed' ? `<a href="/print_cre.php?token=${cre.token}" target="_blank" class="block text-center text-gray-600 font-black text-xs bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg border border-gray-300 w-full mt-3"><i class="fas fa-file-pdf text-red-500 mr-1"></i> Voir le PDF</a>` : '';
+                                   '<span class="bg-rose-100 text-rose-700 px-2 py-1 rounded text-[9px] font-black uppercase"><i class="fas fa-times"></i> Refusé</span>');
+
+                    // The "Renvoyer Lien" button used to build an inline
+                    // onclick="showShareModal('<ref>', '<token>', '<phone>')".
+                    // HTML-escaping cannot make that safe: the parser decodes
+                    // entities BEFORE the JS is compiled, so an escaped quote in
+                    // a client phone number turns back into a real quote and
+                    // closes the argument list. The values move to data-*
+                    // attributes — where escaping IS sufficient — and a single
+                    // delegated listener below reads them back.
+                    let actionBtn = cre.status === 'en_transit'
+                        ? LPC.raw(LPC.html`<button type="button" class="js-cre-reshare text-lpc-dark font-black text-xs bg-green-50 px-3 py-2 rounded-lg border border-green-200 w-full mt-3" data-ref="${cre.reference}" data-token="${cre.token}" data-phone="${cre.client_phone || ''}">Renvoyer Lien</button>`)
+                        : cre.status === 'signed'
+                        ? LPC.raw(LPC.html`<a href="/print_cre.php?token=${cre.token}" target="_blank" class="block text-center text-gray-600 font-black text-xs bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg border border-gray-300 w-full mt-3"><i class="fas fa-file-pdf text-red-500 mr-1"></i> Voir le PDF</a>`)
+                        : '';
 
                     container.innerHTML += LPC.html`
                         <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
@@ -321,7 +336,16 @@
                 });
             } catch(e) {}
         }
-    
+
+        /* Delegated handler for the "Renvoyer Lien" buttons rendered above.
+           Bound once on the container rather than per row, so it keeps working
+           for cards added by later loadHistory() calls. */
+        document.addEventListener('click', function (ev) {
+            const btn = ev.target.closest('.js-cre-reshare');
+            if (!btn) return;
+            showShareModal(btn.dataset.ref, btn.dataset.token, btn.dataset.phone);
+        });
+
         /* ---------------------------------------------------------------------
            Arrival from a deep link (Sprint 7F).
            Reached as ?client_id=..&client=..&from=crm_clients from the CRM
