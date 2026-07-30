@@ -43,6 +43,13 @@ require_once __DIR__ . '/../pdf_templates/document_header.php';
 // so the dompdf quote renders the same wording as the HTML page rather than a
 // second, drifting copy — which is exactly what this file used to be.
 require_once __DIR__ . '/proposal_template.php';
+// Sprint 10: the devis one-pager's internal sign-off (migration 048) and its
+// verification QR. Both degrade to a harmless "unsigned" / text-fallback
+// render if their migration hasn't run or their composer package isn't
+// installed yet — see the docblocks in each file — so neither can turn a
+// missing deploy step into a broken document.
+require_once __DIR__ . '/../classes/DocumentSignature.php';
+require_once __DIR__ . '/qr.php';
 
 /**
  * Public entry point. Types map 1:1 to the pdf_documents.type enum.
@@ -1079,28 +1086,62 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
  * duplicates of each other and left the one-pager with no implementation at
  * all. This is the one-pager, restored.
  *
+ * SPRINT 10 — LAYOUT REBUILD + INTERNAL SIGNATURE + QR VERIFICATION
+ * -------------------------------------------------------------------------
+ * Rebuilt against a mock the sales team hand-approved, replacing the shared
+ * lpc_document_header()/lpc_document_footer() with a layout specific to this
+ * one document:
+ *   - the reference / date / validity used to sit in a narrow right-aligned
+ *     card and wrapped ("RÉFÉRENCE : DEV-2607-E226" onto two lines at some
+ *     lengths). It is now a single full-width bar directly under the header
+ *     band, one line, `white-space: nowrap` on the value so it cannot wrap
+ *     again regardless of reference length.
+ *   - RCCM / NIU used to appear twice — once in the compact identity block
+ *     under the header, once in the statutory footer. It now prints ONCE,
+ *     in the footer only. The header carries nothing but the logo and the
+ *     document title, which is also what bought back the height this
+ *     spends on the signature block below.
+ *   - the LPC-side signature is now a real attestation, not a blank rule to
+ *     sign by hand: DocumentSignature (migration 048) records a content hash
+ *     of the priced figures, the logged-in staff member's own name and role
+ *     (UserProfile — never a value typed into a form), and a verify_token. If
+ *     an active signature exists for the CURRENT figures, this template
+ *     prints a stamp — signer, role, timestamp, a hash fragment — plus a QR
+ *     to /verify/{token} (public/verify.php). If the document was signed and
+ *     then edited, the stored hash no longer matches and this falls back to
+ *     the unsigned appearance automatically (see DocumentSignature::getActive);
+ *     nothing here has to know the difference between "never signed" and
+ *     "signed, then changed".
+ *
  * ONE PAGE IS A HARD CONSTRAINT, NOT AN ASPIRATION
  * ------------------------------------------------
  * Nothing here may introduce a page break, so the height of every block is
- * budgeted. A4 is 297 mm and `body` reserves 16 mm at the foot for the fixed
- * statutory footer, leaving 281 mm. Measured off the CSS below, at the worst
- * case for each block (company name wrapping to two lines, the longest fiscal
- * ladder — HT + accises + TVA + TTC — and four lines of small print):
+ * budgeted. A4 is 297 mm and `body` reserves 17 mm at the foot for the fixed
+ * statutory footer (now two lines — name/legal mentions, then address/contact
+ * — since it carries the identity block the header no longer does), leaving
+ * 280 mm. Measured off the CSS below, at the worst case for each block
+ * (company name wrapping to two lines, the longest fiscal ladder — HT +
+ * accises + TVA + TTC — and four lines of small print):
  *
  *     rule + top padding .........  10 mm
- *     header band ................  31 mm   logo 17mm vs. title + 3 meta rows
- *     legal identity (compact) ...  12 mm
+ *     header band (logo | title) .  24 mm   logo capped at 24mm, not 17mm
+ *     meta bar (one line, always).   8 mm   was a wrapping card; now a bar
  *     client card row ............  38 mm
  *     h2 + items table header ....  16 mm
  *     priced rows ................ 6.4 mm each  <- the only variable block
  *     ladder (words ride beside)..  31 mm
  *     h2 + conditions + fine .....  35 mm
- *     signatures .................  30 mm
+ *     signatures (stamp + QR) ....  34 mm   was 30mm; +4mm for the stamp/QR
  *     ---------------------------------------
- *     fixed ...................... 204 mm     -> 77 mm for priced rows
+ *     fixed ...................... 196 mm     -> 84 mm for priced rows
  *
- * 77 mm buys 12 plain rows, 10 if two descriptions wrap, 9 if four do. The
- * clamp below is therefore 9 — the pessimistic figure, not the optimistic one.
+ * 84 mm buys 13 plain rows. The clamp below is still 9 — deliberately left at
+ * the old, more pessimistic figure rather than raised to match, because the
+ * 40-line stress case in scripts/tests/quote_onepager.test.php asserts the
+ * exact "8 printed + 1 summed (32)" shape of the spill row, and changing the
+ * clamp changes that count. The extra headroom this layout buys is margin,
+ * not an invitation to loosen the clamp casually — if you do want to raise
+ * it, update the test's expectations deliberately, in the same change.
  * Past 9 the tail is summed into a single "autres articles (N)" row: the ladder
  * still reconciles to the same total, and the full itemisation is one click away
  * in the HTML proposal. Truncating silently would be worse than spilling onto
@@ -1109,7 +1150,9 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
  * If you change a font size, a padding or a margin in here, re-run
  * scripts/tests/quote_onepager.test.php. It renders nine records through dompdf
  * — including 40 line items and a two-line client name — and asserts one page
- * each. The budget above is arithmetic; that test is the fact.
+ * each. The budget above is arithmetic; that test is the fact. I have not been
+ * able to execute it myself while writing this (no PHP runtime in this
+ * environment) — run it before you trust this comment over the test's output.
  *
  * What the 4-page proposal carries and this deliberately does not: the cover
  * title block, the company profile and capability prose, the reference logos,
@@ -1125,6 +1168,10 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
  * and Bon pour accord.
  *
  * Written against dompdf's CSS subset: tables and floats, no flexbox, no grid.
+ * The signature stamp's rotation (`transform: rotate(-2deg)`) follows the same
+ * pattern already used for the generic document stamp further up this file
+ * (search `.stamp`) rather than introducing a new untested technique — if
+ * dompdf silently ignores the rotation the stamp still reads fine unrotated.
  *
  * Wording comes from lpc_proposal_text() so the Proposal Studio keeps editing
  * it, and every figure comes from the proposals row. Two exceptions inherited
@@ -1158,6 +1205,16 @@ function lpc_render_quote_pdf_html(array $doc, array $lh, string $lhLogo, string
     $fdate = static function ($v) {
         return $v ? date('d/m/Y', strtotime((string) $v)) : '—';
     };
+    $fdatetime = static function ($v) {
+        // Built as two date() calls joined by a literal ' à ' rather than one
+        // format string with the accent escaped in-line: date()'s backslash
+        // escape only covers a single byte, and 'à' is two bytes in UTF-8 —
+        // it happens to round-trip correctly either way, but not worth
+        // relying on that.
+        if (!$v) return '—';
+        $ts = strtotime((string) $v);
+        return $ts ? date('d/m/Y', $ts) . ' à ' . date('H\hi', $ts) : '—';
+    };
 
     $consigne = $doc['consigne'] ?? [];
     $annexes  = $doc['annexes'] ?? [];
@@ -1167,6 +1224,32 @@ function lpc_render_quote_pdf_html(array $doc, array $lh, string $lhLogo, string
     // référence row rather than taking a fourth row of its own — the budget
     // above allows three.
     $ref_full = $doc['reference'] . ($doc['revision'] > 1 ? ' rév. ' . $doc['revision'] : '');
+
+    // ---- internal sign-off (migration 048) -----------------------------
+    // null when never signed, revoked, or signed-then-edited (the stored hash
+    // no longer matches these exact figures) — DocumentSignature::getActive()
+    // makes those three cases indistinguishable on purpose: a document whose
+    // figures changed after signing must render exactly as unsigned, not as
+    // "signed" with stale numbers. Wrapped defensively even though the class
+    // already catches its own DB errors — this render must never fail because
+    // an optional attestation lookup did.
+    $signature = null;
+    try {
+        $signature = DocumentSignature::getActive('quote', (int) ($doc['record_id'] ?? 0), $doc);
+    } catch (\Throwable $sigErr) {
+        // NOT `$e` — that name is already the HTML-escaping closure defined
+        // above, and PHP catch variables are not block-scoped: assigning to
+        // $e here would silently replace the closure with this exception
+        // object for the rest of the function, and every $e(...) call below
+        // would fatal. Caught this in review; leaving the note so it isn't
+        // reintroduced by a future edit.
+        error_log('lpc_render_quote_pdf_html: signature lookup failed: ' . $sigErr->getMessage());
+    }
+    $verify_url = '';
+    if ($signature) {
+        $verify_base = defined('APP_URL') ? APP_URL : 'https://bureau.lpc.cm';
+        $verify_url  = rtrim($verify_base, '/') . '/verify/' . $signature['verify_token'];
+    }
 
     // ---- the one variable-height block, clamped ----------------------------
     // 9 = the pessimistic row count from the height budget in the docblock. The
@@ -1188,13 +1271,62 @@ function lpc_render_quote_pdf_html(array $doc, array $lh, string $lhLogo, string
     /* One page. No rule in here may create a break, and nothing declares
        page-break-before — see the height budget in the function docblock. */
     @page { margin: 0; }
-    /* 16mm clears the fixed footer: it sits at bottom 8mm and is 6pt text over a
-       2mm padded rule, so it occupies ~13mm. */
+    /* 17mm clears the fixed footer: it sits at bottom 7mm and is two lines of
+       6pt text over a padded rule, so it occupies ~15mm top-to-bottom. */
     body  { font-family: 'DejaVu Sans', sans-serif; font-size: 9pt; color: #1F2937;
-            margin: 0 0 16mm 0; }
+            margin: 0 0 17mm 0; }
 
-<?= lpc_document_header_css($brand) ?>
-<?= lpc_document_footer_css() ?>
+    .lpc-rule { height: 4mm; background: <?= $brand ?>; }
+    .lpc-pad  { padding: 0 14mm; }
+
+    /* ---- header band: logo | title ---------------------------------------- */
+    .dhead        { width: 100%; border-collapse: collapse; }
+    .dhead td     { vertical-align: middle; padding: 0; }
+    .dhead-logo   { width: 58%; }
+    .dhead-title  { width: 42%; text-align: right; }
+    .doctitle     { font-size: 25pt; font-weight: bold; margin: 0; letter-spacing: -0.6pt;
+                    color: #111827; text-transform: uppercase; }
+
+    /* ---- meta bar: référence / date / validité — ALWAYS one line ----------
+       A full-width bar under the header, not the narrow right-aligned card
+       this replaces: the card wrapped "RÉFÉRENCE : DEV-2607-E226" onto two
+       lines at some reference lengths. white-space:nowrap on the value is the
+       actual guarantee; the width is just what makes nowrap never necessary. */
+    .mbar          { width: 100%; border-collapse: collapse; margin-top: 3mm;
+                     background: #F9FAFB; border: 0.5pt solid #E5E7EB; border-radius: 2mm; }
+    .mbar td       { padding: 2mm 4mm; font-size: 8pt; white-space: nowrap;
+                     border-right: 0.5pt solid #E5E7EB; }
+    .mbar td.last  { border-right: none; }
+    .mbar .k       { color: #9CA3AF; font-size: 6.5pt; text-transform: uppercase;
+                     letter-spacing: 0.6pt; font-weight: bold; margin-right: 1.5mm; }
+    .mbar .v       { font-weight: bold; color: #111827; }
+    .mbar .v.danger{ color: #B91C1C; }
+
+    /* ---- signature stamp ---------------------------------------------------
+       Nested elements with a fixed mm border-radius (= half the box side)
+       rather than border-radius: 50% — an explicit radius is the more-proven
+       path in dompdf. The rotation follows the existing `.stamp` pattern
+       elsewhere in this file (search transform: rotate) rather than a new
+       technique; if a given dompdf build ignores it the stamp still reads
+       fine unrotated. */
+    .stampring    { width: 21mm; height: 21mm; border: 1.1pt solid <?= $brand ?>;
+                    border-radius: 10.5mm; text-align: center; padding-top: 3.2mm;
+                    transform: rotate(-4deg); }
+    .stampcheck   { font-size: 15pt; font-weight: bold; color: <?= $brand ?>; line-height: 1; }
+    .stampcaption { font-size: 5.3pt; font-weight: bold; letter-spacing: 0.5pt;
+                    color: <?= $brand ?>; text-transform: uppercase; margin-top: 1mm; line-height: 1.3; }
+
+    /* ---- statutory footer ---------------------------------------------------
+       Left-aligned and capped at 145mm — deliberately NOT centred full-width
+       — so it can never collide with the automatic page-counter dompdf draws
+       in the bottom-right corner (PdfRenderer::fromHtml, canvas_width-100px
+       from the left; see lpc_serve_document_pdf). A long legal-mentions line
+       in a centred/full-width footer could reach into that corner; this
+       footer's right edge stops 51mm short of the page edge, well clear. */
+    .dfoot        { position: fixed; bottom: 7mm; left: 14mm; width: 145mm;
+                    color: #9CA3AF; font-size: 6pt; line-height: 1.55;
+                    border-top: 0.5pt solid #E5E7EB; padding-top: 1.8mm; }
+    .dfoot .nm    { font-weight: bold; color: #6B7280; }
 
     table   { width: 100%; border-collapse: collapse; }
     td, th  { vertical-align: top; }
@@ -1236,21 +1368,41 @@ function lpc_render_quote_pdf_html(array $doc, array $lh, string $lhLogo, string
 <div class="lpc-rule"></div>
 <div class="lpc-pad" style="padding-top: 6mm;">
 <?php
-// The same letterhead the facture carries, with the mentions folded onto two
-// lines — see 'identity' => 'compact' in document_header.php. Validité sits in
-// the meta box because on an offer it governs the price as much as the date
-// does, and putting it there means the client card below need not repeat it.
-echo lpc_document_header([
-    'title'    => 'Devis',
-    'logo'     => $lhLogo,
-    'identity' => 'compact',
-    'meta'     => [
-        [lpc_proposal_text('meta_ref', 'fr'),         $ref_full],
-        [lpc_proposal_text('meta_date', 'fr'),        $fdate($doc['date'])],
-        [lpc_proposal_text('meta_valid_until', 'fr'), $fdate($doc['valid_until']), 'danger'],
-    ],
-]);
+// Sprint 10: a header specific to this document rather than the shared
+// lpc_document_header() — logo and title only. The legal identity moved to
+// the footer (see the function docblock and the RCCM/NIU question it
+// answers), and the reference/date/validity became the full-width bar below
+// instead of a narrow right-aligned card — the card is what used to wrap
+// "RÉFÉRENCE : DEV-2607-E226" onto two lines at some reference lengths.
 ?>
+<table class="dhead">
+    <tr>
+        <td class="dhead-logo">
+            <?php if ($lhLogo !== ''): ?>
+                <img src="<?= $e($lhLogo) ?>" style="max-height: 24mm; max-width: 62mm;">
+            <?php else: ?>
+                <div style="font-size: 20pt; font-weight: bold; color: <?= $brand ?>;">
+                    <?= $e($lh['name']) ?>
+                </div>
+            <?php endif; ?>
+        </td>
+        <td class="dhead-title">
+            <h1 class="doctitle">Devis</h1>
+        </td>
+    </tr>
+</table>
+
+<?php
+// One line, guaranteed: white-space:nowrap on .mbar .v (see CSS) rather than
+// relying on the bar being wide enough — a guarantee, not a hope.
+?>
+<table class="mbar">
+    <tr>
+        <td><span class="k"><?= $p('meta_ref') ?></span><span class="v"><?= $e($ref_full) ?></span></td>
+        <td><span class="k"><?= $p('meta_date') ?></span><span class="v"><?= $e($fdate($doc['date'])) ?></span></td>
+        <td class="last"><span class="k"><?= $p('meta_valid_until') ?></span><span class="v danger"><?= $e($fdate($doc['valid_until'])) ?></span></td>
+    </tr>
+</table>
 
 <!-- ══ WHO IT IS FOR, WHO WROTE IT ═════════════════════════════════════════ -->
 <table style="margin-top: 4.5mm;">
@@ -1303,7 +1455,14 @@ echo lpc_document_header([
 </table>
 
 <!-- ══ THE OFFER ═══════════════════════════════════════════════════════════ -->
-<h2 class="sec"><?= $p('sec3_title') ?></h2>
+<?php
+// onepager_items_title, NOT sec3_title: sec3_title is correctly "3. …" on the
+// 4-page HTML proposal (it really is page 3 of 4 there). This one-pager needs
+// its own untitled-number heading — see migration 048's companion change in
+// lpc_proposal_defaults() for why this is a separate key rather than a
+// conditional numbering hack on the shared one.
+?>
+<h2 class="sec"><?= $p('onepager_items_title') ?></h2>
 <table class="items">
     <thead>
         <tr>
@@ -1431,21 +1590,56 @@ if ($annexes)  $carried[] = lpc_proposal_text('sec_annex_title', 'fr');
 
 <!-- ══ SIGNATURES ══════════════════════════════════════════════════════════ -->
 <?php
-// 11mm and 13mm of clear space above the rules. Enough for a signature, and the
-// client side gets the extra 2mm because a cachet d'entreprise is bigger than a
-// signature and is stamped over the line, not beside it.
+// Signed: DocumentSignature::getActive() found a row whose stored hash still
+// matches these exact figures — a stamp, the signer's real name and role
+// (resolved server-side at signing time, never from request input), a hash
+// fragment, and a QR to /verify/{token}. Unsigned (never signed, revoked, or
+// signed-then-edited — see the function docblock for why those three collapse
+// to the same appearance): the original blank rule, for a wet-ink signature.
 ?>
 <table style="margin-top: 5mm;">
     <tr>
-        <td style="width: 48%; padding-right: 8mm;">
-            <div class="caps xtiny muted"><?= $p('sig_lpc') ?></div>
-            <div class="b tiny" style="margin-top: 0.8mm;"><?= $p('sig_role_lpc') ?></div>
-            <div style="margin-top: 11mm; border-top: 0.5pt solid #9CA3AF; padding-top: 1.2mm;">
-                <div class="caps xtiny muted"><?= $p('sig_prep') ?></div>
-                <div class="b tiny" style="color: <?= $brand ?>;"><?= $e($doc['sales_rep'] ?: '—') ?></div>
-            </div>
+        <td style="width: 46%; padding-right: 5mm;">
+            <?php if ($signature): ?>
+                <table>
+                    <tr>
+                        <td style="width: 23mm;">
+                            <div class="stampring">
+                                <div class="stampcheck">&#10003;</div>
+                                <div class="stampcaption">Signé<br>Vérifié</div>
+                            </div>
+                        </td>
+                        <td style="padding-left: 2.5mm;">
+                            <div class="caps xtiny muted">Signé électroniquement pour <?= $e($lh['name']) ?></div>
+                            <div class="b" style="font-size: 10pt; color: #111827; margin-top: 0.8mm;">
+                                <?= $e($signature['signer_name']) ?>
+                            </div>
+                            <div class="tiny muted"><?= $e($signature['signer_role']) ?></div>
+                            <div class="xtiny muted" style="margin-top: 1.2mm;">Le <?= $e($fdatetime($signature['signed_at'])) ?></div>
+                            <div class="xtiny" style="opacity: 0.7; margin-top: 0.6mm; letter-spacing: 0.2pt;">
+                                Hash <?= $e(substr($signature['content_hash'], 0, 16)) ?>&hellip;
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+            <?php else: ?>
+                <div class="caps xtiny muted"><?= $p('sig_lpc') ?></div>
+                <div class="b tiny" style="margin-top: 0.8mm;"><?= $p('sig_role_lpc') ?></div>
+                <div style="margin-top: 11mm; border-top: 0.5pt solid #9CA3AF; padding-top: 1.2mm;">
+                    <div class="caps xtiny muted"><?= $p('sig_prep') ?></div>
+                    <div class="b tiny" style="color: <?= $brand ?>;"><?= $e($doc['sales_rep'] ?: '—') ?></div>
+                </div>
+            <?php endif; ?>
         </td>
-        <td style="width: 52%;">
+        <td style="width: 19%; text-align: center;">
+            <?php if ($signature && $verify_url !== ''): ?>
+                <div style="width: 20mm; height: 20mm; margin: 0 auto;">
+                    <?= lpc_qr_or_fallback($verify_url, 'width:20mm;height:20mm;overflow:hidden;') ?>
+                </div>
+                <div class="xtiny muted" style="margin-top: 1mm;">Scannez pour vérifier</div>
+            <?php endif; ?>
+        </td>
+        <td style="width: 35%;">
             <div class="caps xtiny muted"><?= $p('sig_client') ?></div>
             <div style="margin-top: 13mm; border-top: 0.5pt solid #9CA3AF; padding-top: 1.2mm;">
                 <div class="b tiny"><?= $e($client['name']) ?></div>
@@ -1456,7 +1650,19 @@ if ($annexes)  $carried[] = lpc_proposal_text('sec_annex_title', 'fr');
 </table>
 </div>
 
-<?= lpc_document_footer() ?>
+<?php
+// The statutory footer — RCCM/NIU/capital/address/contact, ONCE, here only
+// (see the function docblock for the decision not to also print it in the
+// header). Custom rather than lpc_document_footer(): that helper renders one
+// centred line; this is two, left-aligned and width-capped so it can never
+// reach the automatic page-counter dompdf draws in the bottom-right corner —
+// see .dfoot in the stylesheet above for the exact reasoning.
+?>
+<div class="dfoot">
+    <div class="nm"><?= $e($lh['name']) ?></div>
+    <?= $e(implode(' · ', array_filter([$lh['mentions'], $lh['address']]))) ?><br>
+    <?= $e($lh['contact']) ?>
+</div>
 
 </body></html>
     <?php

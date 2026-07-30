@@ -70,6 +70,7 @@ RewriteRule ^quote\.php$             /public/documents/quote.php           [L,QS
 RewriteRule ^sign_bl\.php$           /public/documents/sign_bl.php         [L,QSA]
 RewriteRule ^sign_cre\.php$          /public/documents/sign_cre.php        [L,QSA]
 RewriteRule ^print_cre\.php$         /public/documents/print_cre.php       [L,QSA]
+RewriteRule ^verify\.php$            /public/verify.php                    [L,QSA]
 RewriteRule ^password_manager\.php$  /public/auth/password_manager.php     [L,QSA]
 RewriteRule ^password_reset\.php$    /public/auth/password_reset.php       [L,QSA]
 RewriteRule ^reset/([A-Fa-f0-9]{32,128})/?$  /public/auth/password_reset.php?token=$1  [L,QSA]
@@ -81,6 +82,10 @@ RewriteRule ^quote/([A-Fa-f0-9]{16,64})/?$      /public/documents/quote.php?toke
 RewriteRule ^po/([A-Fa-f0-9]{16,64})/?$         /public/documents/bon_commande.php?token=$1   [L,QSA]
 RewriteRule ^sign/bl/([A-Fa-f0-9]{16,64})/?$    /public/documents/sign_bl.php?token=$1        [L,QSA]
 RewriteRule ^sign/cre/([A-Fa-f0-9]{16,64})/?$   /public/documents/sign_cre.php?token=$1       [L,QSA]
+# verify_token is always exactly 40 lowercase hex chars (bin2hex of 20 random
+# bytes — DocumentSignature::sign()) — matches DocumentSignature::verifyByToken()'s
+# own ^[a-f0-9]{40}$ check, unlike the {16,64} mixed-case document tokens above.
+RewriteRule ^verify/([a-f0-9]{40})/?$           /public/verify.php?token=$1                   [L,QSA]
 
 <IfModule mod_headers.c>
     # Only send HSTS on HTTPS responses. 1 year, include subdomains, allow preload.

@@ -107,6 +107,15 @@ function lpc_proposal_defaults(): array
         // Page 3 — offer & pricing
         'header_p3'    => ['Offre Commerciale', 'Commercial Offer'],
         'sec3_title'   => ["3. Détails de l'Offre et Tarification", '3. Offer Details & Pricing'],
+        // The one-pager's own heading for this table (Sprint 10, migration
+        // 048's companion change) — NOT sec3_title. The one-pager is a
+        // standalone document with no page 1 or 2 of its own, so "3." in
+        // front of the heading was a leftover from the 4-page proposal's
+        // numbering, printed on a document where it means nothing. Kept as
+        // a separate key rather than dropping the number from sec3_title,
+        // because sec3_title's "3." is CORRECT there — it really is page 3
+        // of 4 — and the two documents must stay free to diverge.
+        'onepager_items_title' => ['Désignation et Tarification', 'Product Designation & Pricing'],
         'tbl_desc'     => ['Désignation du Produit', 'Product Description'],
         'tbl_qty'      => ['Qté (Mensuelle)', 'Est. Monthly Qty'],
         'tbl_price'    => ['Prix Unitaire', 'Unit Price'],

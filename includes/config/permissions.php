@@ -46,6 +46,10 @@ $LPC_PERMISSIONS = [
         'crm.proposals.view'      => 'Voir les propositions/devis',
         'crm.proposals.create'    => 'Créer un devis',
         'crm.proposals.template'  => 'Modifier le modèle de proposition commerciale (Studio)',
+        // Sprint 10 · migration 048. Separate from .create on purpose: writing
+        // a devis and attesting to its figures with an internal digital
+        // signature are different levels of authority.
+        'crm.proposals.sign'      => 'Apposer la signature électronique interne sur un devis',
     ],
 
     // ---------------- Help Centre -----------------------------------------
@@ -253,7 +257,7 @@ $LPC_DEFAULT_ROLE_PERMISSIONS = [
     'sales' => [
         'dashboard.sales.view',
         'crm.clients.view', 'crm.clients.create', 'crm.clients.edit', 'crm.clients.convert',
-        'crm.proposals.view', 'crm.proposals.create', 'crm.proposals.template',
+        'crm.proposals.view', 'crm.proposals.create', 'crm.proposals.template', 'crm.proposals.sign',
         'sales.orders.view', 'sales.orders.create', 'sales.orders.edit', 'sales.orders.dispatch',
         'sales.deliveries.view', 'sales.deliveries.close',
         'inventory.stock.view',

@@ -39,6 +39,16 @@ if (($_GET['pdf'] ?? '') === '1') {
 // this page can never render with holes in it. See the file header for why.
 require_once __DIR__ . '/../../includes/functions/proposal_template.php';
 
+// Sprint 10: the "Signer" button in the nav below is the internal digital
+// sign-off for the one-page PDF (?pdf=1 — see lpc_render_quote_pdf_html()).
+// Gated on crm.proposals.sign rather than hidden by JS: this page is reached
+// by a bare token with no login required, so the gate has to hold even if a
+// visitor is not authenticated at all — Rbac::hasPermission() returns false
+// for an empty session exactly as it would for a logged-in user without the
+// permission, so this one check covers both.
+require_once __DIR__ . '/../../includes/classes/UserProfile.php';
+$lpcCanSign = Rbac::hasPermission('crm.proposals.sign');
+
 /**
  * Echo a template value, HTML-escaped, in French.
  *
@@ -154,6 +164,13 @@ $proposalLogos = lpc_proposal_logos();
                    class="flex items-center gap-2 px-6 py-2 bg-white border border-lpc-dark text-lpc-dark rounded-lg font-bold text-sm hover:bg-gray-50 transition-all shadow-sm">
                     <i class="fas fa-file-invoice"></i> <span data-i18n="btn_offer"><?= pq('btn_offer') ?></span>
                 </a>
+
+                <?php if ($lpcCanSign): ?>
+                <button onclick="openSignModal()" id="btn-sign"
+                        class="flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg font-bold text-sm hover:bg-amber-100 transition-all">
+                    <i class="fas fa-stamp"></i> <span id="btn-sign-label">Signature</span>
+                </button>
+                <?php endif; ?>
             </div>
         </div>
     </nav>
@@ -475,6 +492,20 @@ $proposalLogos = lpc_proposal_logos();
         </div>
     </div>
 
+    <?php if ($lpcCanSign): ?>
+    <div id="signModal" class="modal fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm px-4">
+        <div class="modal-content bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-100">
+            <div class="bg-lpc-dark px-6 py-4 flex justify-between items-center text-white">
+                <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-stamp"></i> Signature électronique interne</h3>
+                <button onclick="closeModal('signModal')" class="text-gray-300 hover:text-white transition-colors"><i class="fas fa-times text-xl"></i></button>
+            </div>
+            <div class="p-6 space-y-4" id="sign_modal_body">
+                <p class="text-sm text-gray-500">Chargement…</p>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <script type="application/json" id="lpc-proposal-template">
 <?php
 // JSON_HEX_TAG (and friends) are load-bearing here, not decoration: these
@@ -489,5 +520,15 @@ echo json_encode(
 ?>
     </script>
     <script src="<?= lpc_asset('/assets/js/modules/documents-quote.js') ?>" defer></script>
+    <?php if ($lpcCanSign): ?>
+    <script type="application/json" id="lpc-page-data"><?= json_encode([
+        'token'       => (string) ($_GET['token'] ?? ''),
+        'csrf'        => Csrf::token(),
+        'csrfField'   => '_csrf',
+        'signerName'  => UserProfile::displayName(),
+        'signerRole'  => UserProfile::roleLabel(),
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?></script>
+    <script src="<?= lpc_asset('/assets/js/modules/documents-quote-sign.js') ?>" defer></script>
+    <?php endif; ?>
 </body>
 </html>

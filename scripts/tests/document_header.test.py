@@ -63,26 +63,53 @@ print('─── one header, both documents ───')
 
 check('the shared partial exists', 'function lpc_document_header' in HDR)
 check('invoice calls it', 'lpc_document_header(' in invoice)
-check('quote calls it', 'lpc_document_header(' in quote)
+
+# Sprint 10: the quote DELIBERATELY stopped calling the shared partial. The
+# approved redesign needs a one-line reference/date/validity bar directly
+# under the logo and RCCM/NIU in the footer only — neither is expressible
+# through lpc_document_header()'s API (a right-aligned meta CARD, identity
+# folded into the body). Rather than bend the shared partial to fit one
+# caller, the quote now has its own header/footer markup. The invariant this
+# section actually guards — every legal-identity fact comes from
+# CompanyProfile, never a hardcoded literal — still has to hold, just checked
+# positively (quote DOES read $lh) instead of via the call it no longer makes.
+check('quote no longer calls the shared partial (Sprint 10 redesign, by design)',
+      'lpc_document_header(' not in decomment(quote),
+      'decomment() matters here — the migration comment explaining the removal names the old call')
+check('quote prints its own title instead',
+      '>Devis<' in quote or "'>Devis'" in quote)
+check('quote\'s own header still sources the logo/name from CompanyProfile, not a literal',
+      "$lh['name']" in quote and '$lhLogo' in quote)
+
 def passes_title(src, title):
     """Tolerant of the alignment padding in an aligned => array."""
     return re.search(r"'title'\s*=>\s*'" + title + r"'", src) is not None
 
 
-check('only the title differs',
-      passes_title(invoice, 'Facture') and passes_title(quote, 'Devis'))
+check('invoice title still goes through the shared partial',
+      passes_title(invoice, 'Facture'))
 
-# Neither template may build its own letterhead any more.
-for name, src in (('invoice', invoice), ('quote', quote)):
-    check(f'{name} has no private letterhead',
-          "$lh['mentions']" not in src and "$lh['address']" not in src,
-          'template is assembling its own identity block again')
+# Invoice must not build its own letterhead — it still goes entirely through
+# the shared partial. Quote is the opposite now: its custom footer carries
+# the RCCM/NIU/address block itself (see the module docblock for why it moved
+# out of the header), so it is EXPECTED to reference $lh directly — the check
+# for quote is therefore the positive form: those facts must still come from
+# $lh, never be re-typed.
+check('invoice has no private letterhead',
+      "$lh['mentions']" not in invoice and "$lh['address']" not in invoice,
+      'invoice is assembling its own identity block again')
+check('quote\'s footer sources RCCM/NIU/address from $lh, not a literal',
+      "$lh['mentions']" in quote and "$lh['address']" in quote,
+      'quote is hardcoding identity facts instead of reading CompanyProfile')
 
 check('identity comes from CompanyProfile',
       'CompanyProfile::letterhead' in HDR)
 check('no hardcoded NIU or RC anywhere in the templates',
       not re.search(r'(NIU|RC)\s*[:=]\s*[\'"]?[MP]\d{6,}', decomment(PDF) + decomment(HDR)),
       'a placeholder identifier is back in the source')
+check('RCCM/NIU still appear exactly once on the quote (footer only, not also in the header)',
+      len(re.findall(r"\$lh\['mentions'\]", quote)) == 1,
+      'legal mentions are printed more than once — the header/footer duplication this redesign removed')
 
 print('\n─── the header band is one table row ───')
 # Logo and meta must be two cells of ONE row; floats would let the taller hang.
@@ -170,6 +197,39 @@ check('nothing left of the 4-page replica',
 # edits it in the Studio and the document does not change.
 check('no orphaned template keys', 'cover_summary' not in decomment(TPL),
       'cover_summary_* is defined but rendered nowhere')
+
+print('\n─── internal signature + QR verification (Sprint 10) ───')
+
+SIG_CLASS = (ROOT / 'includes/classes/DocumentSignature.php').read_text(encoding='utf-8')
+SIG_CTRL  = (ROOT / 'api/v1/proposal_signature_controller.php').read_text(encoding='utf-8')
+VERIFY    = (ROOT / 'public/verify.php').read_text(encoding='utf-8')
+HTACCESS  = (ROOT / '.htaccess').read_text(encoding='utf-8')
+
+check('quote looks up an active signature for the CURRENT figures',
+      'DocumentSignature::getActive(' in decomment(quote))
+check('quote never trusts a stale hash — getActive takes $doc, not just an id',
+      re.search(r"DocumentSignature::getActive\(\s*'quote'\s*,[^,]+,\s*\$doc\s*\)", decomment(quote)) is not None)
+check('quote renders a QR (or its text fallback) only when actually signed',
+      'lpc_qr_or_fallback(' in quote)
+check('the signer name/role printed are the ones stored on the signature row, not request input',
+      "$signature['signer_name']" in quote and "$signature['signer_role']" in quote)
+
+check('signing requires its own permission, not just proposal-view/create',
+      "Rbac::requirePermission('crm.proposals.sign')" in SIG_CTRL)
+check('sign/revoke are CSRF-protected',
+      SIG_CTRL.count('Csrf::requireValid()') >= 2)
+check('the signer identity comes from the session-resolved profile, never $_POST',
+      'UserProfile::displayName()' in SIG_CLASS and 'UserProfile::roleLabel()' in SIG_CLASS,
+      'a caller must not be able to sign as an arbitrary name by typing it into a form')
+check('a signature is revoked, never deleted',
+      'DELETE FROM document_signatures' not in SIG_CLASS and 'revoked_at' in SIG_CLASS)
+
+check('the public verify page keys off verify_token only, never the document access token',
+      'verifyByToken(' in VERIFY)
+check('verify.php distinguishes revoked from unknown rather than 404ing both the same way',
+      "'revoked'" in VERIFY and "'unknown'" in VERIFY)
+check('the pretty /verify/{token} route is wired in .htaccess',
+      re.search(r'\^verify/.*public/verify\.php', HTACCESS) is not None)
 
 print('\nAll assertions passed.' if not failures else f'\n{len(failures)} assertion(s) FAILED.')
 sys.exit(0 if not failures else 1)
