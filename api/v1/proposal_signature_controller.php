@@ -50,6 +50,19 @@ function ps_fail(string $msg, int $code = 400): void
 }
 
 /**
+ * JSON body (what documents-quote-sign.js sends) with a classic form-POST
+ * fallback. $_POST is only populated by PHP for form-encoded bodies, so a
+ * fetch() with Content-Type: application/json needs php://input instead —
+ * same idiom as signer_otp_controller.php / Csrf::submitted().
+ */
+function ps_payload(): array
+{
+    $raw  = file_get_contents('php://input') ?: '';
+    $json = $raw !== '' ? json_decode($raw, true) : null;
+    return is_array($json) ? $json : $_POST;
+}
+
+/**
  * Resolve a devis by its public token, in the exact shape the PDF template
  * hashes and renders. 404s (rather than throwing) on an unknown token — the
  * same "let the caller render its own not-found" contract lpc_serve_document_pdf
@@ -127,7 +140,7 @@ switch ($action) {
         Rbac::requirePermission('crm.proposals.sign');
         Csrf::requireValid();
 
-        $token  = (string) ($_POST['token'] ?? '');
+        $token  = (string) (ps_payload()['token'] ?? '');
         $doc    = ps_load_doc($db, $token);
         $userId = (int) ($_SESSION['user_id'] ?? 0);
 
@@ -156,8 +169,9 @@ switch ($action) {
         Rbac::requirePermission('crm.proposals.sign');
         Csrf::requireValid();
 
-        $sigId  = (int) ($_POST['signature_id'] ?? 0);
-        $reason = trim((string) ($_POST['reason'] ?? ''));
+        $payload = ps_payload();
+        $sigId   = (int) ($payload['signature_id'] ?? 0);
+        $reason  = trim((string) ($payload['reason'] ?? ''));
         if ($sigId <= 0) {
             ps_fail('Signature introuvable.');
         }

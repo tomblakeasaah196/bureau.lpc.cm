@@ -72,22 +72,26 @@
             await fetchTabData(tab);
         }
 
+        /**
+         * The ultimate safety wrapper for parsing JSON. Module-scoped (not
+         * local to fetchTabData) because loadToInvoice() — triggered on its
+         * own by search/pagination, not only via fetchTabData — needs it too.
+         */
+        const fetchJsonSafely = async (url) => {
+            const res = await fetch(url);
+            const text = await res.text(); // Get raw text first
+            try {
+                return JSON.parse(text);
+            } catch(e) {
+                console.error("🔥 CRITICAL PHP ERROR ON URL:", url);
+                console.error("🔥 THE SERVER RETURNED HTML INSTEAD OF JSON:", text);
+                throw new Error("Erreur fatale PHP. Appuyez sur F12 pour lire l'erreur exacte dans la console.");
+            }
+        };
+
         /** Core Fetcher logic handling combined tabs natively with Crash-Proof JSON Parsing */
         async function fetchTabData(tab) {
             try {
-                // The ultimate safety wrapper for parsing JSON
-                const fetchJsonSafely = async (url) => {
-                    const res = await fetch(url);
-                    const text = await res.text(); // Get raw text first
-                    try { 
-                        return JSON.parse(text); 
-                    } catch(e) { 
-                        console.error("🔥 CRITICAL PHP ERROR ON URL:", url);
-                        console.error("🔥 THE SERVER RETURNED HTML INSTEAD OF JSON:", text);
-                        throw new Error("Erreur fatale PHP. Appuyez sur F12 pour lire l'erreur exacte dans la console."); 
-                    }
-                };
-
                 // SPECIAL CASE: BL non facturés carries its own sort / filter /
                 // page state, so it builds its own query string.
                 if (tab === 'to_invoice') {
@@ -298,17 +302,22 @@
             if (toInvoiceQuery.client_id) params.set('client_id', toInvoiceQuery.client_id);
             if (toInvoiceQuery.q) params.set('q', toInvoiceQuery.q);
 
-            const result = await fetchJsonSafely(`/api/v1/invoices_controller.php?${params.toString()}`);
-            if (result.status !== 'success') {
-                showToast(result.message || 'Chargement impossible.', 'error');
-                return;
+            try {
+                const result = await fetchJsonSafely(`/api/v1/invoices_controller.php?${params.toString()}`);
+                if (result.status !== 'success') {
+                    showToast(result.message || 'Chargement impossible.', 'error');
+                    return;
+                }
+                globalData.to_invoice = result.data;
+                renderToInvoice(result.data.deliveries);
+                renderToInvoiceClientFilter(result.data.filter_clients);
+                renderToInvoicePagination(result.data.pagination);
+                updateSortIndicators();
+                updateGlobalBadges(result.data.badges);
+            } catch(e) {
+                console.error("Network or parsing error", e);
+                showToast(e.message, "error");
             }
-            globalData.to_invoice = result.data;
-            renderToInvoice(result.data.deliveries);
-            renderToInvoiceClientFilter(result.data.filter_clients);
-            renderToInvoicePagination(result.data.pagination);
-            updateSortIndicators();
-            updateGlobalBadges(result.data.badges);
         }
 
         /** Reflect the active sort in the header icons. */
