@@ -1,0 +1,25 @@
+-- =============================================================================
+-- 043_reserved.sql
+-- -----------------------------------------------------------------------------
+-- Bureau LPC ERP — placeholder to close a numbering gap.
+--
+-- WHY:
+--   044_electronic_money_accounts.sql was authored jumping straight from 042
+--   to 044, skipping 043 entirely (no migration for 043 was ever written or
+--   applied — it simply doesn't exist). scripts/verify.sh's "Migration
+--   sequence" check (section 3) walks migrations/*.sql expecting strictly
+--   contiguous numbers and flags any break as "someone renamed a file
+--   locally" — a fair assumption in general, but wrong in this one case.
+--   044 is already applied in production (recorded in schema_migrations as
+--   044_electronic_money_accounts), so renumbering it to 043 now would change
+--   its version string and make the migrator treat an already-applied
+--   migration as new — not worth the risk for what is purely a cosmetic
+--   check failure.
+--
+--   This file exists only so the sequence is contiguous again. It does
+--   nothing to the schema.
+--
+-- Idempotent: no-op, safe to re-run.
+-- =============================================================================
+
+DO 0;

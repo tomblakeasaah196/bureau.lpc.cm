@@ -29,6 +29,24 @@
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
+-- 0. Widen help_fr — it's about to stop fitting.
+--
+--    030 defined help_fr VARCHAR(255). onepager_terms_ref's help_fr below is
+--    271 characters: it has to tell an admin not to blank the incorporation
+--    clause and to double-check it if the six articles get renumbered, and
+--    that warning doesn't fit in a tweet. Inserting it as-is truncates
+--    silently in non-strict SQL modes or raises SQLSTATE 22001 in strict mode
+--    (which is what actually happened: "Data too long for column 'help_fr' at
+--    row 2"), failing this migration and blocking everything after it.
+--
+--    TEXT removes the ceiling instead of trimming the warning to fit. help_fr
+--    has no index and no default beyond NULL, and its only consumer is a
+--    tooltip in modules/crm/proposal_studio.php that reads it as a string —
+--    neither cares whether the column is VARCHAR or TEXT.
+-- -----------------------------------------------------------------------------
+ALTER TABLE proposal_template_settings MODIFY COLUMN help_fr TEXT NULL;
+
+-- -----------------------------------------------------------------------------
 -- 1. The one-pager's own strings.
 --
 --    Grouped under 'terms' rather than a new tab: an admin editing the articles
