@@ -189,6 +189,13 @@
         return window.confirm(msg);
     }
 
+    async function promptAsync(msg, opts) {
+        if (window.LPC && LPC.modal && LPC.modal.prompt) {
+            return await LPC.modal.prompt(msg, opts);
+        }
+        return window.prompt(msg, (opts && opts.defaultValue) || '');
+    }
+
     /** fetch + JSON + uniform error surface. */
     async function apiGet(url) {
         const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
@@ -1059,7 +1066,10 @@
     }
 
     async function createRole() {
-        const name = window.prompt('Nom du nouveau rôle (minuscules, sans espace — ex. « superviseur ») :');
+        const name = await promptAsync('Nom du nouveau rôle (minuscules, sans espace — ex. « superviseur ») :', {
+            title: 'Nouveau rôle',
+            placeholder: 'superviseur'
+        });
         if (!name) return;
 
         const fd = new FormData();

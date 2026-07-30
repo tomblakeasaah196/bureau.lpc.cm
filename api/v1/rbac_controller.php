@@ -177,19 +177,22 @@ try {
             if ($role_id <= 0) throw_bad("role_id requis.");
             if (!is_array($perms))  throw_bad("permissions doit être un tableau.");
 
-            // Validate every permission name exists.
-            $lookup = $db->query("SELECT id, name FROM permissions")->fetchAll(PDO::FETCH_KEY_PAIR); // name => id
-            $lookup = array_flip($lookup); // id => name  (unused, kept for symmetry)
-            // Rebuild proper name=>id mapping (PDO::FETCH_KEY_PAIR returns first col as key, second as value)
-            $lookup = [];
-            foreach ($db->query("SELECT id, name FROM permissions")->fetchAll(PDO::FETCH_ASSOC) as $r) {
-                $lookup[$r['name']] = (int) $r['id'];
-            }
+            // The permissions matrix (settings-index.js) submits permission IDs
+            // (data-perm-id, sourced from this same `permissions` table via
+            // get_role_permissions) — validate against id, not name. An earlier
+            // version of this check looked names up in a name=>id map, which
+            // rejected every submission from the current UI ("Permission
+            // inconnue: 40") since it only ever sends numeric ids.
+            $validIds = array_flip(array_map(
+                'intval',
+                $db->query("SELECT id FROM permissions")->fetchAll(PDO::FETCH_COLUMN)
+            ));
 
             $ids = [];
             foreach ($perms as $p) {
-                if (!isset($lookup[$p])) throw_bad("Permission inconnue: $p");
-                $ids[] = $lookup[$p];
+                $pid = (int) $p;
+                if ($pid <= 0 || !isset($validIds[$pid])) throw_bad("Permission inconnue: $p");
+                $ids[] = $pid;
             }
             $ids = array_values(array_unique($ids));
 
