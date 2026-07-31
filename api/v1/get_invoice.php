@@ -114,6 +114,25 @@ try {
     $stmtItems->execute([$invoice_id]);
     $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
 
+    // 4b. Fetch the BL(s) this invoice was generated from — replaces the old
+    // generic "conditions de règlement" boilerplate with the actual delivery
+    // references and quantities the client can reconcile against their own
+    // stock. Quantity is what the client actually accepted
+    // (delivered_quantity), falling back to the dispatched quantity for any
+    // item that has not been through the return/reconciliation step yet.
+    $stmtBL = $db->prepare("
+        SELECT d.reference,
+               COALESCE(SUM(COALESCE(di.delivered_quantity, di.quantity)), 0) AS total_qty
+        FROM invoice_deliveries invd
+        JOIN deliveries d ON d.id = invd.delivery_id
+        LEFT JOIN delivery_items di ON di.delivery_id = d.id
+        WHERE invd.invoice_id = ?
+        GROUP BY d.id, d.reference
+        ORDER BY d.date ASC, d.id ASC
+    ");
+    $stmtBL->execute([$invoice_id]);
+    $deliveries = $stmtBL->fetchAll(PDO::FETCH_ASSOC);
+
     // 5. Format Data for the Frontend
     $creator_name = $invData['creator_fn'] . ' ' . substr($invData['creator_ln'], 0, 1) . '.';
     $role_name    = $invData['role_name'] ?? 'Finance / Comptabilité';
@@ -237,6 +256,9 @@ try {
                 'hash'       => implode('-', str_split($verification_hash, 4)), // XXXX-XXXX-XXXX-XXXX
             ],
             'items' => $items,
+            // {reference, total_qty} per BL this invoice was raised from.
+            // Empty for invoices not generated from a delivery batch.
+            'deliveries' => $deliveries,
         ],
     ];
 

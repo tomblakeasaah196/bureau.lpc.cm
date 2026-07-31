@@ -21,7 +21,7 @@
                 lbl_client: "Billed To", lbl_notes: "Notes & Terms", lbl_payment_info: "Payment Information",
                 lbl_client_niu: "TIN:", lbl_client_rccm: "Trade Reg.:",
                 warn_no_niu: "Customer TIN missing — required for B2B deductibility",
-                lbl_terms: "Payment Terms", lbl_withholding: "Withholding at source",
+                lbl_terms: "Delivery Notes (BL)", lbl_withholding: "Withholding at source",
                 pay_reference_hint: "Please quote the invoice number as the payment reference.",
                 tbl_desc: "Description", tbl_qty: "Qty", tbl_up: "Unit Price", tbl_total: "Amount",
                 tot_sub: "Subtotal", tot_excise: "Excise duty", tot_grand: "TOTAL DUE",
@@ -38,7 +38,7 @@
                 lbl_client: "Facturé à", lbl_notes: "Notes / Conditions", lbl_payment_info: "Informations de Paiement",
                 lbl_client_niu: "NIU :", lbl_client_rccm: "RCCM :",
                 warn_no_niu: "NIU client manquant — requis pour la déductibilité B2B",
-                lbl_terms: "Conditions de Règlement", lbl_withholding: "Retenues à la source",
+                lbl_terms: "Bordereaux de Livraison", lbl_withholding: "Retenues à la source",
                 pay_reference_hint: "Merci de préciser le N° de facture en motif du règlement.",
                 tbl_desc: "Désignation", tbl_qty: "Qté", tbl_up: "P.U. (FCFA)", tbl_total: "Montant (FCFA)",
                 tot_sub: "Total Hors Taxe (HT)", tot_excise: "Droit d'accises", tot_grand: "NET À PAYER (TTC)",
@@ -230,6 +230,20 @@
             if(inv.notes) {
                 document.getElementById('notes_container').classList.remove('hidden');
                 document.getElementById('dyn_notes').innerText = inv.notes;
+            }
+
+            // BL references. Replaces the old boilerplate payment-terms
+            // paragraph with the actual delivery notes this invoice was
+            // raised from, so the client can reconcile it against their own
+            // receiving stock — "BL-2607-045 (120), BL-2607-046 (85)".
+            // Hidden entirely for invoices not generated from a BL batch.
+            const deliveries = Array.isArray(apiData.deliveries) ? apiData.deliveries : [];
+            if (deliveries.length) {
+                const list = deliveries
+                    .map(d => `${d.reference} (${LPC.fmt.int(d.total_qty)})`)
+                    .join(', ');
+                document.getElementById('terms_text').innerText = list;
+                document.getElementById('bl_refs_container').classList.remove('hidden');
             }
 
             // Stamp

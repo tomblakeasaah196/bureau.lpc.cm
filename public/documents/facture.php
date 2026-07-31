@@ -232,14 +232,9 @@ if (($_GET['pdf'] ?? '') === '1') {
                                 <p class="mt-2 text-[10px] text-gray-400 italic" data-i18n="pay_reference_hint">Merci de préciser le N° de facture en motif du règlement.</p>
                             </div>
 
-                            <div>
-                                <h4 class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2" data-i18n="lbl_terms">Conditions de Règlement</h4>
-                                <p class="text-[10px] text-gray-500 leading-relaxed font-medium" id="terms_text">
-                                    Paiement exigible au plus tard à la date d'échéance indiquée.
-                                    Passé ce délai, une pénalité de retard est applicable de plein droit,
-                                    sans mise en demeure préalable. Les marchandises restent la propriété
-                                    du vendeur jusqu'au paiement intégral du prix.
-                                </p>
+                            <div id="bl_refs_container" class="hidden">
+                                <h4 class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2" data-i18n="lbl_terms">Bordereaux de Livraison</h4>
+                                <p class="text-[10px] text-gray-500 leading-relaxed font-medium" id="terms_text"></p>
                             </div>
                         </div>
 

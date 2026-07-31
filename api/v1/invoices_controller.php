@@ -679,8 +679,8 @@ try {
             $treasury_account_id = !empty($jsonData['treasury_account_id']) ? (int)$jsonData['treasury_account_id'] : null;
             $date                = date('Y-m-d');
 
-            if ($amount < 0 || $air_withheld < 0) throw new Exception("Montants négatifs invalides.");
-            if ($amount + $air_withheld <= 0)     throw new Exception("Montant total nul.");
+            if ($amount < 0 || $air_withheld < 0) throw new UserFacingException("Montants négatifs invalides.");
+            if ($amount + $air_withheld <= 0)     throw new UserFacingException("Montant total nul.");
 
             // If invoice_id is provided and it has an air_rate > 0, validate
             // the split against what we expect at issuance — accountants can
@@ -752,7 +752,19 @@ try {
             }
 
             // Post JE + treasury_transactions. Rounding drift → SIGNAL 45000 → rollback.
-            JournalPoster::postInvoicePayment($payment_id, $treasury_account_id);
+            // JournalPoster throws plain RuntimeException for config gaps (no
+            // active treasury account for this method, OHADA account unmapped,
+            // etc.) — those are exactly the "operator can fix this" case
+            // UserFacingException exists for, so repackage rather than let the
+            // outer handler flatten it to "Erreur serveur. Veuillez réessayer."
+            try {
+                JournalPoster::postInvoicePayment($payment_id, $treasury_account_id);
+            } catch (RuntimeException $e) {
+                throw new UserFacingException(
+                    "Le paiement n'a pas pu être comptabilisé (configuration de trésorerie incomplète). "
+                    . "Détail : " . $e->getMessage() . " — vérifiez Paramètres → Trésorerie."
+                );
+            }
 
             $db->commit();
             echo json_encode(['status' => 'success', 'payment_id' => $payment_id]);
@@ -777,7 +789,7 @@ try {
             $recon = $stmtRecon->fetch(PDO::FETCH_ASSOC);
 
             if (!$recon || $recon['status'] !== 'pending_accountant') {
-                throw new Exception("Réconciliation introuvable ou déjà validée.");
+                throw new UserFacingException("Réconciliation introuvable ou déjà validée.");
             }
 
             // 2. Mark Master Reconciliation as Validated
@@ -816,7 +828,15 @@ try {
                 $payment_id = (int) $db->lastInsertId();
 
                 // Post the balanced JE + treasury_transaction (payment_method='cash').
-                JournalPoster::postInvoicePayment($payment_id, null);
+                try {
+                    JournalPoster::postInvoicePayment($payment_id, null);
+                } catch (RuntimeException $e) {
+                    throw new UserFacingException(
+                        "La comptabilisation a échoué pour la livraison #{$delivery_id} "
+                        . "(configuration de trésorerie incomplète). Détail : " . $e->getMessage()
+                        . " — vérifiez Paramètres → Trésorerie."
+                    );
+                }
 
                 // Financial Imputation Logic
                 if ($invoice_id) {
@@ -861,11 +881,22 @@ try {
             throw new Exception("Action inconnue.");
     }
 
-} catch (Exception $e) {
+} catch (UserFacingException $e) {
+    // A business rule or config gap said no. The message was written for the
+    // operator — surfacing it is what lets an accountant see "aucun compte de
+    // trésorerie configuré" instead of a generic error they can't act on.
+    // Same pattern as procurement_controller.php.
+    if (isset($db) && $db->inTransaction()) {
+        $db->rollBack();
+    }
+    http_response_code($e->getHttpStatus());
+    echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+
+} catch (Throwable $e) {
     if (isset($db) && $db->inTransaction()) {
         $db->rollBack();
     }
     http_response_code(500);
-    error_log('API error: ' . $e->getMessage());
+    error_log('API error: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     echo json_encode(['status' => 'error', 'message' => 'Erreur serveur. Veuillez réessayer.']);
 }
