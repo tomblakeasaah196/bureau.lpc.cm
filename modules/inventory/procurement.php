@@ -14,8 +14,10 @@ $user_role = $_SESSION['user_role'];
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
+    <!-- Server-side pagination (20/page) for the Achats & Dépenses table. -->
+    <script src="<?= lpc_asset('/assets/js/lpc-dom.js') ?>"></script>
+    <script src="<?= lpc_asset('/assets/js/lpc-paginator.js') ?>"></script>
 
-    
     <style>
         .tab-content { display: none; animation: fadeIn 0.3s ease; }
         .tab-content.active { display: block; }
@@ -97,11 +99,11 @@ $user_role = $_SESSION['user_role'];
             <div class="flex justify-between items-center mb-6" id="toolbar">
                 <div class="relative w-96">
                     <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                    <input type="text" id="search-input" placeholder="Rechercher une référence ou fournisseur..." onkeyup="filterData()" class="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-dark transition-shadow shadow-sm">
+                    <input type="text" id="search-input" placeholder="Rechercher une référence ou fournisseur..." class="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-dark transition-shadow shadow-sm">
                 </div>
                 <div class="flex gap-3">
-                    <button id="btn-sdp-ristourne" onclick="openRistourneModal()" class="hidden bg-amber-100 hover:bg-amber-200 text-amber-800 px-6 py-3 rounded-xl font-black text-sm shadow-sm flex items-center gap-2 transition-transform active:scale-95 border border-amber-300">
-                        <i class="fas fa-gift"></i> <span>Ristournes SDP</span>
+                    <button id="btn-sdp-ristourne" onclick="openRistourneModal()" class="bg-amber-100 hover:bg-amber-200 text-amber-800 px-6 py-3 rounded-xl font-black text-sm shadow-sm flex items-center gap-2 transition-transform active:scale-95 border border-amber-300">
+                        <i class="fas fa-gift"></i> <span>Ristournes</span>
                     </button>
 
                     <button id="btn-primary-action" onclick="openActionModal()" class="bg-lpc-dark hover:bg-green-800 text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg shadow-lpc-dark/20 flex items-center gap-2 transition-transform active:scale-95">
@@ -143,7 +145,7 @@ $user_role = $_SESSION['user_role'];
                 <form id="form-po" class="space-y-8">
                     <input type="hidden" name="id" id="po_id" value="">
                     
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                         <div>
                             <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.fournisseur_mdm')) ?></label>
                             <select name="supplier_id" id="po_supplier" onchange="checkSupplierRebate(this)" required class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
@@ -159,6 +161,15 @@ $user_role = $_SESSION['user_role'];
                             <select name="payment_status" id="po_payment_status" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
                                 <option value="unpaid"><?= htmlspecialchars(__t('ui.x.non_paye_a_credit')) ?></option>
                                 <option value="paid" selected><?= htmlspecialchars(__t('ui.x.paye_cash_virement')) ?></option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center justify-between">
+                                <span>Lieu de Livraison</span>
+                                <button type="button" onclick="openDeliveryPlacesModal()" class="text-lpc-dark hover:underline normal-case font-bold text-[10px]"><i class="fas fa-cog mr-1"></i>Gérer</button>
+                            </label>
+                            <select name="delivery_place_id" id="po_delivery_place" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
+                                <option value="">Non spécifié</option>
                             </select>
                         </div>
                     </div>
@@ -278,6 +289,22 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
+    <div id="deliveryPlacesModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh]">
+            <div class="bg-gray-900 px-6 py-4 flex justify-between items-center text-white shrink-0">
+                <h3 class="font-black text-lg tracking-wide"><i class="fas fa-map-marker-alt mr-2"></i> Lieux de Livraison</h3>
+                <button type="button" onclick="closeModal('deliveryPlacesModal')" class="text-white/70 hover:text-white"><i class="fas fa-times text-xl"></i></button>
+            </div>
+            <div class="p-6 flex-1 overflow-y-auto">
+                <div class="flex gap-2 mb-4">
+                    <input type="text" id="new_delivery_place_name" placeholder="ex: Entrepôt Douala Port" class="flex-1 bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-lpc-light">
+                    <button onclick="saveDeliveryPlace()" class="px-4 py-2 bg-lpc-dark text-white rounded-lg font-bold text-sm shadow-sm"><i class="fas fa-plus"></i> Ajouter</button>
+                </div>
+                <div id="delivery-places-list" class="space-y-2"></div>
+            </div>
+        </div>
+    </div>
+
     <div id="ristourneModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-[#F8FAFC] rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col h-[85vh]">
             <div class="bg-amber-500 px-8 py-6 flex justify-between items-center shrink-0">
@@ -286,13 +313,13 @@ $user_role = $_SESSION['user_role'];
                         <i class="fas fa-gift"></i>
                     </div>
                     <div>
-                        <h3 class="font-black text-white text-2xl tracking-wide">Compte Ristourne SDP</h3>
-                        <p class="text-amber-100 text-xs font-bold uppercase tracking-widest mt-1"><?= htmlspecialchars(__t('ui.x.source_du_pays_2_47')) ?></p>
+                        <h3 class="font-black text-white text-2xl tracking-wide">Compte Ristourne</h3>
+                        <select id="ristourne_supplier_select" onchange="onRistourneSupplierChange(this.value)" class="mt-1 bg-white/20 text-white text-xs font-black uppercase tracking-widest px-3 py-1.5 rounded-lg outline-none border border-white/30"></select>
                     </div>
                 </div>
                 <button type="button" onclick="closeModal('ristourneModal')" class="text-amber-100 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
             </div>
-            
+
             <div class="grid grid-cols-3 gap-4 p-8 bg-white border-b border-gray-200 shrink-0">
                 <div class="bg-emerald-50 rounded-2xl p-5 border border-emerald-100">
                     <p class="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.total_genere_cumul')) ?></p>
@@ -308,21 +335,46 @@ $user_role = $_SESSION['user_role'];
                 </div>
             </div>
 
-            <div class="flex-1 overflow-y-auto p-8">
-                <h4 class="text-sm font-black text-gray-800 uppercase tracking-widest mb-4 flex items-center"><i class="fas fa-history mr-2 text-gray-400"></i> <?= htmlspecialchars(__t('ui.x.historique_du_compte_ledger')) ?></h4>
-                <div class="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-                    <table class="w-full text-left">
-                        <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-500 font-black tracking-widest sticky top-0">
-                            <tr>
-                                <th class="py-3 px-6"><?= htmlspecialchars(__t('ui.x.date_ref')) ?></th>
-                                <th class="py-3 px-6"><?= htmlspecialchars(__t('ui.x.type_d_operation')) ?></th>
-                                <th class="py-3 px-6"><?= htmlspecialchars(__t('ui.x.description_2')) ?></th>
-                                <th class="py-3 px-6 text-right"><?= htmlspecialchars(__t('ui.x.montant')) ?></th>
-                            </tr>
-                        </thead>
-                        <tbody id="ristourne-ledger-body" class="divide-y divide-gray-100 text-sm">
-                            </tbody>
-                    </table>
+            <div class="flex-1 overflow-y-auto p-8 space-y-8">
+                <div>
+                    <h4 class="text-sm font-black text-gray-800 uppercase tracking-widest mb-4 flex items-center"><i class="fas fa-sliders-h mr-2 text-gray-400"></i> Ristourne par Produit (Configuration)</h4>
+                    <p class="text-xs text-gray-500 font-bold mb-3">La ristourne s'applique uniquement aux produits configurés ci-dessous pour ce fournisseur — pas à tous les produits.</p>
+                    <div class="flex gap-2 mb-4">
+                        <select id="rebate_cfg_product" class="flex-1 bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-amber-400"></select>
+                        <input type="number" id="rebate_cfg_rate" placeholder="Taux %" step="0.01" min="0" max="100" class="w-28 bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm font-black text-right outline-none focus:ring-2 focus:ring-amber-400">
+                        <button onclick="saveRebateConfig()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-sm shadow-sm"><i class="fas fa-plus"></i> Configurer</button>
+                    </div>
+                    <div class="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                        <table class="w-full text-left">
+                            <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-500 font-black tracking-widest">
+                                <tr>
+                                    <th class="py-3 px-6">Produit</th>
+                                    <th class="py-3 px-6 text-right">Taux</th>
+                                    <th class="py-3 px-6 text-center w-20">Actif</th>
+                                    <th class="py-3 px-6 w-12"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="rebate-config-body" class="divide-y divide-gray-100 text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div>
+                    <h4 class="text-sm font-black text-gray-800 uppercase tracking-widest mb-4 flex items-center"><i class="fas fa-history mr-2 text-gray-400"></i> <?= htmlspecialchars(__t('ui.x.historique_du_compte_ledger')) ?></h4>
+                    <div class="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                        <table class="w-full text-left">
+                            <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-500 font-black tracking-widest sticky top-0">
+                                <tr>
+                                    <th class="py-3 px-6"><?= htmlspecialchars(__t('ui.x.date_ref')) ?></th>
+                                    <th class="py-3 px-6"><?= htmlspecialchars(__t('ui.x.type_d_operation')) ?></th>
+                                    <th class="py-3 px-6"><?= htmlspecialchars(__t('ui.x.description_2')) ?></th>
+                                    <th class="py-3 px-6 text-right"><?= htmlspecialchars(__t('ui.x.montant')) ?></th>
+                                </tr>
+                            </thead>
+                            <tbody id="ristourne-ledger-body" class="divide-y divide-gray-100 text-sm">
+                                </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>

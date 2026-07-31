@@ -43,6 +43,12 @@ $LPC_PERMISSIONS = [
         'crm.clients.create'      => 'Créer un client (prospect ou actif)',
         'crm.clients.edit'        => 'Modifier un client',
         'crm.clients.convert'     => 'Convertir prospect → client actif',
+        // Sprint 11 · migration 050. Deliberately split into three so an
+        // admin can hand out "send to corbeille" without also handing out
+        // "empty the corbeille forever" — see ClientTrash.php.
+        'crm.clients.delete'      => 'Déplacer un client vers la corbeille (réassigne ses données à un autre client)',
+        'crm.clients.restore'     => 'Restaurer un client depuis la corbeille',
+        'crm.clients.purge'       => 'Supprimer définitivement un client de la corbeille (avant l\'expiration automatique)',
         'crm.proposals.view'      => 'Voir les propositions/devis',
         'crm.proposals.create'    => 'Créer un devis',
         'crm.proposals.template'  => 'Modifier le modèle de proposition commerciale (Studio)',

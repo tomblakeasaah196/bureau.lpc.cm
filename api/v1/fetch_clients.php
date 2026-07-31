@@ -16,9 +16,13 @@ try {
     $db = Database::getInstance()->getConnection();
     
     // FETCHING EVERY SINGLE COLUMN NEEDED FOR THE MODAL
+    // deleted_at IS NULL: clients in the corbeille have their own listing
+    // (fetch_deleted_clients.php) so they don't show up here as pickable for
+    // new devis/orders while awaiting auto-purge or restore.
     $stmt = $db->query("
-        SELECT id, lpc_code, name, type, contact_person, email, phone, address, niu, rc, tax_id, credit_limit, status 
-        FROM clients 
+        SELECT id, lpc_code, name, type, contact_person, email, phone, address, niu, rc, tax_id, credit_limit, status
+        FROM clients
+        WHERE deleted_at IS NULL
         ORDER BY id DESC
     ");
     $clients = $stmt->fetchAll(PDO::FETCH_ASSOC);

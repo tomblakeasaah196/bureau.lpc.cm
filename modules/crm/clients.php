@@ -105,6 +105,16 @@ $lang = lpc_i18n_current_lang();
             </a>
             <?php endif; ?>
 
+            <!-- Corbeille toggle — hidden client-side (data-perm-any) unless the
+                 user holds restore and/or purge; server re-checks on every API
+                 call regardless. See includes/classes/ClientTrash.php. -->
+            <button type="button" onclick="toggleCorbeille()" id="corbeille-toggle-btn"
+                    data-perm-any="crm.clients.restore,crm.clients.purge"
+                    class="w-11 h-11 rounded-xl border border-lpc-border bg-white text-gray-500 hover:text-red-600 hover:border-red-300 flex items-center justify-center shrink-0 transition-all lpc-focusable"
+                    title="Corbeille — clients supprimés" aria-label="Corbeille">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            </button>
+
             <?php
             // Help for THIS page. Renders nothing if no article is anchored to
             // 'crm.clients' or the reader may not see it, so it is safe to
@@ -195,6 +205,33 @@ $lang = lpc_i18n_current_lang();
                             </td>
                         </tr>
                     </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Corbeille — hidden by default, toggled by toggleCorbeille(). Lists
+             soft-deleted clients (deleted_at NOT NULL) with a countdown to
+             auto-purge, a Restore action and a "Supprimer définitivement" action.
+             Populated by loadDeletedClients() in crm-clients.js. -->
+        <div id="corbeille-section" class="hidden bg-white rounded-2xl border border-lpc-border shadow-sm overflow-hidden mt-6">
+            <div class="px-6 py-4 border-b border-lpc-border bg-red-50/50 flex justify-between items-center">
+                <div>
+                    <h2 class="font-bold text-gray-800">Corbeille</h2>
+                    <p class="text-xs text-gray-500 mt-0.5">Les clients ici sont supprimés définitivement après le délai indiqué, sauf restauration.</p>
+                </div>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-white border-b border-lpc-border text-xs uppercase text-gray-500 font-bold">
+                        <tr>
+                            <th class="py-4 px-6">Client</th>
+                            <th class="py-4 px-6">Supprimé par</th>
+                            <th class="py-4 px-6">Données réaffectées à</th>
+                            <th class="py-4 px-6 text-center">Purge automatique</th>
+                            <th class="py-4 px-6 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="corbeille-tbody" class="divide-y divide-gray-100"></tbody>
                 </table>
             </div>
         </div>
@@ -450,6 +487,45 @@ $lang = lpc_i18n_current_lang();
                         <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete-to-corbeille modal. A target client is mandatory: this client's
+         orders/deliveries/payments/invoices/wallet/empties ledger all carry
+         ON DELETE RESTRICT to clients (migration 006), so before this client
+         can ever be purged, those rows must belong to someone else. See
+         includes/classes/ClientTrash.php for exactly how each table merges. -->
+    <div id="deleteClientModal" class="modal hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 backdrop-blur-sm p-4">
+        <div class="modal-content bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div class="bg-red-600 px-6 py-4 flex justify-between items-center text-white">
+                <h3 class="font-bold text-lg">Déplacer vers la corbeille</h3>
+                <button onclick="closeModal('deleteClientModal')" class="text-white/70 hover:text-white">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <p class="text-sm text-gray-600">
+                    Vous êtes sur le point de supprimer <strong id="delete_client_name" class="text-gray-900"></strong>.
+                    Ses commandes, factures, paiements, portefeuille et emballages doivent d'abord être
+                    réaffectés à un autre client — cette réaffectation est <strong>définitive</strong>,
+                    même si vous restaurez ce client plus tard depuis la corbeille.
+                </p>
+                <input type="hidden" id="delete_client_id" value="">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Réaffecter les données vers</label>
+                    <select id="delete_reassign_to" class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-red-400 outline-none bg-white">
+                        <option value="">— Sélectionnez un client —</option>
+                    </select>
+                </div>
+                <p class="text-xs text-gray-400">
+                    Le client sera déplacé vers la corbeille et supprimé définitivement dans
+                    <span id="delete_retention_days">30</span> jours, sauf restauration.
+                </p>
+            </div>
+            <div class="bg-gray-50 px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+                <button onclick="closeModal('deleteClientModal')" class="px-5 py-2 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-200 transition-colors">Annuler</button>
+                <button onclick="submitDeleteClient()" class="px-5 py-2 rounded-xl text-sm font-bold text-white bg-red-600 hover:bg-red-700 shadow-md transition-colors">Déplacer vers la corbeille</button>
             </div>
         </div>
     </div>

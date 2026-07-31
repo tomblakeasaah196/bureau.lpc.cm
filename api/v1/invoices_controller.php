@@ -490,7 +490,7 @@ try {
         // ACTION: GET CLIENTS & UNPAID INVOICES
         // ==========================================
         case 'get_clients':
-            $stmt = $db->query("SELECT id, name FROM clients ORDER BY name ASC");
+            $stmt = $db->query("SELECT id, name FROM clients WHERE deleted_at IS NULL ORDER BY name ASC");
             echo json_encode(['status' => 'success', 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
             break;
 

@@ -11,10 +11,11 @@
         // --- 1. STATE MANAGEMENT ---
         let currentTab = 'inventory'; // 'inventory' or 'overheads'
         let moduleData = [];
-        let metaData = { suppliers: [], products: [] };
-        
-        let sdpSupplierId = null; // Stored to quickly identify SDP logic
+        let metaData = { suppliers: [], products: [], delivery_places: [] };
+
         let currentSdpBalance = 0;
+        let ristourneSupplierId = null; // Supplier currently shown in the Ristournes modal
+        let pagers = {}; // one LPC.paginator instance per tab
 
         const config = {
             inventory: {
@@ -24,6 +25,9 @@
                     { key: 'date', label: 'Date', render: v => `<span class="text-xs font-bold text-gray-500">${new Date(v).toLocaleDateString('fr-FR')}</span>` },
                     { key: 'reference', label: 'Référence PO', render: v => `<span class="font-black text-gray-900 bg-gray-100 px-2 py-1 rounded border border-gray-200">${v}</span>` },
                     { key: 'supplier_name', label: 'Fournisseur', render: v => `<span class="font-bold text-gray-700">${v}</span>` },
+                    { key: 'delivery_place_name', label: 'Lieu de Livraison', render: v => v
+                        ? `<span class="text-xs font-bold text-gray-600"><i class="fas fa-map-marker-alt mr-1 text-gray-400"></i>${v}</span>`
+                        : `<span class="text-xs text-gray-300 italic">Non spécifié</span>` },
                     // A cancelled order is no longer owed, whatever its payment
                     // status column still says — show that first so a reversed
                     // order can never be read as an outstanding debt.
@@ -79,20 +83,32 @@
                 const result = await response.json();
                 if(result.status === 'success') {
                     metaData = result.data;
-                    
+
                     const supSelect = document.getElementById('po_supplier');
                     metaData.suppliers.forEach(s => {
                         supSelect.innerHTML += LPC.html`<option value="${s.id}">${s.name}</option>`;
-                        // Identify SDP for the Ristourne Logic
-                        if(s.name.toLowerCase().includes('source du pays') || s.name.toLowerCase().includes('sdp')) {
-                            sdpSupplierId = s.id;
-                        }
                     });
-                    
-                    // Show SDP button globally if SDP exists in DB
-                    if(sdpSupplierId) document.getElementById('btn-sdp-ristourne').classList.remove('hidden');
+
+                    populateDeliveryPlaceSelect();
+
+                    // Which supplier the Ristournes modal opens for by default —
+                    // no more name-matching "Source du Pays"/"SDP". Any supplier
+                    // can have per-product rebates configured (migration 051);
+                    // default to the first one in the list, the modal itself
+                    // lets you switch.
+                    ristourneSupplierId = metaData.suppliers.length ? metaData.suppliers[0].id : null;
                 }
             } catch (e) { console.error("Failed to load metadata", e); }
+        }
+
+        function populateDeliveryPlaceSelect() {
+            const sel = document.getElementById('po_delivery_place');
+            const current = sel.value;
+            sel.innerHTML = '<option value="">Non spécifié</option>';
+            (metaData.delivery_places || []).forEach(p => {
+                sel.innerHTML += LPC.html`<option value="${p.id}">${p.name}</option>`;
+            });
+            if (current) sel.value = current;
         }
 
         async function switchTab(tab) {
@@ -109,9 +125,9 @@
 
             document.getElementById('btn-action-text').innerText = c.btnText;
             
-            // Manage SDP Ristourne Button visibility based on tab
+            // Ristournes button only makes sense on the Commandes Stocks tab.
             const sdpBtn = document.getElementById('btn-sdp-ristourne');
-            if(sdpSupplierId && tab === 'inventory') sdpBtn.classList.remove('hidden');
+            if (tab === 'inventory') sdpBtn.classList.remove('hidden');
             else sdpBtn.classList.add('hidden');
 
             const ribbon = document.getElementById('kpi-ribbon');
@@ -138,30 +154,69 @@
             await loadTabData();
         }
 
+        /**
+         * Loads one tab's data.
+         *
+         * The table itself is now server-paginated (20 rows/page) via
+         * LPC.paginator, which owns the tbody's HTML from here on — renderTable()
+         * is no longer used for the main grid, only search-free legacy call
+         * sites (there are none left, kept for safety) would need it.
+         *
+         * KPIs are NOT part of the paginated payload's row count — the API's
+         * `read` action always computes them over the full date range
+         * regardless of which page is requested — but the paginator only
+         * forwards rows/pagination to callers, not the sibling `kpis` key. So
+         * KPIs are fetched once per date-range change with a minimal
+         * page=1&per_page=1 request just to read `data.kpis`.
+         */
         async function loadTabData() {
             const range = getActiveDateRange();
             if (!range) return; // Prevent loading if custom range is half-empty
 
-            const tbody = document.getElementById('table-body');
-            tbody.innerHTML = LPC.html`<tr><td colspan="10" class="py-8 text-center text-gray-400 font-bold text-sm animate-pulse">Connexion sécurisée en cours...</td></tr>`;
-            
+            await fetchKpis(range);
+            attachPager(currentTab, range);
+        }
+
+        async function fetchKpis(range) {
             try {
-                const response = await fetch(`/api/v1/procurement_controller.php?action=read&tab=${currentTab}&start=${range.start}&end=${range.end}`);
+                // per_page=200 (Paginator's ceiling) doubles as the source for
+                // the "KPI details" modal below — that modal is a convenience
+                // popup, not an audit tool, so capping it at 200 rows for a
+                // date range is an acceptable trade-off against re-fetching
+                // the whole table separately.
+                const response = await fetch(`/api/v1/procurement_controller.php?action=read&tab=${currentTab}&start=${range.start}&end=${range.end}&page=1&per_page=200`);
                 const result = await response.json();
-                
                 if (result.status === 'success') {
-                    moduleData = result.data.table;
-                    if(result.data.kpis) {
+                    moduleData = result.data.table || [];
+                    if (result.data.kpis) {
                         for (const [key, value] of Object.entries(result.data.kpis)) {
                             const el = document.getElementById(key);
-                            if(el) el.innerText = value;
+                            if (el) el.innerText = value;
                         }
                     }
-                    renderTable(moduleData);
-                } else throw new Error(result.message);
-            } catch (error) {
-                tbody.innerHTML = LPC.html`<tr><td colspan="10" class="py-8 text-center text-red-500 font-bold">Erreur Serveur: ${error.message}</td></tr>`;
-            }
+                }
+            } catch (e) { console.error('KPI fetch failed', e); }
+        }
+
+        function attachPager(tab, range) {
+            if (pagers[tab]) { pagers[tab].destroy(); pagers[tab] = null; }
+
+            const cfg = config[tab];
+            const tbody = document.getElementById('table-body');
+            const searchInput = document.getElementById('search-input');
+
+            pagers[tab] = LPC.paginator.attach(tbody, {
+                url: `/api/v1/procurement_controller.php?action=read&tab=${tab}`,
+                extraParams: { start: range.start, end: range.end },
+                renderRow: (row) => renderTableRow(row, tab),
+                pageSize: 20,
+                searchInput: searchInput,
+                dataPath: 'data.table',
+                envelopePath: 'data.pagination',
+                colspan: cfg.columns.length + 1,
+                emptyMsg: `Aucune donnée pour ${describeActivePeriod()}.`,
+                hashKey: tab,
+            });
         }
         
         function showKPIDetails(kpiId) {
@@ -242,64 +297,46 @@
             return 'la période choisie';
         }
 
-        function renderTable(dataArray) {
-            const tbody = document.getElementById('table-body');
-            tbody.innerHTML = '';
+        /**
+         * Renders one <tr> for the paginator (assets/js/lpc-paginator.js).
+         *
+         * The whole row is clickable through to the full-page order detail
+         * (modules/inventory/po_detail.php) on the inventory tab — action
+         * buttons stop propagation so "Voir PDF" / "Annuler" still work without
+         * also navigating.
+         */
+        function renderTableRow(row, tab) {
+            const cancelled = row.status === 'cancelled';
+            const rowClickable = tab === 'inventory';
+            const rowAttrs = rowClickable
+                ? `class="${cancelled ? 'opacity-50 ' : ''}hover:bg-gray-50 transition-colors cursor-pointer" onclick="location.href='/modules/inventory/po_detail.php?id=${row.id}'"`
+                : `class="${cancelled ? 'opacity-50 ' : ''}hover:bg-gray-50 transition-colors"`;
 
-            if (dataArray.length === 0) {
-                const period = describeActivePeriod();
-                const showWidenButton = document.getElementById('kpi_period_type').value !== 'all';
+            let tr = `<tr ${rowAttrs}>`;
+            config[tab].columns.forEach(col => tr += `<td class="py-4 px-6 border-b border-gray-50">${col.render(row[col.key], row)}</td>`);
 
-                // Name the filter and offer the way out. Widening the period is
-                // one click, so nobody has to guess whether their records still
-                // exist.
-                const widen = showWidenButton ? LPC.raw(`
-                    <button onclick="widenToAllHistory()"
-                            class="mt-4 px-4 py-2 bg-lpc-dark text-white rounded-lg text-xs font-black uppercase tracking-widest hover:opacity-90 transition-opacity">
-                        <i class="fas fa-history mr-2"></i>Voir tout l'historique
-                    </button>`) : '';
-
-                tbody.innerHTML = LPC.html`
-                    <tr><td colspan="10" class="py-12 text-center">
-                        <p class="text-gray-500 font-bold text-sm">Aucune commande pour ${period}.</p>
-                        <p class="text-gray-400 text-xs mt-1">Vos données ne sont pas perdues — seul le filtre de période est en cause.</p>
-                        ${widen}
-                    </td></tr>`;
-                return;
+            let actions = '';
+            if (tab === 'inventory') {
+                // Already-cancelled orders keep their PDF link but lose the
+                // cancel button — the server rejects a second cancellation
+                // anyway, and offering an action that can only fail is worse
+                // than not offering it.
+                const cancelBtn = cancelled ? '' : `
+                    <button onclick="event.stopPropagation(); cancelPurchaseOrder(${row.id}, '${String(row.reference).replace(/'/g, "\\'")}')"
+                            class="text-red-400 hover:text-red-600 p-2" title="Annuler Commande" aria-label="Annuler Commande"><i class="fas fa-ban"></i></button>`;
+                actions = `
+                    <a href="/bon_commande.php?token=${row.token}" target="_blank" onclick="event.stopPropagation()" class="text-lpc-dark hover:text-green-700 bg-green-50 p-2 rounded-lg mr-2" title="Voir PDF"><i class="fas fa-file-pdf"></i></a>
+                    <a href="/modules/inventory/po_detail.php?id=${row.id}" onclick="event.stopPropagation()" class="text-indigo-500 hover:text-indigo-700 bg-indigo-50 p-2 rounded-lg mr-2" title="Voir le détail"><i class="fas fa-eye"></i></a>${cancelBtn}`;
+            } else {
+                actions = `
+                    <button onclick="openActionModal(${row.id})" class="text-gray-400 hover:text-gray-900 p-2 mr-2" title="Modifier" aria-label="Modifier"><i class="fas fa-edit"></i></button>
+                    <button onclick="deleteRecord(${row.id})" class="text-red-400 hover:text-red-600 p-2"><i class="fas fa-trash-alt"></i></button>`;
             }
 
-            dataArray.forEach(row => {
-                const cancelled = row.status === 'cancelled';
-                let tr = `<tr class="${cancelled ? 'opacity-50 ' : ''}hover:bg-gray-50 transition-colors">`;
-                config[currentTab].columns.forEach(col => tr += `<td class="py-4 px-6 border-b border-gray-50">${col.render(row[col.key], row)}</td>`);
-
-                let actions = '';
-                if(currentTab === 'inventory') {
-                    // Already-cancelled orders keep their PDF link but lose the
-                    // cancel button — the server rejects a second cancellation
-                    // anyway, and offering an action that can only fail is worse
-                    // than not offering it.
-                    const cancelBtn = cancelled ? '' : `
-                        <button onclick="cancelPurchaseOrder(${row.id}, '${String(row.reference).replace(/'/g, "\\'")}')"
-                                class="text-red-400 hover:text-red-600 p-2" title="Annuler Commande" aria-label="Annuler Commande"><i class="fas fa-ban"></i></button>`;
-                    actions = `
-                        <a href="/bon_commande.php?token=${row.token}" target="_blank" class="text-lpc-dark hover:text-green-700 bg-green-50 p-2 rounded-lg mr-2" title="Voir PDF"><i class="fas fa-file-pdf"></i></a>${cancelBtn}`;
-                } else {
-                    actions = `
-                        <button onclick="openActionModal(${row.id})" class="text-gray-400 hover:text-gray-900 p-2 mr-2" title="Modifier" aria-label="Modifier"><i class="fas fa-edit"></i></button>
-                        <button onclick="deleteRecord(${row.id})" class="text-red-400 hover:text-red-600 p-2"><i class="fas fa-trash-alt"></i></button>`;
-                }
-
-                tr += `<td class="py-4 px-6 border-b border-gray-50 text-right whitespace-nowrap">${actions}</td></tr>`;
-                tbody.innerHTML += tr;
-            });
+            tr += `<td class="py-4 px-6 border-b border-gray-50 text-right whitespace-nowrap" onclick="event.stopPropagation()">${actions}</td></tr>`;
+            return tr;
         }
 
-        function filterData() {
-            const q = document.getElementById('search-input').value.toLowerCase();
-            renderTable(moduleData.filter(i => Object.values(i).some(v => String(v).toLowerCase().includes(q))));
-        }
-        
         // Target of the "Voir tout l'historique" button in the empty state.
         function widenToAllHistory() {
             const sel = document.getElementById('kpi_period_type');
@@ -400,15 +437,16 @@
 
         function closeModal(modalId) { document.getElementById(modalId).classList.add('hidden'); }
 
-        // SDP Ristourne Logic (Check Balance when selecting supplier)
+        // Ristourne balance check — any supplier can carry a balance now, not
+        // just a hardcoded "SDP" one (migration 051 moved the rebate off a
+        // blanket per-supplier rate and onto per-supplier/per-product config).
         async function checkSupplierRebate(selectElement) {
             const supplierId = selectElement.value;
             const rebateInfoDiv = document.getElementById('sdp-rebate-info');
-            
-            if(supplierId && sdpSupplierId && supplierId == sdpSupplierId) {
-                // Fetch dynamic balance
+
+            if (supplierId) {
                 try {
-                    const res = await fetch(`/api/v1/procurement_controller.php?action=get_ristourne_data&supplier_id=${sdpSupplierId}`);
+                    const res = await fetch(`/api/v1/procurement_controller.php?action=get_ristourne_data&supplier_id=${supplierId}`);
                     const result = await res.json();
                     if(result.status === 'success') {
                         currentSdpBalance = result.data.balance;
@@ -436,23 +474,107 @@
             calculatePOTotals();
         }
 
-        async function openRistourneModal() {
-            if(!sdpSupplierId) return LPC.modal.alert("Source du Pays n'est pas configuré.");
-            
+function openRistourneModal() {
+            if (!metaData.suppliers || !metaData.suppliers.length) {
+                return LPC.modal.alert("Aucun fournisseur enregistré.");
+            }
+            const sel = document.getElementById('ristourne_supplier_select');
+            sel.innerHTML = metaData.suppliers.map(s =>
+                `<option value="${s.id}">${s.name}</option>`
+            ).join('');
+            sel.value = ristourneSupplierId || metaData.suppliers[0].id;
+
+            document.getElementById('ristourneModal').classList.remove('hidden');
+            onRistourneSupplierChange(sel.value);
+        }
+
+        /** Switching the supplier in the Ristournes modal reloads both the
+         *  per-product rate config table and the ledger for that supplier. */
+        async function onRistourneSupplierChange(supplierId) {
+            ristourneSupplierId = supplierId;
+            await Promise.all([loadRebateConfig(supplierId), loadRistourneLedger(supplierId)]);
+        }
+
+        async function loadRebateConfig(supplierId) {
+            const prodSel = document.getElementById('rebate_cfg_product');
+            prodSel.innerHTML = metaData.products.map(p =>
+                `<option value="${p.id}">${p.name}</option>`
+            ).join('');
+
             try {
-                const res = await fetch(`/api/v1/procurement_controller.php?action=get_ristourne_data&supplier_id=${sdpSupplierId}`);
+                const res = await fetch(`/api/v1/procurement_controller.php?action=rebate_config_list&supplier_id=${supplierId}`);
                 const result = await res.json();
-                
+                const tbody = document.getElementById('rebate-config-body');
+                tbody.innerHTML = '';
+                if (result.status !== 'success' || !result.data.length) {
+                    tbody.innerHTML = LPC.html`<tr><td colspan="4" class="py-6 text-center text-gray-400 italic">Aucun produit configuré pour ce fournisseur — la ristourne ne s'applique donc à rien pour lui pour l'instant.</td></tr>`;
+                    return;
+                }
+                result.data.forEach(r => {
+                    tbody.innerHTML += LPC.html`
+                        <tr>
+                            <td class="py-3 px-6 font-bold text-gray-700">${r.product_name}</td>
+                            <td class="py-3 px-6 text-right font-black text-amber-700">${(r.rebate_rate * 100).toFixed(2)}%</td>
+                            <td class="py-3 px-6 text-center">${LPC.raw(Number(r.is_active) ? '<i class="fas fa-check-circle text-emerald-500"></i>' : '<i class="fas fa-times-circle text-gray-300"></i>')}</td>
+                            <td class="py-3 px-6 text-center"><button onclick="deleteRebateConfig(${r.id})" class="text-red-300 hover:text-red-500"><i class="fas fa-trash-alt"></i></button></td>
+                        </tr>`;
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        async function saveRebateConfig() {
+            const productId = document.getElementById('rebate_cfg_product').value;
+            const ratePct = document.getElementById('rebate_cfg_rate').value;
+            if (!productId || ratePct === '') return LPC.modal.alert("Sélectionnez un produit et un taux.");
+
+            try {
+                const res = await fetch('/api/v1/procurement_controller.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'rebate_config_save',
+                        supplier_id: ristourneSupplierId,
+                        product_id: productId,
+                        rebate_rate_pct: ratePct,
+                        is_active: true
+                    })
+                });
+                const result = await res.json();
+                if (result.status === 'success') {
+                    document.getElementById('rebate_cfg_rate').value = '';
+                    loadRebateConfig(ristourneSupplierId);
+                } else LPC.modal.alert("Erreur: " + result.message);
+            } catch (e) { LPC.modal.alert("Erreur système."); }
+        }
+
+        async function deleteRebateConfig(id) {
+            if (!(await LPC.modal.confirm("Retirer cette configuration de ristourne ?"))) return;
+            const fd = new FormData();
+            fd.append('action', 'rebate_config_delete');
+            fd.append('id', id);
+            try {
+                const res = await fetch('/api/v1/procurement_controller.php', { method: 'POST', body: fd });
+                const result = await res.json();
+                if (result.status === 'success') loadRebateConfig(ristourneSupplierId);
+                else LPC.modal.alert("Erreur: " + result.message);
+            } catch (e) { LPC.modal.alert("Erreur système."); }
+        }
+
+        async function loadRistourneLedger(supplierId) {
+            try {
+                const res = await fetch(`/api/v1/procurement_controller.php?action=get_ristourne_data&supplier_id=${supplierId}`);
+                const result = await res.json();
+
                 if(result.status === 'success') {
                     // Inject Dashboard KPIs
                     document.getElementById('rist_total_earned').innerText = LPC.fmt.fcfa(result.data.earned);
                     document.getElementById('rist_total_used').innerText = LPC.fmt.fcfa(result.data.used);
                     document.getElementById('rist_current_balance').innerText = LPC.fmt.fcfa(result.data.balance);
-                    
+
                     // Inject Ledger Table
                     const tbody = document.getElementById('ristourne-ledger-body');
                     tbody.innerHTML = '';
-                    
+
                     if(result.data.ledger.length === 0) {
                         tbody.innerHTML = LPC.html`<tr><td colspan="4" class="py-6 text-center text-gray-400">Aucun historique disponible.</td></tr>`;
                     } else {
@@ -494,11 +616,93 @@
                         });
                     }
 
-                    document.getElementById('ristourneModal').classList.remove('hidden');
                 }
             } catch(e) {
                 LPC.modal.alert("Impossible de charger les données Ristourne.");
             }
+        }
+
+        // --- 3b. DELIVERY PLACES MANAGEMENT ---
+
+        function openDeliveryPlacesModal() {
+            renderDeliveryPlacesList();
+            document.getElementById('deliveryPlacesModal').classList.remove('hidden');
+        }
+
+        function renderDeliveryPlacesList() {
+            const list = document.getElementById('delivery-places-list');
+            list.innerHTML = '';
+            (metaData.delivery_places || []).forEach(p => {
+                list.innerHTML += LPC.html`
+                    <div class="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5">
+                        <span class="font-bold text-sm text-gray-700"><i class="fas fa-map-marker-alt mr-2 text-gray-400"></i>${p.name}</span>
+                        <div class="flex gap-2">
+                            <button onclick="editDeliveryPlace(${p.id}, '${String(p.name).replace(/'/g, "\\'")}')" class="text-gray-400 hover:text-gray-800 p-1"><i class="fas fa-edit"></i></button>
+                            <button onclick="deactivateDeliveryPlace(${p.id})" class="text-red-300 hover:text-red-500 p-1"><i class="fas fa-trash-alt"></i></button>
+                        </div>
+                    </div>`;
+            });
+            if (!metaData.delivery_places || !metaData.delivery_places.length) {
+                list.innerHTML = '<p class="text-sm text-gray-400 italic text-center py-4">Aucun lieu de livraison enregistré.</p>';
+            }
+        }
+
+        async function saveDeliveryPlace(id = null) {
+            const input = document.getElementById('new_delivery_place_name');
+            const name = input.value.trim();
+            if (!name) return;
+
+            try {
+                const res = await fetch('/api/v1/procurement_controller.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'delivery_places_save', id: id, name: name })
+                });
+                const result = await res.json();
+                if (result.status === 'success') {
+                    input.value = '';
+                    delete input.dataset.editingId;
+                    const btn = document.querySelector('#deliveryPlacesModal button[onclick^="saveDeliveryPlace"]');
+                    if (btn) btn.setAttribute('onclick', 'saveDeliveryPlace()');
+                    await refreshDeliveryPlaces();
+                    renderDeliveryPlacesList();
+                } else LPC.modal.alert("Erreur: " + result.message);
+            } catch (e) { LPC.modal.alert("Erreur système."); }
+        }
+
+        function editDeliveryPlace(id, currentName) {
+            const input = document.getElementById('new_delivery_place_name');
+            input.value = currentName;
+            input.dataset.editingId = id;
+            input.focus();
+            const btn = document.querySelector('#deliveryPlacesModal button[onclick^="saveDeliveryPlace"]');
+            if (btn) btn.setAttribute('onclick', `saveDeliveryPlace(${id})`);
+        }
+
+        async function deactivateDeliveryPlace(id) {
+            if (!(await LPC.modal.confirm("Retirer ce lieu de livraison de la liste ?"))) return;
+            const fd = new FormData();
+            fd.append('action', 'delivery_places_deactivate');
+            fd.append('id', id);
+            try {
+                const res = await fetch('/api/v1/procurement_controller.php', { method: 'POST', body: fd });
+                const result = await res.json();
+                if (result.status === 'success') {
+                    await refreshDeliveryPlaces();
+                    renderDeliveryPlacesList();
+                } else LPC.modal.alert("Erreur: " + result.message);
+            } catch (e) { LPC.modal.alert("Erreur système."); }
+        }
+
+        async function refreshDeliveryPlaces() {
+            try {
+                const res = await fetch('/api/v1/procurement_controller.php?action=delivery_places_list');
+                const result = await res.json();
+                if (result.status === 'success') {
+                    metaData.delivery_places = result.data;
+                    populateDeliveryPlaceSelect();
+                }
+            } catch (e) { console.error(e); }
         }
 
 
@@ -615,6 +819,7 @@
                 payment_status: document.getElementById('po_payment_status').value,
                 discount_amount: document.getElementById('po_discount_amount').value || 0,
                 discount_note: document.getElementById('po_discount_note').value,
+                delivery_place_id: document.getElementById('po_delivery_place').value || null,
                 items: []
             };
 

@@ -201,7 +201,10 @@ $user_role = $_SESSION['user_role'];
     <div id="modal-reception" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col">
             <div class="bg-blue-600 px-6 py-4 flex justify-between items-center text-white">
-                <h3 class="font-black text-lg tracking-wide"><i class="fas fa-dolly mr-2"></i> <?= htmlspecialchars(__t('ui.x.reception_bc')) ?> <span id="rec_po_ref"></span></h3>
+                <div>
+                    <h3 class="font-black text-lg tracking-wide"><i class="fas fa-dolly mr-2"></i> <?= htmlspecialchars(__t('ui.x.reception_bc')) ?> <span id="rec_po_ref"></span></h3>
+                    <a id="rec_back_to_order" href="#" class="hidden text-xs font-bold text-blue-100 hover:text-white mt-1 inline-block"><i class="fas fa-arrow-left mr-1"></i>Retour à la commande</a>
+                </div>
                 <button onclick="closeModal('modal-reception')" class="text-blue-200 hover:text-white"><i class="fas fa-times text-xl"></i></button>
             </div>
             <div class="p-6 bg-slate-50 overflow-y-auto max-h-[60vh]">
@@ -250,7 +253,8 @@ $user_role = $_SESSION['user_role'];
                     </table>
                 </div>
             </div>
-            <div class="bg-white px-6 py-4 border-t border-gray-200">
+            <div class="bg-white px-6 py-4 border-t border-gray-200 space-y-2">
+                <a id="summary_back_to_order" href="#" class="hidden w-full py-3 bg-lpc-dark hover:bg-green-800 text-white rounded-xl font-bold shadow-md transition-all items-center justify-center gap-2"><i class="fas fa-arrow-left"></i> Retour à la commande</a>
                 <button onclick="closeModal('summaryModal')" class="w-full py-3 bg-gray-900 hover:bg-black text-white rounded-xl font-bold shadow-md transition-all"><?= htmlspecialchars(__t('ui.x.fermer_continuer')) ?></button>
             </div>
         </div>

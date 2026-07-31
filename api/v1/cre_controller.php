@@ -249,7 +249,7 @@ if ($method === 'GET') {
 
     if ($action === 'get_clients') {
         try {
-            $stmt = $pdo->query("SELECT id, name, phone FROM clients WHERE status = 'active' ORDER BY name ASC");
+            $stmt = $pdo->query("SELECT id, name, phone FROM clients WHERE status = 'active' AND deleted_at IS NULL ORDER BY name ASC");
             $clients = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
             $stmtSites = $pdo->query("SELECT id, client_id, name, phone FROM client_sites");

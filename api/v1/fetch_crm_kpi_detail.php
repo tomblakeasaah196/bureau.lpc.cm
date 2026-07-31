@@ -48,14 +48,17 @@ try {
                 "SELECT COALESCE(NULLIF(TRIM(type), ''), 'B2B') AS label,
                         COUNT(*) AS n
                    FROM clients
-                  WHERE status = 'active'
+                  WHERE status = 'active' AND deleted_at IS NULL
                   GROUP BY label
                   ORDER BY n DESC"
             )->fetchAll(PDO::FETCH_ASSOC);
 
+            // "tous" here still means "every non-trashed client" — one in the
+            // corbeille is mid-workflow, not a fourth status worth reporting.
             $byStatus = $db->query(
                 "SELECT status AS label, COUNT(*) AS n
                    FROM clients
+                  WHERE deleted_at IS NULL
                   GROUP BY status
                   ORDER BY FIELD(status, 'active', 'prospect', 'inactive')"
             )->fetchAll(PDO::FETCH_ASSOC);
@@ -63,7 +66,7 @@ try {
             $recent = $db->query(
                 "SELECT id, name, lpc_code, type, status, created_at
                    FROM clients
-                  WHERE status = 'active'
+                  WHERE status = 'active' AND deleted_at IS NULL
                   ORDER BY created_at DESC, id DESC
                   LIMIT 5"
             )->fetchAll(PDO::FETCH_ASSOC);

@@ -663,7 +663,6 @@ html.lpc-collapsed #lpc-topbar { left: var(--lpc-sidebar-w-collapsed); }
 
     padding: .375rem;
 
-    background: var(--lpc-surface);
     border: 1px solid var(--lpc-border);
     border-radius: var(--lpc-radius);
     box-shadow: var(--lpc-shadow-card);
@@ -671,6 +670,23 @@ html.lpc-collapsed #lpc-topbar { left: var(--lpc-sidebar-w-collapsed); }
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: none;
+
+    /* Scroll affordance: a soft shadow fades in on whichever edge still has
+       hidden tabs, and disappears once you've scrolled all the way to that
+       side. Two "cover" layers (scrolling with the content) mask the shadow
+       near the visible edge; two "shadow" layers (fixed to the viewport)
+       provide the cue. Pure CSS, no JS — see CSS-Tricks' scrolling-shadows
+       technique. */
+    background-color: var(--lpc-surface);
+    background-image:
+        linear-gradient(to right, var(--lpc-surface) 30%, rgba(255, 255, 255, 0)),
+        linear-gradient(to right, rgba(255, 255, 255, 0), var(--lpc-surface) 70%),
+        linear-gradient(to right, rgba(0, 0, 0, .16), rgba(0, 0, 0, 0)),
+        linear-gradient(to right, rgba(0, 0, 0, 0), rgba(0, 0, 0, .16));
+    background-repeat: no-repeat;
+    background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%;
+    background-position: left center, right center, left center, right center;
+    background-attachment: local, local, scroll, scroll;
 }
 .lpc-tabs::-webkit-scrollbar { display: none; }
 .lpc-tabs:empty { display: none; }

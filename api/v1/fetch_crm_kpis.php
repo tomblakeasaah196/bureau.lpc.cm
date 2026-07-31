@@ -43,7 +43,7 @@ try {
 
     // 1. Active clients.
     $activeClients = (int) $db->query(
-        "SELECT COUNT(id) FROM clients WHERE status = 'active'"
+        "SELECT COUNT(id) FROM clients WHERE status = 'active' AND deleted_at IS NULL"
     )->fetchColumn();
 
     // 2. Accounts receivable — invoiced minus validated payments.

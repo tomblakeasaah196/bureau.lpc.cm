@@ -30,67 +30,55 @@ if (basename($_SERVER['PHP_SELF'] ?? '') === basename(__FILE__)) {
 }
 
 /**
- * Fallback rate, applied only when suppliers.rebate_rate has not been set.
- * Kept so the module behaves identically on an install where 038 has run but
- * nobody has opened Fournisseurs to confirm the rate.
+ * -----------------------------------------------------------------------------
+ * RISTOURNE MODEL — per (supplier, product), not blanket.
+ * -----------------------------------------------------------------------------
+ * Migration 038's suppliers.rebate_rate (and, before that, a stripos() name
+ * match on "Source du Pays" / "SDP") applied ONE rate to EVERY product bought
+ * from a supplier, unconditionally. That is not how these arrangements are
+ * actually negotiated — a supplier can offer a rebate on one product and none
+ * on another — and it meant every receipt from a rebate-earning supplier
+ * accrued ristourne whether or not that specific product carried one.
+ *
+ * Migration 051 replaces it with supplier_product_rebates: one row per
+ * (supplier_id, product_id) pair, each with its own rate. No row for a pair
+ * means no rebate for that pair — there is deliberately no supplier-wide
+ * fallback and no read of suppliers.rebate_rate here anymore. Configure rates
+ * from the "Ristournes" screen (api action: rebate_config_*).
+ * -----------------------------------------------------------------------------
  */
-if (!defined('LPC_SDP_REBATE_RATE')) {
-    define('LPC_SDP_REBATE_RATE', 0.0247);
-}
-
-/** Human-readable form of the default rate, for ledger notes and the UI. */
-if (!defined('LPC_SDP_REBATE_LABEL')) {
-    define('LPC_SDP_REBATE_LABEL', '2,47%');
-}
 
 /**
- * The rebate rate a supplier earns, as a decimal fraction (0.0247 = 2.47%).
- * Returns 0.0 for suppliers with no rebate arrangement.
- *
- * Reads suppliers.rebate_rate when migration 038 has been applied. On an
- * install that predates it, falls back to the old name match so behaviour does
- * not change under the deploy — but the column is authoritative the moment it
- * exists, including when it is explicitly 0.
+ * The rebate rate for one (supplier, product) pair, as a decimal fraction
+ * (0.0247 = 2.47%). Returns 0.0 if that exact pair has no configured rebate,
+ * or if the row exists but has been deactivated.
  */
-function lpc_supplier_rebate_rate(PDO $db, int $supplier_id): float
+function lpc_product_rebate_rate(PDO $db, int $supplier_id, int $product_id): float
 {
     static $cache = [];
-    if (array_key_exists($supplier_id, $cache)) return $cache[$supplier_id];
+    $key = $supplier_id . ':' . $product_id;
+    if (array_key_exists($key, $cache)) return $cache[$key];
 
-    static $has_column = null;
-    if ($has_column === null) {
-        $has_column = (int) $db->query("
-            SELECT COUNT(*) FROM information_schema.columns
-             WHERE table_schema = DATABASE()
-               AND table_name   = 'suppliers'
-               AND column_name  = 'rebate_rate'
-        ")->fetchColumn() > 0;
-    }
+    $stmt = $db->prepare("
+        SELECT rebate_rate FROM supplier_product_rebates
+         WHERE supplier_id = ? AND product_id = ? AND is_active = 1
+    ");
+    $stmt->execute([$supplier_id, $product_id]);
+    $rate = $stmt->fetchColumn();
 
-    if ($has_column) {
-        $stmt = $db->prepare("SELECT rebate_rate FROM suppliers WHERE id = ?");
-        $stmt->execute([$supplier_id]);
-        $rate = $stmt->fetchColumn();
-        // NULL means "never configured" and falls through to the legacy match;
-        // an explicit 0 means "no rebate" and is respected.
-        if ($rate !== false && $rate !== null) {
-            return $cache[$supplier_id] = (float) $rate;
-        }
-    }
-
-    $stmt = $db->prepare("SELECT name FROM suppliers WHERE id = ?");
-    $stmt->execute([$supplier_id]);
-    $name = (string) $stmt->fetchColumn();
-
-    $legacy_match = (stripos($name, 'Source du Pays') !== false || stripos($name, 'SDP') !== false);
-
-    return $cache[$supplier_id] = $legacy_match ? (float) LPC_SDP_REBATE_RATE : 0.0;
+    return $cache[$key] = ($rate !== false) ? (float) $rate : 0.0;
 }
 
-/** Convenience predicate: does this supplier earn a rebate at all? */
-function lpc_is_sdp_supplier(PDO $db, int $supplier_id): bool
+/** Does this supplier have ANY configured product rebate (used to gate the
+ *  "Ristournes" panel / discount UI for that supplier)? */
+function lpc_supplier_has_any_rebate(PDO $db, int $supplier_id): bool
 {
-    return lpc_supplier_rebate_rate($db, $supplier_id) > 0;
+    $stmt = $db->prepare("
+        SELECT COUNT(*) FROM supplier_product_rebates
+         WHERE supplier_id = ? AND is_active = 1 AND rebate_rate > 0
+    ");
+    $stmt->execute([$supplier_id]);
+    return ((int) $stmt->fetchColumn()) > 0;
 }
 
 /**

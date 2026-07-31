@@ -369,6 +369,16 @@ try {
             $stmtMove = $db->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, reference_id, logged_by) VALUES (?, 'in_supplier', ?, ?, ?)");
             $stmtGetProd = $db->prepare("SELECT name, cump, COALESCE((SELECT SUM(CASE WHEN movement_type LIKE 'in_%' THEN quantity ELSE -quantity END) FROM inventory_movements WHERE product_id = ?), 0) as current_qty FROM products WHERE id = ? FOR UPDATE");
             $stmtUpdateCUMP = $db->prepare("UPDATE products SET cump = ? WHERE id = ?");
+            // Ristourne is per (supplier, product) now — migration 051 — not a
+            // blanket supplier-wide rate. Each line accrues only what its own
+            // configured pair earns, and the rate + running amount are frozen
+            // on purchase_order_items so the PO detail page can show exactly
+            // what THIS order earned even if the configured rate changes later.
+            $stmtBumpLineRebate = $db->prepare("
+                UPDATE purchase_order_items
+                   SET rebate_rate = ?, rebate_amount_earned = rebate_amount_earned + ?
+                 WHERE purchase_order_id = ? AND product_id = ?
+            ");
 
             // STRICT SECURITY: Query to find EXACT remaining balance in DB
             $stmtCheckRem = $db->prepare("
@@ -378,6 +388,7 @@ try {
 
             $summary_data = [];
             $received_value = 0.0;   // running total, at contracted prices
+            $total_rebate_earned = 0.0; // running total across all lines, this reception
 
             foreach ($items as $item) {
                 $pid = (int)$item['product_id'];
@@ -430,6 +441,17 @@ try {
 
                 $received_value += $received_qty * $unit_price;
 
+                // Per-line ristourne: only what THIS (supplier, product) pair
+                // is configured to earn, on the value actually received now.
+                $line_rate = lpc_product_rebate_rate($db, (int) $po['supplier_id'], $pid);
+                if ($line_rate > 0) {
+                    $line_rebate = round($received_qty * $unit_price * $line_rate, 0, PHP_ROUND_HALF_UP);
+                    if ($line_rebate > 0) {
+                        $total_rebate_earned += $line_rebate;
+                        $stmtBumpLineRebate->execute([$line_rate, $line_rebate, $po_id, $pid]);
+                    }
+                }
+
                 // Build Summary
                 $summary_data[] = [
                     'product_name' => $prod['name'],
@@ -478,39 +500,36 @@ try {
             );
 
             // ==========================================
-            // 6. SDP RISTOURNE ACCRUAL (EARNED 2.47%)
+            // 6. RISTOURNE ACCRUAL — per (supplier, product), summed above.
             //
-            // Now double-booked on purpose: the operational ledger that feeds
-            // the Ristournes SDP panel, and the general ledger
-            // (Debit 4098 / Credit 6019). Both writes sit inside this one
-            // transaction, so the panel and the books cannot drift.
+            // Double-booked on purpose: the operational ledger that feeds the
+            // Ristournes panel, and the general ledger (Debit 4098 / Credit
+            // 6019). Both writes sit inside this one transaction, so the panel
+            // and the books cannot drift. Migration 051 replaced the single
+            // blanket supplier rate with a rate per (supplier, product) pair —
+            // $total_rebate_earned above already reflects only the lines that
+            // actually carry a configured rebate.
             // ==========================================
-            $rebate_rate = lpc_supplier_rebate_rate($db, (int) $po['supplier_id']);
-            if ($rebate_rate > 0) {
-                $earned_ristourne = round($received_value * $rebate_rate, 0, PHP_ROUND_HALF_UP);
-                $rate_label = rtrim(rtrim(number_format($rebate_rate * 100, 2, ',', ' '), '0'), ',') . '%';
+            if ($total_rebate_earned > 0) {
+                lpc_rebate_ledger_add(
+                    $db,
+                    (int) $po['supplier_id'],
+                    $po_id,
+                    date('Y-m-d'),
+                    $po['reference'],
+                    'accrual',
+                    $total_rebate_earned,
+                    "Ristourne gagnée à la réception (par produit)",
+                    $user_id
+                );
 
-                if ($earned_ristourne > 0) {
-                    lpc_rebate_ledger_add(
-                        $db,
-                        (int) $po['supplier_id'],
-                        $po_id,
-                        date('Y-m-d'),
-                        $po['reference'],
-                        'accrual',
-                        $earned_ristourne,
-                        "Ristourne {$rate_label} gagnée à la réception",
-                        $user_id
-                    );
-
-                    JournalPoster::postRebateAccrual(
-                        $po_id,
-                        (int) $po['supplier_id'],
-                        $earned_ristourne,
-                        date('Y-m-d'),
-                        $po['reference']
-                    );
-                }
+                JournalPoster::postRebateAccrual(
+                    $po_id,
+                    (int) $po['supplier_id'],
+                    $total_rebate_earned,
+                    date('Y-m-d'),
+                    $po['reference']
+                );
             }
 
             $operator_name = $_SESSION['user_name'];

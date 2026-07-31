@@ -42,7 +42,7 @@
     if (!window.LPC) window.LPC = {};
     if (window.LPC.paginator) return;
 
-    const PAGE_SIZES = [10, 25, 50, 100, 200];
+    const PAGE_SIZES = [10, 20, 25, 50, 100, 200];
     const DEBOUNCE_MS = 300;
 
     // ------------------------------------------------------------------

@@ -88,6 +88,25 @@ if (session_status() === PHP_SESSION_NONE) {
         'samesite' => (string) env('SESSION_COOKIE_SAMESITE', 'Lax'),
     ]);
 
+    // The cookie's own lifetime was being set correctly above, but nothing
+    // in this file ever touched session.gc_maxlifetime — the setting that
+    // controls when PHP's garbage collector deletes the session's data file
+    // ON THE SERVER. Most hosts (this one included, on shared cPanel) ship
+    // that ini value at its distro default of 1440 seconds (24 minutes),
+    // completely independent of our cookie lifetime or the
+    // `sec_session_timeout_min` preference. Effect: the browser still holds
+    // a cookie that looks valid for hours, but the session file behind it
+    // can be GC'd after ~24 minutes of any traffic anywhere on the shared
+    // host triggering a GC sweep — session_start() then silently hands back
+    // an empty session, which looks exactly like an inactivity logout no
+    // matter what the Préférences UI says. This is almost certainly why
+    // raising sec_session_timeout_min to 120 had no effect.
+    //
+    // Fix: keep gc_maxlifetime in lockstep with the cookie ceiling so the
+    // server never expires session data before the browser (or our own
+    // bootstrap.php inactivity check) would.
+    ini_set('session.gc_maxlifetime', (string) $__lifetime);
+
     // Extra defence: reject session IDs the client invented (session fixation).
     ini_set('session.use_strict_mode', '1');
     ini_set('session.use_only_cookies', '1');

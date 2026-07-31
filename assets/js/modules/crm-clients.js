@@ -269,6 +269,17 @@
                     ? `<button onclick="convertClient(${client.id})" class="text-xs bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-2 py-1 rounded transition-colors" title="Convertir en Client Actif" aria-label="Convertir en Client Actif">Convertir</button>`
                     : '';
 
+                // Client-side gate only (UX): the real check is
+                // Rbac::requirePermission('crm.clients.delete') on
+                // delete_client.php. window.LPC.can is defined by
+                // lpc-rbac.js, loaded ahead of this file via head_assets.php.
+                const canDelete = window.LPC && typeof window.LPC.can === 'function' && window.LPC.can('crm.clients.delete');
+                const deleteBtn = canDelete
+                    ? `<button onclick="openDeleteClientModal(${client.id}, '${client.name.replace(/'/g, "\\'")}')" class="text-gray-400 hover:text-red-600 transition-colors px-2 py-1.5" title="Déplacer vers la corbeille" aria-label="Déplacer vers la corbeille">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                       </button>`
+                    : '';
+
                 const row = `
                     <tr class="hover:bg-gray-50 transition-colors">
                         <td class="py-4 px-6">
@@ -297,6 +308,7 @@
                             <button onclick="openEditModal(${client.id})" class="text-gray-400 hover:text-lpc-dark transition-colors px-2 py-1.5" title="Modifier" aria-label="Modifier">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
                             </button>
+                            ${deleteBtn}
                         </td>
                     </tr>
                 `;
@@ -595,3 +607,177 @@
                 });
             }
         });
+
+        /* =====================================================================
+           Corbeille (Sprint 11)
+           ---------------------------------------------------------------------
+           delete_client.php requires a reassignment target because
+           sales_orders/deliveries/payments/invoices/client_wallets/
+           client_empties_ledger all carry ON DELETE RESTRICT to clients
+           (migration 006). See includes/classes/ClientTrash.php for exactly
+           how each table is merged. Restoring later (restore_client.php)
+           brings the client shell back but does NOT undo that reassignment —
+           it was a deliberate, permanent consolidation.
+           ===================================================================== */
+
+        function openDeleteClientModal(clientId, clientName) {
+            document.getElementById('delete_client_id').value = clientId;
+            document.getElementById('delete_client_name').textContent = clientName;
+
+            const select = document.getElementById('delete_reassign_to');
+            select.innerHTML = '<option value="">— Sélectionnez un client —</option>';
+            clientList
+                .filter(c => c.id != clientId)
+                .forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.id;
+                    opt.textContent = `${c.name} (${c.lpc_code})`;
+                    select.appendChild(opt);
+                });
+
+            openModal('deleteClientModal');
+        }
+
+        async function submitDeleteClient() {
+            const clientId = document.getElementById('delete_client_id').value;
+            const reassignTo = document.getElementById('delete_reassign_to').value;
+
+            if (!reassignTo) {
+                LPC.modal.alert("Sélectionnez un client vers lequel réaffecter les données.");
+                return;
+            }
+            if (!(await LPC.modal.confirm(
+                "Cette réaffectation est définitive, même en cas de restauration ultérieure. Continuer ?"
+            ))) return;
+
+            try {
+                const response = await fetch('/api/v1/delete_client.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ client_id: clientId, reassign_to_client_id: reassignTo })
+                });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    LPC.modal.alert(result.message);
+                    closeModal('deleteClientModal');
+                    loadClients();
+                    if (!document.getElementById('corbeille-section').classList.contains('hidden')) {
+                        loadDeletedClients();
+                    }
+                } else {
+                    LPC.modal.alert("Erreur: " + result.message);
+                }
+            } catch (error) {
+                LPC.modal.alert("Erreur de connexion.");
+            }
+        }
+
+        function toggleCorbeille() {
+            const section = document.getElementById('corbeille-section');
+            const nowHidden = section.classList.toggle('hidden');
+            if (!nowHidden) loadDeletedClients();
+        }
+
+        async function loadDeletedClients() {
+            const tbody = document.getElementById('corbeille-tbody');
+            tbody.innerHTML = '<tr><td colspan="5" class="py-8 text-center text-gray-400">Chargement…</td></tr>';
+
+            try {
+                const response = await fetch('/api/v1/fetch_deleted_clients.php');
+                const result = await response.json();
+
+                if (result.status !== 'success') {
+                    tbody.innerHTML = '<tr><td colspan="5" class="py-8 text-center text-gray-400">Impossible de charger la corbeille.</td></tr>';
+                    return;
+                }
+
+                document.getElementById('delete_retention_days').textContent = result.retention_days;
+
+                if (!result.data.length) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="py-8 text-center text-gray-400 italic">La corbeille est vide.</td></tr>';
+                    return;
+                }
+
+                const canRestore = window.LPC && LPC.can && LPC.can('crm.clients.restore');
+                const canPurge   = window.LPC && LPC.can && LPC.can('crm.clients.purge');
+
+                tbody.innerHTML = '';
+                result.data.forEach(c => {
+                    const restoreBtn = canRestore
+                        ? `<button onclick="restoreClient(${c.id})" class="text-xs bg-green-50 text-green-700 hover:bg-green-600 hover:text-white px-2 py-1 rounded transition-colors mr-2">Restaurer</button>`
+                        : '';
+                    const purgeBtn = canPurge
+                        ? `<button onclick="purgeClient(${c.id}, '${c.name.replace(/'/g, "\\'")}')" class="text-xs bg-red-50 text-red-700 hover:bg-red-600 hover:text-white px-2 py-1 rounded transition-colors">Supprimer définitivement</button>`
+                        : '';
+                    const urgent = c.days_remaining <= 3;
+
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-gray-50 transition-colors">
+                            <td class="py-4 px-6">
+                                <div class="font-extrabold text-gray-900">${c.name}</div>
+                                <div class="text-xs text-gray-400 uppercase tracking-wide">${c.lpc_code}</div>
+                            </td>
+                            <td class="py-4 px-6 text-sm text-gray-600">${c.deleted_by_name || 'N/A'}</td>
+                            <td class="py-4 px-6 text-sm text-gray-600">${c.reassigned_to_name || 'N/A'}</td>
+                            <td class="py-4 px-6 text-center">
+                                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${urgent ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}">
+                                    ${c.days_remaining} j restant${c.days_remaining > 1 ? 's' : ''}
+                                </span>
+                            </td>
+                            <td class="py-4 px-6 text-right">${restoreBtn}${purgeBtn}</td>
+                        </tr>
+                    `;
+                });
+            } catch (error) {
+                console.error("Failed to fetch deleted clients", error);
+                tbody.innerHTML = '<tr><td colspan="5" class="py-8 text-center text-gray-400">Erreur de connexion.</td></tr>';
+            }
+        }
+
+        async function restoreClient(clientId) {
+            if (!(await LPC.modal.confirm("Restaurer ce client ? Ses données déjà réaffectées ne reviendront pas."))) return;
+
+            try {
+                const response = await fetch('/api/v1/restore_client.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ client_id: clientId })
+                });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    LPC.modal.alert(result.message);
+                    loadDeletedClients();
+                    loadClients();
+                } else {
+                    LPC.modal.alert("Erreur: " + result.message);
+                }
+            } catch (error) {
+                LPC.modal.alert("Erreur de connexion.");
+            }
+        }
+
+        async function purgeClient(clientId, clientName) {
+            if (!(await LPC.modal.confirm(
+                `Supprimer définitivement "${clientName}" ? Cette action est IRRÉVERSIBLE.`
+            ))) return;
+
+            try {
+                const response = await fetch('/api/v1/purge_client.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ client_id: clientId })
+                });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    LPC.modal.alert(result.message);
+                    loadDeletedClients();
+                } else {
+                    LPC.modal.alert("Erreur: " + result.message);
+                }
+            } catch (error) {
+                LPC.modal.alert("Erreur de connexion.");
+            }
+        }

@@ -50,12 +50,14 @@ try {
         case 'fetch_metadata':
             $suppliers = $db->query("SELECT id, name FROM suppliers ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
             $products = $db->query("SELECT id, name, format, base_price FROM products WHERE category != 'Emballage' ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
-            
+            $delivery_places = $db->query("SELECT id, name FROM delivery_places WHERE is_active = 1 ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+
             echo json_encode([
                 'status' => 'success',
                 'data' => [
                     'suppliers' => $suppliers,
-                    'products' => $products
+                    'products' => $products,
+                    'delivery_places' => $delivery_places
                 ]
             ]);
             break;
@@ -78,14 +80,213 @@ try {
             // the claw-back rather than hiding it.
             $totals = lpc_rebate_balance($db, $supplier_id);
 
+            // Per-product rates configured for this supplier, so the panel can
+            // show "what this supplier's ristourne actually covers" instead of
+            // one blanket percentage.
+            $stmtRates = $db->prepare("
+                SELECT spr.product_id, p.name AS product_name, spr.rebate_rate, spr.is_active
+                  FROM supplier_product_rebates spr
+                  JOIN products p ON p.id = spr.product_id
+                 WHERE spr.supplier_id = ?
+                 ORDER BY p.name ASC
+            ");
+            $stmtRates->execute([$supplier_id]);
+            $rates = $stmtRates->fetchAll(PDO::FETCH_ASSOC);
+
             echo json_encode([
                 'status' => 'success',
                 'data' => [
-                    'balance' => $totals['balance'],
-                    'earned'  => $totals['earned'],
-                    'used'    => $totals['used'],
-                    'rate'    => lpc_supplier_rebate_rate($db, $supplier_id),
-                    'ledger'  => $ledger
+                    'balance'       => $totals['balance'],
+                    'earned'        => $totals['earned'],
+                    'used'          => $totals['used'],
+                    'product_rates' => $rates,
+                    'ledger'        => $ledger
+                ]
+            ]);
+            break;
+
+        // ==========================================
+        // ACTION: RISTOURNE CONFIG — LIST / SAVE / DELETE per-supplier/per-product rate
+        // ==========================================
+        case 'rebate_config_list':
+            $supplier_id = (int)($_GET['supplier_id'] ?? 0);
+            $stmt = $db->prepare("
+                SELECT spr.id, spr.supplier_id, spr.product_id, p.name AS product_name,
+                       spr.rebate_rate, spr.is_active, spr.notes
+                  FROM supplier_product_rebates spr
+                  JOIN products p ON p.id = spr.product_id
+                 WHERE (? = 0 OR spr.supplier_id = ?)
+                 ORDER BY p.name ASC
+            ");
+            $stmt->execute([$supplier_id, $supplier_id]);
+            echo json_encode(['status' => 'success', 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+            break;
+
+        case 'rebate_config_save':
+            // Configuring who earns ristourne (and how much) is a purchasing
+            // policy decision, same authority level as creating a PO.
+            Rbac::requirePermission('inventory.procurement.create_po');
+
+            $supplier_id = (int)($jsonData['supplier_id'] ?? 0);
+            $product_id  = (int)($jsonData['product_id'] ?? 0);
+            $rate_pct    = (float)($jsonData['rebate_rate_pct'] ?? 0); // sent as a percentage, e.g. 2.47
+            $notes       = trim((string)($jsonData['notes'] ?? ''));
+            $is_active   = !empty($jsonData['is_active']) ? 1 : 0;
+
+            if ($supplier_id <= 0 || $product_id <= 0) {
+                throw new UserFacingException("Fournisseur et produit sont requis.");
+            }
+            if ($rate_pct < 0 || $rate_pct > 100) {
+                throw new UserFacingException("Le taux de ristourne doit être compris entre 0 et 100%.");
+            }
+            $rate = round($rate_pct / 100, 4);
+
+            $db->prepare("
+                INSERT INTO supplier_product_rebates (supplier_id, product_id, rebate_rate, notes, is_active, created_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE rebate_rate = VALUES(rebate_rate), notes = VALUES(notes), is_active = VALUES(is_active)
+            ")->execute([$supplier_id, $product_id, $rate, $notes, $is_active, $user_id]);
+
+            echo json_encode(['status' => 'success', 'message' => 'Configuration de ristourne enregistrée.']);
+            break;
+
+        case 'rebate_config_delete':
+            Rbac::requirePermission('inventory.procurement.create_po');
+            $id = (int)($_POST['id'] ?? 0);
+            if ($id <= 0) throw new UserFacingException("Configuration non spécifiée.");
+            $db->prepare("DELETE FROM supplier_product_rebates WHERE id = ?")->execute([$id]);
+            echo json_encode(['status' => 'success']);
+            break;
+
+        // ==========================================
+        // ACTION: DELIVERY PLACES — LIST / SAVE
+        // ==========================================
+        case 'delivery_places_list':
+            $rows = $db->query("SELECT id, name, is_active FROM delivery_places WHERE is_active = 1 ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+            echo json_encode(['status' => 'success', 'data' => $rows]);
+            break;
+
+        case 'delivery_places_save':
+            Rbac::requirePermission('inventory.procurement.create_po');
+            $id   = (int)($jsonData['id'] ?? 0);
+            $name = trim((string)($jsonData['name'] ?? ''));
+            if ($name === '') throw new UserFacingException("Le nom du lieu de livraison est requis.");
+
+            if ($id > 0) {
+                $db->prepare("UPDATE delivery_places SET name = ? WHERE id = ?")->execute([$name, $id]);
+            } else {
+                $db->prepare("
+                    INSERT INTO delivery_places (name) VALUES (?)
+                    ON DUPLICATE KEY UPDATE is_active = 1
+                ")->execute([$name]);
+            }
+            echo json_encode(['status' => 'success']);
+            break;
+
+        case 'delivery_places_deactivate':
+            Rbac::requirePermission('inventory.procurement.create_po');
+            $id = (int)($_POST['id'] ?? 0);
+            if ($id <= 0) throw new UserFacingException("Lieu de livraison non spécifié.");
+            $db->prepare("UPDATE delivery_places SET is_active = 0 WHERE id = ?")->execute([$id]);
+            echo json_encode(['status' => 'success']);
+            break;
+
+        // ==========================================
+        // ACTION: GET PO DETAIL (full page)
+        // ==========================================
+        case 'get_po_detail':
+            $po_id = (int)($_GET['id'] ?? 0);
+            if ($po_id <= 0) throw new UserFacingException("Bon de commande non spécifié.");
+
+            $stmt = $db->prepare("
+                SELECT po.*, s.name AS supplier_name, dp.name AS delivery_place_name,
+                       CONCAT(u.first_name, ' ', u.last_name) AS created_by_name
+                  FROM purchase_orders po
+                  JOIN suppliers s ON s.id = po.supplier_id
+                  LEFT JOIN delivery_places dp ON dp.id = po.delivery_place_id
+                  LEFT JOIN users u ON u.id = po.created_by
+                 WHERE po.id = ?
+            ");
+            $stmt->execute([$po_id]);
+            $po = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$po) throw new UserFacingException("Bon de commande introuvable.");
+
+            // Lines with ordered / received / remaining quantities and the
+            // ristourne frozen on each line at reception time.
+            $stmtLines = $db->prepare("
+                SELECT poi.id, poi.product_id, p.name AS product_name, poi.quantity AS qty_ordered,
+                       poi.unit_price, poi.rebate_rate, poi.rebate_amount_earned,
+                       COALESCE((
+                           SELECT SUM(quantity) FROM inventory_movements
+                            WHERE reference_id = poi.purchase_order_id
+                              AND product_id = poi.product_id
+                              AND movement_type = 'in_supplier'
+                       ), 0) AS qty_received
+                  FROM purchase_order_items poi
+                  JOIN products p ON p.id = poi.product_id
+                 WHERE poi.purchase_order_id = ?
+                 ORDER BY p.name ASC
+            ");
+            $stmtLines->execute([$po_id]);
+            $lines = $stmtLines->fetchAll(PDO::FETCH_ASSOC);
+
+            $total_ordered = 0; $total_received = 0; $total_rebate_earned = 0;
+            foreach ($lines as &$l) {
+                $l['qty_ordered']   = (int) $l['qty_ordered'];
+                $l['qty_received']  = (int) $l['qty_received'];
+                $l['qty_remaining'] = max(0, $l['qty_ordered'] - $l['qty_received']);
+                $l['line_total']    = $l['qty_ordered'] * (float) $l['unit_price'];
+                $total_ordered      += $l['qty_ordered'];
+                $total_received     += $l['qty_received'];
+                $total_rebate_earned += (float) $l['rebate_amount_earned'];
+            }
+            unset($l);
+
+            // Reception history: one row per distinct reception "batch" is not
+            // tracked separately from inventory_movements, so this reads the raw
+            // movement log for the order, joined to who logged it.
+            $stmtReceptions = $db->prepare("
+                SELECT im.id, im.date, im.product_id, p.name AS product_name, im.quantity,
+                       CONCAT(u.first_name, ' ', u.last_name) AS logged_by_name
+                  FROM inventory_movements im
+                  JOIN products p ON p.id = im.product_id
+                  LEFT JOIN users u ON u.id = im.logged_by
+                 WHERE im.reference_id = ? AND im.movement_type = 'in_supplier'
+                 ORDER BY im.date ASC, im.id ASC
+            ");
+            $stmtReceptions->execute([$po_id]);
+            $receptions = $stmtReceptions->fetchAll(PDO::FETCH_ASSOC);
+
+            // Ristourne ledger rows tied specifically to this PO (accrual at
+            // reception, deduction if this PO itself spent rebate credit).
+            $stmtRebateRows = $db->prepare("
+                SELECT date, reference, type, amount, notes, reversed
+                  FROM supplier_rebate_ledger
+                 WHERE purchase_order_id = ?
+                 ORDER BY id ASC
+            ");
+            $stmtRebateRows->execute([$po_id]);
+            $rebate_ledger = $stmtRebateRows->fetchAll(PDO::FETCH_ASSOC);
+
+            $status = $po['status'];
+            $reception_state = $status === 'received' ? 'complete'
+                              : ($status === 'partial' ? 'partial'
+                              : ($status === 'cancelled' ? 'cancelled' : 'pending'));
+
+            echo json_encode([
+                'status' => 'success',
+                'data' => [
+                    'po' => $po,
+                    'lines' => $lines,
+                    'receptions' => $receptions,
+                    'rebate_ledger' => $rebate_ledger,
+                    'totals' => [
+                        'qty_ordered'  => $total_ordered,
+                        'qty_received' => $total_received,
+                        'qty_remaining'=> max(0, $total_ordered - $total_received),
+                        'rebate_earned'=> $total_rebate_earned,
+                    ],
+                    'reception_state' => $reception_state,
                 ]
             ]);
             break;
@@ -108,19 +309,20 @@ try {
                 $body   = "
                     FROM purchase_orders po
                     JOIN suppliers s ON po.supplier_id = s.id
+                    LEFT JOIN delivery_places dp ON dp.id = po.delivery_place_id
                     WHERE po.date BETWEEN ? AND ?
                 ";
                 $params = [$start_date, $end_date];
                 if ($lpc_q !== '') {
                     [$body, $params] = Paginator::addWhere(
                         $body, $params, $lpc_q,
-                        ['po.reference', 's.name', 'po.status', 'po.payment_status']
+                        ['po.reference', 's.name', 'po.status', 'po.payment_status', 'dp.name']
                     );
                 }
                 $body .= " ORDER BY po.date DESC, po.id DESC";
                 $page = Paginator::paginate($db, $body, $params,
                     "po.id, po.reference, po.date, po.status, po.payment_status, po.total_amount, po.token,
-                     s.name as supplier_name, s.id as supplier_id",
+                     s.name as supplier_name, s.id as supplier_id, dp.name as delivery_place_name",
                     null, null, "procurement.read.inventory:$start_date:$end_date");
                 $responseData['table']      = $page['data'];
                 $responseData['pagination'] = [
@@ -221,6 +423,7 @@ try {
             $payment_status = $jsonData['payment_status'];
             $discount_amount = (float)($jsonData['discount_amount'] ?? 0);
             $discount_note = trim($jsonData['discount_note'] ?? '');
+            $delivery_place_id = (int)($jsonData['delivery_place_id'] ?? 0) ?: null;
             $items = $jsonData['items'] ?? [];
 
             if (empty($supplier_id) || empty($items)) {
@@ -269,12 +472,12 @@ try {
 
             // 1. CREATE PO AS PENDING (No stock, no accounting yet)
             $stmtPO = $db->prepare("
-                INSERT INTO purchase_orders 
-                (reference, supplier_id, date, status, subtotal, discount_amount, discount_note, total_amount, payment_status, token, created_by) 
-                VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO purchase_orders
+                (reference, supplier_id, delivery_place_id, date, status, subtotal, discount_amount, discount_note, total_amount, payment_status, token, created_by)
+                VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
             ");
             $stmtPO->execute([
-                $reference, $supplier_id, $date, $subtotal, $discount_amount, $discount_note, $total_amount, $payment_status, $token, $user_id
+                $reference, $supplier_id, $delivery_place_id, $date, $subtotal, $discount_amount, $discount_note, $total_amount, $payment_status, $token, $user_id
             ]);
             $po_id = $db->lastInsertId();
 
@@ -288,10 +491,10 @@ try {
             //    reading the running balance so two concurrent POs against
             //    the same rebate pool can't double-spend.
             if ($discount_amount > 0) {
-                // Who earns a rebate now comes from suppliers.rebate_rate
-                // (migration 038) rather than a substring search on the
-                // supplier's display name — see includes/functions/procurement.php.
-                if (!lpc_is_sdp_supplier($db, $supplier_id)) {
+                // Whether a supplier can spend rebate credit now comes from
+                // having at least one configured (supplier, product) rebate
+                // row (migration 051) — see includes/functions/procurement.php.
+                if (!lpc_supplier_has_any_rebate($db, $supplier_id)) {
                     throw new UserFacingException("Ce fournisseur ne dispose pas d'un compte ristourne.");
                 }
 

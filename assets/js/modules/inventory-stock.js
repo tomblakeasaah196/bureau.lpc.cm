@@ -11,7 +11,40 @@
         let currentTab = 'stock';
         const fmt = (num) => LPC.fmt.int(num || 0);
 
-        window.onload = () => { switchTab('stock'); };
+        // Deep link from a PO detail page's "Recevoir la Marchandise" button:
+        // /modules/inventory/stock.php?receive_po=<id>#receptions lands here,
+        // jumps straight to the Réceptions tab and opens that PO's reception
+        // modal — with a "Retour à la commande" link back to where it came
+        // from, so the operator never has to re-navigate to find the PO again.
+        let deepLinkPoId = null;
+
+        window.onload = () => {
+            const params = new URLSearchParams(window.location.search);
+            const receivePo = parseInt(params.get('receive_po'), 10);
+            if (receivePo) {
+                deepLinkPoId = receivePo;
+                switchTab('receptions').then(() => openReceptionForOrder(receivePo));
+            } else {
+                switchTab('stock');
+            }
+        };
+
+        /** Deep-link entry point: we may not have the PO's reference handy
+         *  (it isn't in the URL), so fetch the detail endpoint for it first,
+         *  then reuse the normal openReception() flow. */
+        async function openReceptionForOrder(poId) {
+            try {
+                const res = await fetch(`/api/v1/procurement_controller.php?action=get_po_detail&id=${poId}`);
+                const result = await res.json();
+                if (result.status === 'success') {
+                    await openReception(poId, result.data.po.reference);
+                } else {
+                    LPC.modal.alert("Bon de commande introuvable : " + result.message);
+                }
+            } catch (e) {
+                LPC.modal.alert("Impossible de charger ce bon de commande.");
+            }
+        }
 
         function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
         function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
@@ -238,6 +271,17 @@
             tbody.innerHTML = LPC.html`<tr><td colspan="4" class="text-center py-4"><i class="fas fa-spinner fa-spin"></i></td></tr>`;
             openModal('modal-reception');
 
+            // Only show "back to order" when we actually got here from that
+            // order's detail page — receiving from the plain list of pending
+            // POs has nowhere meaningful to go back to.
+            const backLink = document.getElementById('rec_back_to_order');
+            if (deepLinkPoId && Number(deepLinkPoId) === Number(poId)) {
+                backLink.href = `/modules/inventory/po_detail.php?id=${poId}`;
+                backLink.classList.remove('hidden');
+            } else {
+                backLink.classList.add('hidden');
+            }
+
             try {
                 const res = await fetch(`/api/v1/inventory_controller.php?action=get_po_items&po_id=${poId}`);
                 const result = await res.json();
@@ -301,9 +345,10 @@
                 const result = await response.json();
                 
                 if (result.status === 'success') {
+                    const receivedPoId = document.getElementById('rec_po_id').value;
                     closeModal('modal-reception');
                     switchTab('stock'); // Refresh background data
-                    
+
                     // Populate and show the Success Summary Toast
                     const tbody = document.getElementById('tbody-summary');
                     tbody.innerHTML = '';
@@ -317,6 +362,17 @@
                             </tr>
                         `;
                     });
+
+                    const summaryBack = document.getElementById('summary_back_to_order');
+                    if (deepLinkPoId && Number(deepLinkPoId) === Number(receivedPoId)) {
+                        summaryBack.href = `/modules/inventory/po_detail.php?id=${receivedPoId}`;
+                        summaryBack.classList.remove('hidden');
+                        summaryBack.classList.add('flex');
+                    } else {
+                        summaryBack.classList.add('hidden');
+                        summaryBack.classList.remove('flex');
+                    }
+
                     openModal('summaryModal');
                 } else {
                     LPC.modal.alert("Erreur: " + result.message);

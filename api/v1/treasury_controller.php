@@ -100,7 +100,7 @@ if ($method === 'GET') {
                 $stmtD = $pdo->query("SELECT id, CONCAT(first_name, ' ', last_name) as name, 2 as pending_bl_count FROM users WHERE role_id IN (SELECT id FROM roles WHERE name IN ('operations', 'driver')) AND status = 'active'");
                 $response_data['drivers'] = $stmtD->fetchAll();
                 
-                $stmtC = $pdo->query("SELECT id, name FROM clients ORDER BY name ASC");
+                $stmtC = $pdo->query("SELECT id, name FROM clients WHERE deleted_at IS NULL ORDER BY name ASC");
                 $response_data['clients'] = $stmtC->fetchAll();
                 break;
 
