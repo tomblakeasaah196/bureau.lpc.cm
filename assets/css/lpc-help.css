@@ -469,7 +469,7 @@
 .lpc-help-prose {
     font-size: .9375rem;
     line-height: 1.72;
-    color: #374151;
+    color: var(--lpc-ink-soft, #374151);
     max-width: 44rem;
 }
 .lpc-help-prose > *:first-child { margin-top: 0; }
@@ -489,7 +489,7 @@
     color: var(--lpc-ink, #111827);
     scroll-margin-top: calc(var(--lpc-topbar-h, 68px) + 1rem);
 }
-.lpc-help-prose h4 { margin: 1.4rem 0 .5rem; font-size: .875rem; font-weight: 800; color: #374151; }
+.lpc-help-prose h4 { margin: 1.4rem 0 .5rem; font-size: .875rem; font-weight: 800; color: var(--lpc-ink-soft, #374151); }
 .lpc-help-prose ul, .lpc-help-prose ol { margin: 0 0 1.05rem; padding-left: 1.3rem; }
 .lpc-help-prose li { margin-bottom: .4rem; }
 .lpc-help-prose li::marker { color: var(--lpc-accent-on-light, #005A2B); font-weight: 700; }
