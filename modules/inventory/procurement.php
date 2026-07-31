@@ -183,7 +183,7 @@ $user_role = $_SESSION['user_role'];
                             <button type="button" onclick="addPOLine()" class="text-xs font-bold text-lpc-light hover:text-white transition-colors"><i class="fas fa-plus mr-1"></i> <?= htmlspecialchars(__t('ui.x.ajouter_ligne')) ?></button>
                         </div>
                         <table class="w-full text-left">
-                            <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-500 font-black tracking-widest">
+                            <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-600 font-black tracking-widest">
                                 <tr>
                                     <th class="py-3 px-6 w-1/2"><?= htmlspecialchars(__t('ui.x.produit')) ?></th>
                                     <th class="py-3 px-4 w-32 text-center"><?= htmlspecialchars(__t('ui.x.quantite')) ?></th>
@@ -292,7 +292,7 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
-    <div id="deliveryPlacesModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="deliveryPlacesModal" style="z-index: 9999;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh]">
             <div class="bg-gray-900 px-6 py-4 flex justify-between items-center text-white shrink-0">
                 <h3 class="font-black text-lg tracking-wide"><i class="fas fa-map-marker-alt mr-2"></i> Lieux de Livraison</h3>
@@ -348,7 +348,7 @@ $user_role = $_SESSION['user_role'];
                     <h4 class="text-sm font-black text-gray-800 uppercase tracking-widest mb-4 flex items-center"><i class="fas fa-history mr-2 text-gray-500"></i> <?= htmlspecialchars(__t('ui.x.historique_du_compte_ledger')) ?></h4>
                     <div class="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                         <table class="w-full text-left">
-                            <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-500 font-black tracking-widest sticky top-0">
+                            <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-600 font-black tracking-widest sticky top-0">
                                 <tr>
                                     <th class="py-3 px-6"><?= htmlspecialchars(__t('ui.x.date_ref')) ?></th>
                                     <th class="py-3 px-6"><?= htmlspecialchars(__t('ui.x.type_d_operation')) ?></th>
@@ -374,7 +374,7 @@ $user_role = $_SESSION['user_role'];
             </div>
             <div class="flex-1 overflow-y-auto p-8">
                 <table class="w-full text-left border-collapse">
-                    <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-500 font-black tracking-widest sticky top-0">
+                    <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-600 font-black tracking-widest sticky top-0">
                         <tr>
                             <th class="py-3 px-4"><?= htmlspecialchars(__t('ui.x.date')) ?></th>
                             <th class="py-3 px-4"><?= htmlspecialchars(__t('ui.x.ref')) ?></th>

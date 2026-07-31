@@ -576,7 +576,7 @@ function openRistourneModal() {
 
                             tbody.innerHTML += LPC.html`
                                 <tr class="${rowClass}">
-                                    <td class="py-4 px-6 text-xs text-gray-500 font-bold">${LPC.fmt.date(l.date)}<br><span class="text-[10px] text-amber-700 font-mono tracking-wide">${l.reference}</span></td>
+                                    <td class="py-4 px-6 text-xs text-gray-600 font-bold">${LPC.fmt.date(l.date)}<br><span class="text-[10px] text-amber-700 font-mono tracking-wide">${l.reference}</span></td>
                                     <td class="py-4 px-6">${badge}</td>
                                     <td class="py-4 px-6 text-xs font-bold text-gray-700">${l.notes}</td>
                                     <td class="py-4 px-6 text-right font-black ${color}">${prefix} ${LPC.fmt.int(l.amount)}</td>
