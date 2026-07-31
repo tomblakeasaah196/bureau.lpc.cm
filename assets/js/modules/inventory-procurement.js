@@ -571,12 +571,12 @@ function openRistourneModal() {
                                 : (isAccrual ? 'text-emerald-700' : 'text-rose-700');
                             const prefix = isAccrual ? '+' : '-';
                             const rowClass = isReversed
-                                ? 'opacity-80 hover:bg-gray-50 transition-colors'
-                                : 'hover:bg-gray-50 transition-colors';
+                                ? 'opacity-80 hover:bg-lpc-bg transition-colors'
+                                : 'hover:bg-lpc-bg transition-colors';
 
                             tbody.innerHTML += LPC.html`
                                 <tr class="${rowClass}">
-                                    <td class="py-4 px-6 text-xs text-gray-600 font-bold">${LPC.fmt.date(l.date)}<br><span class="text-[10px] text-amber-700 font-mono tracking-wide">${l.reference}</span></td>
+                                    <td class="py-4 px-6 text-xs text-gray-700 font-bold">${LPC.fmt.date(l.date)}<br><span class="text-[10px] text-gray-500 font-mono tracking-wide">${l.reference}</span></td>
                                     <td class="py-4 px-6">${badge}</td>
                                     <td class="py-4 px-6 text-xs font-bold text-gray-700">${l.notes}</td>
                                     <td class="py-4 px-6 text-right font-black ${color}">${prefix} ${LPC.fmt.int(l.amount)}</td>

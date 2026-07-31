@@ -309,10 +309,10 @@ $user_role = $_SESSION['user_role'];
     </div>
 
     <div id="ristourneModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
-        <div class="bg-[#F8FAFC] rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col h-[85vh]">
-            <div class="bg-amber-700 px-8 py-6 flex justify-between items-center shrink-0">
+        <div class="bg-lpc-bg rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col h-[85vh]">
+            <div class="bg-lpc-dark px-8 py-6 flex justify-between items-center shrink-0">
                 <div class="flex items-center gap-4">
-                    <div class="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-amber-500 shadow-sm text-2xl">
+                    <div class="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-lpc-dark shadow-sm text-2xl">
                         <i class="fas fa-gift"></i>
                     </div>
                     <div>
@@ -320,10 +320,10 @@ $user_role = $_SESSION['user_role'];
                         <select id="ristourne_supplier_select" onchange="onRistourneSupplierChange(this.value)" class="mt-1 bg-white/20 text-white text-xs font-black uppercase tracking-widest px-3 py-1.5 rounded-lg outline-none border border-white/30"></select>
                     </div>
                 </div>
-                <button type="button" onclick="closeModal('ristourneModal')" class="text-amber-100 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
+                <button type="button" onclick="closeModal('ristourneModal')" class="text-white/70 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
             </div>
 
-            <div class="grid grid-cols-3 gap-4 p-8 bg-white border-b border-gray-200 shrink-0">
+            <div class="grid grid-cols-3 gap-4 p-8 bg-lpc-surface border-b border-lpc-border shrink-0">
                 <div class="bg-emerald-50 rounded-2xl p-5 border border-emerald-100">
                     <p class="text-[10px] font-black text-emerald-700 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.total_genere_cumul')) ?></p>
                     <h4 class="text-2xl font-black text-emerald-900" id="rist_total_earned">0 F</h4>
@@ -332,23 +332,23 @@ $user_role = $_SESSION['user_role'];
                     <p class="text-[10px] font-black text-rose-700 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.total_utilise')) ?></p>
                     <h4 class="text-2xl font-black text-rose-900" id="rist_total_used">0 F</h4>
                 </div>
-                <div class="bg-amber-100 rounded-2xl p-5 border border-amber-200 shadow-inner">
-                    <p class="text-[10px] font-black text-amber-800 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.solde_disponible')) ?></p>
-                    <h4 class="text-3xl font-black text-amber-900" id="rist_current_balance">0 F</h4>
+                <div class="bg-lpc-dark rounded-2xl p-5 border border-lpc-dark shadow-inner">
+                    <p class="text-[10px] font-black text-lpc-light uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.solde_disponible')) ?></p>
+                    <h4 class="text-3xl font-black text-white" id="rist_current_balance">0 F</h4>
                 </div>
             </div>
 
             <div class="flex-1 overflow-y-auto p-8 space-y-8">
-                <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between">
-                    <p class="text-xs font-bold text-amber-800">La ristourne est configurée par catégorie de produit (avec paliers), pas ici. Ceci n'affiche que le solde et l'historique pour le fournisseur choisi.</p>
-                    <a href="/modules/inventory/rebate_config.php" class="shrink-0 ml-4 px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white rounded-lg font-black text-xs uppercase tracking-widest shadow-sm"><i class="fas fa-sliders-h mr-1"></i>Configurer</a>
+                <div class="bg-lpc-surface border border-lpc-border rounded-xl p-4 flex items-center justify-between">
+                    <p class="text-xs font-bold text-gray-700"><i class="fas fa-info-circle mr-2 text-lpc-dark"></i>La ristourne est configurée par catégorie de produit (avec paliers), pas ici. Ceci n'affiche que le solde et l'historique pour le fournisseur choisi.</p>
+                    <a href="/modules/inventory/rebate_config.php" class="shrink-0 ml-4 px-4 py-2 bg-lpc-dark hover:bg-[#004421] text-white rounded-lg font-black text-xs uppercase tracking-widest shadow-sm"><i class="fas fa-sliders-h mr-1"></i>Configurer</a>
                 </div>
 
                 <div>
-                    <h4 class="text-sm font-black text-gray-800 uppercase tracking-widest mb-4 flex items-center"><i class="fas fa-history mr-2 text-gray-500"></i> <?= htmlspecialchars(__t('ui.x.historique_du_compte_ledger')) ?></h4>
-                    <div class="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                    <h4 class="text-sm font-black text-gray-800 uppercase tracking-widest mb-4 flex items-center"><i class="fas fa-history mr-2 text-gray-600"></i> <?= htmlspecialchars(__t('ui.x.historique_du_compte_ledger')) ?></h4>
+                    <div class="bg-lpc-surface border border-lpc-border rounded-xl overflow-hidden shadow-sm">
                         <table class="w-full text-left">
-                            <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-600 font-black tracking-widest sticky top-0">
+                            <thead class="bg-lpc-bg border-b border-lpc-border text-[10px] uppercase text-gray-700 font-black tracking-widest sticky top-0">
                                 <tr>
                                     <th class="py-3 px-6"><?= htmlspecialchars(__t('ui.x.date_ref')) ?></th>
                                     <th class="py-3 px-6"><?= htmlspecialchars(__t('ui.x.type_d_operation')) ?></th>
