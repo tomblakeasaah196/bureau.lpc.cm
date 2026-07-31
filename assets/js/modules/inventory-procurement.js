@@ -125,10 +125,16 @@
 
             document.getElementById('btn-action-text').innerText = c.btnText;
             
-            // Ristournes button only makes sense on the Commandes Stocks tab.
+            // Ristournes button + config link only make sense on the Commandes Stocks tab.
             const sdpBtn = document.getElementById('btn-sdp-ristourne');
-            if (tab === 'inventory') sdpBtn.classList.remove('hidden');
-            else sdpBtn.classList.add('hidden');
+            const cfgLink = document.getElementById('btn-config-ristournes');
+            if (tab === 'inventory') {
+                sdpBtn.classList.remove('hidden');
+                cfgLink.classList.remove('hidden');
+            } else {
+                sdpBtn.classList.add('hidden');
+                cfgLink.classList.add('hidden');
+            }
 
             const ribbon = document.getElementById('kpi-ribbon');
             ribbon.innerHTML = '';
@@ -488,76 +494,12 @@ function openRistourneModal() {
             onRistourneSupplierChange(sel.value);
         }
 
-        /** Switching the supplier in the Ristournes modal reloads both the
-         *  per-product rate config table and the ledger for that supplier. */
+        /** Switching the supplier in the Ristournes modal reloads its ledger.
+         *  The ladder config itself lives on the dedicated page
+         *  (modules/inventory/rebate_config.php), linked from this modal. */
         async function onRistourneSupplierChange(supplierId) {
             ristourneSupplierId = supplierId;
-            await Promise.all([loadRebateConfig(supplierId), loadRistourneLedger(supplierId)]);
-        }
-
-        async function loadRebateConfig(supplierId) {
-            const prodSel = document.getElementById('rebate_cfg_product');
-            prodSel.innerHTML = metaData.products.map(p =>
-                `<option value="${p.id}">${p.name}</option>`
-            ).join('');
-
-            try {
-                const res = await fetch(`/api/v1/procurement_controller.php?action=rebate_config_list&supplier_id=${supplierId}`);
-                const result = await res.json();
-                const tbody = document.getElementById('rebate-config-body');
-                tbody.innerHTML = '';
-                if (result.status !== 'success' || !result.data.length) {
-                    tbody.innerHTML = LPC.html`<tr><td colspan="4" class="py-6 text-center text-gray-400 italic">Aucun produit configuré pour ce fournisseur — la ristourne ne s'applique donc à rien pour lui pour l'instant.</td></tr>`;
-                    return;
-                }
-                result.data.forEach(r => {
-                    tbody.innerHTML += LPC.html`
-                        <tr>
-                            <td class="py-3 px-6 font-bold text-gray-700">${r.product_name}</td>
-                            <td class="py-3 px-6 text-right font-black text-amber-700">${(r.rebate_rate * 100).toFixed(2)}%</td>
-                            <td class="py-3 px-6 text-center">${LPC.raw(Number(r.is_active) ? '<i class="fas fa-check-circle text-emerald-500"></i>' : '<i class="fas fa-times-circle text-gray-300"></i>')}</td>
-                            <td class="py-3 px-6 text-center"><button onclick="deleteRebateConfig(${r.id})" class="text-red-300 hover:text-red-500"><i class="fas fa-trash-alt"></i></button></td>
-                        </tr>`;
-                });
-            } catch (e) { console.error(e); }
-        }
-
-        async function saveRebateConfig() {
-            const productId = document.getElementById('rebate_cfg_product').value;
-            const ratePct = document.getElementById('rebate_cfg_rate').value;
-            if (!productId || ratePct === '') return LPC.modal.alert("Sélectionnez un produit et un taux.");
-
-            try {
-                const res = await fetch('/api/v1/procurement_controller.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'rebate_config_save',
-                        supplier_id: ristourneSupplierId,
-                        product_id: productId,
-                        rebate_rate_pct: ratePct,
-                        is_active: true
-                    })
-                });
-                const result = await res.json();
-                if (result.status === 'success') {
-                    document.getElementById('rebate_cfg_rate').value = '';
-                    loadRebateConfig(ristourneSupplierId);
-                } else LPC.modal.alert("Erreur: " + result.message);
-            } catch (e) { LPC.modal.alert("Erreur système."); }
-        }
-
-        async function deleteRebateConfig(id) {
-            if (!(await LPC.modal.confirm("Retirer cette configuration de ristourne ?"))) return;
-            const fd = new FormData();
-            fd.append('action', 'rebate_config_delete');
-            fd.append('id', id);
-            try {
-                const res = await fetch('/api/v1/procurement_controller.php', { method: 'POST', body: fd });
-                const result = await res.json();
-                if (result.status === 'success') loadRebateConfig(ristourneSupplierId);
-                else LPC.modal.alert("Erreur: " + result.message);
-            } catch (e) { LPC.modal.alert("Erreur système."); }
+            await loadRistourneLedger(supplierId);
         }
 
         async function loadRistourneLedger(supplierId) {

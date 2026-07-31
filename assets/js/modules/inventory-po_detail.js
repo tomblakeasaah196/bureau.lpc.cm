@@ -114,17 +114,36 @@
         linesBody.innerHTML = lines.map(l => `
             <tr class="hover:bg-gray-50">
                 <td class="py-3 px-6 font-bold text-gray-800">${escapeHtml(l.product_name)}</td>
+                <td class="py-3 px-4 text-xs font-bold text-gray-500">${escapeHtml(l.category_name || '—')}</td>
                 <td class="py-3 px-4 text-center font-bold text-gray-600">${l.qty_ordered}</td>
                 <td class="py-3 px-4 text-center font-black text-emerald-700 bg-emerald-50/30">${l.qty_received}</td>
                 <td class="py-3 px-4 text-center font-black ${l.qty_remaining > 0 ? 'text-amber-700 bg-amber-50/30' : 'text-gray-300'}">${l.qty_remaining}</td>
                 <td class="py-3 px-4 text-right font-bold text-gray-600">${LPC.fmt.int(l.unit_price)}</td>
                 <td class="py-3 px-6 text-right font-black text-gray-900">${LPC.fmt.int(l.line_total)}</td>
-                <td class="py-3 px-4 text-right font-bold ${l.rebate_amount_earned > 0 ? 'text-amber-600' : 'text-gray-300'}">
-                    ${l.rebate_amount_earned > 0 ? LPC.fmt.int(l.rebate_amount_earned) + ' F' : '—'}
-                    ${l.rebate_rate ? `<div class="text-[9px] text-gray-400 font-black">${(l.rebate_rate * 100).toFixed(2)}%</div>` : ''}
-                </td>
             </tr>
         `).join('') || `<tr><td colspan="7" class="py-8 text-center text-gray-400 italic">Aucune ligne.</td></tr>`;
+
+        // Ristourne per category — the ladder tier frozen at order creation
+        // and the net amount actually accrued so far (partial receptions
+        // each add their share; this may be less than the theoretical max
+        // until the order is fully received).
+        const catBody = document.getElementById('po-category-rebates-body');
+        if (!data.category_rebates || !data.category_rebates.length) {
+            catBody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-gray-400 italic">Aucune catégorie de ce fournisseur n'a de palier de ristourne configuré.</td></tr>`;
+        } else {
+            catBody.innerHTML = data.category_rebates.map(cr => {
+                const withheld = (Number(cr.vat_rate_applied) + Number(cr.precompte_rate_applied)) * 100;
+                return `
+                    <tr class="hover:bg-gray-50">
+                        <td class="py-3 px-6 font-bold text-gray-800">${escapeHtml(cr.category_name)}</td>
+                        <td class="py-3 px-4 text-right font-bold text-gray-600">${LPC.fmt.int(cr.category_amount_ttc)}</td>
+                        <td class="py-3 px-4 text-right font-bold text-gray-600">${LPC.fmt.int(cr.category_amount_ht)}</td>
+                        <td class="py-3 px-4 text-center font-black ${cr.tier_rate > 0 ? 'text-amber-700' : 'text-gray-300'}">${cr.tier_rate > 0 ? (cr.tier_rate * 100).toFixed(2) + '%' : '—'}</td>
+                        <td class="py-3 px-4 text-center text-xs font-bold text-gray-400">${withheld.toFixed(2)}%</td>
+                        <td class="py-3 px-6 text-right font-black ${cr.rebate_amount_earned > 0 ? 'text-amber-600' : 'text-gray-300'}">${cr.rebate_amount_earned > 0 ? LPC.fmt.int(cr.rebate_amount_earned) + ' F' : '—'}</td>
+                    </tr>`;
+            }).join('');
+        }
 
         // Reception timeline
         const timeline = document.getElementById('reception-timeline');

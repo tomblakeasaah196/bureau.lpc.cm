@@ -105,6 +105,9 @@ $user_role = $_SESSION['user_role'];
                     <button id="btn-sdp-ristourne" onclick="openRistourneModal()" class="bg-amber-100 hover:bg-amber-200 text-amber-800 px-6 py-3 rounded-xl font-black text-sm shadow-sm flex items-center gap-2 transition-transform active:scale-95 border border-amber-300">
                         <i class="fas fa-gift"></i> <span>Ristournes</span>
                     </button>
+                    <a id="btn-config-ristournes" href="/modules/inventory/rebate_config.php" class="bg-white hover:bg-gray-50 text-gray-700 px-6 py-3 rounded-xl font-black text-sm shadow-sm flex items-center gap-2 transition-transform active:scale-95 border border-gray-200">
+                        <i class="fas fa-sliders-h"></i> <span>Configurer les Ristournes</span>
+                    </a>
 
                     <button id="btn-primary-action" onclick="openActionModal()" class="bg-lpc-dark hover:bg-green-800 text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg shadow-lpc-dark/20 flex items-center gap-2 transition-transform active:scale-95">
                         <i class="fas fa-plus"></i> <span id="btn-action-text"><?= htmlspecialchars(__t('ui.x.nouveau_bon_de_commande')) ?></span>
@@ -336,27 +339,9 @@ $user_role = $_SESSION['user_role'];
             </div>
 
             <div class="flex-1 overflow-y-auto p-8 space-y-8">
-                <div>
-                    <h4 class="text-sm font-black text-gray-800 uppercase tracking-widest mb-4 flex items-center"><i class="fas fa-sliders-h mr-2 text-gray-400"></i> Ristourne par Produit (Configuration)</h4>
-                    <p class="text-xs text-gray-500 font-bold mb-3">La ristourne s'applique uniquement aux produits configurés ci-dessous pour ce fournisseur — pas à tous les produits.</p>
-                    <div class="flex gap-2 mb-4">
-                        <select id="rebate_cfg_product" class="flex-1 bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-amber-400"></select>
-                        <input type="number" id="rebate_cfg_rate" placeholder="Taux %" step="0.01" min="0" max="100" class="w-28 bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm font-black text-right outline-none focus:ring-2 focus:ring-amber-400">
-                        <button onclick="saveRebateConfig()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-sm shadow-sm"><i class="fas fa-plus"></i> Configurer</button>
-                    </div>
-                    <div class="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-                        <table class="w-full text-left">
-                            <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-500 font-black tracking-widest">
-                                <tr>
-                                    <th class="py-3 px-6">Produit</th>
-                                    <th class="py-3 px-6 text-right">Taux</th>
-                                    <th class="py-3 px-6 text-center w-20">Actif</th>
-                                    <th class="py-3 px-6 w-12"></th>
-                                </tr>
-                            </thead>
-                            <tbody id="rebate-config-body" class="divide-y divide-gray-100 text-sm"></tbody>
-                        </table>
-                    </div>
+                <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between">
+                    <p class="text-xs font-bold text-amber-800">La ristourne est configurée par catégorie de produit (avec paliers), pas ici. Ceci n'affiche que le solde et l'historique pour le fournisseur choisi.</p>
+                    <a href="/modules/inventory/rebate_config.php" class="shrink-0 ml-4 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-black text-xs uppercase tracking-widest shadow-sm"><i class="fas fa-sliders-h mr-1"></i>Configurer</a>
                 </div>
 
                 <div>

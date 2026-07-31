@@ -359,26 +359,42 @@ try {
             // the only place they were ever agreed. The payload is trusted for
             // "which product, how many" and nothing else.
             // ---------------------------------------------------------------
-            $stmtPrices = $db->prepare("SELECT product_id, unit_price FROM purchase_order_items WHERE purchase_order_id = ?");
+            $stmtPrices = $db->prepare("
+                SELECT poi.product_id, poi.unit_price, p.category_id
+                  FROM purchase_order_items poi
+                  JOIN products p ON p.id = poi.product_id
+                 WHERE poi.purchase_order_id = ?
+            ");
             $stmtPrices->execute([$po_id]);
             $po_prices = [];
+            $po_product_category = []; // product_id => category_id, needed to group this reception's rebate by category
             foreach ($stmtPrices->fetchAll(PDO::FETCH_ASSOC) as $r) {
                 $po_prices[(int) $r['product_id']] = (float) $r['unit_price'];
+                $po_product_category[(int) $r['product_id']] = $r['category_id'] !== null ? (int) $r['category_id'] : null;
             }
 
             $stmtMove = $db->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, reference_id, logged_by) VALUES (?, 'in_supplier', ?, ?, ?)");
             $stmtGetProd = $db->prepare("SELECT name, cump, COALESCE((SELECT SUM(CASE WHEN movement_type LIKE 'in_%' THEN quantity ELSE -quantity END) FROM inventory_movements WHERE product_id = ?), 0) as current_qty FROM products WHERE id = ? FOR UPDATE");
             $stmtUpdateCUMP = $db->prepare("UPDATE products SET cump = ? WHERE id = ?");
-            // Ristourne is per (supplier, product) now — migration 051 — not a
-            // blanket supplier-wide rate. Each line accrues only what its own
-            // configured pair earns, and the rate + running amount are frozen
-            // on purchase_order_items so the PO detail page can show exactly
-            // what THIS order earned even if the configured rate changes later.
-            $stmtBumpLineRebate = $db->prepare("
-                UPDATE purchase_order_items
-                   SET rebate_rate = ?, rebate_amount_earned = rebate_amount_earned + ?
-                 WHERE purchase_order_id = ? AND product_id = ?
+
+            // Ristourne is per (supplier, category) now — migration 052 — with
+            // the ladder tier already frozen per category on this PO at order
+            // creation (purchase_order_category_rebates; see save_po). A PO
+            // delivered across several partial receptions earns its share of
+            // that same frozen rate each time; the rate itself is never
+            // re-derived from the ladder here, only looked up.
+            $stmtCatRebateRow = $db->prepare("
+                SELECT category_id, tier_rate, vat_rate_applied, precompte_rate_applied
+                  FROM purchase_order_category_rebates
+                 WHERE purchase_order_id = ? AND category_id = ?
+                 FOR UPDATE
             ");
+            $stmtBumpCatRebate = $db->prepare("
+                UPDATE purchase_order_category_rebates
+                   SET rebate_amount_earned = rebate_amount_earned + ?
+                 WHERE purchase_order_id = ? AND category_id = ?
+            ");
+            $category_ttc_this_reception = []; // category_id => TTC value received in THIS call
 
             // STRICT SECURITY: Query to find EXACT remaining balance in DB
             $stmtCheckRem = $db->prepare("
@@ -388,7 +404,7 @@ try {
 
             $summary_data = [];
             $received_value = 0.0;   // running total, at contracted prices
-            $total_rebate_earned = 0.0; // running total across all lines, this reception
+            $total_rebate_earned = 0.0; // running total across all categories, this reception
 
             foreach ($items as $item) {
                 $pid = (int)$item['product_id'];
@@ -441,15 +457,13 @@ try {
 
                 $received_value += $received_qty * $unit_price;
 
-                // Per-line ristourne: only what THIS (supplier, product) pair
-                // is configured to earn, on the value actually received now.
-                $line_rate = lpc_product_rebate_rate($db, (int) $po['supplier_id'], $pid);
-                if ($line_rate > 0) {
-                    $line_rebate = round($received_qty * $unit_price * $line_rate, 0, PHP_ROUND_HALF_UP);
-                    if ($line_rebate > 0) {
-                        $total_rebate_earned += $line_rebate;
-                        $stmtBumpLineRebate->execute([$line_rate, $line_rebate, $po_id, $pid]);
-                    }
+                // Accumulate this reception's TTC value by category; the
+                // actual rebate math happens once per category below, after
+                // the loop, using the frozen tier per category rather than
+                // per line.
+                $cat_id = $po_product_category[$pid] ?? null;
+                if ($cat_id !== null) {
+                    $category_ttc_this_reception[$cat_id] = ($category_ttc_this_reception[$cat_id] ?? 0) + ($received_qty * $unit_price);
                 }
 
                 // Build Summary
@@ -464,6 +478,35 @@ try {
 
             if ($received_value <= 0) {
                 throw new UserFacingException("Aucune quantité reçue.");
+            }
+
+            // 3b. RISTOURNE — per category, using the tier already frozen for
+            //     this PO+category at order creation (save_po). This
+            //     reception's share of the category's TTC value is backed out
+            //     to HT with the SAME vat_rate_applied that was frozen then
+            //     (not the current setting — a mid-order tax-rate change must
+            //     not silently change what an already-placed order earns),
+            //     then the tier rate is applied and 21.25% (also frozen) is
+            //     withheld before it is booked.
+            foreach ($category_ttc_this_reception as $cat_id => $ttc_this_reception) {
+                $stmtCatRebateRow->execute([$po_id, $cat_id]);
+                $cat_row = $stmtCatRebateRow->fetch(PDO::FETCH_ASSOC);
+                if (!$cat_row) continue; // PO predates migration 052, or category had no lines at order time
+
+                $tier_rate      = (float) $cat_row['tier_rate'];
+                if ($tier_rate <= 0) continue; // no ladder configured for this (supplier, category)
+
+                $vat_rate       = (float) $cat_row['vat_rate_applied'];
+                $precompte_rate = (float) $cat_row['precompte_rate_applied'];
+
+                $ht_this_reception   = $ttc_this_reception / (1 + $vat_rate);
+                $gross_rebate        = $ht_this_reception * $tier_rate;
+                $net_rebate          = round($gross_rebate * (1 - ($vat_rate + $precompte_rate)), 0, PHP_ROUND_HALF_UP);
+
+                if ($net_rebate > 0) {
+                    $total_rebate_earned += $net_rebate;
+                    $stmtBumpCatRebate->execute([$net_rebate, $po_id, $cat_id]);
+                }
             }
 
             // 4. Mark PO as Received or Partial dynamically based on overall remaining items
@@ -500,15 +543,17 @@ try {
             );
 
             // ==========================================
-            // 6. RISTOURNE ACCRUAL — per (supplier, product), summed above.
+            // 6. RISTOURNE ACCRUAL — per (supplier, category), tiered, summed
+            //    above from purchase_order_category_rebates.
             //
             // Double-booked on purpose: the operational ledger that feeds the
             // Ristournes panel, and the general ledger (Debit 4098 / Credit
             // 6019). Both writes sit inside this one transaction, so the panel
-            // and the books cannot drift. Migration 051 replaced the single
-            // blanket supplier rate with a rate per (supplier, product) pair —
-            // $total_rebate_earned above already reflects only the lines that
-            // actually carry a configured rebate.
+            // and the books cannot drift. Migration 052 replaced the flat
+            // per-(supplier, product) rate with a tiered ladder per
+            // (supplier, category); $total_rebate_earned above is already net
+            // of the frozen TVA/précompte withholding for each category that
+            // actually has an active ladder.
             // ==========================================
             if ($total_rebate_earned > 0) {
                 lpc_rebate_ledger_add(

@@ -80,82 +80,166 @@ try {
             // the claw-back rather than hiding it.
             $totals = lpc_rebate_balance($db, $supplier_id);
 
-            // Per-product rates configured for this supplier, so the panel can
-            // show "what this supplier's ristourne actually covers" instead of
-            // one blanket percentage.
-            $stmtRates = $db->prepare("
-                SELECT spr.product_id, p.name AS product_name, spr.rebate_rate, spr.is_active
-                  FROM supplier_product_rebates spr
-                  JOIN products p ON p.id = spr.product_id
-                 WHERE spr.supplier_id = ?
-                 ORDER BY p.name ASC
-            ");
-            $stmtRates->execute([$supplier_id]);
-            $rates = $stmtRates->fetchAll(PDO::FETCH_ASSOC);
-
             echo json_encode([
                 'status' => 'success',
                 'data' => [
-                    'balance'       => $totals['balance'],
-                    'earned'        => $totals['earned'],
-                    'used'          => $totals['used'],
-                    'product_rates' => $rates,
-                    'ledger'        => $ledger
+                    'balance' => $totals['balance'],
+                    'earned'  => $totals['earned'],
+                    'used'    => $totals['used'],
+                    'ledger'  => $ledger
                 ]
             ]);
             break;
 
         // ==========================================
-        // ACTION: RISTOURNE CONFIG — LIST / SAVE / DELETE per-supplier/per-product rate
+        // ACTION: RISTOURNE LADDER CONFIG (modules/inventory/rebate_config.php)
+        // Per (supplier, category) ladder — migration 052. General capability:
+        // any supplier can be configured against any category.
         // ==========================================
-        case 'rebate_config_list':
-            $supplier_id = (int)($_GET['supplier_id'] ?? 0);
-            $stmt = $db->prepare("
-                SELECT spr.id, spr.supplier_id, spr.product_id, p.name AS product_name,
-                       spr.rebate_rate, spr.is_active, spr.notes
-                  FROM supplier_product_rebates spr
-                  JOIN products p ON p.id = spr.product_id
-                 WHERE (? = 0 OR spr.supplier_id = ?)
-                 ORDER BY p.name ASC
-            ");
-            $stmt->execute([$supplier_id, $supplier_id]);
-            echo json_encode(['status' => 'success', 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+        case 'rebate_categories_list':
+            $rows = $db->query("SELECT id, code, name FROM product_categories WHERE is_active = 1 ORDER BY sort_order ASC")->fetchAll(PDO::FETCH_ASSOC);
+            echo json_encode(['status' => 'success', 'data' => $rows]);
             break;
 
-        case 'rebate_config_save':
-            // Configuring who earns ristourne (and how much) is a purchasing
-            // policy decision, same authority level as creating a PO.
+        // One row per category (whether or not it has a ladder yet), each
+        // with its tiers (empty array if none configured) — the UI shows
+        // every category for the chosen supplier and lets you build a ladder
+        // from scratch on any of them.
+        case 'rebate_ladder_get':
+            $supplier_id = (int)($_GET['supplier_id'] ?? 0);
+            if ($supplier_id <= 0) throw new UserFacingException("Fournisseur non spécifié.");
+
+            $categories = $db->query("SELECT id, code, name FROM product_categories WHERE is_active = 1 ORDER BY sort_order ASC")->fetchAll(PDO::FETCH_ASSOC);
+
+            $stmtScr = $db->prepare("SELECT id, is_active FROM supplier_category_rebates WHERE supplier_id = ? AND category_id = ?");
+            $stmtTiers = $db->prepare("SELECT id, tier_order, threshold_from, threshold_to, rate FROM supplier_category_rebate_tiers WHERE supplier_category_rebate_id = ? ORDER BY tier_order ASC");
+
+            foreach ($categories as &$cat) {
+                $stmtScr->execute([$supplier_id, $cat['id']]);
+                $scr = $stmtScr->fetch(PDO::FETCH_ASSOC);
+                if ($scr) {
+                    $stmtTiers->execute([$scr['id']]);
+                    $cat['ladder_id'] = (int) $scr['id'];
+                    $cat['is_active'] = (bool) $scr['is_active'];
+                    $cat['tiers']     = $stmtTiers->fetchAll(PDO::FETCH_ASSOC);
+                } else {
+                    $cat['ladder_id'] = null;
+                    $cat['is_active'] = false;
+                    $cat['tiers']     = [];
+                }
+            }
+            unset($cat);
+
+            echo json_encode(['status' => 'success', 'data' => $categories]);
+            break;
+
+        // Toggles (and creates on first activation) the (supplier, category)
+        // ladder row itself. A category with is_active=0 or no row at all
+        // earns nothing, regardless of what tiers exist.
+        case 'rebate_ladder_toggle':
+            Rbac::requirePermission('inventory.procurement.create_po');
+            $supplier_id = (int)($jsonData['supplier_id'] ?? 0);
+            $category_id = (int)($jsonData['category_id'] ?? 0);
+            $is_active   = !empty($jsonData['is_active']) ? 1 : 0;
+            if ($supplier_id <= 0 || $category_id <= 0) {
+                throw new UserFacingException("Fournisseur et catégorie sont requis.");
+            }
+            $db->prepare("
+                INSERT INTO supplier_category_rebates (supplier_id, category_id, is_active)
+                VALUES (?, ?, ?)
+                ON DUPLICATE KEY UPDATE is_active = VALUES(is_active)
+            ")->execute([$supplier_id, $category_id, $is_active]);
+            echo json_encode(['status' => 'success']);
+            break;
+
+        // Create or update one tier band. tier_id present = update; absent =
+        // insert (auto-creating the parent supplier_category_rebates row,
+        // active, if this is the first tier for that pair).
+        case 'rebate_tier_save':
             Rbac::requirePermission('inventory.procurement.create_po');
 
-            $supplier_id = (int)($jsonData['supplier_id'] ?? 0);
-            $product_id  = (int)($jsonData['product_id'] ?? 0);
-            $rate_pct    = (float)($jsonData['rebate_rate_pct'] ?? 0); // sent as a percentage, e.g. 2.47
-            $notes       = trim((string)($jsonData['notes'] ?? ''));
-            $is_active   = !empty($jsonData['is_active']) ? 1 : 0;
+            $supplier_id    = (int)($jsonData['supplier_id'] ?? 0);
+            $category_id    = (int)($jsonData['category_id'] ?? 0);
+            $tier_id        = (int)($jsonData['tier_id'] ?? 0);
+            $tier_order     = (int)($jsonData['tier_order'] ?? 1);
+            $threshold_from = ($jsonData['threshold_from'] ?? null);
+            $threshold_to   = ($jsonData['threshold_to'] ?? null);
+            $rate_pct       = (float)($jsonData['rate_pct'] ?? 0); // e.g. 3 = 3%
 
-            if ($supplier_id <= 0 || $product_id <= 0) {
-                throw new UserFacingException("Fournisseur et produit sont requis.");
+            if ($supplier_id <= 0 || $category_id <= 0) {
+                throw new UserFacingException("Fournisseur et catégorie sont requis.");
             }
             if ($rate_pct < 0 || $rate_pct > 100) {
-                throw new UserFacingException("Le taux de ristourne doit être compris entre 0 et 100%.");
+                throw new UserFacingException("Le taux doit être compris entre 0 et 100%.");
+            }
+            $threshold_from = ($threshold_from === null || $threshold_from === '') ? null : (float) $threshold_from;
+            $threshold_to   = ($threshold_to   === null || $threshold_to   === '') ? null : (float) $threshold_to;
+            if ($threshold_from !== null && $threshold_to !== null && $threshold_from >= $threshold_to) {
+                throw new UserFacingException("Le seuil de départ doit être inférieur au seuil de fin.");
             }
             $rate = round($rate_pct / 100, 4);
 
-            $db->prepare("
-                INSERT INTO supplier_product_rebates (supplier_id, product_id, rebate_rate, notes, is_active, created_by)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE rebate_rate = VALUES(rebate_rate), notes = VALUES(notes), is_active = VALUES(is_active)
-            ")->execute([$supplier_id, $product_id, $rate, $notes, $is_active, $user_id]);
+            $db->beginTransaction();
 
-            echo json_encode(['status' => 'success', 'message' => 'Configuration de ristourne enregistrée.']);
+            $stmtScr = $db->prepare("SELECT id FROM supplier_category_rebates WHERE supplier_id = ? AND category_id = ?");
+            $stmtScr->execute([$supplier_id, $category_id]);
+            $scr_id = $stmtScr->fetchColumn();
+            if (!$scr_id) {
+                $db->prepare("INSERT INTO supplier_category_rebates (supplier_id, category_id, is_active) VALUES (?, ?, 1)")
+                   ->execute([$supplier_id, $category_id]);
+                $scr_id = $db->lastInsertId();
+            }
+
+            if ($tier_id > 0) {
+                $db->prepare("
+                    UPDATE supplier_category_rebate_tiers
+                       SET tier_order = ?, threshold_from = ?, threshold_to = ?, rate = ?
+                     WHERE id = ? AND supplier_category_rebate_id = ?
+                ")->execute([$tier_order, $threshold_from, $threshold_to, $rate, $tier_id, $scr_id]);
+            } else {
+                $db->prepare("
+                    INSERT INTO supplier_category_rebate_tiers
+                        (supplier_category_rebate_id, tier_order, threshold_from, threshold_to, rate)
+                    VALUES (?, ?, ?, ?, ?)
+                ")->execute([$scr_id, $tier_order, $threshold_from, $threshold_to, $rate]);
+            }
+
+            $db->commit();
+            echo json_encode(['status' => 'success', 'message' => 'Palier enregistré.']);
             break;
 
-        case 'rebate_config_delete':
+        case 'rebate_tier_delete':
             Rbac::requirePermission('inventory.procurement.create_po');
             $id = (int)($_POST['id'] ?? 0);
-            if ($id <= 0) throw new UserFacingException("Configuration non spécifiée.");
-            $db->prepare("DELETE FROM supplier_product_rebates WHERE id = ?")->execute([$id]);
+            if ($id <= 0) throw new UserFacingException("Palier non spécifié.");
+            $db->prepare("DELETE FROM supplier_category_rebate_tiers WHERE id = ?")->execute([$id]);
             echo json_encode(['status' => 'success']);
+            break;
+
+        // Shared TVA / précompte rates. One row, editable — never a literal.
+        case 'rebate_tax_settings_get':
+            echo json_encode(['status' => 'success', 'data' => lpc_rebate_tax_settings($db)]);
+            break;
+
+        case 'rebate_tax_settings_save':
+            Rbac::requirePermission('inventory.procurement.create_po');
+            $vat_pct       = (float)($jsonData['vat_rate_pct'] ?? 0);
+            $precompte_pct = (float)($jsonData['precompte_rate_pct'] ?? 0);
+            if ($vat_pct < 0 || $vat_pct > 100 || $precompte_pct < 0 || $precompte_pct > 100) {
+                throw new UserFacingException("Les taux doivent être compris entre 0 et 100%.");
+            }
+            $vat_rate       = round($vat_pct / 100, 4);
+            $precompte_rate = round($precompte_pct / 100, 4);
+
+            $exists = (int) $db->query("SELECT COUNT(*) FROM purchase_rebate_tax_settings")->fetchColumn();
+            if ($exists > 0) {
+                $db->prepare("UPDATE purchase_rebate_tax_settings SET vat_rate = ?, precompte_rate = ? ORDER BY id ASC LIMIT 1")
+                   ->execute([$vat_rate, $precompte_rate]);
+            } else {
+                $db->prepare("INSERT INTO purchase_rebate_tax_settings (vat_rate, precompte_rate) VALUES (?, ?)")
+                   ->execute([$vat_rate, $precompte_rate]);
+            }
+            echo json_encode(['status' => 'success', 'message' => 'Taux mis à jour.']);
             break;
 
         // ==========================================
@@ -211,11 +295,14 @@ try {
             $po = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$po) throw new UserFacingException("Bon de commande introuvable.");
 
-            // Lines with ordered / received / remaining quantities and the
-            // ristourne frozen on each line at reception time.
+            // Lines with ordered / received / remaining quantities. Ristourne
+            // is no longer tracked per line (migration 052 moved it to per
+            // category, on purchase_order_category_rebates below) — a line's
+            // category is still shown so the category breakdown is legible
+            // against the line list.
             $stmtLines = $db->prepare("
-                SELECT poi.id, poi.product_id, p.name AS product_name, poi.quantity AS qty_ordered,
-                       poi.unit_price, poi.rebate_rate, poi.rebate_amount_earned,
+                SELECT poi.id, poi.product_id, p.name AS product_name, p.category_id,
+                       pc.name AS category_name, poi.quantity AS qty_ordered, poi.unit_price,
                        COALESCE((
                            SELECT SUM(quantity) FROM inventory_movements
                             WHERE reference_id = poi.purchase_order_id
@@ -224,13 +311,14 @@ try {
                        ), 0) AS qty_received
                   FROM purchase_order_items poi
                   JOIN products p ON p.id = poi.product_id
+                  LEFT JOIN product_categories pc ON pc.id = p.category_id
                  WHERE poi.purchase_order_id = ?
                  ORDER BY p.name ASC
             ");
             $stmtLines->execute([$po_id]);
             $lines = $stmtLines->fetchAll(PDO::FETCH_ASSOC);
 
-            $total_ordered = 0; $total_received = 0; $total_rebate_earned = 0;
+            $total_ordered = 0; $total_received = 0;
             foreach ($lines as &$l) {
                 $l['qty_ordered']   = (int) $l['qty_ordered'];
                 $l['qty_received']  = (int) $l['qty_received'];
@@ -238,9 +326,28 @@ try {
                 $l['line_total']    = $l['qty_ordered'] * (float) $l['unit_price'];
                 $total_ordered      += $l['qty_ordered'];
                 $total_received     += $l['qty_received'];
-                $total_rebate_earned += (float) $l['rebate_amount_earned'];
             }
             unset($l);
+
+            // Per-category ristourne breakdown for this PO — the ladder tier
+            // frozen at order creation, the HT base it was evaluated against,
+            // and the net amount actually accrued so far across receptions.
+            $stmtCatRebates = $db->prepare("
+                SELECT pocr.category_id, pc.name AS category_name, pocr.category_amount_ttc,
+                       pocr.category_amount_ht, pocr.tier_rate, pocr.vat_rate_applied,
+                       pocr.precompte_rate_applied, pocr.rebate_amount_earned
+                  FROM purchase_order_category_rebates pocr
+                  JOIN product_categories pc ON pc.id = pocr.category_id
+                 WHERE pocr.purchase_order_id = ?
+                 ORDER BY pc.name ASC
+            ");
+            $stmtCatRebates->execute([$po_id]);
+            $category_rebates = $stmtCatRebates->fetchAll(PDO::FETCH_ASSOC);
+
+            $total_rebate_earned = 0;
+            foreach ($category_rebates as $cr) {
+                $total_rebate_earned += (float) $cr['rebate_amount_earned'];
+            }
 
             // Reception history: one row per distinct reception "batch" is not
             // tracked separately from inventory_movements, so this reads the raw
@@ -278,6 +385,7 @@ try {
                 'data' => [
                     'po' => $po,
                     'lines' => $lines,
+                    'category_rebates' => $category_rebates,
                     'receptions' => $receptions,
                     'rebate_ledger' => $rebate_ledger,
                     'totals' => [
@@ -486,14 +594,50 @@ try {
                 $stmtLine->execute([$po_id, (int)$item['product_id'], (int)$item['quantity'], (float)$item['unit_price']]);
             }
 
+            // 1b. RISTOURNE LADDER TIER — frozen per category, at order
+            //     creation, on the WHOLE order's category subtotal (confirmed
+            //     with the supplier: it is not evaluated per reception, and
+            //     later partial receptions each earn a share at this same
+            //     frozen rate — see receive_po in inventory_controller.php).
+            //
+            //     Purchase order prices are confirmed TTC (the supplier's
+            //     quoted price already includes TVA), so the HT base the
+            //     ladder is evaluated against is backed out of the entered
+            //     price here, not read directly from it.
+            $tax = lpc_rebate_tax_settings($db);
+            $stmtProdCat = $db->prepare("SELECT category_id FROM products WHERE id = ?");
+            $category_ttc_totals = []; // category_id => TTC subtotal for this PO
+            foreach ($items as $item) {
+                $stmtProdCat->execute([(int) $item['product_id']]);
+                $cat_id = $stmtProdCat->fetchColumn();
+                if (!$cat_id) continue; // product has no category assigned — cannot ladder it
+                $cat_id = (int) $cat_id;
+                $line_ttc = (int) $item['quantity'] * (float) $item['unit_price'];
+                $category_ttc_totals[$cat_id] = ($category_ttc_totals[$cat_id] ?? 0) + $line_ttc;
+            }
+
+            $stmtInsCatRebate = $db->prepare("
+                INSERT INTO purchase_order_category_rebates
+                    (purchase_order_id, category_id, category_amount_ttc, category_amount_ht,
+                     tier_rate, vat_rate_applied, precompte_rate_applied)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ");
+            foreach ($category_ttc_totals as $cat_id => $ttc) {
+                $ht = $ttc / (1 + $tax['vat_rate']);
+                $tier_rate = lpc_category_tier_rate($db, $supplier_id, $cat_id, $ht);
+                $stmtInsCatRebate->execute([
+                    $po_id, $cat_id, $ttc, $ht, $tier_rate, $tax['vat_rate'], $tax['precompte_rate']
+                ]);
+            }
+
             // 2. DEDUCT RISTOURNE IF USED (Consumption happens at order creation).
             //    Sprint-4-Batch-B: lock the supplier's rebate ledger before
             //    reading the running balance so two concurrent POs against
             //    the same rebate pool can't double-spend.
             if ($discount_amount > 0) {
                 // Whether a supplier can spend rebate credit now comes from
-                // having at least one configured (supplier, product) rebate
-                // row (migration 051) — see includes/functions/procurement.php.
+                // having at least one active category ladder (migration 052)
+                // — see includes/functions/procurement.php.
                 if (!lpc_supplier_has_any_rebate($db, $supplier_id)) {
                     throw new UserFacingException("Ce fournisseur ne dispose pas d'un compte ristourne.");
                 }

@@ -31,51 +31,106 @@ if (basename($_SERVER['PHP_SELF'] ?? '') === basename(__FILE__)) {
 
 /**
  * -----------------------------------------------------------------------------
- * RISTOURNE MODEL — per (supplier, product), not blanket.
+ * RISTOURNE MODEL — per (supplier, category), tiered, confirmed with the
+ * supplier (Source du Pays) and generalized to any supplier.
  * -----------------------------------------------------------------------------
- * Migration 038's suppliers.rebate_rate (and, before that, a stripos() name
- * match on "Source du Pays" / "SDP") applied ONE rate to EVERY product bought
- * from a supplier, unconditionally. That is not how these arrangements are
- * actually negotiated — a supplier can offer a rebate on one product and none
- * on another — and it meant every receipt from a rebate-earning supplier
- * accrued ristourne whether or not that specific product carried one.
+ * Migration 051's supplier_product_rebates (one flat rate per supplier+product)
+ * lasted one iteration: SDP's real arrangement is per CATEGORY (Eau vs Jus),
+ * and Jus is TIERED by purchase volume (3% / 4% / 5% as the amount crosses
+ * 5,000,000 / 10,000,000 HT). Migration 052 replaces it with:
  *
- * Migration 051 replaces it with supplier_product_rebates: one row per
- * (supplier_id, product_id) pair, each with its own rate. No row for a pair
- * means no rebate for that pair — there is deliberately no supplier-wide
- * fallback and no read of suppliers.rebate_rate here anymore. Configure rates
- * from the "Ristournes" screen (api action: rebate_config_*).
+ *   supplier_category_rebates       — which (supplier, category) pairs have a
+ *                                     ladder configured at all (any supplier,
+ *                                     not just SDP).
+ *   supplier_category_rebate_tiers  — the ladder bands themselves:
+ *                                     threshold_from (EXCLUSIVE, NULL = 0),
+ *                                     threshold_to (INCLUSIVE, NULL = open-
+ *                                     ended), rate. Confirmed rule: a purchase
+ *                                     lands in exactly one tier (a "cliff" —
+ *                                     the whole category amount earns that
+ *                                     tier's rate, it is not sliced across
+ *                                     bands), evaluated against the WHOLE
+ *                                     purchase order's category subtotal (not
+ *                                     per reception), and an exact threshold
+ *                                     value belongs to the tier below it.
+ *   purchase_order_category_rebates — freezes the matched tier's rate and the
+ *                                     tax rates in force, per (PO, category),
+ *                                     at order creation — see save_po in
+ *                                     api/v1/procurement_controller.php.
+ *   purchase_rebate_tax_settings     — the shared TVA / précompte rates used
+ *                                     to (a) back the HT amount out of the
+ *                                     TTC purchase price and (b) withhold from
+ *                                     the computed rebate. Editable from the
+ *                                     Ristournes config page, not a literal.
+ *
+ * migration 051's supplier_product_rebates and purchase_order_items
+ * .rebate_rate / .rebate_amount_earned are left in place, unused — this file
+ * no longer reads or writes them.
  * -----------------------------------------------------------------------------
  */
 
 /**
- * The rebate rate for one (supplier, product) pair, as a decimal fraction
- * (0.0247 = 2.47%). Returns 0.0 if that exact pair has no configured rebate,
- * or if the row exists but has been deactivated.
+ * Shared TVA / précompte rates used by the rebate calculation.
+ * @return array{vat_rate: float, precompte_rate: float}
  */
-function lpc_product_rebate_rate(PDO $db, int $supplier_id, int $product_id): float
+function lpc_rebate_tax_settings(PDO $db): array
 {
-    static $cache = [];
-    $key = $supplier_id . ':' . $product_id;
-    if (array_key_exists($key, $cache)) return $cache[$key];
+    static $settings = null;
+    if ($settings !== null) return $settings;
 
-    $stmt = $db->prepare("
-        SELECT rebate_rate FROM supplier_product_rebates
-         WHERE supplier_id = ? AND product_id = ? AND is_active = 1
-    ");
-    $stmt->execute([$supplier_id, $product_id]);
-    $rate = $stmt->fetchColumn();
+    $row = $db->query("SELECT vat_rate, precompte_rate FROM purchase_rebate_tax_settings ORDER BY id ASC LIMIT 1")
+               ->fetch(PDO::FETCH_ASSOC);
 
-    return $cache[$key] = ($rate !== false) ? (float) $rate : 0.0;
+    // Migration 052 always seeds one row; this fallback only protects an
+    // install where the migration hasn't run yet.
+    return $settings = [
+        'vat_rate'       => $row ? (float) $row['vat_rate']       : 0.1925,
+        'precompte_rate' => $row ? (float) $row['precompte_rate'] : 0.02,
+    ];
 }
 
-/** Does this supplier have ANY configured product rebate (used to gate the
- *  "Ristournes" panel / discount UI for that supplier)? */
+/**
+ * The ladder rate for one (supplier, category) pair at a given HT amount.
+ * Returns 0.0 if no active ladder is configured for that pair, or the amount
+ * doesn't fall inside any configured tier (a gap in the ladder is treated as
+ * "no rebate" rather than an error).
+ *
+ * Tier matching: threshold_from is EXCLUSIVE (NULL means "from 0"),
+ * threshold_to is INCLUSIVE (NULL means "no upper bound"). This is what makes
+ * an exact boundary value (e.g. 5,000,000) belong to the tier below it.
+ */
+function lpc_category_tier_rate(PDO $db, int $supplier_id, int $category_id, float $amount_ht): float
+{
+    $stmt = $db->prepare("
+        SELECT t.threshold_from, t.threshold_to, t.rate
+          FROM supplier_category_rebates scr
+          JOIN supplier_category_rebate_tiers t ON t.supplier_category_rebate_id = scr.id
+         WHERE scr.supplier_id = ? AND scr.category_id = ? AND scr.is_active = 1
+         ORDER BY t.tier_order ASC
+    ");
+    $stmt->execute([$supplier_id, $category_id]);
+
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $tier) {
+        $from = $tier['threshold_from'] !== null ? (float) $tier['threshold_from'] : null;
+        $to   = $tier['threshold_to']   !== null ? (float) $tier['threshold_to']   : null;
+
+        if ($from !== null && $amount_ht <= $from) continue;   // strictly above threshold_from
+        if ($to   !== null && $amount_ht >  $to)   continue;   // at or below threshold_to
+
+        return (float) $tier['rate'];
+    }
+
+    return 0.0;
+}
+
+/** Does this supplier have ANY active category ladder configured at all
+ *  (used to gate the "Ristournes" discount UI for that supplier)? */
 function lpc_supplier_has_any_rebate(PDO $db, int $supplier_id): bool
 {
     $stmt = $db->prepare("
-        SELECT COUNT(*) FROM supplier_product_rebates
-         WHERE supplier_id = ? AND is_active = 1 AND rebate_rate > 0
+        SELECT COUNT(*) FROM supplier_category_rebates scr
+          JOIN supplier_category_rebate_tiers t ON t.supplier_category_rebate_id = scr.id
+         WHERE scr.supplier_id = ? AND scr.is_active = 1 AND t.rate > 0
     ");
     $stmt->execute([$supplier_id]);
     return ((int) $stmt->fetchColumn()) > 0;

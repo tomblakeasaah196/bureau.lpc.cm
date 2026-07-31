@@ -111,15 +111,37 @@ $po_id = (int) ($_GET['id'] ?? 0);
                             <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-500 font-black tracking-widest">
                                 <tr>
                                     <th class="py-3 px-6">Produit</th>
+                                    <th class="py-3 px-4">Catégorie</th>
                                     <th class="py-3 px-4 text-center">Commandé</th>
                                     <th class="py-3 px-4 text-center text-emerald-700 bg-emerald-50/50">Reçu</th>
                                     <th class="py-3 px-4 text-center text-amber-700 bg-amber-50/50">Reste</th>
                                     <th class="py-3 px-4 text-right">Prix Unit.</th>
                                     <th class="py-3 px-6 text-right">Total Ligne</th>
-                                    <th class="py-3 px-4 text-right">Ristourne</th>
                                 </tr>
                             </thead>
                             <tbody id="po-lines-body" class="divide-y divide-gray-100 text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- RISTOURNE PAR CATÉGORIE -->
+                <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div class="bg-amber-500 px-6 py-3">
+                        <h4 class="text-xs font-black text-white uppercase tracking-widest"><i class="fas fa-gift mr-2"></i>Ristourne par Catégorie (paliers)</h4>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-500 font-black tracking-widest">
+                                <tr>
+                                    <th class="py-3 px-6">Catégorie</th>
+                                    <th class="py-3 px-4 text-right">Montant TTC</th>
+                                    <th class="py-3 px-4 text-right">Montant HT</th>
+                                    <th class="py-3 px-4 text-center">Taux Palier</th>
+                                    <th class="py-3 px-4 text-center">Retenue Fiscale</th>
+                                    <th class="py-3 px-6 text-right">Ristourne Gagnée</th>
+                                </tr>
+                            </thead>
+                            <tbody id="po-category-rebates-body" class="divide-y divide-gray-100 text-sm"></tbody>
                         </table>
                     </div>
                 </div>
