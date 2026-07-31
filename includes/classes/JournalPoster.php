@@ -580,7 +580,7 @@ final class JournalPoster
     }
 
     /**
-     * SDP ristourne earned on reception (2.47% of the value actually received).
+     * Ristourne earned on reception — Debit 4098 / Credit 6019.
      *
      *   Debit  4098 Fournisseurs - RRR à obtenir  — the supplier now owes us this
      *   Credit 6019 RRR obtenus sur achats        — contra-expense, reduces COGS
@@ -590,6 +590,16 @@ final class JournalPoster
      * unconditional. Recognising it only on use would understate both the
      * balance sheet and the margin for as long as the credit sits unused.
      *
+     * $narration: migration 052 moved ristourne from one blanket per-supplier
+     * rate to a tiered ladder per (supplier, category), so there is no longer
+     * one true rate to hardcode into the description — the caller (one call
+     * per category, in api/v1/inventory_controller.php::receive_po) passes
+     * the actual category + rate that fired. The old default below
+     * ("Ristourne 2,47% acquise") is kept ONLY as a fallback for a caller that
+     * doesn't supply one; it is no longer accurate for anything posted after
+     * migration 052 and should not be relied on. Already-posted entries under
+     * the old wording are historical fact and are never rewritten.
+     *
      * @return int journal_entries.id
      */
     public static function postRebateAccrual(
@@ -597,7 +607,8 @@ final class JournalPoster
         int $supplier_id,
         float $amount,
         string $date,
-        string $po_reference
+        string $po_reference,
+        ?string $narration = null
     ): int {
         $db      = Database::getInstance()->getConnection();
         $user_id = (int) ($_SESSION['user_id'] ?? 0);
@@ -617,7 +628,7 @@ final class JournalPoster
 
         $je_id = self::createDraftJe(
             $db, 'JRN-AC-' . date('ym'), 'AC', $date,
-            "Ristourne 2,47% acquise — réf: {$po_reference}", $user_id,
+            ($narration ?? "Ristourne 2,47% acquise") . " — réf: {$po_reference}", $user_id,
             'rebate_accrual', $po_id
         );
         self::addLine($db, $je_id, $receivable_coa, $amount, 0.0);

@@ -26,7 +26,7 @@
                     { key: 'reference', label: 'Référence PO', render: v => `<span class="font-black text-gray-900 bg-gray-100 px-2 py-1 rounded border border-gray-200">${v}</span>` },
                     { key: 'supplier_name', label: 'Fournisseur', render: v => `<span class="font-bold text-gray-700">${v}</span>` },
                     { key: 'delivery_place_name', label: 'Lieu de Livraison', render: v => v
-                        ? `<span class="text-xs font-bold text-gray-600"><i class="fas fa-map-marker-alt mr-1 text-gray-400"></i>${v}</span>`
+                        ? `<span class="text-xs font-bold text-gray-600"><i class="fas fa-map-marker-alt mr-1 text-gray-500"></i>${v}</span>`
                         : `<span class="text-xs text-gray-300 italic">Non spécifié</span>` },
                     // A cancelled order is no longer owed, whatever its payment
                     // status column still says — show that first so a reversed
@@ -45,7 +45,8 @@
                     // whenever the user picked YTD, Tout, or a custom range.
                     { id: 'kpi_inv_total', label: 'Total Achats (Période)', icon: 'fa-chart-line', color: 'text-indigo-600', bg: 'bg-indigo-50' },
                     { id: 'kpi_inv_unpaid', label: 'Dettes Fournisseurs', icon: 'fa-hand-holding-usd', color: 'text-red-600', bg: 'bg-red-50' },
-                    { id: 'kpi_inv_discount', label: 'Remises Obtenues', icon: 'fa-tags', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+                    { id: 'kpi_inv_discount', label: 'Remises Obtenues', icon: 'fa-tags', color: 'text-emerald-700', bg: 'bg-emerald-50',
+                      hint: "Toute remise saisie manuellement sur une commande, qu'elle vienne d'une ristourne ou non. Différent de « Ristournes » (bouton ci-dessus), qui est le système de paliers par catégorie chez un fournisseur." },
                     { id: 'kpi_inv_count', label: 'Volume Commandes', icon: 'fa-boxes', color: 'text-blue-600', bg: 'bg-blue-50' }
                 ]
             },
@@ -54,7 +55,7 @@
                 btnText: "Saisir Frais Généraux",
                 columns: [
                     { key: 'date', label: 'Date', render: v => `<span class="text-xs font-bold text-gray-500">${new Date(v).toLocaleDateString('fr-FR')}</span>` },
-                    { key: 'reference', label: 'Ref', render: v => `<span class="text-xs font-mono text-gray-400">${v}</span>` },
+                    { key: 'reference', label: 'Ref', render: v => `<span class="text-xs font-mono text-gray-500">${v}</span>` },
                     { key: 'title', label: 'Désignation de la Dépense', render: v => `<span class="font-bold text-gray-900">${v}</span>` },
                     { key: 'category', label: 'Catégorie', render: v => `<span class="px-2 py-1 bg-gray-100 text-gray-700 rounded text-[10px] uppercase font-bold tracking-wider">${v}</span>` },
                     { key: 'payment_status', label: 'Statut', render: v => v === 'paid' ? '<span class="text-green-500 text-xs font-bold"><i class="fas fa-check-circle mr-1"></i>Payé</span>' : '<span class="text-red-500 text-xs font-bold"><i class="fas fa-exclamation-circle mr-1"></i>Impayé</span>' },
@@ -62,7 +63,7 @@
                 ],
                 kpis: [
                     { id: 'kpi_oh_total', label: 'Total OPEX (Période)', icon: 'fa-calculator', color: 'text-gray-900', bg: 'bg-gray-200' },
-                    { id: 'kpi_oh_log', label: 'Dépenses Logistique', icon: 'fa-truck', color: 'text-amber-600', bg: 'bg-amber-50' },
+                    { id: 'kpi_oh_log', label: 'Dépenses Logistique', icon: 'fa-truck', color: 'text-amber-700', bg: 'bg-amber-50' },
                     { id: 'kpi_oh_unpaid', label: 'Factures en Attente', icon: 'fa-clock', color: 'text-red-600', bg: 'bg-red-50' },
                     { id: 'kpi_oh_count', label: 'Nbre de Lignes', icon: 'fa-receipt', color: 'text-blue-600', bg: 'bg-blue-50' }
                 ]
@@ -92,11 +93,18 @@
                     populateDeliveryPlaceSelect();
 
                     // Which supplier the Ristournes modal opens for by default —
-                    // no more name-matching "Source du Pays"/"SDP". Any supplier
-                    // can have per-product rebates configured (migration 051);
-                    // default to the first one in the list, the modal itself
-                    // lets you switch.
-                    ristourneSupplierId = metaData.suppliers.length ? metaData.suppliers[0].id : null;
+                    // no more name-matching "Source du Pays"/"SDP", and no more
+                    // landing on whichever supplier happens to sort first
+                    // alphabetically (which was often an unrelated supplier
+                    // with nothing configured, showing an empty panel by
+                    // coincidence). Prefer the first supplier that actually has
+                    // an active ladder tier; only fall back to alphabetical
+                    // first if none are configured yet.
+                    const withLadder = metaData.suppliers_with_ladder || [];
+                    const firstConfigured = metaData.suppliers.find(s => withLadder.includes(s.id));
+                    ristourneSupplierId = firstConfigured
+                        ? firstConfigured.id
+                        : (metaData.suppliers.length ? metaData.suppliers[0].id : null);
                 }
             } catch (e) { console.error("Failed to load metadata", e); }
         }
@@ -117,10 +125,10 @@
 
             document.querySelectorAll('.tab-link').forEach(el => {
                 el.classList.remove('border-lpc-dark', 'text-lpc-dark', 'font-black');
-                el.classList.add('border-transparent', 'text-gray-400', 'font-bold');
+                el.classList.add('border-transparent', 'text-gray-500', 'font-bold');
             });
             const activeLink = document.getElementById(`tab-${tab}`);
-            activeLink.classList.remove('border-transparent', 'text-gray-400', 'font-bold');
+            activeLink.classList.remove('border-transparent', 'text-gray-500', 'font-bold');
             activeLink.classList.add('border-lpc-dark', 'text-lpc-dark', 'font-black');
 
             document.getElementById('btn-action-text').innerText = c.btnText;
@@ -139,10 +147,23 @@
             const ribbon = document.getElementById('kpi-ribbon');
             ribbon.innerHTML = '';
             c.kpis.forEach(kpi => {
+                // kpi.hint is optional: a native-tooltip (title attribute)
+                // clarification shown next to the label. Added specifically
+                // for "Remises Obtenues" — it sits right next to the
+                // "Ristournes" button and both are about money taken off a
+                // purchase order, but they are not the same thing: this KPI
+                // totals whatever was typed into the discount field on any PO
+                // (ristourne-funded or not), while "Ristournes" is the
+                // supplier ladder system that computes and tracks the rebate
+                // itself.
+                const hintIcon = kpi.hint
+                    ? LPC.raw(` <i class="fas fa-circle-info text-gray-500" title="${String(kpi.hint).replace(/"/g, '&quot;')}"></i>`)
+                    : '';
+
                 ribbon.innerHTML += LPC.html`
                     <div onclick="showKPIDetails('${kpi.id}')" class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between cursor-pointer hover:shadow-md hover:-translate-y-1 transition-all">
                         <div>
-                            <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">${kpi.label}</p>
+                            <p class="text-[10px] font-black text-gray-500 uppercase tracking-widest">${kpi.label}${hintIcon}</p>
                             <h3 class="text-2xl font-black text-gray-900 mt-1" id="${kpi.id}">...</h3>
                         </div>
                         <div class="w-12 h-12 ${kpi.bg} ${kpi.color} rounded-xl flex items-center justify-center text-xl">
@@ -153,8 +174,8 @@
 
             const thead = document.getElementById('table-head');
             let thHTML = '<tr>';
-            c.columns.forEach(col => thHTML += `<th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest">${col.label}</th>`);
-            thHTML += `<th class="py-4 px-6 text-right text-[10px] uppercase text-gray-400 font-black tracking-widest">Actions</th></tr>`;
+            c.columns.forEach(col => thHTML += `<th class="py-4 px-6 text-[10px] uppercase text-gray-500 font-black tracking-widest">${col.label}</th>`);
+            thHTML += `<th class="py-4 px-6 text-right text-[10px] uppercase text-gray-500 font-black tracking-widest">Actions</th></tr>`;
             thead.innerHTML = thHTML;
 
             await loadTabData();
@@ -275,7 +296,7 @@
             }
             
             if(filteredData.length === 0) {
-                tbody.innerHTML = LPC.html`<tr><td colspan="4" class="py-6 text-center text-gray-400 font-bold italic">Aucune donnée pour ce critère.</td></tr>`;
+                tbody.innerHTML = LPC.html`<tr><td colspan="4" class="py-6 text-center text-gray-500 font-bold italic">Aucune donnée pour ce critère.</td></tr>`;
             }
             
             document.getElementById('kpiDetailsModal').classList.remove('hidden');
@@ -329,14 +350,14 @@
                 // than not offering it.
                 const cancelBtn = cancelled ? '' : `
                     <button onclick="event.stopPropagation(); cancelPurchaseOrder(${row.id}, '${String(row.reference).replace(/'/g, "\\'")}')"
-                            class="text-red-400 hover:text-red-600 p-2" title="Annuler Commande" aria-label="Annuler Commande"><i class="fas fa-ban"></i></button>`;
+                            class="text-red-600 hover:text-red-700 p-2" title="Annuler Commande" aria-label="Annuler Commande"><i class="fas fa-ban"></i></button>`;
                 actions = `
                     <a href="/bon_commande.php?token=${row.token}" target="_blank" onclick="event.stopPropagation()" class="text-lpc-dark hover:text-green-700 bg-green-50 p-2 rounded-lg mr-2" title="Voir PDF"><i class="fas fa-file-pdf"></i></a>
                     <a href="/modules/inventory/po_detail.php?id=${row.id}" onclick="event.stopPropagation()" class="text-indigo-500 hover:text-indigo-700 bg-indigo-50 p-2 rounded-lg mr-2" title="Voir le détail"><i class="fas fa-eye"></i></a>${cancelBtn}`;
             } else {
                 actions = `
-                    <button onclick="openActionModal(${row.id})" class="text-gray-400 hover:text-gray-900 p-2 mr-2" title="Modifier" aria-label="Modifier"><i class="fas fa-edit"></i></button>
-                    <button onclick="deleteRecord(${row.id})" class="text-red-400 hover:text-red-600 p-2"><i class="fas fa-trash-alt"></i></button>`;
+                    <button onclick="openActionModal(${row.id})" class="text-gray-500 hover:text-gray-900 p-2 mr-2" title="Modifier" aria-label="Modifier"><i class="fas fa-edit"></i></button>
+                    <button onclick="deleteRecord(${row.id})" class="text-red-600 hover:text-red-700 p-2"><i class="fas fa-trash-alt"></i></button>`;
             }
 
             tr += `<td class="py-4 px-6 border-b border-gray-50 text-right whitespace-nowrap" onclick="event.stopPropagation()">${actions}</td></tr>`;
@@ -518,7 +539,7 @@ function openRistourneModal() {
                     tbody.innerHTML = '';
 
                     if(result.data.ledger.length === 0) {
-                        tbody.innerHTML = LPC.html`<tr><td colspan="4" class="py-6 text-center text-gray-400">Aucun historique disponible.</td></tr>`;
+                        tbody.innerHTML = LPC.html`<tr><td colspan="4" class="py-6 text-center text-gray-500">Aucun historique disponible.</td></tr>`;
                     } else {
                         result.data.ledger.forEach(l => {
                             const isAccrual = l.type === 'accrual';
@@ -539,17 +560,23 @@ function openRistourneModal() {
                             // Reversed rows stay visible but are struck through
                             // and muted: a clawed-back credit is part of the
                             // history, not something to hide.
+                            // Reversed rows use gray-600 (not gray-400) and a
+                            // lighter opacity-80 wrapper rather than opacity-60
+                            // — gray-400 at 60% opacity over white falls well
+                            // under the 4.5:1 WCAG AA text contrast minimum;
+                            // this combination keeps the "de-emphasized" cue
+                            // without making the row unreadable.
                             const color = isReversed
-                                ? 'text-gray-400 line-through'
-                                : (isAccrual ? 'text-emerald-600' : 'text-rose-600');
+                                ? 'text-gray-600 line-through'
+                                : (isAccrual ? 'text-emerald-700' : 'text-rose-700');
                             const prefix = isAccrual ? '+' : '-';
                             const rowClass = isReversed
-                                ? 'opacity-60 hover:bg-gray-50 transition-colors'
+                                ? 'opacity-80 hover:bg-gray-50 transition-colors'
                                 : 'hover:bg-gray-50 transition-colors';
 
                             tbody.innerHTML += LPC.html`
                                 <tr class="${rowClass}">
-                                    <td class="py-4 px-6 text-xs text-gray-500 font-bold">${LPC.fmt.date(l.date)}<br><span class="text-[10px] text-amber-600 font-mono tracking-wide">${l.reference}</span></td>
+                                    <td class="py-4 px-6 text-xs text-gray-500 font-bold">${LPC.fmt.date(l.date)}<br><span class="text-[10px] text-amber-700 font-mono tracking-wide">${l.reference}</span></td>
                                     <td class="py-4 px-6">${badge}</td>
                                     <td class="py-4 px-6 text-xs font-bold text-gray-700">${l.notes}</td>
                                     <td class="py-4 px-6 text-right font-black ${color}">${prefix} ${LPC.fmt.int(l.amount)}</td>
@@ -577,15 +604,15 @@ function openRistourneModal() {
             (metaData.delivery_places || []).forEach(p => {
                 list.innerHTML += LPC.html`
                     <div class="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5">
-                        <span class="font-bold text-sm text-gray-700"><i class="fas fa-map-marker-alt mr-2 text-gray-400"></i>${p.name}</span>
+                        <span class="font-bold text-sm text-gray-700"><i class="fas fa-map-marker-alt mr-2 text-gray-500"></i>${p.name}</span>
                         <div class="flex gap-2">
-                            <button onclick="editDeliveryPlace(${p.id}, '${String(p.name).replace(/'/g, "\\'")}')" class="text-gray-400 hover:text-gray-800 p-1"><i class="fas fa-edit"></i></button>
-                            <button onclick="deactivateDeliveryPlace(${p.id})" class="text-red-300 hover:text-red-500 p-1"><i class="fas fa-trash-alt"></i></button>
+                            <button onclick="editDeliveryPlace(${p.id}, '${String(p.name).replace(/'/g, "\\'")}')" class="text-gray-500 hover:text-gray-800 p-1"><i class="fas fa-edit"></i></button>
+                            <button onclick="deactivateDeliveryPlace(${p.id})" class="text-red-600 hover:text-red-700 p-1"><i class="fas fa-trash-alt"></i></button>
                         </div>
                     </div>`;
             });
             if (!metaData.delivery_places || !metaData.delivery_places.length) {
-                list.innerHTML = '<p class="text-sm text-gray-400 italic text-center py-4">Aucun lieu de livraison enregistré.</p>';
+                list.innerHTML = '<p class="text-sm text-gray-500 italic text-center py-4">Aucun lieu de livraison enregistré.</p>';
             }
         }
 
@@ -691,7 +718,7 @@ function openRistourneModal() {
                     0
                 </td>
                 <td class="p-1 text-center align-top">
-                    <button type="button" onclick="removePOLine(this)" class="text-red-300 hover:text-red-500 p-1" aria-label="Supprimer la ligne"><i class="fas fa-times"></i></button>
+                    <button type="button" onclick="removePOLine(this)" class="text-red-600 hover:text-red-700 p-1" aria-label="Supprimer la ligne"><i class="fas fa-times"></i></button>
                 </td>
             `;
             container.appendChild(tr);

@@ -52,12 +52,25 @@ try {
             $products = $db->query("SELECT id, name, format, base_price FROM products WHERE category != 'Emballage' ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
             $delivery_places = $db->query("SELECT id, name FROM delivery_places WHERE is_active = 1 ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
 
+            // Suppliers with at least one active, non-zero ladder tier — used
+            // by the Ristournes modal to default to a supplier that actually
+            // has something configured, instead of whichever supplier sorts
+            // first alphabetically.
+            $suppliers_with_ladder = $db->query("
+                SELECT DISTINCT s.id
+                  FROM suppliers s
+                  JOIN supplier_category_rebates scr ON scr.supplier_id = s.id AND scr.is_active = 1
+                  JOIN supplier_category_rebate_tiers t ON t.supplier_category_rebate_id = scr.id AND t.rate > 0
+                 ORDER BY s.id ASC
+            ")->fetchAll(PDO::FETCH_COLUMN);
+
             echo json_encode([
                 'status' => 'success',
                 'data' => [
                     'suppliers' => $suppliers,
                     'products' => $products,
-                    'delivery_places' => $delivery_places
+                    'delivery_places' => $delivery_places,
+                    'suppliers_with_ladder' => array_map('intval', $suppliers_with_ladder)
                 ]
             ]);
             break;

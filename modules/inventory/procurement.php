@@ -51,7 +51,7 @@ $user_role = $_SESSION['user_role'];
             <button onclick="switchTab('inventory')" class="tab-link py-4 border-b-2 border-lpc-dark text-lpc-dark font-black text-sm uppercase tracking-wider transition-all" id="tab-inventory">
                 <i class="fas fa-boxes mr-2"></i> Commandes Stocks (PO)
             </button>
-            <button onclick="switchTab('overheads')" class="tab-link py-4 border-b-2 border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider transition-all" id="tab-overheads">
+            <button onclick="switchTab('overheads')" class="tab-link py-4 border-b-2 border-transparent text-gray-500 hover:text-gray-700 font-bold text-sm uppercase tracking-wider transition-all" id="tab-overheads">
                 <i class="fas fa-receipt mr-2"></i> Frais Généraux (OPEX)
             </button>
         </nav>
@@ -89,7 +89,7 @@ $user_role = $_SESSION['user_role'];
 
                     <div id="custom_period_wrapper" class="hidden items-center gap-2 bg-white border border-gray-200 rounded-lg px-2 py-1 shadow-sm">
                         <input type="month" id="kpi_start_month" onchange="loadTabData()" class="text-sm font-bold text-gray-700 outline-none cursor-pointer bg-transparent">
-                        <span class="text-gray-300 font-bold">à</span>
+                        <span class="text-gray-500 font-bold">à</span>
                         <input type="month" id="kpi_end_month" onchange="loadTabData()" class="text-sm font-bold text-gray-700 outline-none cursor-pointer bg-transparent">
                     </div>
                 </div>
@@ -98,11 +98,11 @@ $user_role = $_SESSION['user_role'];
 
             <div class="flex justify-between items-center mb-6" id="toolbar">
                 <div class="relative w-96">
-                    <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                    <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
                     <input type="text" id="search-input" placeholder="Rechercher une référence ou fournisseur..." class="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-dark transition-shadow shadow-sm">
                 </div>
                 <div class="flex gap-3">
-                    <button id="btn-sdp-ristourne" onclick="openRistourneModal()" class="bg-amber-100 hover:bg-amber-200 text-amber-800 px-6 py-3 rounded-xl font-black text-sm shadow-sm flex items-center gap-2 transition-transform active:scale-95 border border-amber-300">
+                    <button id="btn-sdp-ristourne" onclick="openRistourneModal()" title="Solde et historique de la remise accordée par un fournisseur (paliers par catégorie) — différent des remises manuelles saisies sur une commande." class="bg-amber-100 hover:bg-amber-200 text-amber-800 px-6 py-3 rounded-xl font-black text-sm shadow-sm flex items-center gap-2 transition-transform active:scale-95 border border-amber-300">
                         <i class="fas fa-gift"></i> <span>Ristournes</span>
                     </button>
                     <a id="btn-config-ristournes" href="/modules/inventory/rebate_config.php" class="bg-white hover:bg-gray-50 text-gray-700 px-6 py-3 rounded-xl font-black text-sm shadow-sm flex items-center gap-2 transition-transform active:scale-95 border border-gray-200">
@@ -150,24 +150,24 @@ $user_role = $_SESSION['user_role'];
                     
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-6 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                         <div>
-                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.fournisseur_mdm')) ?></label>
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.fournisseur_mdm')) ?></label>
                             <select name="supplier_id" id="po_supplier" onchange="checkSupplierRebate(this)" required class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
                                 <option value=""><?= htmlspecialchars(__t('ui.x.selectionner_un_fournisseur')) ?></option>
                                 </select>
                         </div>
                         <div>
-                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.date_d_achat')) ?></label>
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.date_d_achat')) ?></label>
                             <input type="date" name="date" id="po_date" required class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
                         </div>
                         <div>
-                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.statut_de_paiement')) ?></label>
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.statut_de_paiement')) ?></label>
                             <select name="payment_status" id="po_payment_status" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
                                 <option value="unpaid"><?= htmlspecialchars(__t('ui.x.non_paye_a_credit')) ?></option>
                                 <option value="paid" selected><?= htmlspecialchars(__t('ui.x.paye_cash_virement')) ?></option>
                             </select>
                         </div>
                         <div>
-                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center justify-between">
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 flex items-center justify-between">
                                 <span>Lieu de Livraison</span>
                                 <button type="button" onclick="openDeliveryPlacesModal()" class="text-lpc-dark hover:underline normal-case font-bold text-[10px]"><i class="fas fa-cog mr-1"></i>Gérer</button>
                             </label>
@@ -206,8 +206,8 @@ $user_role = $_SESSION['user_role'];
                             
                             <div class="border-t border-gray-100 pt-3 relative">
                                 <div class="flex justify-between items-center mb-1">
-                                    <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.remise_fcfa')) ?></label>
-                                    <div id="sdp-rebate-info" class="hidden text-[9px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded cursor-pointer hover:bg-amber-100" onclick="applyMaxRebate()">
+                                    <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.remise_fcfa')) ?></label>
+                                    <div id="sdp-rebate-info" class="hidden text-[9px] font-black text-amber-800 bg-amber-50 px-2 py-0.5 rounded cursor-pointer hover:bg-amber-100" onclick="applyMaxRebate()">
                                         Solde Dispo: <span id="sdp-rebate-val">0</span> F <i class="fas fa-arrow-down ml-1"></i>
                                     </div>
                                 </div>
@@ -246,13 +246,13 @@ $user_role = $_SESSION['user_role'];
                     <input type="hidden" name="id" id="oh_id" value="">
                     
                     <div>
-                        <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.titre_de_la_depense')) ?></label>
+                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.titre_de_la_depense')) ?></label>
                         <input type="text" name="title" id="oh_title" required placeholder="ex: Réparation Camion LT-123" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-gray-900">
                     </div>
                     
                     <div class="grid grid-cols-2 gap-5">
                         <div>
-                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.categorie_2')) ?></label>
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.categorie_2')) ?></label>
                             <select name="category" id="oh_category" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-gray-900">
                                 <option value="Logistique"><?= htmlspecialchars(__t('ui.x.logistique_transport')) ?></option>
                                 <option value="Maintenance"><?= htmlspecialchars(__t('ui.x.maintenance_flotte')) ?></option>
@@ -264,18 +264,18 @@ $user_role = $_SESSION['user_role'];
                             </select>
                         </div>
                         <div>
-                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.date_2')) ?></label>
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.date_2')) ?></label>
                             <input type="date" name="date" id="oh_date" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-gray-900">
                         </div>
                     </div>
 
                     <div class="grid grid-cols-2 gap-5">
                         <div>
-                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.montant_fcfa')) ?></label>
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.montant_fcfa')) ?></label>
                             <input type="number" name="amount" id="oh_amount" required min="1" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-lg font-black text-lpc-dark outline-none focus:ring-2 focus:ring-gray-900">
                         </div>
                         <div>
-                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.statut_2')) ?></label>
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.statut_2')) ?></label>
                             <select name="payment_status" id="oh_payment_status" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-gray-900">
                                 <option value="paid"><?= htmlspecialchars(__t('ui.x.paye')) ?></option>
                                 <option value="unpaid"><?= htmlspecialchars(__t('ui.x.en_attente_de_paiement')) ?></option>
@@ -310,7 +310,7 @@ $user_role = $_SESSION['user_role'];
 
     <div id="ristourneModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-[#F8FAFC] rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col h-[85vh]">
-            <div class="bg-amber-500 px-8 py-6 flex justify-between items-center shrink-0">
+            <div class="bg-amber-700 px-8 py-6 flex justify-between items-center shrink-0">
                 <div class="flex items-center gap-4">
                     <div class="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-amber-500 shadow-sm text-2xl">
                         <i class="fas fa-gift"></i>
@@ -325,11 +325,11 @@ $user_role = $_SESSION['user_role'];
 
             <div class="grid grid-cols-3 gap-4 p-8 bg-white border-b border-gray-200 shrink-0">
                 <div class="bg-emerald-50 rounded-2xl p-5 border border-emerald-100">
-                    <p class="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.total_genere_cumul')) ?></p>
+                    <p class="text-[10px] font-black text-emerald-700 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.total_genere_cumul')) ?></p>
                     <h4 class="text-2xl font-black text-emerald-900" id="rist_total_earned">0 F</h4>
                 </div>
                 <div class="bg-rose-50 rounded-2xl p-5 border border-rose-100">
-                    <p class="text-[10px] font-black text-rose-600 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.total_utilise')) ?></p>
+                    <p class="text-[10px] font-black text-rose-700 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.total_utilise')) ?></p>
                     <h4 class="text-2xl font-black text-rose-900" id="rist_total_used">0 F</h4>
                 </div>
                 <div class="bg-amber-100 rounded-2xl p-5 border border-amber-200 shadow-inner">
@@ -341,11 +341,11 @@ $user_role = $_SESSION['user_role'];
             <div class="flex-1 overflow-y-auto p-8 space-y-8">
                 <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between">
                     <p class="text-xs font-bold text-amber-800">La ristourne est configurée par catégorie de produit (avec paliers), pas ici. Ceci n'affiche que le solde et l'historique pour le fournisseur choisi.</p>
-                    <a href="/modules/inventory/rebate_config.php" class="shrink-0 ml-4 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-black text-xs uppercase tracking-widest shadow-sm"><i class="fas fa-sliders-h mr-1"></i>Configurer</a>
+                    <a href="/modules/inventory/rebate_config.php" class="shrink-0 ml-4 px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white rounded-lg font-black text-xs uppercase tracking-widest shadow-sm"><i class="fas fa-sliders-h mr-1"></i>Configurer</a>
                 </div>
 
                 <div>
-                    <h4 class="text-sm font-black text-gray-800 uppercase tracking-widest mb-4 flex items-center"><i class="fas fa-history mr-2 text-gray-400"></i> <?= htmlspecialchars(__t('ui.x.historique_du_compte_ledger')) ?></h4>
+                    <h4 class="text-sm font-black text-gray-800 uppercase tracking-widest mb-4 flex items-center"><i class="fas fa-history mr-2 text-gray-500"></i> <?= htmlspecialchars(__t('ui.x.historique_du_compte_ledger')) ?></h4>
                     <div class="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                         <table class="w-full text-left">
                             <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-500 font-black tracking-widest sticky top-0">

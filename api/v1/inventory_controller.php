@@ -488,6 +488,9 @@ try {
             //     not silently change what an already-placed order earns),
             //     then the tier rate is applied and 21.25% (also frozen) is
             //     withheld before it is booked.
+            $stmtCatName = $db->prepare("SELECT name FROM product_categories WHERE id = ?");
+            $category_rebate_details = []; // one entry per category that actually earned something this reception
+
             foreach ($category_ttc_this_reception as $cat_id => $ttc_this_reception) {
                 $stmtCatRebateRow->execute([$po_id, $cat_id]);
                 $cat_row = $stmtCatRebateRow->fetch(PDO::FETCH_ASSOC);
@@ -506,6 +509,13 @@ try {
                 if ($net_rebate > 0) {
                     $total_rebate_earned += $net_rebate;
                     $stmtBumpCatRebate->execute([$net_rebate, $po_id, $cat_id]);
+
+                    $stmtCatName->execute([$cat_id]);
+                    $category_rebate_details[] = [
+                        'category_name' => (string) ($stmtCatName->fetchColumn() ?: 'Catégorie #' . $cat_id),
+                        'tier_rate'     => $tier_rate,
+                        'net_rebate'    => $net_rebate,
+                    ];
                 }
             }
 
@@ -543,19 +553,29 @@ try {
             );
 
             // ==========================================
-            // 6. RISTOURNE ACCRUAL — per (supplier, category), tiered, summed
-            //    above from purchase_order_category_rebates.
+            // 6. RISTOURNE ACCRUAL — one ledger row + one journal entry PER
+            //    CATEGORY, not one combined entry for the whole reception.
             //
             // Double-booked on purpose: the operational ledger that feeds the
             // Ristournes panel, and the general ledger (Debit 4098 / Credit
             // 6019). Both writes sit inside this one transaction, so the panel
-            // and the books cannot drift. Migration 052 replaced the flat
-            // per-(supplier, product) rate with a tiered ladder per
-            // (supplier, category); $total_rebate_earned above is already net
-            // of the frozen TVA/précompte withholding for each category that
-            // actually has an active ladder.
+            // and the books cannot drift.
+            //
+            // Posting per category (rather than one row for $total_rebate_
+            // earned) is what lets the narration name the actual category and
+            // rate that fired — e.g. "Ristourne Jus 4% gagnée à la réception"
+            // — instead of a single figure with no way to tell which category
+            // earned what. This replaces JournalPoster::postRebateAccrual's
+            // old hardcoded "Ristourne 2,47% acquise" wording, which was
+            // accurate only for the old blanket-rate model (migration 038)
+            // and has been wrong for every entry since categories/tiers went
+            // in. Entries already posted under the old wording are NOT
+            // rewritten — this only changes what gets written from here on.
             // ==========================================
-            if ($total_rebate_earned > 0) {
+            foreach ($category_rebate_details as $detail) {
+                $rate_label = rtrim(rtrim(number_format($detail['tier_rate'] * 100, 2, ',', ' '), '0'), ',') . '%';
+                $narration  = "Ristourne {$detail['category_name']} {$rate_label} gagnée à la réception";
+
                 lpc_rebate_ledger_add(
                     $db,
                     (int) $po['supplier_id'],
@@ -563,17 +583,18 @@ try {
                     date('Y-m-d'),
                     $po['reference'],
                     'accrual',
-                    $total_rebate_earned,
-                    "Ristourne gagnée à la réception (par produit)",
+                    $detail['net_rebate'],
+                    $narration,
                     $user_id
                 );
 
                 JournalPoster::postRebateAccrual(
                     $po_id,
                     (int) $po['supplier_id'],
-                    $total_rebate_earned,
+                    $detail['net_rebate'],
                     date('Y-m-d'),
-                    $po['reference']
+                    $po['reference'],
+                    $narration
                 );
             }
 
