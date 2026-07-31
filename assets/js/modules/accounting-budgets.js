@@ -26,6 +26,24 @@
             switchTab(VALID_TABS.includes(hash) ? hash : 'dashboard');
         };
 
+        // Sprint (WCAG pass) — the tab nav now carries role="tablist"/"tab".
+        // assets/js/lpc-a11y.js already provides arrow-key/Home/End roving
+        // tabindex for any [role="tablist"] and fires an `lpc:tabchange`
+        // CustomEvent on the tablist whenever a tab becomes active (click OR
+        // keyboard). We hook that single event to the real tab-switching
+        // logic below instead of duplicating click handling, so keyboard
+        // navigation actually fetches/renders data instead of just moving
+        // focus.
+        document.addEventListener('DOMContentLoaded', () => {
+            const tablist = document.getElementById('budgets-tablist');
+            if (tablist) {
+                tablist.addEventListener('lpc:tabchange', (e) => {
+                    const tabId = e.detail && e.detail.tab && e.detail.tab.id;
+                    if (tabId) switchTab(tabId.replace(/^tab-/, ''));
+                });
+            }
+        });
+
         function refreshAllTabs() {
             // Re-fetch the current tab to apply the new Year filter instantly
             fetchTabData(currentTab);
@@ -36,10 +54,15 @@
 
             document.querySelectorAll('.tab-link').forEach(el => {
                 el.classList.remove('border-finance-highlight', 'text-finance-dark', 'font-black');
-                el.classList.add('border-transparent', 'text-gray-400', 'font-bold');
+                el.classList.add('border-transparent', 'text-gray-500', 'font-bold');
+                el.setAttribute('aria-selected', 'false');
+                el.tabIndex = -1;
             });
-            document.getElementById(`tab-${tab}`).classList.remove('border-transparent', 'text-gray-400', 'font-bold');
-            document.getElementById(`tab-${tab}`).classList.add('border-finance-highlight', 'text-finance-dark', 'font-black');
+            const activeTabEl = document.getElementById(`tab-${tab}`);
+            activeTabEl.classList.remove('border-transparent', 'text-gray-500', 'font-bold');
+            activeTabEl.classList.add('border-finance-highlight', 'text-finance-dark', 'font-black');
+            activeTabEl.setAttribute('aria-selected', 'true');
+            activeTabEl.tabIndex = 0;
 
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.getElementById(`content-${tab}`).classList.add('active');
@@ -97,12 +120,14 @@
             document.getElementById('lbl_rev_target').innerText = LPC.fmt.fcfa(data.kpis.rev_target);
             document.getElementById('lbl_rev_pct').innerText = revPct;
             document.getElementById('bar_rev').style.width = revPct + '%';
+            document.getElementById('bar_rev').setAttribute('aria-valuenow', String(revPct));
 
             const expPct = data.kpis.exp_target > 0 ? Math.min(100, Math.round((data.kpis.exp_actual / data.kpis.exp_target) * 100)) : 0;
             document.getElementById('kpi_exp_actual').innerText = LPC.fmt.fcfa(data.kpis.exp_actual);
             document.getElementById('lbl_exp_target').innerText = LPC.fmt.fcfa(data.kpis.exp_target);
             document.getElementById('lbl_exp_pct').innerText = expPct;
             document.getElementById('bar_exp').style.width = expPct + '%';
+            document.getElementById('bar_exp').setAttribute('aria-valuenow', String(expPct));
             if(expPct > 90) document.getElementById('bar_exp').classList.add('bg-red-600');
 
             document.getElementById('kpi_emergency_left').innerText = LPC.fmt.fcfa(data.kpis.emergency_left);
@@ -111,7 +136,7 @@
             const alertsBody = document.getElementById('dash-alerts-body');
             alertsBody.innerHTML = '';
             if(!data.alerts || data.alerts.length === 0) {
-                alertsBody.innerHTML = LPC.html`<tr><td class="py-4 px-6 text-gray-400 italic">Aucune alerte de rythme. Consommation nominale.</td></tr>`;
+                alertsBody.innerHTML = LPC.html`<tr><td class="py-4 px-6 text-gray-500 italic">Aucune alerte de rythme. Consommation nominale.</td></tr>`;
             } else {
                 data.alerts.forEach(a => {
                     alertsBody.innerHTML += LPC.html`
@@ -159,9 +184,9 @@
 
                 tbody.innerHTML += LPC.html`
                     <tr class="${trClass} border-b border-gray-100">
-                        <td class="py-3 px-4 sticky-col font-black text-gray-800 border-r border-gray-200">
+                        <th scope="row" class="py-3 px-4 sticky-col text-left font-black text-gray-800 border-r border-gray-200">
                             <span class="text-[9px] bg-gray-900 text-white px-1.5 py-0.5 rounded mr-2">${l.account_number}</span> ${l.account_name}
-                        </td>
+                        </th>
                         <td class="py-3 px-4 text-right font-black border-r border-gray-200 bg-gray-50/50">${fmt(l.annual_amount)}</td>
                         <td class="py-3 px-4 text-right font-black border-r border-gray-200 text-finance-dark bg-finance-highlight/5">${fmt(l.total_actual)}</td>
                         <td class="py-3 px-4 text-right border-r border-gray-200">${LPC.raw(varianceHtml)}</td>
@@ -201,10 +226,12 @@
             document.getElementById('perf_b2c_actual').innerText = fmt(data.targets.b2c_actual);
             document.getElementById('perf_b2c_target').innerText = isSet(data.targets.b2c_target) ? fmt(data.targets.b2c_target) : NOT_SET;
             document.getElementById('bar_perf_b2c').style.width = Math.min(100, pctC) + '%';
+            document.getElementById('bar_perf_b2c').setAttribute('aria-valuenow', String(Math.round(Math.min(100, pctC))));
 
             document.getElementById('perf_b2b_actual').innerText = fmt(data.targets.b2b_actual);
             document.getElementById('perf_b2b_target').innerText = isSet(data.targets.b2b_target) ? fmt(data.targets.b2b_target) : NOT_SET;
             document.getElementById('bar_perf_b2b').style.width = Math.min(100, pctB) + '%';
+            document.getElementById('bar_perf_b2b').setAttribute('aria-valuenow', String(Math.round(Math.min(100, pctB))));
 
             /* Revenue that matched neither B2B nor B2C. On current live data
                this is most of it, because clients.type holds company names
@@ -231,7 +258,7 @@
                 rEl.className = `text-2xl font-black ${returnRate < ceiling ? 'text-red-500' : 'text-emerald-500'}`;
             } else {
                 rEl.innerText = '—';
-                rEl.className = 'text-2xl font-black text-gray-400';
+                rEl.className = 'text-2xl font-black text-gray-500';
             }
 
             const volTarget = data.kpis.vol_20l_target;
@@ -244,7 +271,7 @@
             const tbody = document.getElementById('table-body-transfers');
             tbody.innerHTML = '';
             
-            if(data.length === 0) return tbody.innerHTML = LPC.html`<tr><td colspan="6" class="py-8 text-center text-gray-400 italic">Aucun transfert d'urgence enregistré.</td></tr>`;
+            if(data.length === 0) return tbody.innerHTML = LPC.html`<tr><td colspan="6" class="py-8 text-center text-gray-500 italic">Aucun transfert d'urgence enregistré.</td></tr>`;
 
             data.forEach(t => {
                 tbody.innerHTML += LPC.html`
@@ -254,7 +281,7 @@
                         <td class="py-4 px-6 text-xs font-black text-gray-900">${t.to_acc}</td>
                         <td class="py-4 px-6 text-right font-black text-amber-600">${fmt(t.amount)} F</td>
                         <td class="py-4 px-6 text-xs text-gray-600 truncate max-w-[200px]">${t.reason}</td>
-                        <td class="py-4 px-6 text-center text-[10px] font-bold text-gray-400 uppercase tracking-widest">${t.auth_by}</td>
+                        <td class="py-4 px-6 text-center text-[10px] font-bold text-gray-500 uppercase tracking-widest">${t.auth_by}</td>
                     </tr>`;
             });
         }
@@ -285,8 +312,8 @@
                     result.data.lines.forEach(l => {
                         tbody.innerHTML += LPC.html`
                             <tr class="border-b border-gray-100 hover:bg-white">
-                                <td class="py-3 px-6 font-bold text-gray-800 text-xs">${l.acc_name}</td>
-                                <td class="py-3 px-6 text-right text-gray-400 text-xs">${fmt(l.base_actual)}</td>
+                                <th scope="row" class="py-3 px-6 text-left font-bold text-gray-800 text-xs">${l.acc_name}</th>
+                                <td class="py-3 px-6 text-right text-gray-500 text-xs">${fmt(l.base_actual)}</td>
                                 <td class="py-3 px-6 text-right font-black text-finance-dark">${fmt(l.new_annual)}</td>
                                 <td class="py-3 px-6 text-right font-bold text-gray-500 text-xs">${fmt(l.new_monthly)} /mois</td>
                             </tr>`;
@@ -427,10 +454,10 @@
 
                     '<div class="flex items-center justify-between pt-3 border-t border-gray-100">' +
                         `<button type="button" id="lpc-budget-filter-reset" class="lpc-focusable text-xs font-bold text-rose-600 hover:text-rose-800">` +
-                            `<i class="fas fa-times-circle mr-1"></i>` + t('accounting.budgets.filter.reset', 'Réinitialiser') +
+                            `<i class="fas fa-times-circle mr-1" aria-hidden="true"></i>` + t('accounting.budgets.filter.reset', 'Réinitialiser') +
                         '</button>' +
                         `<button type="submit" id="lpc-budget-filter-apply" class="lpc-focusable bg-finance-dark hover:bg-black text-white text-xs font-black uppercase tracking-widest px-4 py-2 rounded-lg shadow-sm">` +
-                            `<i class="fas fa-check mr-1"></i>` + t('accounting.budgets.filter.apply', 'Appliquer') +
+                            `<i class="fas fa-check mr-1" aria-hidden="true"></i>` + t('accounting.budgets.filter.apply', 'Appliquer') +
                         '</button>' +
                     '</div>' +
                 '</form>';
@@ -476,7 +503,7 @@
         async function generateReportPDF() {
             // Basic implementation: Captures the main container
             const btn = event.currentTarget;
-            btn.innerHTML = LPC.html`<i class="fas fa-spinner fa-spin"></i> Export en cours...`;
+            btn.innerHTML = LPC.html`<i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Export en cours...`;
             const element = document.getElementById('report-container');
             
             try {
@@ -491,7 +518,7 @@
                 pdf.save(`LPC_Rapport_Gestion_${document.getElementById('global_year_filter').value}.pdf`);
             } catch(e) { LPC.modal.alert("Erreur export PDF."); }
             
-            btn.innerHTML = LPC.html`<i class="fas fa-file-pdf"></i> Exporter Rapport`;
+            btn.innerHTML = LPC.html`<i class="fas fa-file-pdf" aria-hidden="true"></i> Exporter Rapport`;
         }
     
         /* =====================================================================
