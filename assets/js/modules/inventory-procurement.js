@@ -115,9 +115,16 @@
                 el.classList.remove('border-lpc-dark', 'text-lpc-dark', 'font-black');
                 el.classList.add('border-transparent', 'text-gray-500', 'font-bold');
             });
+            // The tab strip was removed with the OPEX tab on 31 July 2026, so
+            // #tab-inventory no longer exists in procurement.php. This lookup
+            // returned null and the unguarded .classList threw, aborting
+            // switchTab() before the KPI ribbon, table head and loadTabData()
+            // ever ran — the page rendered its shell and nothing else.
             const activeLink = document.getElementById(`tab-${tab}`);
-            activeLink.classList.remove('border-transparent', 'text-gray-500', 'font-bold');
-            activeLink.classList.add('border-lpc-dark', 'text-lpc-dark', 'font-black');
+            if (activeLink) {
+                activeLink.classList.remove('border-transparent', 'text-gray-500', 'font-bold');
+                activeLink.classList.add('border-lpc-dark', 'text-lpc-dark', 'font-black');
+            }
 
             document.getElementById('btn-action-text').innerText = c.btnText;
             
