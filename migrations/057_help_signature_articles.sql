@@ -443,7 +443,7 @@ The quote directory shows exactly this: a quote attested by LPC stays « Envoyé
 
 ## Both can coexist
 
-One document can carry both. They then print side by side on the PDF: LPC on the left, the client on the right, each with its own date, fingerprint and verification QR code."
+One document can carry both. They then print side by side on the PDF: LPC on the left, the client on the right, each with its own date, fingerprint and verification QR code." AS body
 
 UNION ALL SELECT 'signature-quels-documents',
  'Which documents can be signed',
