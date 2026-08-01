@@ -145,6 +145,13 @@
         var wa = $('lpc_share_wa');
         if (wa) wa.addEventListener('click', sendWhatsApp);
 
+        // Signed state renders its own Fermer button instead of the share
+        // controls — the component omits those from the DOM entirely, which
+        // is why every lookup above is guarded rather than branched on.
+        document.querySelectorAll('[data-lpc-share-close]').forEach(function (b) {
+            b.addEventListener('click', close);
+        });
+
         var modal = $('lpcShareModal');
         if (modal) {
             modal.addEventListener('click', function (ev) {

@@ -45,6 +45,7 @@ if (basename($_SERVER['PHP_SELF'] ?? '') === basename(__FILE__)) {
 }
 
 require_once __DIR__ . '/../classes/DocumentSignature.php';
+require_once __DIR__ . '/../functions/document_pdf.php';   // lpc_signature_doc()
 
 (static function (): void {
     $type  = isset($GLOBALS['sign_btn_type'])  ? (string) $GLOBALS['sign_btn_type']  : '';
@@ -77,11 +78,10 @@ require_once __DIR__ . '/../classes/DocumentSignature.php';
     // attestation — without opening the modal.
     $signed = false;
     try {
-        $db  = Database::getInstance()->getConnection();
-        $doc = lpc_load_document($db, [
-            'quote' => 'quote', 'cre' => 'cre', 'bl' => 'delivery',
-            'facture' => 'invoice', 'bon_commande' => 'po', 'payslip' => 'payslip',
-        ][$type] ?? $type, $token);
+        // lpc_signature_doc() owns the slug mapping and memoises per request,
+        // so the share button's probe, this one and the signature block share
+        // a single document load rather than three.
+        $doc = lpc_signature_doc($type, $token);
         if ($doc) {
             $signed = (bool) DocumentSignature::getActiveByParty(
                 $type, (int) ($doc['record_id'] ?? 0), $doc, 'internal'

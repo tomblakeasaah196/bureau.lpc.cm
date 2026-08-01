@@ -43,6 +43,7 @@ if (basename($_SERVER['PHP_SELF'] ?? '') === basename(__FILE__)) {
 }
 
 require_once __DIR__ . '/../classes/DocumentSignature.php';
+require_once __DIR__ . '/../functions/document_pdf.php';   // lpc_signature_doc()
 
 (static function (): void {
     $type  = isset($GLOBALS['share_type'])  ? (string) $GLOBALS['share_type']  : '';
@@ -76,10 +77,58 @@ require_once __DIR__ . '/../classes/DocumentSignature.php';
     $e = static function ($v): string {
         return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
     };
+
+    // Has the counterparty already signed?
+    //
+    // Once they have, offering to send them a signing link again is noise at
+    // best and confusing at worst — so the call to action becomes a status:
+    // "Signé par le client", in green, opening the same modal but showing WHO
+    // signed and WHEN instead of the share controls.
+    //
+    // getActiveByParty() only returns a row whose hash still matches the
+    // document as it stands. So if someone edits the figures after the client
+    // signed, this correctly reverts to "Faire signer le client" — the old
+    // signature no longer describes this document and a fresh one is needed.
+    // That is the same rule the printed stamp follows.
+    $signature = null;
+    try {
+        $probeDoc = lpc_signature_doc($type, $token);
+        if ($probeDoc) {
+            $signature = DocumentSignature::getActiveByParty(
+                $type, (int) ($probeDoc['record_id'] ?? 0), $probeDoc, 'external'
+            );
+        }
+    } catch (Throwable $probeErr) {
+        // A failed probe must never stop the page rendering — fall through to
+        // the share state, which is the safe default (worst case an operator
+        // re-sends a link for a document already signed).
+        error_log('signature_share_button: state probe failed: ' . $probeErr->getMessage());
+    }
+
+    $isSigned = $signature !== null;
+
+    // "le client" -> "Signé par le client". $who is already the right noun
+    // phrase for the type (client / fournisseur / salarié).
+    $signedLabel = 'Signé par ' . $who;
+
+    $palette = $isSigned
+        ? 'bg-green-50 border border-green-200 text-green-800 hover:bg-green-100'
+        : 'bg-lpc-dark hover:bg-green-800 text-white shadow-md';
+
+    $fdt = static function ($v): string {
+        if (!$v) return '—';
+        $t = strtotime((string) $v);
+        return $t ? date('d/m/Y', $t) . ' à ' . date('H\hi', $t) : (string) $v;
+    };
+
+    $verifyUrl = $isSigned
+        ? $origin . '/verify/' . $signature['verify_token']
+        : '';
     ?>
 <button type="button" id="lpc-share-btn"
-        class="flex items-center gap-2 px-4 py-2 bg-lpc-dark hover:bg-green-800 text-white rounded-lg font-bold text-sm shadow-md transition-all no-print <?= $e($extra) ?>">
-    <i class="fas fa-signature"></i> <span><?= $e($label) ?></span>
+        class="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all no-print <?= $e($palette) ?> <?= $e($extra) ?>">
+    <i class="fas <?= $isSigned ? 'fa-circle-check' : 'fa-signature' ?>"></i>
+    <span><?= $e($isSigned ? $signedLabel : $label) ?></span>
 </button>
 
 <div id="lpcShareModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-gray-900/60 backdrop-blur-sm px-4 no-print"
@@ -87,13 +136,60 @@ require_once __DIR__ . '/../classes/DocumentSignature.php';
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-100">
         <div class="bg-lpc-dark px-6 py-4 flex justify-between items-center text-white">
             <h3 id="lpc_share_title" class="font-bold text-lg flex items-center gap-2">
-                <i class="fas fa-signature"></i> <?= $e($label) ?>
+                <i class="fas <?= $isSigned ? 'fa-circle-check' : 'fa-signature' ?>"></i>
+                <?= $e($isSigned ? $signedLabel : $label) ?>
             </h3>
             <button type="button" id="lpc_share_close" aria-label="Fermer"
                     class="text-gray-300 hover:text-white transition-colors">
                 <i class="fas fa-times text-xl"></i>
             </button>
         </div>
+
+        <?php if ($isSigned): ?>
+        <?php
+        // Signed state. The share controls are deliberately absent from the
+        // DOM rather than hidden — signature-share.js guards every element
+        // lookup, so copy / WhatsApp / QR simply no-op when they are not
+        // there. No JS branch needed.
+        ?>
+        <div class="p-6 space-y-4">
+            <div class="rounded-xl bg-green-50 border border-green-200 p-4">
+                <p class="text-sm font-bold text-green-800 flex items-center gap-2">
+                    <i class="fas fa-circle-check"></i> Document signé
+                </p>
+                <p class="text-xs text-green-700 mt-2">
+                    Par <strong><?= $e($signature['signatory_name']) ?></strong>
+                    <?php if (!empty($signature['signatory_role'])): ?>
+                        — <?= $e($signature['signatory_role']) ?>
+                    <?php endif; ?>
+                </p>
+                <?php if (!empty($signature['signatory_phone'])): ?>
+                    <p class="text-xs text-green-700"><?= $e($signature['signatory_phone']) ?></p>
+                <?php endif; ?>
+                <p class="text-xs text-green-700">Le <?= $e($fdt($signature['signed_at'])) ?></p>
+                <p class="text-[10px] text-green-600 mt-2 break-all">
+                    Empreinte : <?= $e(substr((string) $signature['content_hash'], 0, 24)) ?>&hellip;
+                </p>
+            </div>
+
+            <p class="text-xs text-gray-500 leading-relaxed">
+                Cette signature couvre les chiffres du document tels qu'ils sont aujourd'hui.
+                Toute modification ultérieure l'invalidera automatiquement et il faudra
+                refaire signer <?= $e($who) ?>.
+            </p>
+
+            <div class="flex justify-between items-center pt-1">
+                <a href="<?= $e($verifyUrl) ?>" target="_blank" rel="noopener"
+                   class="text-xs font-bold text-lpc-dark hover:underline flex items-center gap-1.5">
+                    <i class="fas fa-qrcode"></i> Ouvrir la page de vérification
+                </a>
+                <button type="button" data-lpc-share-close
+                        class="px-5 py-2.5 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors">
+                    Fermer
+                </button>
+            </div>
+        </div>
+        <?php else: ?>
 
         <div class="p-6 space-y-5">
             <p class="text-sm text-gray-600">
@@ -132,6 +228,7 @@ require_once __DIR__ . '/../classes/DocumentSignature.php';
                 <p class="text-[10px] text-gray-400 mt-2">La signature se fait sur le téléphone du signataire.</p>
             </div>
         </div>
+        <?php endif; ?>
     </div>
 </div>
 

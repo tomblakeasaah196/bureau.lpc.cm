@@ -154,14 +154,33 @@ function lpc_signature_doc(string $type, string $token): ?array
         'bon_commande' => 'po',
         'payslip'      => 'payslip',
     ];
+
+    // Request-scoped memo. A single document page can ask for the same
+    // document three times — the share button probing for a counterparty
+    // signature, the internal button probing for an LPC one, and the
+    // signature block itself. On a devis each of those pulls line items, the
+    // consigne schedule and the annexes, so three calls is three times the
+    // query load for an answer that cannot change mid-request.
+    //
+    // SAFE BECAUSE these callers only ever READ. Anything that writes and
+    // then needs to re-read — signatures_controller's sign_external, which
+    // applies the counterparty's edits before hashing — deliberately calls
+    // lpc_load_document() directly and never touches this cache. Keep it
+    // that way: a stale document here would be hashed into a signature.
+    static $memo = [];
+
     $token = trim($token);
     if ($token === '' || !isset($map[$type])) return null;
+
+    $key = $type . "\0" . $token;
+    if (array_key_exists($key, $memo)) return $memo[$key];
+
     try {
         $db = Database::getInstance()->getConnection();
-        return lpc_load_document($db, $map[$type], $token) ?: null;
+        return $memo[$key] = (lpc_load_document($db, $map[$type], $token) ?: null);
     } catch (Throwable $e) {
         error_log('lpc_signature_doc(' . $type . '): ' . $e->getMessage());
-        return null;
+        return $memo[$key] = null;
     }
 }
 
