@@ -440,8 +440,16 @@ final class JournalPoster
      * Post the JE for a treasury expense (petite caisse).
      *   Debit expense COA (typically 6xx)
      *   Credit source treasury COA (typically 5xx)
+     *
+     * $entry_date — the date the charge actually settled. Optional and defaulting
+     * to today so the existing treasury_controller call site is unaffected, but
+     * Gestion des Dépenses passes the real payment date. Without it, marking a
+     * July invoice paid in August booked the entry in August: the expense showed
+     * in the July budget (which reads expenses.expense_date) while the ledger and
+     * every OHADA report showed it in August. The two never reconciled, and the
+     * discrepancy is invisible until someone closes the month.
      */
-    public static function postExpense(int $expense_coa_id, int $treasury_account_id, float $amount, string $description, string $category = ''): int
+    public static function postExpense(int $expense_coa_id, int $treasury_account_id, float $amount, string $description, string $category = '', ?string $entry_date = null): int
     {
         $db = Database::getInstance()->getConnection();
         $user_id = (int) ($_SESSION['user_id'] ?? 0);
@@ -454,7 +462,11 @@ final class JournalPoster
         $desc = $description !== '' ? $description : 'Dépense trésorerie';
         if ($category !== '') $desc .= " [{$category}]";
 
-        $je_id = self::createDraftJe($db, $ref, 'OD', date('Y-m-d'), $desc, $user_id);
+        $date = ($entry_date !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $entry_date))
+            ? $entry_date
+            : date('Y-m-d');
+
+        $je_id = self::createDraftJe($db, $ref, 'OD', $date, $desc, $user_id);
         self::addLine($db, $je_id, $expense_coa_id, $amount, 0.0);
         self::addLine($db, $je_id, $treasury_coa,   0.0,     $amount);
         self::post($db, $je_id, $user_id);

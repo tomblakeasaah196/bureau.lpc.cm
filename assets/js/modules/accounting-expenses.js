@@ -60,16 +60,42 @@
     };
 
     // ---- API wrapper -------------------------------------------------------
-    async function api(action, method='GET', body=null, isForm=false) {
-        const url = `${API}?action=${encodeURIComponent(action)}`;
-        const opts = { method };
+    //
+    // Callers pass the action name plus, optionally, extra query params — either
+    // appended to the string ("dashboard&year=2026&month=8") or as a second
+    // object argument. The string form is why this wrapper exists in this shape:
+    // the previous version did
+    //
+    //     `${API}?action=${encodeURIComponent(action)}`
+    //
+    // which percent-encoded the separating "&" as well, so PHP received a single
+    // parameter action="dashboard&year=2026&month=8" and every read fell through
+    // to `jr('error', "Action inconnue: $action")`. That is the red toast on the
+    // dashboard: the module never loaded any data at all. Only the action name
+    // is encoded now; the rest of the query string is passed through intact.
+    async function api(action, params = null, method = 'GET', body = null, isForm = false) {
+        const [name, ...tail] = String(action).split('&');
+        const qs = new URLSearchParams({ action: name });
+        if (params && typeof params === 'object') {
+            for (const [k, v] of Object.entries(params)) {
+                if (v !== undefined && v !== null && v !== '') qs.set(k, v);
+            }
+        }
+        let url = `${API}?${qs.toString()}`;
+        if (tail.length) url += '&' + tail.join('&');
+
+        const opts = { method, headers: { 'Accept': 'application/json' } };
         if (body) {
             if (isForm) { opts.body = body; }
-            else { opts.headers = { 'Content-Type': 'application/json' }; opts.body = JSON.stringify(body); }
+            else { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
         }
         try {
             const r = await fetch(url, opts);
-            const j = await r.json();
+            // A 403 from Rbac or a 419 from Csrf still returns JSON, so parse
+            // first and only fall back to the status line if that fails.
+            let j;
+            try { j = await r.json(); }
+            catch { toast(`Erreur serveur (HTTP ${r.status}).`, 'error'); return null; }
             if (j.status !== 'success') {
                 toast(j.message || 'Erreur', 'error');
                 return null;
@@ -81,11 +107,14 @@
         }
     }
 
+    /** POST helper — keeps the call sites readable now that api() takes params. */
+    const apiPost = (action, body) => api(action, null, 'POST', body);
+
     // ---- Toast (minimal; app-wide LPC.toast may exist too) -----------------
     function toast(msg, kind='success') {
         if (window.LPC && LPC.toast) return LPC.toast(msg, kind);
         const el = document.createElement('div');
-        const bg = kind === 'error' ? 'bg-rose-600' : (kind === 'warn' ? 'bg-amber-500' : 'bg-emerald-600');
+        const bg = kind === 'error' ? 'bg-rose-600' : (kind === 'warning' ? 'bg-amber-500' : 'bg-emerald-600');
         el.className = `${bg} text-white font-bold px-5 py-3 rounded-xl shadow-2xl fixed top-6 right-6 z-[100] text-sm animate-pulse`;
         el.textContent = msg;
         document.body.appendChild(el);
@@ -122,7 +151,7 @@
         const year  = $('#dash_year').value;
         const month = $('#dash_month').value;
         $('#dash_year_label').textContent = year;
-        const d = await api(`dashboard&year=${year}&month=${month}`);
+        const d = await api('dashboard', { year, month });
         if (!d) return;
         $('#kpi_month').textContent        = fmtF(d.kpis.month);
         $('#kpi_ytd').textContent          = fmtF(d.kpis.ytd);
@@ -194,27 +223,38 @@
 
     async function loadListMeta() {
         if (listMeta) return listMeta;
-        listMeta = await api('form_meta');
-        // Populate filter dropdown once
+        const meta = await api('form_meta');
+        // api() returns null on any error (403, 419, network). Bailing out here
+        // instead of assigning keeps every caller's `meta.categories` from
+        // throwing a TypeError that would silently kill the rest of the handler.
+        if (!meta) return null;
+        listMeta = meta;
+
+        // Repopulating the filter <select> wipes whatever the user had chosen,
+        // and this function is re-entered every time listMeta is invalidated
+        // after a save. Preserve the selection across the rebuild.
         const cat = $('#list_cat');
-        cat.innerHTML = '<option value="">Toutes catégories</option>' +
-            listMeta.categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+        if (cat) {
+            const previous = cat.value;
+            cat.innerHTML = '<option value="">Toutes catégories</option>' +
+                listMeta.categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+            if (previous && cat.querySelector(`option[value="${previous}"]`)) cat.value = previous;
+        }
         return listMeta;
     }
 
     async function loadList(page = 1) {
-        await loadListMeta();
+        if (!await loadListMeta()) return;
         const start = $('#list_start').value || `${new Date().getFullYear()}-01-01`;
         const end   = $('#list_end').value   || `${new Date().getFullYear()}-12-31`;
         const cat   = $('#list_cat').value;
         const stat  = $('#list_status').value;
         const q     = $('#list_q').value.trim();
-        const qs = new URLSearchParams({ start, end, page, per_page: 20 });
-        if (cat)  qs.set('category_id', cat);
-        if (stat) qs.set('status', stat);
-        if (q)    qs.set('q', q);
-        const d = await api(`list&${qs.toString()}`);
-        if (!d) return;
+        const d = await api('list', {
+            start, end, page, per_page: 20,
+            category_id: cat, status: stat, q,
+        });
+        if (!d || !Array.isArray(d.rows)) return;
 
         const rows = d.rows.map(r => {
             const paid = r.payment_status === 'paid';
@@ -236,7 +276,13 @@
                     <td class="py-3 px-4 text-xs font-bold text-gray-600">${r.treasury_name ? escapeHtml(r.treasury_name) : '<span class="text-gray-300">—</span>'}</td>
                     <td class="py-3 px-4 text-right font-black text-lpc-dark">${fmtF(r.amount)}</td>
                     <td class="py-3 px-4 text-center">${statusPill}</td>
-                    <td class="py-3 px-4 text-center text-gray-500 font-bold text-xs">${r.attachment_count > 0 ? `<i class="fas fa-paperclip"></i> ${r.attachment_count}` : '—'}</td>
+                    <td class="py-3 px-4 text-center text-xs font-bold">
+                        <button onclick="openAttachments(${r.id})"
+                                title="Pièces jointes / reçus"
+                                class="px-2 py-1 rounded-lg hover:bg-gray-100 ${r.attachment_count > 0 ? 'text-lpc-dark' : 'text-gray-400'}">
+                            <i class="fas fa-paperclip"></i> ${r.attachment_count > 0 ? r.attachment_count : ''}
+                        </button>
+                    </td>
                     <td class="py-3 px-4 text-right whitespace-nowrap">${actions.join('') || '<span class="text-gray-300 text-xs">—</span>'}</td>
                 </tr>
             `;
@@ -259,7 +305,7 @@
     //  EXPENSE MODAL — create/edit
     // ========================================================================
     async function openExpenseModal(id = null) {
-        await loadListMeta();
+        if (!await loadListMeta()) return;
         $('#exp_id').value = id ?? '';
         $('#exp_modal_title').textContent = id ? 'Modifier la dépense' : 'Nouvelle dépense';
 
@@ -277,7 +323,7 @@
         $('#budget_probe').classList.add('hidden');
 
         if (id) {
-            const d = await api(`get&id=${id}`);
+            const d = await api('get', { id });
             if (!d) return;
             $('#exp_title').value    = d.title || '';
             $('#exp_desc').value     = d.description || '';
@@ -299,7 +345,14 @@
         const date = $('#exp_date').value;
         const amt  = Number($('#exp_amount').value) || 0;
         if (!cat || !date) return;
-        const d = await api(`budget_probe&category_id=${cat}&expense_date=${date}`);
+        // exclude_id keeps the row being edited out of "déjà consommé". Without
+        // it, reopening a saved expense counts its own amount twice and the
+        // banner reports a budget overrun that does not exist.
+        const d = await api('budget_probe', {
+            category_id: cat,
+            expense_date: date,
+            exclude_id: Number($('#exp_id').value) || 0,
+        });
         if (!d) return;
         const el = $('#budget_probe');
         if (d.budget <= 0) { el.classList.add('hidden'); return; }
@@ -324,22 +377,39 @@
     }
     window.probeBudget = probeBudget;
 
+    let savingExpense = false;
     async function submitExpense() {
+        if (savingExpense) return;              // double-click guard
+        const title = $('#exp_title').value.trim();
+        const amount = Number($('#exp_amount').value);
+        const treasury = Number($('#exp_treasury').value) || null;
+        // Validate client-side too: the controller rejects these, but a toast
+        // beats a round-trip and the modal stays open with the field in view.
+        if (!title)                     return toast('Titre requis.', 'error');
+        if (!Number($('#exp_category').value)) return toast('Catégorie requise.', 'error');
+        if (!(amount > 0))              return toast('Le montant doit être supérieur à 0.', 'error');
+        if (!treasury)                  return toast('Compte de trésorerie requis.', 'error');
+
+        savingExpense = true;
         const btn = $('#btn-save-expense');
         btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enregistrement…';
         const payload = {
             id: Number($('#exp_id').value) || 0,
-            title: $('#exp_title').value.trim(),
+            title,
             description: $('#exp_desc').value.trim(),
             category_id: Number($('#exp_category').value),
             supplier_id: Number($('#exp_supplier').value) || null,
-            amount: Number($('#exp_amount').value),
+            amount,
             expense_date: $('#exp_date').value,
             payment_status: $('#exp_status').value,
-            treasury_account_id: Number($('#exp_treasury').value) || null,
-            payment_date: $('#exp_status').value === 'paid' ? new Date().toISOString().slice(0,10) : null,
+            treasury_account_id: treasury,
+            // Settle on the date the charge was incurred, not on "today". Saving
+            // a backdated expense as paid used to stamp payment_date = today,
+            // which pushed the journal entry into the wrong month.
+            payment_date: $('#exp_status').value === 'paid' ? $('#exp_date').value : null,
         };
-        const r = await api('save', 'POST', payload);
+        const r = await apiPost('save', payload);
+        savingExpense = false;
         btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Enregistrer';
         if (!r) return;
         toast('Dépense enregistrée.', 'success');
@@ -354,7 +424,7 @@
 
     async function deleteExpense(id) {
         if (!confirm('Supprimer cette dépense ? Si elle est comptabilisée, une écriture d\'extourne sera créée automatiquement.')) return;
-        const r = await api('delete', 'POST', { id });
+        const r = await apiPost('delete', { id });
         if (!r) return;
         toast('Dépense supprimée.', 'success');
         loadList();
@@ -364,7 +434,7 @@
 
     // ---- Pay modal ---------------------------------------------------------
     window.openPayModal = async function (id, amount) {
-        await loadListMeta();
+        if (!await loadListMeta()) return;
         $('#pay_id').value = id;
         $('#pay_amount_label').textContent = fmtF(amount);
         $('#pay_treasury').innerHTML = '<option value="">Choisir…</option>' +
@@ -372,12 +442,17 @@
         $('#pay_date').value = new Date().toISOString().slice(0,10);
         openModal('modal-pay');
     };
+    let payingExpense = false;
     window.submitPay = async function () {
+        if (payingExpense) return;              // double-click guard: a second
+        // click here would debit the treasury account twice and post two JEs.
         const id = Number($('#pay_id').value);
         const t  = Number($('#pay_treasury').value);
         const d  = $('#pay_date').value;
         if (!t) return toast('Compte requis.', 'error');
-        const r = await api('mark_paid', 'POST', { id, treasury_account_id: t, payment_date: d });
+        payingExpense = true;
+        const r = await apiPost('mark_paid', { id, treasury_account_id: t, payment_date: d });
+        payingExpense = false;
         if (!r) return;
         toast('Dépense marquée payée et comptabilisée.', 'success');
         closeModal('modal-pay');
@@ -387,11 +462,109 @@
     };
 
     // ========================================================================
+    //  ATTACHMENTS (receipts / invoices)
+    //
+    // expenses_controller has shipped upload_attachment / delete_attachment
+    // since migration 053 and the list has always rendered an attachment count,
+    // but nothing in the UI ever called either endpoint — there was no way to
+    // attach a receipt. This panel is that missing half.
+    //
+    // It is reachable from every row, including posted ones: an expense locks
+    // for editing once it has a journal entry, but a receipt arriving late is
+    // normal and must still be filable against it.
+    // ========================================================================
+    let attachExpenseId = 0;
+
+    // Takes only the id. The reference is read off the `get` response rather
+    // than interpolated into the onclick attribute — a string placed inside
+    // onclick="…" is HTML-decoded before the JS parser sees it, so escapeHtml()
+    // is the wrong escaper there (&#39; decodes straight back to a quote and
+    // breaks out of the literal). Nothing user-controlled reaches the markup.
+    window.openAttachments = async function (id) {
+        attachExpenseId = Number(id) || 0;
+        if (!attachExpenseId) return;
+        $('#att_ref').textContent = '';
+        $('#att_list').innerHTML = `<div class="empty-state text-xs"><i class="fas fa-spinner fa-spin"></i><br>Chargement…</div>`;
+        const input = $('#att_file');
+        if (input) input.value = '';
+        openModal('modal-attachments');
+        await refreshAttachments();
+    };
+
+    async function refreshAttachments() {
+        const d = await api('get', { id: attachExpenseId });
+        if (!d) return;
+        // textContent, so no escaping concern.
+        $('#att_ref').textContent = d.reference || '';
+        const items = Array.isArray(d.attachments) ? d.attachments : [];
+        $('#att_list').innerHTML = items.map(a => {
+            const isImg = String(a.mime_type || '').startsWith('image/');
+            const href  = '/' + String(a.stored_path || '').replace(/^\/+/, '');
+            return `
+            <div class="flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
+                <i class="fas ${isImg ? 'fa-file-image text-sky-600' : 'fa-file-pdf text-rose-600'} text-lg w-5 text-center"></i>
+                <div class="min-w-0 flex-1">
+                    <a href="${escapeHtml(href)}" target="_blank" rel="noopener"
+                       class="text-sm font-bold text-gray-800 hover:text-lpc-dark hover:underline truncate block">${escapeHtml(a.filename)}</a>
+                    <p class="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                        ${fmtBytes(a.size_bytes)} · ${escapeHtml(String(a.uploaded_at || '').slice(0, 10))}
+                    </p>
+                </div>
+                ${flags.can_edit ? `<button onclick="deleteAttachment(${a.id})" title="Supprimer"
+                        class="p-2 text-rose-600 hover:bg-rose-50 rounded-lg shrink-0"><i class="fas fa-trash"></i></button>` : ''}
+            </div>`;
+        }).join('') || `<div class="empty-state text-xs"><i class="fas fa-receipt"></i><br>Aucun reçu attaché</div>`;
+    }
+
+    const fmtBytes = (n) => {
+        const b = Number(n) || 0;
+        if (b < 1024) return b + ' o';
+        if (b < 1024 * 1024) return (b / 1024).toFixed(0) + ' Ko';
+        return (b / 1024 / 1024).toFixed(1) + ' Mo';
+    };
+
+    let uploadingAttachment = false;
+    window.uploadAttachment = async function () {
+        if (uploadingAttachment) return;
+        const input = $('#att_file');
+        const file  = input && input.files && input.files[0];
+        if (!file) return toast('Choisissez un fichier.', 'error');
+        if (file.size > 10 * 1024 * 1024) return toast('Fichier > 10 Mo.', 'error');
+
+        uploadingAttachment = true;
+        const btn = $('#btn-upload-attachment');
+        btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Envoi…';
+
+        const fd = new FormData();
+        fd.append('expense_id', attachExpenseId);
+        fd.append('file', file);
+        // isForm = true: let the browser set the multipart boundary itself.
+        const r = await api('upload_attachment', null, 'POST', fd, true);
+
+        uploadingAttachment = false;
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-upload"></i> Téléverser';
+        if (!r) return;
+        input.value = '';
+        toast('Reçu ajouté.', 'success');
+        await refreshAttachments();
+        loadList();
+    };
+
+    window.deleteAttachment = async function (id) {
+        if (!confirm('Supprimer cette pièce jointe ?')) return;
+        const r = await apiPost('delete_attachment', { id });
+        if (!r) return;
+        toast('Pièce jointe supprimée.', 'success');
+        await refreshAttachments();
+        loadList();
+    };
+
+    // ========================================================================
     //  CATEGORIES
     // ========================================================================
     async function loadCategories() {
         const d = await api('categories');
-        if (!d) return;
+        if (!Array.isArray(d)) return;
         const rows = d.map(c => `
             <tr class="hover:bg-gray-50">
                 <td class="py-3 px-4">${catPill(c.name, c.color, c.icon)}
@@ -415,6 +588,7 @@
 
     window.openCategoryModal = async function () {
         const meta = await api('form_meta');
+        if (!meta) return;
         $('#cat_id').value = ''; $('#cat_name').value=''; $('#cat_icon').value='fa-tag';
         $('#cat_color').value='slate'; $('#cat_active').checked=true;
         $('#cat_coa').innerHTML = '<option value="">— aucun —</option>' + meta.ohada_expense.map(o =>
@@ -425,6 +599,7 @@
 
     window.editCategory = async function (id) {
         const [cats, meta] = await Promise.all([api('categories'), api('form_meta')]);
+        if (!cats || !meta) return;
         const c = cats.find(x => Number(x.id) === Number(id));
         if (!c) return;
         $('#cat_id').value = c.id; $('#cat_name').value=c.name;
@@ -437,6 +612,11 @@
     };
 
     window.submitCategory = async function () {
+        if (!$('#cat_name').value.trim()) return toast('Nom requis.', 'error');
+        // The controller now refuses a category with no OHADA account: without
+        // one, every expense filed under it fails at posting time instead of
+        // at category-creation time, which is far harder to diagnose.
+        if (!Number($('#cat_coa').value)) return toast('Compte OHADA requis.', 'error');
         const payload = {
             id: Number($('#cat_id').value) || 0,
             name: $('#cat_name').value.trim(),
@@ -445,7 +625,7 @@
             color: $('#cat_color').value,
             is_active: $('#cat_active').checked ? 1 : 0,
         };
-        const r = await api('save_category', 'POST', payload);
+        const r = await apiPost('save_category', payload);
         if (!r) return;
         toast('Catégorie enregistrée.');
         closeModal('modal-category');
@@ -453,7 +633,7 @@
     };
     window.deleteCategory = async function (id) {
         if (!confirm('Supprimer cette catégorie ?')) return;
-        const r = await api('delete_category', 'POST', { id });
+        const r = await apiPost('delete_category', { id });
         if (!r) return;
         toast('Catégorie supprimée.'); loadCategories();
     };
@@ -463,7 +643,7 @@
     // ========================================================================
     async function loadRecurring() {
         const d = await api('recurring');
-        if (!d) return;
+        if (!Array.isArray(d)) return;
         const rows = d.map(r => `
             <tr class="hover:bg-gray-50">
                 <td class="py-3 px-4 font-bold text-gray-800">${escapeHtml(r.name)}</td>
@@ -487,6 +667,7 @@
 
     window.openRecurringModal = async function () {
         const meta = await api('form_meta');
+        if (!meta) return;
         $('#rec_id').value=''; $('#rec_name').value=''; $('#rec_amount').value=''; $('#rec_dom').value='1'; $('#rec_notes').value='';
         $('#rec_category').innerHTML = meta.categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
         $('#rec_treasury').innerHTML = '<option value="">— aucun —</option>' + meta.accounts.map(a =>
@@ -498,6 +679,7 @@
     };
     window.editRecurring = async function (id) {
         const [list, meta] = await Promise.all([api('recurring'), api('form_meta')]);
+        if (!list || !meta) return;
         const r = list.find(x => Number(x.id) === Number(id));
         if (!r) return;
         $('#rec_id').value = r.id; $('#rec_name').value=r.name; $('#rec_amount').value=r.amount;
@@ -521,14 +703,14 @@
             day_of_month: Number($('#rec_dom').value),
             notes: $('#rec_notes').value.trim(),
         };
-        const r = await api('save_recurring', 'POST', payload);
+        const r = await apiPost('save_recurring', payload);
         if (!r) return;
         toast('Modèle enregistré.'); closeModal('modal-recurring'); loadRecurring();
     };
-    window.toggleRecurring = async function (id) { const r = await api('toggle_recurring','POST',{id}); if (r) { toast('OK'); loadRecurring(); } };
+    window.toggleRecurring = async function (id) { const r = await apiPost('toggle_recurring', { id }); if (r) { toast('OK'); loadRecurring(); } };
     window.deleteRecurring = async function (id) {
         if (!confirm('Supprimer ce modèle ?')) return;
-        const r = await api('delete_recurring','POST',{id}); if (r) { toast('Supprimé.'); loadRecurring(); }
+        const r = await apiPost('delete_recurring', { id }); if (r) { toast('Supprimé.'); loadRecurring(); }
     };
 
     // ========================================================================

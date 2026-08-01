@@ -586,6 +586,50 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 </div>
 <?php endif; ?>
 
+<!-- ============================================================================
+     MODAL — Attachments (receipts / invoices)
+
+     expenses_controller.php has always exposed upload_attachment /
+     delete_attachment and the Dépenses list has always rendered an attachment
+     count, but no markup ever called either endpoint — there was no way to file
+     a receipt. This is that missing screen.
+
+     Deliberately available on posted expenses too: `save` refuses to touch a
+     row once it carries a journal_entry_id, but a receipt that turns up after
+     the payment was booked still has to be attachable to it.
+============================================================================ -->
+<div id="modal-attachments" class="lpc-modal">
+    <div class="lpc-modal-card max-w-lg">
+        <div class="bg-slate-700 px-8 py-5 flex justify-between items-center text-white shrink-0">
+            <h3 class="font-black text-lg tracking-wide flex items-center gap-3">
+                <i class="fas fa-paperclip"></i> Pièces jointes
+                <span class="text-xs font-bold opacity-70" id="att_ref"></span>
+            </h3>
+            <button onclick="closeModal('modal-attachments')" class="text-white/70 hover:text-white text-xl"><i class="fas fa-times"></i></button>
+        </div>
+
+        <?php if ($can_edit): ?>
+        <div class="px-8 py-5 bg-slate-50 border-b border-gray-200 shrink-0">
+            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Ajouter un reçu (PDF ou image, max 10 Mo)</label>
+            <div class="flex gap-3">
+                <input type="file" id="att_file" accept=".pdf,image/png,image/jpeg,image/webp,image/gif"
+                       class="flex-1 bg-white border border-gray-200 rounded-xl p-2.5 text-xs font-bold text-gray-700 outline-none focus:ring-2 focus:ring-lpc-light">
+                <button onclick="uploadAttachment()" id="btn-upload-attachment"
+                        class="px-5 py-2.5 bg-lpc-dark hover:bg-green-800 text-white rounded-xl font-bold text-sm shadow-md flex items-center gap-2 shrink-0">
+                    <i class="fas fa-upload"></i> Téléverser
+                </button>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <div id="att_list" class="bg-white divide-y divide-gray-100 overflow-y-auto max-h-[45vh]"></div>
+
+        <div class="bg-white px-8 py-4 border-t border-gray-200 flex justify-end shrink-0">
+            <button onclick="closeModal('modal-attachments')" class="px-5 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900">Fermer</button>
+        </div>
+    </div>
+</div>
+
 <script>
     // Server-side flags for the module JS.
     window.LPC_EXPENSES = {

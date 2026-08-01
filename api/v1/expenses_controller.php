@@ -20,7 +20,8 @@
  *   GET  action=get&id=N
  *   GET  action=categories
  *   GET  action=recurring
- *   GET  action=budget_probe&category_id=N&expense_date=YYYY-MM-DD
+ *   GET  action=form_meta         — categories + treasury accounts + suppliers
+ *   GET  action=budget_probe&category_id=N&expense_date=YYYY-MM-DD&exclude_id=N
  *   POST action=save                — create/update
  *   POST action=mark_paid           — flip unpaid → paid, post JE via JournalPoster
  *   POST action=delete
@@ -40,6 +41,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/JournalPoster.php';
 require_once __DIR__ . '/../../includes/classes/Paginator.php';
+require_once __DIR__ . '/../../includes/classes/Uploads.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -49,6 +51,19 @@ Rbac::requirePermission('accounting.expenses.view');
 $user_id = (int) ($_SESSION['user_id'] ?? 0);
 $method  = $_SERVER['REQUEST_METHOD'];
 $action  = $_REQUEST['action'] ?? null;
+
+// Every state-changing action goes through the CSRF gate, matching what the
+// other write controllers do (fixed_assets, payroll, sales, settings…). This
+// one shipped without it: any page the operator visited while logged in could
+// silently POST here and book a fake expense, mark an invoice paid — which
+// debits a real treasury account and posts to the ledger — or delete a posted
+// expense and generate the reversing entry. assets/js/lpc-rbac.js already
+// attaches the X-CSRF-Token header to every same-origin non-GET fetch, and
+// Csrf::submitted() also reads the token out of $_POST, so both the JSON
+// callers and the multipart upload are covered without touching them.
+if ($method !== 'GET') {
+    Csrf::requireValid();
+}
 
 function jr($status, $message = '', $data = null) {
     $out = ['status' => $status, 'message' => $message];
@@ -75,10 +90,45 @@ function coaForCategory(PDO $db, int $category_id): ?int {
     return $v ? (int)$v : null;
 }
 
+/**
+ * EX-YYMM-XXXXXX. Random suffix rather than a counter so parallel writes do not
+ * collide on the UNIQUE index — same shape procurement uses.
+ *
+ * The suffix was 2 bytes (4 hex chars, 65 536 values) and generated blind. That
+ * is a birthday problem, not a uniqueness guarantee: at ~300 expenses in the
+ * table the odds of *some* pair colliding are already near even, and a
+ * collision surfaces as an opaque "Integrity constraint violation" toast on an
+ * otherwise valid save. Widened to 3 bytes and, more importantly, checked
+ * against the table with a bounded retry so a collision costs one extra SELECT
+ * instead of a failed save.
+ */
 function nextReference(PDO $db): string {
-    // EX-YYMM-XXXX. Random hex suffix rather than a counter so parallel writes
-    // do not collide on the UNIQUE index — same shape procurement uses.
-    return 'EX-' . date('ym') . '-' . strtoupper(bin2hex(random_bytes(2)));
+    $check = $db->prepare("SELECT 1 FROM expenses WHERE reference = ? LIMIT 1");
+    for ($i = 0; $i < 8; $i++) {
+        $ref = 'EX-' . date('ym') . '-' . strtoupper(bin2hex(random_bytes(3)));
+        $check->execute([$ref]);
+        if (!$check->fetchColumn()) return $ref;
+    }
+    // Vanishingly unlikely; fall back to something that cannot repeat.
+    return 'EX-' . date('ymdHis') . '-' . strtoupper(bin2hex(random_bytes(4)));
+}
+
+/** Document root, with a CLI-safe fallback (this file is 2 levels below it). */
+function docRoot(): string {
+    $r = rtrim((string) ($_SERVER['DOCUMENT_ROOT'] ?? ''), '/');
+    return $r !== '' ? $r : dirname(__DIR__, 2);
+}
+
+/** Escape LIKE wildcards so a user searching for "50%" does not match everything. */
+function likeTerm(string $q): string {
+    return '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $q) . '%';
+}
+
+/** YYYY-MM-DD or null. Rejects anything else rather than letting MySQL coerce it. */
+function cleanDate($v): ?string {
+    if (!is_string($v) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) return null;
+    [$y, $m, $d] = array_map('intval', explode('-', $v));
+    return checkdate($m, $d, $y) ? $v : null;
 }
 
 // ============================================================================
@@ -131,7 +181,7 @@ try {
                     ON bl.budget_id = b.id
                    AND bl.ohada_account_id = coa.ohada_account_id
                  WHERE ec.is_active = 1
-                 GROUP BY ec.id, bl.`$mCol`
+                 GROUP BY ec.id, ec.name, ec.icon, ec.color, ec.slug, ec.sort_order, bl.`$mCol`
                  ORDER BY actual DESC, ec.sort_order ASC
             ");
             $stmt->execute([$ymStart, $ymEnd, $year, $year]);
@@ -199,7 +249,10 @@ try {
             if (in_array($stat, ['paid','unpaid'], true)) { $body .= " AND e.payment_status = ?"; $params[] = $stat; }
             if ($q !== '') {
                 $body   .= " AND (e.reference LIKE ? OR e.title LIKE ? OR ec.name LIKE ? OR s.name LIKE ?)";
-                $like    = "%$q%";
+                // likeTerm() escapes % and _ — searching for "50%" or "loyer_2"
+                // used to turn the user's own wildcards into SQL wildcards and
+                // return the whole table.
+                $like    = likeTerm($q);
                 $params  = array_merge($params, [$like, $like, $like, $like]);
             }
             $body .= " ORDER BY e.expense_date DESC, e.id DESC";
@@ -304,7 +357,12 @@ try {
         // ---- BUDGET PROBE (live warning while typing) -------------------
         if ($action === 'budget_probe') {
             $cat  = (int) ($_GET['category_id'] ?? 0);
-            $date = $_GET['expense_date'] ?? date('Y-m-d');
+            $date = cleanDate($_GET['expense_date'] ?? null) ?? date('Y-m-d');
+            // When the modal is reopened on an existing expense, that row is
+            // already in `expenses` and was being counted as "déjà consommé"
+            // *and* added again as the projected amount — so editing anything
+            // on a saved expense reported a budget overrun twice its real size.
+            $exclude = (int) ($_GET['exclude_id'] ?? 0);
             if ($cat <= 0) jr('success', '', ['budget'=>0,'spent'=>0]);
             $year  = (int) substr($date, 0, 4);
             $month = (int) substr($date, 5, 2);
@@ -315,7 +373,8 @@ try {
             $stmt = $db->prepare("
                 SELECT COALESCE(bl.`$mCol`, 0) AS budget,
                        (SELECT COALESCE(SUM(amount),0) FROM expenses
-                         WHERE category_id = ? AND expense_date BETWEEN ? AND ?) AS spent
+                         WHERE category_id = ? AND expense_date BETWEEN ? AND ?
+                           AND (? = 0 OR id <> ?)) AS spent
                   FROM expense_categories ec
              LEFT JOIN chart_of_accounts coa ON coa.id = ec.coa_account_id
              LEFT JOIN budgets b
@@ -324,7 +383,7 @@ try {
                     ON bl.budget_id = b.id AND bl.ohada_account_id = coa.ohada_account_id
                  WHERE ec.id = ?
             ");
-            $stmt->execute([$cat, $ymStart, $ymEnd, $year, $cat]);
+            $stmt->execute([$cat, $ymStart, $ymEnd, $exclude, $exclude, $year, $cat]);
             $r = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['budget'=>0,'spent'=>0];
             jr('success', '', [
                 'budget' => (float)$r['budget'],
@@ -352,24 +411,39 @@ try {
             $category_id   = (int)   ($j['category_id'] ?? 0);
             $supplier_id   = !empty($j['supplier_id']) ? (int) $j['supplier_id'] : null;
             $amount        = (float) ($j['amount'] ?? 0);
-            $expense_date  = $j['expense_date'] ?? date('Y-m-d');
+            $expense_date  = cleanDate($j['expense_date'] ?? null);
             $payment_status= in_array($j['payment_status'] ?? 'unpaid', ['paid','unpaid'], true) ? $j['payment_status'] : 'unpaid';
             $treasury_id   = !empty($j['treasury_account_id']) ? (int) $j['treasury_account_id'] : null;
-            $payment_date  = $j['payment_date'] ?? null;
+            $payment_date  = cleanDate($j['payment_date'] ?? null);
 
             if ($title === '')       jr('error', 'Titre requis.');
             if ($category_id <= 0)   jr('error', 'Catégorie requise.');
             if ($amount <= 0)        jr('error', 'Le montant doit être supérieur à 0.');
-            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $expense_date)) jr('error', 'Date invalide.');
+            // cleanDate() also rejects impossible calendar dates (2026-02-31),
+            // which the old /^\d{4}-\d{2}-\d{2}$/ check let through to MySQL.
+            if ($expense_date === null) jr('error', 'Date invalide.');
 
             // Answer #8: payment source is required on every expense — even
             // draft. Enforced here rather than DB so the message is friendly.
             if (!$treasury_id) jr('error', 'Compte de trésorerie requis (même pour une dépense non-payée).');
 
-            // If marked paid, we need a payment_date. Default to today.
-            if ($payment_status === 'paid' && empty($payment_date)) $payment_date = date('Y-m-d');
+            // If marked paid, settle it on the day the charge was incurred
+            // rather than on "today", so the ledger month matches the budget
+            // month that expense_date already drives.
+            if ($payment_status === 'paid' && $payment_date === null) $payment_date = $expense_date;
 
             $db->beginTransaction();
+
+            // Whether this save is the moment the expense *becomes* paid. Only
+            // that transition may move money: re-saving a row that is already
+            // paid must not debit the treasury or post a second journal entry.
+            // Legacy rows migrated from `overheads` are exactly this case —
+            // 053 backfilled them with payment_status='paid' and no
+            // journal_entry_id, so the "already posted?" check below does not
+            // catch them and a re-save would have debited a real account for a
+            // payment that happened months ago.
+            $wasPaid   = false;
+            $reference = null;
 
             if ($id > 0) {
                 Rbac::requirePermission('accounting.expenses.edit');
@@ -378,6 +452,8 @@ try {
                 $old->execute([$id]);
                 $old = $old->fetch(PDO::FETCH_ASSOC);
                 if (!$old) throw new RuntimeException('Dépense introuvable.');
+                $wasPaid   = ($old['payment_status'] === 'paid');
+                $reference = $old['reference'];
                 // A row already posted to the ledger cannot be re-edited here
                 // (accounting integrity). Force unpaid → paid transition through
                 // mark_paid instead, and refuse edits once posted.
@@ -400,7 +476,7 @@ try {
                 ]);
                 $expense_id = $id;
             } else {
-                $ref = nextReference($db);
+                $ref = $reference = nextReference($db);
                 $ins = $db->prepare("
                     INSERT INTO expenses
                         (reference, title, description, category_id, supplier_id, amount,
@@ -417,7 +493,7 @@ try {
             }
 
             // If saved directly as "paid", post the JE right away (answer #12).
-            if ($payment_status === 'paid') {
+            if ($payment_status === 'paid' && !$wasPaid) {
                 $coa = coaForCategory($db, $category_id);
                 if (!$coa) throw new RuntimeException("La catégorie n'a pas de compte OHADA associé. Corrigez le mapping.");
                 // Deduct from treasury balance + log the transaction, exactly
@@ -430,12 +506,17 @@ try {
                 $db->prepare("UPDATE treasury_accounts SET balance = balance - ? WHERE id = ?")
                    ->execute([$amount, $treasury_id]);
 
+                // Stamp the expense's own reference, not "EXP-<id>". mark_paid
+                // and quick_entry both use the reference, so the treasury
+                // ledger was carrying two different citation formats for the
+                // same kind of movement and only one of them could be matched
+                // back to a row in Dépenses.
                 $db->prepare("INSERT INTO treasury_transactions
                               (account_id, transaction_type, amount, reference, description, logged_by)
                               VALUES (?, 'out_expense', ?, ?, ?, ?)")
-                   ->execute([$treasury_id, $amount, "EXP-$expense_id", $title, $user_id]);
+                   ->execute([$treasury_id, $amount, $reference, $title, $user_id]);
 
-                $je_id = JournalPoster::postExpense($coa, $treasury_id, $amount, $title, '');
+                $je_id = JournalPoster::postExpense($coa, $treasury_id, $amount, $title, '', $payment_date);
                 $db->prepare("UPDATE expenses SET journal_entry_id = ? WHERE id = ?")
                    ->execute([$je_id, $expense_id]);
             }
@@ -450,7 +531,7 @@ try {
             $j = json_body();
             $id           = (int) ($j['id'] ?? 0);
             $treasury_id  = (int) ($j['treasury_account_id'] ?? 0);
-            $payment_date = $j['payment_date'] ?? date('Y-m-d');
+            $payment_date = cleanDate($j['payment_date'] ?? null) ?? date('Y-m-d');
             if ($id <= 0 || $treasury_id <= 0) jr('error', 'Paramètres incomplets.');
 
             $db->beginTransaction();
@@ -475,7 +556,7 @@ try {
                           VALUES (?, 'out_expense', ?, ?, ?, ?)")
                ->execute([$treasury_id, $exp['amount'], $exp['reference'], $exp['title'], $user_id]);
 
-            $je_id = JournalPoster::postExpense($coa, $treasury_id, (float)$exp['amount'], $exp['title'], '');
+            $je_id = JournalPoster::postExpense($coa, $treasury_id, (float)$exp['amount'], $exp['title'], '', $payment_date);
 
             $db->prepare("UPDATE expenses SET payment_status='paid', payment_date=?,
                           treasury_account_id=?, journal_entry_id=? WHERE id = ?")
@@ -530,7 +611,9 @@ try {
                           VALUES (?, 'out_expense', ?, ?, ?, ?)")
                ->execute([$treasury_id, $amount, $ref, $description, $user_id]);
 
-            $je_id = JournalPoster::postExpense($coa, $treasury_id, $amount, $description, '');
+            // quick_entry always books CURDATE(), so the JE date matches by
+            // construction — passed explicitly so the two cannot drift apart.
+            $je_id = JournalPoster::postExpense($coa, $treasury_id, $amount, $description, '', date('Y-m-d'));
             $db->prepare("UPDATE expenses SET journal_entry_id = ? WHERE id = ?")
                ->execute([$je_id, $expense_id]);
 
@@ -548,7 +631,7 @@ try {
             if ($id <= 0) jr('error', 'ID manquant.');
 
             $db->beginTransaction();
-            $stmt = $db->prepare("SELECT payment_status, journal_entry_id, amount, treasury_account_id
+            $stmt = $db->prepare("SELECT reference, payment_status, journal_entry_id, amount, treasury_account_id
                                     FROM expenses WHERE id = ? FOR UPDATE");
             $stmt->execute([$id]);
             $exp = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -581,18 +664,43 @@ try {
                    ->execute([$revId, $exp['journal_entry_id']]);
 
                 // Refund treasury.
+                //
+                // transaction_type MUST be a member of the column's enum:
+                //   ('in_tournee','in_other','out_expense','transfer_in','transfer_out')
+                // This wrote 'adjustment_in', which is not in it. Under a strict
+                // sql_mode that raises a truncation error and rolls the whole
+                // delete back; under a lax one MariaDB coerces it to '' and the
+                // refund lands in the ledger as an untyped movement. Either way
+                // deleting a posted expense was broken. 'in_other' is the enum's
+                // catch-all inbound type and is what the rest of the codebase
+                // uses for non-tournée money coming back into an account.
                 if (!empty($exp['treasury_account_id'])) {
                     $db->prepare("UPDATE treasury_accounts SET balance = balance + ? WHERE id = ?")
                        ->execute([$exp['amount'], $exp['treasury_account_id']]);
                     $db->prepare("INSERT INTO treasury_transactions
-                                  (account_id, transaction_type, amount, description, logged_by)
-                                  VALUES (?, 'adjustment_in', ?, ?, ?)")
+                                  (account_id, transaction_type, amount, reference, description, logged_by)
+                                  VALUES (?, 'in_other', ?, ?, ?, ?)")
                        ->execute([$exp['treasury_account_id'], $exp['amount'],
+                                  'ANN-' . ($exp['reference'] ?? $id),
                                   "Annulation dépense #$id", $user_id]);
                 }
             }
+
+            // Attachment rows go with the expense via ON DELETE CASCADE, but the
+            // files themselves do not — they would sit under /uploads/expenses
+            // forever with nothing pointing at them. Collect the paths before
+            // the row disappears and unlink after the commit succeeds.
+            $paths = $db->prepare("SELECT stored_path FROM expense_attachments WHERE expense_id = ?");
+            $paths->execute([$id]);
+            $orphans = $paths->fetchAll(PDO::FETCH_COLUMN) ?: [];
+
             $db->prepare("DELETE FROM expenses WHERE id = ?")->execute([$id]);
             $db->commit();
+
+            foreach ($orphans as $p) {
+                $full = docRoot() . '/' . ltrim((string) $p, '/');
+                if (is_file($full)) @unlink($full);
+            }
             jr('success', 'Dépense supprimée.');
         }
 
@@ -607,6 +715,16 @@ try {
             $color= trim((string) ($j['color'] ?? '')) ?: null;
             $active = !empty($j['is_active']) ? 1 : 0;
             if ($name === '') jr('error', 'Nom requis.');
+            // A category with no OHADA account cannot be posted: mark_paid and
+            // quick_entry both refuse it via coaForCategory(). Rejecting it here
+            // means the operator finds out while creating the category, not
+            // weeks later when the first payment against it will not settle.
+            // The modal already marks this field required — the controller did
+            // not, so a category saved before the dropdown had loaded stuck.
+            if (!$coa) jr('error', "Compte OHADA (Classe 6) requis — sans lui, aucune dépense de cette catégorie ne pourra être comptabilisée.");
+            $chk = $db->prepare("SELECT 1 FROM chart_of_accounts WHERE id = ?");
+            $chk->execute([$coa]);
+            if (!$chk->fetchColumn()) jr('error', 'Compte OHADA introuvable.');
             if ($id > 0) {
                 $db->prepare("UPDATE expense_categories SET name=?, coa_account_id=?, icon=?, color=?, is_active=?
                                 WHERE id = ?")
@@ -673,8 +791,10 @@ try {
             Rbac::requirePermission('accounting.expenses.recurring.manage');
             $j  = json_body();
             $id = (int) ($j['id'] ?? 0);
-            $db->prepare("UPDATE expense_recurring_templates SET is_active = 1 - is_active WHERE id = ?")
-               ->execute([$id]);
+            if ($id <= 0) jr('error', 'ID manquant.');
+            $st = $db->prepare("UPDATE expense_recurring_templates SET is_active = 1 - is_active WHERE id = ?");
+            $st->execute([$id]);
+            if ($st->rowCount() === 0) jr('error', 'Modèle introuvable.');
             jr('success', 'Modèle mis à jour.');
         }
 
@@ -682,51 +802,88 @@ try {
             Rbac::requirePermission('accounting.expenses.recurring.manage');
             $j  = json_body();
             $id = (int) ($j['id'] ?? 0);
+            if ($id <= 0) jr('error', 'ID manquant.');
+            // Generated expenses keep pointing at the template through
+            // recurring_template_id (ON DELETE SET NULL), so history survives.
             $db->prepare("DELETE FROM expense_recurring_templates WHERE id = ?")->execute([$id]);
             jr('success', 'Modèle supprimé.');
         }
 
         // ---- ATTACHMENTS -------------------------------------------------
+        // Routed through Uploads::saveUploaded rather than hand-rolled, for the
+        // same reasons that class exists (see its header). The version this
+        // replaces:
+        //
+        //   · trusted $_FILES['file']['type'], which is whatever the client
+        //     claims. Sending Content-Type: image/png with a .phtml payload
+        //     passed the whitelist, and the stored name kept the attacker's
+        //     extension because it was built from $_FILES[...]['name'].
+        //     uploads/.htaccess is the only thing that stopped that being RCE,
+        //     and a single misconfigured vhost removes that backstop.
+        //   · never chmod'd the file, so under cPanel (PHP writes as the account
+        //     user, Apache serves as another) receipts 403'd in the browser.
+        //   · did not verify the expense exists — an orphan row with an FK
+        //     violation, or a file on disk pointing at nothing.
+        //
+        // saveUploaded verifies the MIME with finfo, derives the extension from
+        // the verified type, randomises the filename, caps the size, re-encodes
+        // images through GD to strip polyglot payloads, and sets 0644.
         if ($action === 'upload_attachment') {
             Rbac::requirePermission('accounting.expenses.edit');
             $id = (int) ($_POST['expense_id'] ?? 0);
-            if ($id <= 0 || empty($_FILES['file']['tmp_name'])) jr('error', 'Fichier manquant.');
-            if ($_FILES['file']['error'] !== UPLOAD_ERR_OK)    jr('error', 'Erreur d\'upload.');
+            if ($id <= 0) jr('error', 'Dépense manquante.');
+            if (empty($_FILES['file'])) jr('error', 'Fichier manquant.');
 
-            $mime = $_FILES['file']['type'] ?: 'application/octet-stream';
-            $size = (int) $_FILES['file']['size'];
-            if ($size > 10 * 1024 * 1024) jr('error', 'Fichier > 10 Mo.');
-            $ok = ['application/pdf','image/png','image/jpeg','image/jpg','image/webp','image/gif'];
-            if (!in_array($mime, $ok, true)) jr('error', 'Format non supporté (PDF ou image uniquement).');
+            $exists = $db->prepare("SELECT 1 FROM expenses WHERE id = ?");
+            $exists->execute([$id]);
+            if (!$exists->fetchColumn()) jr('error', 'Dépense introuvable.');
 
-            $dir = $_SERVER['DOCUMENT_ROOT'] . '/uploads/expenses/' . date('Y/m');
-            if (!is_dir($dir)) mkdir($dir, 0755, true);
-            $safe = preg_replace('/[^A-Za-z0-9._-]/', '_', $_FILES['file']['name']);
-            $stored = date('Ymd_His') . '_' . bin2hex(random_bytes(3)) . '_' . $safe;
-            $fullPath = $dir . '/' . $stored;
-            if (!move_uploaded_file($_FILES['file']['tmp_name'], $fullPath)) jr('error', 'Échec écriture disque.');
-            $rel = 'uploads/expenses/' . date('Y/m') . '/' . $stored;
+            try {
+                $up = Uploads::saveUploaded('file', 'expenses', [
+                    'allowed_mime' => ['application/pdf','image/png','image/jpeg','image/webp','image/gif'],
+                    'max_bytes'    => 10 * 1024 * 1024,
+                    'sanitize_img' => true,
+                ]);
+            } catch (Throwable $e) {
+                jr('error', 'Fichier refusé : ' . $e->getMessage());
+            }
+
+            // Keep the operator's original filename for display only — it is
+            // escaped in the UI and never touches the filesystem.
+            $display = (string) ($_FILES['file']['name'] ?? 'reçu');
+            if (mb_strlen($display) > 255) $display = mb_substr($display, 0, 255);
 
             $db->prepare("INSERT INTO expense_attachments
                           (expense_id, filename, stored_path, mime_type, size_bytes, uploaded_by)
                           VALUES (?, ?, ?, ?, ?, ?)")
-               ->execute([$id, $_FILES['file']['name'], $rel, $mime, $size, $user_id]);
+               ->execute([$id, $display, $up['path'], $up['mime'], $up['size'], $user_id]);
 
-            jr('success', 'Fichier ajouté.', ['id' => (int)$db->lastInsertId()]);
+            jr('success', 'Fichier ajouté.', [
+                'id'   => (int) $db->lastInsertId(),
+                'path' => $up['path'],
+            ]);
         }
 
         if ($action === 'delete_attachment') {
             Rbac::requirePermission('accounting.expenses.edit');
             $j   = json_body();
             $id  = (int) ($j['id'] ?? 0);
+            if ($id <= 0) jr('error', 'ID manquant.');
             $row = $db->prepare("SELECT stored_path FROM expense_attachments WHERE id = ?");
             $row->execute([$id]);
             $p = $row->fetchColumn();
-            if ($p) {
-                $full = $_SERVER['DOCUMENT_ROOT'] . '/' . ltrim((string)$p, '/');
-                if (is_file($full)) @unlink($full);
-            }
+            if ($p === false) jr('error', 'Pièce jointe introuvable.');
+
             $db->prepare("DELETE FROM expense_attachments WHERE id = ?")->execute([$id]);
+
+            // Unlink only after the row is gone, and only inside /uploads —
+            // stored_path comes from our own writer, but a realpath containment
+            // check costs nothing and makes that guarantee local.
+            $base = realpath(docRoot() . '/uploads');
+            $full = realpath(docRoot() . '/' . ltrim((string) $p, '/'));
+            if ($base && $full && strpos($full, $base . DIRECTORY_SEPARATOR) === 0 && is_file($full)) {
+                @unlink($full);
+            }
             jr('success', 'Pièce jointe supprimée.');
         }
 
