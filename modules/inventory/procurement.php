@@ -60,12 +60,16 @@ $user_role = $_SESSION['user_role'];
                  and the buttons have come up here where every other module
                  keeps them.
 
-                 Four controls, then help. "Configurer les Ristournes" is not
-                 among them on purpose — rebate_config.php was linked twice, and
-                 the surviving link inside the Ristournes modal is the better
-                 one: that is where you are looking at a balance when you decide
-                 the ladder is wrong. Its slot goes to Stock & Emballages, since
-                 the pairing that matters on this page is Achats↔Stocks. */ ?>
+                 Controls, then help. "Configurer les Ristournes" is icon-only
+                 here: rebate_config.php is also linked from inside the
+                 Ristournes modal, so a second full-width labelled button was
+                 competing with the primary action for attention — but the modal
+                 alone put the settings two clicks away, which is one too many
+                 for something used this often. Icon + tooltip keeps the route
+                 one click without crowding the bar.
+
+                 The warehouse icon beside it is the Achats↔Stocks link: that is
+                 the pairing that matters on this page, not the old OPEX one. */ ?>
         <div class="lpc-toolbar">
 
             <?php /* data-perm rather than a server-side `if`: switchTab() writes
@@ -85,6 +89,13 @@ $user_role = $_SESSION['user_role'];
                     class="bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300 px-4 py-2.5 rounded-xl font-black text-sm shadow-sm flex items-center gap-2 shrink-0 transition-all lpc-focusable">
                 <i class="fas fa-gift"></i> <span>Ristournes</span>
             </button>
+
+            <a id="btn-config-ristournes" href="/modules/inventory/rebate_config.php"
+               class="w-11 h-11 rounded-xl border border-lpc-border bg-white text-gray-500 hover:text-amber-700 hover:border-amber-300 flex items-center justify-center shrink-0 transition-all lpc-focusable"
+               title="Configurer les Ristournes — paliers par catégorie de produit et par fournisseur"
+               aria-label="Configurer les Ristournes">
+                <i class="fas fa-sliders-h"></i>
+            </a>
 
             <a href="/modules/inventory/stock.php"
                data-perm="inventory.stock.view"
