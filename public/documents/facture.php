@@ -334,6 +334,28 @@ if (($_GET['pdf'] ?? '') === '1') {
                         </div>
                     </div>
 
+                    <?php
+                    // Sprint 11: the "Certifié Conforme" stamp above records who
+                    // ISSUED the invoice — it is not a signature. This is the
+                    // signature area proper, the same shared partial every other
+                    // document uses, so the HTML view and the dompdf view show
+                    // the same thing. See docs/SIGNATURES.md.
+                    $sig_doc = lpc_signature_doc('facture', (string) ($_GET['token'] ?? ''));
+                    if ($sig_doc) {
+                        $sig_type    = 'facture';
+                        $sig_doc_id  = (int) ($sig_doc['record_id'] ?? 0);
+                        $sig_context = 'html';
+                        $sig_placeholders = [
+                            'external' => array_filter([$sig_doc['client']['name'] ?? '']),
+                        ];
+                        ?>
+                        <div class="pb-6">
+                            <?php require __DIR__ . '/../../includes/components/signature_block.php'; ?>
+                        </div>
+                        <?php
+                    }
+                    ?>
+
                     <!-- Statutory footer. Required on every page of a Cameroonian
                          invoice and previously absent from the HTML view entirely
                          (the dompdf path already had it). Sourced from

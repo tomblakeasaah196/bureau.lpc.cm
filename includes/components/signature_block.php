@@ -63,6 +63,11 @@ if (basename($_SERVER['PHP_SELF'] ?? '') === basename(__FILE__)) {
 
 require_once __DIR__ . '/../classes/DocumentSignature.php';
 require_once __DIR__ . '/../functions/qr.php';
+// lpc_signature_doc() — the loader the host pages call BEFORE requiring this
+// file — lives in document_pdf.php beside lpc_load_document(). Defining it
+// here would be too late: callers invoke it to decide whether to require this
+// partial at all.
+require_once __DIR__ . '/../functions/document_pdf.php';
 
 if (!function_exists('lpc_render_signature_block')) {
     /**
@@ -77,6 +82,14 @@ if (!function_exists('lpc_render_signature_block')) {
      *        and 'sig_client') so an admin editing the offer wording still
      *        controls what prints above each signature — behaviour the
      *        one-pager had before this block was shared.
+     * @param array{internal?:string[],external?:string[]} $placeholders
+     *        Lines printed UNDER the blank rule when that party has not
+     *        signed. The rich HTML document pages use this to keep the
+     *        detail they showed before adopting this partial — the devis
+     *        printed the sales rep on the LPC side and the client contact
+     *        on the other, and losing that on an unsigned document would be
+     *        a regression. Ignored entirely once a signature exists: a real
+     *        signature always outranks a printed placeholder.
      */
     function lpc_render_signature_block(
         string $type,
@@ -84,7 +97,8 @@ if (!function_exists('lpc_render_signature_block')) {
         array $doc,
         array $showParties = ['internal', 'external'],
         string $verifyBase = '',
-        array $labels = []
+        array $labels = [],
+        array $placeholders = []
     ): void {
         if (!in_array($type, DocumentSignature::TYPES, true) || $docId <= 0) {
             return; // invalid input — render nothing rather than break the doc
@@ -130,6 +144,32 @@ if (!function_exists('lpc_render_signature_block')) {
             ? (string) $labels['internal'] : 'Pour La Petite Cour';
         $labelExternal = trim((string) ($labels['external'] ?? '')) !== ''
             ? (string) $labels['external'] : 'Pour le client';
+
+        // Unsigned-state placeholder lines. First line prints bold (it is
+        // always the party's name); the rest are muted detail.
+        $phInternal = array_values(array_filter(
+            array_map('strval', (array) ($placeholders['internal'] ?? [])),
+            static function ($s) { return trim($s) !== ''; }
+        ));
+        $phExternal = array_values(array_filter(
+            array_map('strval', (array) ($placeholders['external'] ?? [])),
+            static function ($s) { return trim($s) !== ''; }
+        ));
+
+        $renderPlaceholder = static function (array $lines, string $fallback) use ($esc): string {
+            $out = '<div style="height:14mm; border-bottom:0.5pt solid #9CA3AF;"></div>';
+            if ($lines) {
+                $out .= '<div style="font-size:8pt; font-weight:bold; color:#111827; margin-top:1mm;">'
+                      . $esc($lines[0]) . '</div>';
+                foreach (array_slice($lines, 1) as $l) {
+                    $out .= '<div style="font-size:6.5pt; color:#6B7280;">' . $esc($l) . '</div>';
+                }
+            } else {
+                $out .= '<div style="font-size:5.6pt; color:#9CA3AF; text-transform:uppercase;'
+                      . ' letter-spacing:0.4pt; margin-top:1mm;">' . $esc($fallback) . '</div>';
+            }
+            return $out;
+        };
         ?>
 <table style="width:100%; border-collapse:collapse; margin-top:4mm; font-family:'DejaVu Sans',Helvetica,Arial,sans-serif; page-break-inside:avoid;">
     <tr>
@@ -155,17 +195,21 @@ if (!function_exists('lpc_render_signature_block')) {
                         </td>
                         <td style="width:16mm; vertical-align:top; text-align:right;">
                             <div style="width:15mm; height:15mm;">
-                                <?= lpc_qr_or_fallback($vurl($internal), 'width:15mm;height:15mm;overflow:hidden;') ?>
+                                <?php // 2nd arg sizes the box; 3rd is the short label the
+                                      // text fallback prints when endroid/qr-code is not
+                                      // installed — the full URL would overflow 15mm. ?>
+                                <?= lpc_qr_or_fallback(
+                                        $vurl($internal),
+                                        'width:15mm;height:15mm;overflow:hidden;',
+                                        substr((string) $internal['verify_token'], 0, 8)
+                                    ) ?>
                             </div>
                             <div style="font-size:4.6pt; color:#9CA3AF; margin-top:0.6mm;">Scannez</div>
                         </td>
                     </tr>
                 </table>
             <?php else: ?>
-                <div style="height:14mm; border-bottom:0.5pt solid #9CA3AF;"></div>
-                <div style="font-size:5.6pt; color:#9CA3AF; text-transform:uppercase; letter-spacing:0.4pt; margin-top:1mm;">
-                    Nom, fonction, cachet
-                </div>
+                <?= $renderPlaceholder($phInternal, 'Nom, fonction, cachet') ?>
             <?php endif; ?>
         </td>
         <?php endif; ?>
@@ -192,17 +236,18 @@ if (!function_exists('lpc_render_signature_block')) {
                         </td>
                         <td style="width:16mm; vertical-align:top; text-align:right;">
                             <div style="width:15mm; height:15mm;">
-                                <?= lpc_qr_or_fallback($vurl($external), 'width:15mm;height:15mm;overflow:hidden;') ?>
+                                <?= lpc_qr_or_fallback(
+                                        $vurl($external),
+                                        'width:15mm;height:15mm;overflow:hidden;',
+                                        substr((string) $external['verify_token'], 0, 8)
+                                    ) ?>
                             </div>
                             <div style="font-size:4.6pt; color:#9CA3AF; margin-top:0.6mm;">Scannez</div>
                         </td>
                     </tr>
                 </table>
             <?php else: ?>
-                <div style="height:14mm; border-bottom:0.5pt solid #9CA3AF;"></div>
-                <div style="font-size:5.6pt; color:#9CA3AF; text-transform:uppercase; letter-spacing:0.4pt; margin-top:1mm;">
-                    Nom, fonction, téléphone, signature
-                </div>
+                <?= $renderPlaceholder($phExternal, 'Nom, fonction, téléphone, signature') ?>
             <?php endif; ?>
         </td>
         <?php endif; ?>
@@ -223,7 +268,9 @@ lpc_render_signature_block(
     isset($sig_doc)    ? (array)  $sig_doc    : [],
     (isset($sig_show_parties) && is_array($sig_show_parties)) ? $sig_show_parties : ['internal', 'external'],
     isset($sig_verify_base) ? (string) $sig_verify_base : '',
-    (isset($sig_labels) && is_array($sig_labels)) ? $sig_labels : []
+    (isset($sig_labels)       && is_array($sig_labels))       ? $sig_labels       : [],
+    (isset($sig_placeholders) && is_array($sig_placeholders)) ? $sig_placeholders : []
 );
 
-unset($sig_type, $sig_doc_id, $sig_doc, $sig_context, $sig_show_parties, $sig_verify_base, $sig_labels);
+unset($sig_type, $sig_doc_id, $sig_doc, $sig_context, $sig_show_parties,
+      $sig_verify_base, $sig_labels, $sig_placeholders);

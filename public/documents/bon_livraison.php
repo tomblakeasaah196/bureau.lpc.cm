@@ -245,8 +245,34 @@ if (($_GET['pdf'] ?? '') === '1') {
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-8" id="dynamic-signatures-area">
-                            </div>
+                        <?php
+                        // Sprint 11: #dynamic-signatures-area used to be filled
+                        // by documents-bon_livraison.js from get_bl.php, which
+                        // read deliveries.signature_image / .driver_signature_image
+                        // / .digital_hash. Those legacy columns are no longer
+                        // written — migration 055 moved signatures into
+                        // document_signatures — so a newly signed BL would have
+                        // rendered an empty box.
+                        //
+                        // The shared partial reads the new table and prints the
+                        // client's drawn signature alongside LPC's internal
+                        // attestation, with hash fragments and verification QRs.
+                        // See docs/SIGNATURES.md.
+                        $sig_doc = lpc_signature_doc('bl', (string) ($_GET['token'] ?? ''));
+                        if ($sig_doc) {
+                            $sig_type    = 'bl';
+                            $sig_doc_id  = (int) ($sig_doc['record_id'] ?? 0);
+                            $sig_context = 'html';
+                            $sig_labels  = [
+                                'internal' => 'Pour La Petite Cour',
+                                'external' => 'Le réceptionnaire',
+                            ];
+                            $sig_placeholders = [
+                                'external' => array_filter([$sig_doc['client']['name'] ?? '']),
+                            ];
+                            require __DIR__ . '/../../includes/components/signature_block.php';
+                        }
+                        ?>
                     </div>
                 </div>
             </div> </div>

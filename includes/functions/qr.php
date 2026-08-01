@@ -66,21 +66,48 @@ function lpc_qr_svg(string $data, int $size_px = 300, int $margin_px = 0): strin
 }
 
 /**
- * QR markup if available, else a small bordered box printing $data as text.
+ * QR markup if available, else a small bordered box standing in for it.
  * Every caller can drop this straight into a fixed-size cell and get SOMETHING
  * legible either way — never an empty gap where the verification mark should be.
  *
- * @param string $extra_style  inline CSS appended to the fallback box only;
- *                              size the returned <svg> itself via its wrapping element.
+ * THE FALLBACK MUST FIT THE CELL
+ *   It used to print $data verbatim. Callers pass a full verification URL
+ *   (~60 chars), and the signature block's cell is 15mm square — so the text
+ *   overflowed and dompdf clipped it mid-token, leaving a meaningless
+ *   fragment like ")80dc73cf18918c7t" on printed documents. Pass
+ *   $fallback_label to print something that actually fits; the full URL is
+ *   still what the QR itself encodes once the library is installed.
+ *
+ * INSTALLING THE QR LIBRARY
+ *   composer.json requires endroid/qr-code, but composer is not present on
+ *   the production host (deploy.sh reports this and skips the step), so the
+ *   package has never been installed and this fallback is what every
+ *   document has actually printed. See docs/SIGNATURES.md.
+ *
+ * @param string $extra_style     inline CSS appended to the fallback box only;
+ *                                 size the returned <svg> via its wrapping element.
+ * @param string $fallback_label  short text for the fallback box. Defaults to
+ *                                 $data, which is usually too long to fit.
  */
-function lpc_qr_or_fallback(string $data, string $extra_style = ''): string
+function lpc_qr_or_fallback(string $data, string $extra_style = '', string $fallback_label = ''): string
 {
     $svg = lpc_qr_svg($data);
     if ($svg !== '') {
         return $svg;
     }
-    $e = htmlspecialchars($data, ENT_QUOTES, 'UTF-8');
-    return '<div style="' . $extra_style . ';border:0.5pt solid #D1D5DB;font-size:5pt;'
-         . 'color:#9CA3AF;padding:1mm;word-break:break-all;text-align:center;line-height:1.3;">'
-         . $e . '</div>';
+
+    $label = trim($fallback_label) !== '' ? $fallback_label : $data;
+    $e     = htmlspecialchars($label, ENT_QUOTES, 'UTF-8');
+
+    // A framed placeholder that reads as "deliberate stand-in", not as a
+    // rendering failure: a small mark, the word VÉRIFIER, and the short
+    // reference. Sized in % so it fills whatever cell the caller gives it.
+    return '<div style="' . $extra_style . ';border:0.5pt solid #D1D5DB;'
+         . 'text-align:center;padding:1mm 0.5mm;line-height:1.25;overflow:hidden;">'
+         . '<div style="font-size:8pt;color:#9CA3AF;line-height:1;">&#9635;</div>'
+         . '<div style="font-size:4.4pt;color:#6B7280;letter-spacing:0.3pt;'
+         . 'text-transform:uppercase;margin-top:0.5mm;">Vérifier</div>'
+         . '<div style="font-size:4.2pt;color:#9CA3AF;font-family:\'Courier New\',monospace;'
+         . 'margin-top:0.3mm;">' . $e . '</div>'
+         . '</div>';
 }

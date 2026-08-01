@@ -121,6 +121,50 @@ function lpc_serve_document_pdf(string $type): void
  *     'source_updated_at' => 'Y-m-d H:i:s'
  *   ]
  */
+/**
+ * Load a document by token using the DocumentSignature slug vocabulary
+ * (quote / cre / bl / facture / bon_commande / payslip) rather than this
+ * file's older one (quote / cre / delivery / invoice / po / payslip).
+ *
+ * WHY IT EXISTS
+ *   The rich HTML pages under public/documents/ fetch their FIGURES over the
+ *   API and render them with JavaScript, so they have no $doc on the server.
+ *   The signature block cannot work that way: whether a signature is still
+ *   valid depends on hashing the document server-side, and a client-supplied
+ *   payload could be tampered with before hashing. Those pages therefore call
+ *   this to load the row themselves before requiring
+ *   includes/components/signature_block.php.
+ *
+ *   It lives HERE and not in that partial because callers invoke it to decide
+ *   whether to require the partial at all — defining it there would be too
+ *   late, and PHP would fatal on an undefined function.
+ *
+ * Returns null on any failure (unknown slug, missing token, DB down) so the
+ * caller renders the unsigned state rather than failing the whole page.
+ *
+ * @return array<string,mixed>|null
+ */
+function lpc_signature_doc(string $type, string $token): ?array
+{
+    static $map = [
+        'quote'        => 'quote',
+        'cre'          => 'cre',
+        'bl'           => 'delivery',
+        'facture'      => 'invoice',
+        'bon_commande' => 'po',
+        'payslip'      => 'payslip',
+    ];
+    $token = trim($token);
+    if ($token === '' || !isset($map[$type])) return null;
+    try {
+        $db = Database::getInstance()->getConnection();
+        return lpc_load_document($db, $map[$type], $token) ?: null;
+    } catch (Throwable $e) {
+        error_log('lpc_signature_doc(' . $type . '): ' . $e->getMessage());
+        return null;
+    }
+}
+
 function lpc_load_document(PDO $db, string $type, string $token): ?array
 {
     switch ($type) {

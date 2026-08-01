@@ -4,12 +4,30 @@
  * -----------------------------------------------------------------------------
  * Bureau LPC ERP — Canonical permission catalog.
  *
+ * WHAT THIS FILE IS — AND IS NOT
+ *   It is the human-readable CATALOG. api/v1/rbac_controller.php reads it to
+ *   populate the Roles & Permissions screen, and help_controller.php reads it
+ *   to validate article gates. It is NOT what grants anything at runtime:
+ *   Rbac resolves a user's permissions from the `permissions` and
+ *   `role_permissions` TABLES.
+ *
+ *   So a permission listed here but never INSERTed by a migration shows up in
+ *   the admin UI and can never actually be granted; one INSERTed but not
+ *   listed here works, but is invisible on the Roles screen. Both halves are
+ *   required.
+ *
  * Adding a permission:
- *   1. Add it to $LPC_PERMISSIONS below (grouped by module).
- *   2. Run the migration SQL (migrations/002_rbac_upsert.sql, which UPSERTs
- *      from this file into the `permissions` table via the CLI script
- *      scripts/sync_permissions.php).
+ *   1. Add it to $LPC_PERMISSIONS below (grouped by module) — the catalog.
+ *   2. INSERT it in a NEW migration, with ON DUPLICATE KEY UPDATE so re-runs
+ *      are safe, plus the role_permissions grants it needs. See
+ *      migrations/055_signatures_universal.sql for the idiom. Never edit an
+ *      already-applied migration to add one — migrate.php checksums applied
+ *      files and will refuse the whole run.
  *   3. Use it in code:  Rbac::requirePermission('accounting.invoices.create')
+ *
+ * (An earlier version of this header described a scripts/sync_permissions.php
+ *  and a migrations/002_rbac_upsert.sql that push this array into the table.
+ *  Neither has ever existed in this repo — migrations are the only path.)
  *
  * Convention: keys are lower_snake, dot-separated:  <module>.<entity>.<action>
  * -----------------------------------------------------------------------------

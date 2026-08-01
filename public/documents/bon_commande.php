@@ -217,15 +217,28 @@ if (($_GET['pdf'] ?? '') === '1') {
                     </div>
                 </div>
 
-                <div class="px-4 md:px-16 pt-8 pb-12 border-t border-gray-200 grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 shrink-0">
-                    <div>
-                        <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-16" data-i18n="sig_creator">Établi par :</p>
-                        <p class="font-bold text-gray-900 text-sm border-t border-gray-300 pt-2 inline-block min-w-[200px]" id="dyn_creator_name">...</p>
-                    </div>
-                    <div class="md:text-right">
-                        <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-16" data-i18n="sig_auth">Visa Direction / Finance :</p>
-                        <p class="font-bold text-gray-900 text-sm border-t border-gray-300 pt-2 inline-block min-w-[200px]">La Direction Générale</p>
-                    </div>
+                <div class="px-4 md:px-16 pt-8 pb-12 border-t border-gray-200 shrink-0">
+                    <?php
+                    // Sprint 11: the two hand-built "Établi par / Visa Direction"
+                    // columns are now the shared signature partial, so a signed
+                    // bon de commande shows its stamp, hash and QR here exactly
+                    // as every other document does. See docs/SIGNATURES.md.
+                    $sig_doc = lpc_signature_doc('bon_commande', (string) ($_GET['token'] ?? ''));
+                    if ($sig_doc) {
+                        $sig_type    = 'bon_commande';
+                        $sig_doc_id  = (int) ($sig_doc['record_id'] ?? 0);
+                        $sig_context = 'html';
+                        $sig_labels  = [
+                            'internal' => 'Établi par / Visa Direction',
+                            'external' => 'Le fournisseur',
+                        ];
+                        $sig_placeholders = [
+                            'internal' => ['La Direction Générale'],
+                            'external' => array_filter([$sig_doc['client']['name'] ?? '']),
+                        ];
+                        require __DIR__ . '/../../includes/components/signature_block.php';
+                    }
+                    ?>
                 </div>
 
             </div> </div>

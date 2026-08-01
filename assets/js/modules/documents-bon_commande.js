@@ -92,8 +92,14 @@
             document.getElementById('dyn_payment').innerText = po.payment_status === 'paid' ? 'Payé (Cash/Virement)' : 'À Crédit (Non Payé)';
             if(po.payment_status === 'paid') document.getElementById('dyn_payment').classList.add('text-green-700', 'bg-green-50', 'border-green-200');
 
-            // Signatures
-            document.getElementById('dyn_creator_name').innerText = creator.name;
+            // Signatures — Sprint 11: the signature area is now rendered
+            // server-side by includes/components/signature_block.php (see
+            // docs/SIGNATURES.md), so #dyn_creator_name no longer exists.
+            // Guarded rather than deleted so a browser holding a cached copy
+            // of the OLD bon_commande.php still gets it filled; unguarded,
+            // the null would throw and abort the items table below.
+            const creatorEl = document.getElementById('dyn_creator_name');
+            if (creatorEl) creatorEl.innerText = creator.name;
 
             // Table Injection
             const tbody = document.getElementById('dyn_items_table');

@@ -127,11 +127,25 @@
             document.getElementById('dyn_buffer_stock_weeks').innerText = p.buffer_stock_weeks;
             document.getElementById('dyn_validity_days').innerText = p.validity_days;
 
-            // Signatures
-            document.getElementById('sig_sales_rep').innerText = u.name;
-            document.getElementById('sig_date_lpc').innerText = formattedDate;
-            document.getElementById('sig_client_name').innerText = c.company_name;
-            document.getElementById('sig_client_title').innerText = c.contact_name || 'Direction Générale';
+            // Signatures — Sprint 11: the signature area is now rendered
+            // server-side by includes/components/signature_block.php (see
+            // docs/SIGNATURES.md), because deciding whether a signature is
+            // still valid means hashing the document on the server. These
+            // four elements no longer exist on the page.
+            //
+            // The assignments are kept, guarded, rather than deleted: if a
+            // cached copy of the OLD quote.php is served to a browser while
+            // this newer JS runs, the elements ARE there and should still be
+            // filled. Unguarded, getElementById returning null would throw
+            // and abort everything below — including the line-items table.
+            const setIfPresent = function (id, value) {
+                const el = document.getElementById(id);
+                if (el) el.innerText = value;
+            };
+            setIfPresent('sig_sales_rep', u.name);
+            setIfPresent('sig_date_lpc', formattedDate);
+            setIfPresent('sig_client_name', c.company_name);
+            setIfPresent('sig_client_title', c.contact_name || 'Direction Générale');
 
             // Table Injection
             const tbody = document.getElementById('dyn_items_table');

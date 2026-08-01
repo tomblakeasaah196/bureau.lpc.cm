@@ -14,6 +14,12 @@
     "config": {
         "optimize-autoloader": true,
         "sort-packages": true,
+        "platform": {
+            "php": "8.3.32",
+            "ext-pdo": "8.3.32",
+            "ext-json": "8.3.32",
+            "ext-mbstring": "8.3.32"
+        },
         "allow-plugins": {
             "dealerdirect/phpcodesniffer-composer-installer": false
         }

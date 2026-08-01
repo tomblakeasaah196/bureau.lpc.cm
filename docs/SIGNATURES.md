@@ -220,6 +220,33 @@ on every document type. Optional `$sig_labels` overrides the two column
 headings — the devis passes its Proposal-Studio-editable strings so an admin
 rewording the offer still controls what prints above each signature.
 
+### The QR code needs a composer package
+
+The QR is generated **server-side**, because dompdf renders the PDF on the
+server and cannot run JavaScript. It needs `endroid/qr-code`, which
+`composer.json` requires but which **is not installed on production** —
+`deploy.sh` reports `composer not found ... skipping` and moves on, so the
+package has never landed in `vendor/`.
+
+While it is missing, `lpc_qr_or_fallback()` prints a small framed
+placeholder with the short verify token instead of a scannable code. The
+signature itself is completely unaffected — it is recorded, hashed and
+verifiable at `/verify/{token}`; only the scannable shortcut is absent.
+
+To fix it on the production host:
+
+```bash
+mkdir -p ~/bin
+curl -sS https://getcomposer.org/installer | php -- --install-dir="$HOME/bin" --filename=composer
+cd ~/public_html/bureau.lpc.cm
+~/bin/composer install --no-dev --optimize-autoloader
+```
+
+`deploy.sh` already looks in `$HOME/bin/composer`, so once it is there every
+future deploy installs dependencies on its own. Note `vendor/` is
+gitignored, so the package cannot arrive by `git pull` — it has to be
+installed on the host (or uploaded).
+
 ### Height budget
 
 `lpc_render_quote_pdf_html()` guarantees the devis is always one A4 page and

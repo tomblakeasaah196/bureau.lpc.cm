@@ -416,32 +416,50 @@ $proposalLogos = lpc_proposal_logos();
                         <p><strong class="text-gray-800" data-i18n="tc_6_title"><?= pq('tc_6_title') ?></strong> <span data-i18n="tc_6_body"><?= pq('tc_6_body') ?></span></p>
                     </div>
 
-                    <div class="mt-auto grid grid-cols-2 gap-16 pt-8 border-t border-gray-200">
-                        <div class="bg-gray-50 border border-gray-200 p-6 rounded-xl relative">
-                            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1" data-i18n="sig_lpc"><?= pq('sig_lpc') ?></p>
-                            <p class="font-bold text-gray-900 text-sm mb-12" id="sig_role_lpc" data-i18n="sig_role_lpc"><?= pq('sig_role_lpc') ?></p>
-                            
-                            <div class="absolute top-12 right-6 opacity-30 pointer-events-none transform -rotate-12">
-                                <h4 class="text-xl font-serif text-lpc-dark italic border-2 border-lpc-dark rounded-full px-3 py-0.5" data-i18n="sig_stamp"><?= pq('sig_stamp') ?></h4>
-                            </div>
-                            
-                            <p class="text-[9px] text-gray-500 uppercase tracking-wider mb-1" data-i18n="sig_prep"><?= pq('sig_prep') ?></p>
-                            <div class="border-b border-gray-900 w-full mb-2"></div>
-                            <p class="font-bold text-lpc-dark text-sm" id="sig_sales_rep">...</p>
-                            <p class="text-[10px] text-gray-400 mt-1" id="sig_date_lpc">...</p>
+                    <?php
+                    // ══ SIGNATURES ═══════════════════════════════════════════
+                    // Sprint 11: this used to be a hand-built two-column block
+                    // whose values were filled in by documents-quote.js. It is
+                    // now the shared partial every document uses, so a real
+                    // signature — internal stamp or the client's drawn one —
+                    // shows up here exactly as it does on the PDF and on every
+                    // other document type. See docs/SIGNATURES.md.
+                    //
+                    // The figures on this page arrive over the API and are
+                    // rendered by JS, so there is no $doc in scope; the block
+                    // loads its own (server-side, because a client-supplied
+                    // payload could be edited before hashing).
+                    //
+                    // Unsigned, it keeps what this page always showed: the
+                    // sales rep on the LPC side, the client contact on the
+                    // other — passed as $sig_placeholders.
+                    $sig_doc = lpc_signature_doc('quote', (string) ($_GET['token'] ?? ''));
+                    if ($sig_doc) {
+                        $sig_type    = 'quote';
+                        $sig_doc_id  = (int) ($sig_doc['record_id'] ?? 0);
+                        $sig_context = 'html';
+                        $sig_labels  = [
+                            'internal' => lpc_proposal_text('sig_lpc', 'fr'),
+                            'external' => lpc_proposal_text('sig_client', 'fr'),
+                        ];
+                        $sig_placeholders = [
+                            'internal' => array_filter([
+                                lpc_proposal_text('sig_role_lpc', 'fr'),
+                                $sig_doc['sales_rep'] ?? '',
+                            ]),
+                            'external' => array_filter([
+                                $sig_doc['client']['name']    ?? '',
+                                $sig_doc['client']['contact'] ?? '',
+                                lpc_proposal_text('sig_date_client', 'fr'),
+                            ]),
+                        ];
+                        ?>
+                        <div class="mt-auto pt-8 border-t border-gray-200">
+                            <?php require __DIR__ . '/../../includes/components/signature_block.php'; ?>
                         </div>
-
-                        <div class="p-6 flex flex-col">
-                            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-auto" data-i18n="sig_client"><?= pq('sig_client') ?></p>
-                            
-                            <div class="mt-16">
-                                <div class="border-b border-gray-300 w-full mb-2"></div>
-                                <p class="font-bold text-gray-900 text-sm leading-tight" id="sig_client_name">...</p>
-                                <p class="text-[10px] text-gray-500 leading-tight mt-0.5" id="sig_client_title">...</p>
-                                <p class="text-[10px] text-gray-400 mt-2" data-i18n="sig_date_client"><?= pq('sig_date_client') ?></p>
-                            </div>
-                        </div>
-                    </div>
+                        <?php
+                    }
+                    ?>
                 </div>
 
                 <footer class="h-16 bg-lpc-dark flex items-center justify-center px-16 text-xs text-gray-300 shrink-0">

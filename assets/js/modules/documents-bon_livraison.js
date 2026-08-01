@@ -131,9 +131,21 @@
                 `;
             });
 
-            // Dynamic Signatures Area
+            // Dynamic Signatures Area — Sprint 11: this block is now rendered
+            // server-side by includes/components/signature_block.php, which
+            // reads document_signatures rather than the retired
+            // deliveries.signature_image / .driver_signature_image columns
+            // this code was built against. See docs/SIGNATURES.md.
+            //
+            // The builder below is kept, guarded, rather than deleted: a
+            // browser holding a cached copy of the OLD bon_livraison.php still
+            // has #dynamic-signatures-area, and should still get something in
+            // it. When the element is absent (the normal case now) everything
+            // here is skipped — unguarded, the sigArea.innerHTML assignment at
+            // the end would throw and abort the rest of the render.
             const sigArea = document.getElementById('dynamic-signatures-area');
-            
+            if (!sigArea) return;
+
             // Departure Stamp (Removed 'truncate', added 'break-words' and JS substring)
             let sigHTML = `
                 <div class="col-span-1 flex flex-col items-center justify-end h-full">

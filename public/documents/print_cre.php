@@ -206,31 +206,54 @@ $labels = [
         <div class="border-2 border-gray-800 rounded-lg p-6 relative break-inside-avoid">
             <h4 class="absolute -top-3 left-4 bg-white px-2 text-[10px] font-black uppercase tracking-widest text-gray-500">Scellement Numérique & Signatures</h4>
             
-            <div class="grid grid-cols-2 gap-8 mt-2">
-                <div>
-                    <p class="text-xs text-justify text-gray-500 font-medium mb-4 leading-relaxed">
-                        Le signataire reconnaît avoir restitué les quantités exactes mentionnées ci-dessus. Ce document a été signé électroniquement. L'adresse IP, l'horodatage et la signature biométrique constituent une preuve légale d'approbation.
-                    </p>
+            <p class="text-xs text-justify text-gray-500 font-medium mb-4 mt-2 leading-relaxed">
+                Le signataire reconnaît avoir restitué les quantités exactes mentionnées ci-dessus. Ce document a été signé électroniquement. L'adresse IP, l'horodatage et la signature biométrique constituent une preuve légale d'approbation.
+            </p>
+
+            <?php
+            // Sprint 11: this box used to read cre_documents.signatory_name /
+            // .signature_image / .digital_hash / .ip_address directly. Those
+            // legacy columns are no longer written — migration 055 moved
+            // signatures into document_signatures — so reading them would show
+            // "Signature non disponible" on every newly signed CRE.
+            //
+            // The shared partial reads the new table, and prints the client's
+            // drawn signature, the signer's identity, the timestamp, the hash
+            // fragment and a verification QR. See docs/SIGNATURES.md.
+            $sig_doc = lpc_signature_doc('cre', (string) ($_GET['token'] ?? ''));
+            if ($sig_doc) {
+                $sig_type    = 'cre';
+                $sig_doc_id  = (int) ($sig_doc['record_id'] ?? 0);
+                $sig_context = 'html';
+                $sig_labels  = ['internal' => 'Pour La Petite Cour', 'external' => 'Signature du client'];
+                $sig_placeholders = [
+                    'external' => array_filter([$sig_doc['client']['name'] ?? '']),
+                ];
+                require __DIR__ . '/../../includes/components/signature_block.php';
+            }
+
+            // Historical fallback: CREs signed BEFORE migration 055 have no
+            // document_signatures row, only the legacy columns. Reprinting one
+            // of those must still show what it showed the day it was signed.
+            elseif (!empty($cre['signature_image'])) {
+                ?>
+                <div class="grid grid-cols-2 gap-8">
                     <div class="space-y-1">
-                        <p class="text-[9px] font-mono text-gray-600"><strong>IP Client:</strong> <?php echo htmlspecialchars($cre['ip_address']); ?></p>
-                        <p class="text-[9px] font-mono text-gray-600"><strong>Horodatage:</strong> <?php echo htmlspecialchars($cre['signed_at']); ?></p>
-                        <p class="text-[9px] font-mono text-gray-400 break-all leading-tight mt-2"><strong>Empreinte Cryptographique (SHA-256):</strong><br><?php echo htmlspecialchars($cre['digital_hash']); ?></p>
+                        <p class="text-[9px] font-mono text-gray-600"><strong>IP Client:</strong> <?= htmlspecialchars((string) $cre['ip_address']) ?></p>
+                        <p class="text-[9px] font-mono text-gray-600"><strong>Horodatage:</strong> <?= htmlspecialchars((string) $cre['signed_at']) ?></p>
+                        <p class="text-[9px] font-mono text-gray-400 break-all leading-tight mt-2"><strong>Empreinte Cryptographique (SHA-256):</strong><br><?= htmlspecialchars((string) $cre['digital_hash']) ?></p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-xs font-black uppercase text-gray-800 border-b border-gray-200 pb-2 mb-2 inline-block">Signature du Client</p>
+                        <p class="text-[10px] font-bold text-gray-500"><?= htmlspecialchars((string) $cre['signatory_name']) ?> (<?= htmlspecialchars((string) $cre['signatory_role']) ?>)</p>
+                        <div class="mt-2 flex justify-center">
+                            <img src="<?= htmlspecialchars((string) $cre['signature_image']) ?>" alt="Signature du client" class="max-h-32 object-contain">
+                        </div>
                     </div>
                 </div>
-
-                <div class="text-center">
-                    <p class="text-xs font-black uppercase text-gray-800 border-b border-gray-200 pb-2 mb-2 inline-block">Signature du Client</p>
-                    <p class="text-[10px] font-bold text-gray-500"><?php echo htmlspecialchars($cre['signatory_name']); ?> (<?php echo htmlspecialchars($cre['signatory_role']); ?>)</p>
-                    
-                    <?php if($cre['signature_image']): ?>
-                        <div class="mt-2 flex justify-center">
-                            <img alt="" src="<?php echo htmlspecialchars($cre['signature_image']); ?>" alt="Signature" class="max-h-32 object-contain" />
-                        </div>
-                    <?php else: ?>
-                        <div class="mt-4 h-24 border border-dashed border-gray-300 flex items-center justify-center text-gray-300 text-xs">Signature non disponible</div>
-                    <?php endif; ?>
-                </div>
-            </div>
+                <?php
+            }
+            ?>
         </div>
 
         <div class="absolute bottom-10 left-0 right-0 text-center">
