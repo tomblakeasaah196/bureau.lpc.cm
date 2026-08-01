@@ -313,6 +313,11 @@
             globalData.accounts.forEach(a => opts += `<option value="${a.id}">[${a.type.toUpperCase()}] ${a.name} (${fmt(a.balance)} F)</option>`);
             
             selFrom.innerHTML = opts; selTo.innerHTML = opts; selEx.innerHTML = opts;
+
+            // Populate the Sortie de Caisse category dropdown from the
+            // expenses module. Fire-and-forget — accounts stay usable while
+            // categories load, and the field defaults to "Autre" if it fails.
+            loadExpenseCategoriesForQuickEntry();
         }
 
         function populateReconSelect() {
@@ -448,22 +453,61 @@
             }
         }
 
+        // Rewired 31 July 2026 (migration 053_expenses_module.sql).
+        // Was: POST action=log_expense to treasury_controller — that path
+        // posted a balanced JE but wrote nothing durable, so the same cash
+        // outflow was visible in the transactions ledger and invisible in
+        // any expenses / budget view. Now posts to expenses_controller's
+        // quick_entry action, which writes an expenses row, moves treasury
+        // + logs a transaction, and calls JournalPoster::postExpense in the
+        // same transaction. Same UX, one canonical record.
         async function submitExpense() {
-            const payload = {
-                action:      'log_expense',
-                account_id:  document.getElementById('ex_account').value,
-                amount:      parseFloat(document.getElementById('ex_amount').value) || 0,
-                category:    document.getElementById('ex_category')?.value || '',
-                description: document.getElementById('ex_description')?.value || '',
-            };
-            if (!payload.account_id) return LPC.modal.alert("Compte de sortie obligatoire.");
-            if (payload.amount <= 0)  return LPC.modal.alert("Le montant doit être positif.");
-            const r = await treasuryPost(payload, 'wallets');
-            if (r) {
-                LPC.modal.alert("Dépense enregistrée.");
-                closeModal('modal-expense');
+            const account_id  = document.getElementById('ex_account').value;
+            const amount      = parseFloat(document.getElementById('ex_amount').value) || 0;
+            const category_id = document.getElementById('ex_category')?.value || '';
+            const description = document.getElementById('ex_desc')?.value?.trim() || '';
+            if (!account_id) return LPC.modal.alert("Compte de sortie obligatoire.");
+            if (amount <= 0)  return LPC.modal.alert("Le montant doit être positif.");
+            if (!description) return LPC.modal.alert("Description obligatoire.");
+
+            const fd = new FormData();
+            fd.append('action', 'quick_entry');
+            fd.append('account_id',  account_id);
+            fd.append('amount',      amount);
+            fd.append('description', description);
+            if (category_id) fd.append('category_id', category_id);
+
+            try {
+                const res = await fetch('/api/v1/expenses_controller.php?action=quick_entry', { method: 'POST', body: fd });
+                const result = await res.json();
+                if (result.status !== 'success') {
+                    LPC.modal.alert(result.message || "Erreur serveur.");
+                    return;
+                }
+                LPC.modal.alert("Dépense enregistrée et comptabilisée.");
                 document.getElementById('form-expense')?.reset();
+                fetchTabData('wallets');
+            } catch (e) {
+                LPC.modal.alert("Erreur réseau : " + e.message);
             }
+        }
+
+        // Populate the category dropdown on the Sortie de Caisse card. Called
+        // once when accounts load; safe to fail silently on installs before
+        // migration 053 — the field then behaves as the old free-text card did.
+        async function loadExpenseCategoriesForQuickEntry() {
+            const sel = document.getElementById('ex_category');
+            if (!sel) return;
+            try {
+                const res = await fetch('/api/v1/expenses_controller.php?action=categories');
+                const j = await res.json();
+                if (j.status !== 'success' || !Array.isArray(j.data)) return;
+                let opts = '<option value="">— Autre / Divers —</option>';
+                j.data.filter(c => Number(c.is_active) === 1).forEach(c => {
+                    opts += LPC.html`<option value="${c.id}">${c.name}</option>`;
+                });
+                sel.innerHTML = opts;
+            } catch (e) { /* keep default */ }
         }
 
     

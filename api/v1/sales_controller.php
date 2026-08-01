@@ -112,173 +112,43 @@ if ($action === 'sign_bl' || $action === 'reject_bl') {
         exit;
     }
 
+    // -----------------------------------------------------------------------
+    // sign_bl is DEPRECATED here. The unified signature system lives at
+    // /api/v1/signatures_controller.php?action=sign_external — sign_bl.php
+    // now posts there directly. This stub returns 410 Gone with a pointer
+    // for any queued/offline request that still targets the old URL.
+    //
+    // reject_bl still lives here: it's not a signature action, just a
+    // status flip back to 'dispatched' so the driver can correct numbers.
+    // -----------------------------------------------------------------------
+    if ($action === 'sign_bl') {
+        http_response_code(410);
+        echo json_encode([
+            'status'  => 'error',
+            'code'    => 'endpoint_moved',
+            'message' => "Cette route a été remplacée. Rechargez la page pour utiliser le nouveau flux.",
+            'moved_to' => '/api/v1/signatures_controller.php?action=sign_external&type=bl',
+        ]);
+        exit;
+    }
+
     try {
         $db->beginTransaction();
-        
-        $stmtCheck = $db->prepare("SELECT id, reference, sales_order_id, client_id, payment_collected, driver_id FROM deliveries WHERE token = ? AND status = 'driver_confirmed' FOR UPDATE");
+
+        $stmtCheck = $db->prepare("SELECT id, reference, sales_order_id, client_id, payment_collected, driver_id FROM deliveries WHERE token = ? AND status IN ('driver_confirmed','dispatched') FOR UPDATE");
         $stmtCheck->execute([$token]);
         $delivery = $stmtCheck->fetch(PDO::FETCH_ASSOC);
 
-        if (!$delivery) throw new Exception("Ce Bon de Livraison est introuvable, déjà signé, ou n'a pas été confirmé par le chauffeur.");
+        if (!$delivery) throw new Exception("Ce Bon de Livraison est introuvable, déjà signé, ou dans un état inattendu.");
 
         // CLIENT REJECTS THE NUMBERS
         if ($action === 'reject_bl') {
-            $reason = trim($jsonData['reason']);
+            $reason = trim($jsonData['reason'] ?? '');
+            if ($reason === '') throw new Exception('Motif du refus requis.');
             // Push it back to the driver to correct the numbers
             $db->prepare("UPDATE deliveries SET status = 'dispatched', rejection_reason = ? WHERE id = ?")->execute([$reason, $delivery['id']]);
             $db->commit();
             echo json_encode(['status' => 'success', 'message' => 'BL refusé. Le chauffeur doit corriger les quantités.']);
-            exit;
-        }
-
-        // DUAL SIGNATURE (DRIVER & CLIENT APPROVE)
-        if ($action === 'sign_bl') {
-            $name = trim($jsonData['signatory_name']);
-            $role = trim($jsonData['signatory_role']);
-            $phone = trim($jsonData['signatory_phone']);
-
-            // Sprint 7C · Deliverable 1: reject if the signer OTP was not
-            // verified for this token within the last 30 minutes.
-            require_once __DIR__ . '/../../includes/classes/SignerOtp.php';
-            if (!SignerOtp::isVerified($token)) {
-                if ($db->inTransaction()) $db->rollBack();
-                http_response_code(403);
-                echo json_encode([
-                    'status'  => 'error',
-                    'code'    => 'otp_required',
-                    'message' => "Vérification de l'identité requise. Reprenez la procédure d'envoi du code.",
-                ]);
-                exit;
-            }
-            
-            // Sprint-2 hardening: signatures are decoded server-side into real
-            // PNG files under /uploads/signatures/YYYY/MM/. The DB stores the
-            // web-accessible PATH (not the base64 blob) — signature_image is
-            // repurposed as a path column until migration 003 drops the
-            // LONGTEXT and adds signature_path/hash columns.
-            require_once __DIR__ . '/../../includes/classes/Uploads.php';
-            try {
-                $clientUp = Uploads::saveBase64DataUrl($jsonData['signature_image'] ?? '', 'signatures/client', [
-                    'allowed_mime' => ['image/png'],
-                    'max_bytes'    => 512 * 1024,
-                ]);
-                $driverUp = Uploads::saveBase64DataUrl($jsonData['driver_signature_image'] ?? '', 'signatures/driver', [
-                    'allowed_mime' => ['image/png'],
-                    'max_bytes'    => 512 * 1024,
-                ]);
-            } catch (Throwable $e) {
-                throw new Exception('Signature refusée : ' . $e->getMessage());
-            }
-            $client_signature = $clientUp['path'];   // e.g. /uploads/signatures/client/2026/07/ab12...png
-            $driver_signature = $driverUp['path'];
-
-            // Hard limit to 150 chars to protect PDF layout
-            $client_observation = mb_substr(trim($jsonData['client_observation'] ?? ''), 0, 150);
-
-            $ip = $_SERVER['REMOTE_ADDR'];
-            $timestamp = date('Y-m-d H:i:s');
-
-            // 1. Digital hashes — derived from the saved file's SHA-256, not
-            //    from a slice of the base64 body. This is stronger and stable.
-            $client_hash = hash('sha256', $delivery['reference'] . $name . $phone . $ip . $timestamp . $clientUp['sha256']);
-            $driver_hash = hash('sha256', $delivery['reference'] . 'DRIVER' . $ip . $timestamp . $driverUp['sha256']);
-
-            // 2. Lock the Delivery Document (columns keep their names for now;
-            //    migration 003 will rename signature_image → signature_path)
-            $update = $db->prepare("
-                UPDATE deliveries
-                SET status = 'completed',
-                    signatory_name = ?, signatory_role = ?, signatory_phone = ?,
-                    signature_image = ?, ip_address = ?, signed_at = ?, digital_hash = ?,
-                    driver_signature_image = ?, driver_ip_address = ?, driver_signed_at = ?, driver_digital_hash = ?,
-                    client_observation = ?
-                WHERE id = ?
-            ");
-            $update->execute([
-                $name, $role, $phone,
-                $client_signature, $ip, $timestamp, $client_hash,
-                $driver_signature, $ip, $timestamp, $driver_hash,
-                $client_observation,
-                $delivery['id']
-            ]);
-
-            // 3. Process the Mathematics & Logistics
-            $so_id = $delivery['sales_order_id'];
-            $client_id = $delivery['client_id'];
-            $new_subtotal = 0;
-
-            $stmtItems = $db->prepare("
-                SELECT di.product_id, di.quantity, di.delivered_quantity, di.returned_empty_qty, di.unit_price, p.linked_empty_id 
-                FROM delivery_items di 
-                JOIN products p ON di.product_id = p.id 
-                WHERE di.delivery_id = ?
-            ");
-            $stmtItems->execute([$delivery['id']]);
-            $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
-
-            $stmtRestockFull = $db->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, reference_id, logged_by) VALUES (?, 'in_adjustment', ?, ?, ?)"); 
-            $stmtRestockEmpty = $db->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, reference_id, logged_by) VALUES (?, 'in_return_emp', ?, ?, ?)");
-
-            foreach ($items as $item) {
-                $accepted_qty = (int)$item['delivered_quantity'];
-                $returned_empty_qty = (int)$item['returned_empty_qty'];
-                
-                // Restock rejected full bottles
-                $rejected_qty = $item['quantity'] - $accepted_qty;
-                if ($rejected_qty > 0) {
-                    $stmtRestockFull->execute([$item['product_id'], $rejected_qty, $delivery['id'], $delivery['driver_id']]);
-                }
-
-                $new_subtotal += ($accepted_qty * $item['unit_price']);
-
-                // ==========================================
-                // EMPTIES LEDGER MATH (Bulletproof)
-                // ==========================================
-                if ($item['linked_empty_id']) {
-                    $empty_pid = $item['linked_empty_id'];
-                    
-                    // Ensure Ledger Exists
-                    $stmtCheckLedger = $db->prepare("SELECT id FROM client_empties_ledger WHERE client_id = ? AND product_id = ?");
-                    $stmtCheckLedger->execute([$client_id, $empty_pid]);
-                    if (!$stmtCheckLedger->fetch()) {
-                        $db->prepare("INSERT INTO client_empties_ledger (client_id, product_id, total_out, total_in, quantity_owed) VALUES (?, ?, 0, 0, 0)")->execute([$client_id, $empty_pid]);
-                    }
-
-                    // Debt Generated (Client kept Full Bottles)
-                    if ($accepted_qty > 0) {
-                        $db->prepare("UPDATE client_empties_ledger SET total_out = total_out + ?, quantity_owed = quantity_owed + ? WHERE client_id = ? AND product_id = ?")
-                           ->execute([$accepted_qty, $accepted_qty, $client_id, $empty_pid]);
-                    }
-
-                    // Empties Returned by Driver
-                    if ($returned_empty_qty > 0) {
-                        $db->prepare("UPDATE client_empties_ledger SET total_in = total_in + ?, quantity_owed = GREATEST(0, quantity_owed - ?) WHERE client_id = ? AND product_id = ?")
-                           ->execute([$returned_empty_qty, $returned_empty_qty, $client_id, $empty_pid]);
-                        
-                        $stmtRestockEmpty->execute([$empty_pid, $returned_empty_qty, $delivery['id'], $delivery['driver_id']]);
-                    }
-                }
-            }
-
-            // 4. Update Sales Order Invoice
-            $stmtSO = $db->prepare("SELECT discount_amount FROM sales_orders WHERE id = ?");
-            $stmtSO->execute([$so_id]);
-            $so = $stmtSO->fetch(PDO::FETCH_ASSOC);
-
-            $new_total_amount = max(0, $new_subtotal - $so['discount_amount']);
-            $payment_collected = (float)$delivery['payment_collected'];
-            
-            $payment_status = 'unpaid';
-            if ($payment_collected >= $new_total_amount && $new_total_amount > 0) $payment_status = 'paid';
-            elseif ($payment_collected > 0) $payment_status = 'partial';
-            if ($new_total_amount == 0) $payment_status = 'paid'; 
-
-            $stmtUpdateSO = $db->prepare("UPDATE sales_orders SET subtotal = ?, total_amount = ?, status = 'delivered', payment_status = ? WHERE id = ?");
-            $stmtUpdateSO->execute([$new_subtotal, $new_total_amount, $payment_status, $so_id]);
-
-            $db->commit();
-            SignerOtp::consume($token);   // one-shot: clear the verified session flag
-            echo json_encode(['status' => 'success', 'message' => 'BL Signé et Clôturé avec succès.']);
             exit;
         }
 

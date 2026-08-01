@@ -151,6 +151,16 @@ INSERT INTO permissions (name, module, description) VALUES
 ('accounting.fixed_assets.dispose',      'accounting', 'Céder une immobilisation'),
 ('accounting.reports.view',              'accounting', 'Voir bilan / compte de résultat'),
 ('accounting.reports.close_year',        'accounting', 'Clôturer l''exercice'),
+-- Expenses module (migration 053_expenses_module.sql). Kept here so a fresh
+-- install has the same permissions the upgrade migration adds; 053 also seeds
+-- them via ON DUPLICATE KEY UPDATE so re-runs are safe on either path.
+('accounting.expenses.view',                'accounting', 'Voir les dépenses'),
+('accounting.expenses.create',              'accounting', 'Enregistrer une dépense'),
+('accounting.expenses.edit',                'accounting', 'Modifier une dépense'),
+('accounting.expenses.delete',              'accounting', 'Supprimer une dépense'),
+('accounting.expenses.mark_paid',           'accounting', 'Marquer une dépense payée (poste au GL)'),
+('accounting.expenses.categories.manage',   'accounting', 'Gérer les catégories & mapping OHADA'),
+('accounting.expenses.recurring.manage',    'accounting', 'Gérer les dépenses récurrentes'),
 
 -- HR / Payroll
 ('hr.payroll.view',              'hr', 'Voir la paie'),
@@ -243,6 +253,10 @@ WHERE p.name IN (
   'accounting.cashflow.open_balance',
   'accounting.budgets.view','accounting.budgets.create',
   'accounting.budgets.transfer','accounting.budgets.approve',
+  'accounting.expenses.view','accounting.expenses.create',
+  'accounting.expenses.edit','accounting.expenses.delete',
+  'accounting.expenses.mark_paid',
+  'accounting.expenses.categories.manage','accounting.expenses.recurring.manage',
   'accounting.fixed_assets.view','accounting.fixed_assets.capitalize',
   'accounting.fixed_assets.depreciate','accounting.fixed_assets.dispose',
   'accounting.reports.view','accounting.reports.close_year',
@@ -267,6 +281,7 @@ WHERE p.name IN (
   'inventory.stock.damage','inventory.stock.audit',
   'inventory.procurement.view','inventory.procurement.create_po',
   'inventory.procurement.overhead',
+  'accounting.expenses.view','accounting.expenses.create',
   'inventory.fiche.view',
   'operations.empties.view','operations.empties.create_cre',
   'fleet.vehicles.view','fleet.vehicles.assign','fleet.vehicles.maintenance',

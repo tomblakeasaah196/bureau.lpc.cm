@@ -56,3 +56,22 @@ if (!$doc) {
 header('Content-Type: text/html; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 echo lpc_render_document_html('payslip', $doc);
+
+// -----------------------------------------------------------------------------
+// Universal internal signature.
+//
+// This page has no nav bar — the default response is a streamed PDF, and the
+// ?html=1 view is the raw document body. So the affordance is appended after
+// the document rather than placed in chrome that does not exist. It is fixed
+// to the top-right and carries .no-print, so it never appears in a printed or
+// PDF-exported payslip.
+//
+// Reaching it: open /public/documents/payslip.php?token=…&html=1 while logged
+// in with signatures.payslip.internal.sign. Renders nothing otherwise — an
+// employee opening their own payslip link sees exactly what they saw before.
+// See docs/SIGNATURES.md.
+// -----------------------------------------------------------------------------
+$sign_btn_type  = 'payslip';
+$sign_btn_token = $token;
+$sign_btn_class = 'fixed top-5 right-5 z-50 shadow-2xl';
+require __DIR__ . '/../../includes/components/signature_sign_button.php';

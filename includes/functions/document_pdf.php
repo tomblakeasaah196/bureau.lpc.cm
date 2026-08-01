@@ -238,11 +238,34 @@ function lpc_load_document(PDO $db, string $type, string $token): ?array
             return lpc_normalize_quote($r, $lines);
 
         case 'cre':
-            $stmt = $db->prepare("SELECT * FROM cre_documents WHERE token = ? LIMIT 1");
+            // Sprint 11: the CRE loader used to fetch the bare cre_documents
+            // row, leaving lpc_normalize_cre() with no client name and no
+            // items. That was survivable while the CRE PDF printed its own
+            // figures from `raw`, but DocumentSignature::canonicalPayload_cre()
+            // hashes client + items — with both empty, every CRE signature
+            // would have hashed the same near-empty payload and attested to
+            // nothing. Client and lines are now joined in.
+            $stmt = $db->prepare("
+                SELECT d.*, c.name AS client_name, c.address AS client_address,
+                       c.niu AS client_niu, c.phone AS client_phone,
+                       s.name AS site_name
+                  FROM cre_documents d
+                  JOIN clients c ON c.id = d.client_id
+                  LEFT JOIN client_sites s ON s.id = d.site_id
+                 WHERE d.token = ? LIMIT 1
+            ");
             $stmt->execute([$token]);
             $r = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$r) return null;
-            return lpc_normalize_cre($r);
+            $creItems = $db->prepare("
+                SELECT ci.quantity, p.name AS product_name, p.bottle_size, p.has_cork
+                  FROM cre_items ci
+                  JOIN products p ON p.id = ci.product_id
+                 WHERE ci.cre_document_id = ? AND ci.quantity > 0
+                 ORDER BY ci.id ASC
+            ");
+            $creItems->execute([$r['id']]);
+            return lpc_normalize_cre($r, $creItems->fetchAll(PDO::FETCH_ASSOC));
 
         case 'audit':
             $stmt = $db->prepare("
@@ -405,6 +428,14 @@ function lpc_normalize_delivery(array $r, array $lines): array {
     return ['record_id'=>(int)$r['id'], 'reference'=>$r['reference'], 'date'=>$r['date'],
             'client'=>['name'=>$r['client_name'] ?? '', 'address'=>$r['client_address'] ?? '', 'niu'=>$r['client_niu'] ?? '', 'phone'=>$r['client_phone'] ?? ''],
             'items'=>$items, 'totals'=>['subtotal'=>$sub,'discount'=>0,'tax'=>0,'grand_total'=>$sub,'words'=>lpc_amount_in_words($sub)],
+            // Sprint 11: payment_collected and client_observation are on the
+            // deliveries row (the loader selects d.*) but used to be dropped
+            // here. DocumentSignature::canonicalPayload_bl() hashes both —
+            // the cash handed to the driver and any reserves the customer
+            // noted are precisely what a delivery dispute turns on, so they
+            // have to be inside the signed payload, not alongside it.
+            'payment_collected'=>(float)($r['payment_collected'] ?? 0),
+            'observations'=>(string)($r['client_observation'] ?? ''),
             'notes'=>$r['rejection_reason'] ?? '', 'source_updated_at'=>$r['updated_at'] ?? $r['signed_at'] ?? $r['date'],
             'signature_image'=>$r['signature_image'] ?? null, 'driver_signature_image'=>$r['driver_signature_image'] ?? null,
             'signatory_name'=>$r['signatory_name'] ?? '', 'signed_at'=>$r['signed_at'] ?? ''];
@@ -514,11 +545,30 @@ function lpc_normalize_quote(array $r, array $lines): array {
         'source_updated_at' => $r['updated_at'] ?? $r['created_at'] ?? null,
     ];
 }
-function lpc_normalize_cre(array $r): array {
+/**
+ * A CRE has no money on it — it certifies that N empty containers came back,
+ * nothing more. So totals stay zeroed while items and client are real: those
+ * two are what DocumentSignature::canonicalPayload_cre() hashes, and what a
+ * dispute would actually turn on.
+ */
+function lpc_normalize_cre(array $r, array $lines = []): array {
+    $items = [];
+    foreach ($lines as $l) {
+        $items[] = [
+            'name'   => $l['product_name'] ?? '',
+            'format' => trim((string)($l['bottle_size'] ?? '')
+                      . (isset($l['has_cork']) ? ($l['has_cork'] ? ' avec bouchon' : ' sans bouchon') : '')),
+            'qty'        => (float)($l['quantity'] ?? 0),
+            'unit_price' => 0.0,
+            'total'      => 0.0,
+        ];
+    }
     return ['record_id'=>(int)$r['id'], 'reference'=>$r['reference'] ?? ('CRE-'.$r['id']),
             'date'=>$r['date'] ?? $r['created_at'],
-            'client'=>['name'=>'', 'address'=>'', 'niu'=>'', 'phone'=>''],
-            'items'=>[], 'totals'=>['subtotal'=>0,'discount'=>0,'tax'=>0,'grand_total'=>0,'words'=>''],
+            'client'=>['name'=>$r['client_name'] ?? '', 'address'=>$r['client_address'] ?? '',
+                       'niu'=>$r['client_niu'] ?? '', 'phone'=>$r['client_phone'] ?? ''],
+            'site_name'=>$r['site_name'] ?? '',
+            'items'=>$items, 'totals'=>['subtotal'=>0,'discount'=>0,'tax'=>0,'grand_total'=>0,'words'=>''],
             'notes'=>$r['notes'] ?? '', 'source_updated_at'=>$r['updated_at'] ?? $r['created_at'] ?? null,
             'raw'=>$r];
 }
@@ -710,6 +760,27 @@ function lpc_render_document_html(string $type, array $doc): string
             <div class="box"><?= nl2br(htmlspecialchars($doc['notes'], ENT_QUOTES, 'UTF-8')) ?></div>
         <?php endif; ?>
     <?php endif; ?>
+
+    <?php
+    // Universal signature block — the same partial every document uses.
+    // Map the internal renderer's type slug to the DocumentSignature slug.
+    // Anything not in this map (currently 'audit') has no signature area.
+    $sig_type_map = [
+        'invoice'  => 'facture',
+        'delivery' => 'bl',
+        'po'       => 'bon_commande',
+        'quote'    => 'quote',
+        'cre'      => 'cre',
+        'payslip'  => 'payslip',
+    ];
+    if (isset($sig_type_map[$type]) && !empty($doc['record_id'])) {
+        $sig_type    = $sig_type_map[$type];
+        $sig_doc_id  = (int) $doc['record_id'];
+        $sig_doc     = $doc;
+        $sig_context = 'pdf';
+        require __DIR__ . '/../components/signature_block.php';
+    }
+    ?>
 
     <?php if (!empty($lh['footer'])): ?>
         <div class="doc-footer"><?= htmlspecialchars($lh['footer'], ENT_QUOTES, 'UTF-8') ?></div>
@@ -1061,6 +1132,21 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
 </table>
 </div>
 
+<!-- ── Universal signature block (internal + external) ─────────────────────── -->
+<div class="lpc-pad" style="margin-top: 6mm;">
+<?php
+// The "Certifié Conforme" stamp above records WHO CREATED the invoice at
+// issuance time — it's not a signature. This block below is the real
+// signature area, shared with every other document type via
+// includes/components/signature_block.php.
+$sig_type    = 'facture';
+$sig_doc_id  = (int) ($doc['record_id'] ?? 0);
+$sig_doc     = $doc;
+$sig_context = 'pdf';
+require __DIR__ . '/../components/signature_block.php';
+?>
+</div>
+
 <?= lpc_document_footer() ?>
 
 </body></html>
@@ -1205,16 +1291,9 @@ function lpc_render_quote_pdf_html(array $doc, array $lh, string $lhLogo, string
     $fdate = static function ($v) {
         return $v ? date('d/m/Y', strtotime((string) $v)) : '—';
     };
-    $fdatetime = static function ($v) {
-        // Built as two date() calls joined by a literal ' à ' rather than one
-        // format string with the accent escaped in-line: date()'s backslash
-        // escape only covers a single byte, and 'à' is two bytes in UTF-8 —
-        // it happens to round-trip correctly either way, but not worth
-        // relying on that.
-        if (!$v) return '—';
-        $ts = strtotime((string) $v);
-        return $ts ? date('d/m/Y', $ts) . ' à ' . date('H\hi', $ts) : '—';
-    };
+    // ($fdatetime lived here until Sprint 11. Its only consumer was the
+    //  inline signature stamp, which moved to
+    //  includes/components/signature_block.php and formats its own dates.)
 
     $consigne = $doc['consigne'] ?? [];
     $annexes  = $doc['annexes'] ?? [];
@@ -1230,26 +1309,20 @@ function lpc_render_quote_pdf_html(array $doc, array $lh, string $lhLogo, string
     // no longer matches these exact figures) — DocumentSignature::getActive()
     // makes those three cases indistinguishable on purpose: a document whose
     // figures changed after signing must render exactly as unsigned, not as
-    // "signed" with stale numbers. Wrapped defensively even though the class
-    // already catches its own DB errors — this render must never fail because
-    // an optional attestation lookup did.
-    $signature = null;
-    try {
-        $signature = DocumentSignature::getActive('quote', (int) ($doc['record_id'] ?? 0), $doc);
-    } catch (\Throwable $sigErr) {
-        // NOT `$e` — that name is already the HTML-escaping closure defined
-        // above, and PHP catch variables are not block-scoped: assigning to
-        // $e here would silently replace the closure with this exception
-        // object for the rest of the function, and every $e(...) call below
-        // would fatal. Caught this in review; leaving the note so it isn't
-        // reintroduced by a future edit.
-        error_log('lpc_render_quote_pdf_html: signature lookup failed: ' . $sigErr->getMessage());
-    }
-    $verify_url = '';
-    if ($signature) {
-        $verify_base = defined('APP_URL') ? APP_URL : 'https://bureau.lpc.cm';
-        $verify_url  = rtrim($verify_base, '/') . '/verify/' . $signature['verify_token'];
-    }
+    // "signed" with stale numbers.
+    //
+    // Sprint 11: the lookup, the stamp markup and the QR all moved into
+    // includes/components/signature_block.php — the shared partial every
+    // document type now uses. This function no longer resolves a signature
+    // itself; see the SIGNATURES section near the bottom of the template.
+    // The partial catches its own DB errors, so a failed attestation lookup
+    // still cannot break this render.
+    //
+    // Historical note worth keeping: do NOT name a catch variable `$e`
+    // anywhere in this function. `$e` is the HTML-escaping closure defined
+    // above and PHP catch variables are not block-scoped, so `catch (
+    // Throwable $e)` would silently replace the closure for the rest of the
+    // function and every $e(...) call below would fatal.
 
     // ---- the one variable-height block, clamped ----------------------------
     // 9 = the pessimistic row count from the height budget in the docblock. The
@@ -1590,64 +1663,25 @@ if ($annexes)  $carried[] = lpc_proposal_text('sec_annex_title', 'fr');
 
 <!-- ══ SIGNATURES ══════════════════════════════════════════════════════════ -->
 <?php
-// Signed: DocumentSignature::getActive() found a row whose stored hash still
-// matches these exact figures — a stamp, the signer's real name and role
-// (resolved server-side at signing time, never from request input), a hash
-// fragment, and a QR to /verify/{token}. Unsigned (never signed, revoked, or
-// signed-then-edited — see the function docblock for why those three collapse
-// to the same appearance): the original blank rule, for a wet-ink signature.
+// The devis used to render its own bespoke stamp+QR block here (Sprint 10);
+// that block is now the shared includes/components/signature_block.php —
+// the same partial every document uses. Setting $sig_* variables and
+// require'ing the file emits the internal + external signature area in the
+// house style. If either party has not signed, the partial renders a blank
+// rule with a "Nom / fonction / cachet" hint — same as before.
+$sig_type    = 'quote';
+$sig_doc_id  = (int) ($doc['record_id'] ?? 0);
+$sig_doc     = $doc;
+$sig_context = 'pdf';
+// The devis keeps its Proposal-Studio-editable column headings — an admin
+// who rewords "Bon pour Accord (Le Client) :" in the Studio still controls
+// what prints here, exactly as before this block was shared.
+$sig_labels  = [
+    'internal' => lpc_proposal_text('sig_lpc', 'fr'),
+    'external' => lpc_proposal_text('sig_client', 'fr'),
+];
+require __DIR__ . '/../components/signature_block.php';
 ?>
-<table style="margin-top: 5mm;">
-    <tr>
-        <td style="width: 46%; padding-right: 5mm;">
-            <?php if ($signature): ?>
-                <table>
-                    <tr>
-                        <td style="width: 23mm;">
-                            <div class="stampring">
-                                <div class="stampcheck">&#10003;</div>
-                                <div class="stampcaption">Signé<br>Vérifié</div>
-                            </div>
-                        </td>
-                        <td style="padding-left: 2.5mm;">
-                            <div class="caps xtiny muted">Signé électroniquement pour <?= $e($lh['name']) ?></div>
-                            <div class="b" style="font-size: 10pt; color: #111827; margin-top: 0.8mm;">
-                                <?= $e($signature['signer_name']) ?>
-                            </div>
-                            <div class="tiny muted"><?= $e($signature['signer_role']) ?></div>
-                            <div class="xtiny muted" style="margin-top: 1.2mm;">Le <?= $e($fdatetime($signature['signed_at'])) ?></div>
-                            <div class="xtiny" style="opacity: 0.7; margin-top: 0.6mm; letter-spacing: 0.2pt;">
-                                Hash <?= $e(substr($signature['content_hash'], 0, 16)) ?>&hellip;
-                            </div>
-                        </td>
-                    </tr>
-                </table>
-            <?php else: ?>
-                <div class="caps xtiny muted"><?= $p('sig_lpc') ?></div>
-                <div class="b tiny" style="margin-top: 0.8mm;"><?= $p('sig_role_lpc') ?></div>
-                <div style="margin-top: 11mm; border-top: 0.5pt solid #9CA3AF; padding-top: 1.2mm;">
-                    <div class="caps xtiny muted"><?= $p('sig_prep') ?></div>
-                    <div class="b tiny" style="color: <?= $brand ?>;"><?= $e($doc['sales_rep'] ?: '—') ?></div>
-                </div>
-            <?php endif; ?>
-        </td>
-        <td style="width: 19%; text-align: center;">
-            <?php if ($signature && $verify_url !== ''): ?>
-                <div style="width: 20mm; height: 20mm; margin: 0 auto;">
-                    <?= lpc_qr_or_fallback($verify_url, 'width:20mm;height:20mm;overflow:hidden;') ?>
-                </div>
-                <div class="xtiny muted" style="margin-top: 1mm;">Scannez pour vérifier</div>
-            <?php endif; ?>
-        </td>
-        <td style="width: 35%;">
-            <div class="caps xtiny muted"><?= $p('sig_client') ?></div>
-            <div style="margin-top: 13mm; border-top: 0.5pt solid #9CA3AF; padding-top: 1.2mm;">
-                <div class="b tiny"><?= $e($client['name']) ?></div>
-                <div class="xtiny muted"><?= $p('sig_date_client') ?></div>
-            </div>
-        </td>
-    </tr>
-</table>
 </div>
 
 <?php

@@ -207,8 +207,15 @@
             tbody.innerHTML = LPC.html`<tr><td colspan="${cols}" class="text-center opacity-60 py-8">${msg}</td></tr>`;
         }
 
-        function renderRows(rows) {
-            if (!rows || !rows.length) { renderEmpty(emptyMsg); return; }
+        function renderRows(rows, rawResponse) {
+            if (!rows || !rows.length) {
+                renderEmpty(emptyMsg);
+                // Still fire onRender with the empty list + raw response so
+                // callers can update ancillary UI (KPI cards, dropdowns)
+                // even when the current page is empty.
+                if (onRender) { try { onRender(rows || [], state, rawResponse); } catch (e) { console.error(e); } }
+                return;
+            }
             let html = '';
             for (let i = 0; i < rows.length; i++) {
                 try { html += renderRow(rows[i], i); }
@@ -216,7 +223,7 @@
             }
             tbody.innerHTML = html;
             if (window.LPC && LPC.applyGates) LPC.applyGates(tbody);
-            if (onRender) { try { onRender(rows, state); } catch (e) { console.error(e); } }
+            if (onRender) { try { onRender(rows, state, rawResponse); } catch (e) { console.error(e); } }
         }
 
         function renderFooter() {
@@ -266,7 +273,7 @@
                 state.total_pages = Math.max(1, Number(env.total_pages || Math.ceil(state.total / state.per_page)) || 1);
                 if (state.page > state.total_pages) state.page = state.total_pages;
 
-                renderRows(rows);
+                renderRows(rows, j);
                 renderFooter();
                 persistHash();
             } catch (e) {

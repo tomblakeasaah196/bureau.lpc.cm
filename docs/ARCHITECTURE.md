@@ -14,3 +14,14 @@ added as the revamp progresses:
 - Deployment topology (once we migrate off shared cPanel)
 
 For now: read `README.md`, then read `AUDIT_REPORT.md` for historical context.
+
+## Cross-cutting subsystems
+
+Universal specs that any new module has to conform to — treat them as
+architectural invariants, not optional guidelines:
+
+- **Signatures** — `docs/SIGNATURES.md`. Every document type that needs a
+  signature (customer-facing or internal LPC-staff attestation) uses one
+  table, one class, one controller, one render partial, one verify page.
+  See the "adding a new document type" checklist in that spec before
+  designing any new signable document.

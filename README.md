@@ -1041,6 +1041,39 @@ Copy of the "must-follow" list from the audit. These are trip-wires; violating o
 
 ---
 
+## 6b. Signatures — universal system
+
+**Every document that requires a signature MUST use the system described in
+`docs/SIGNATURES.md`.** No exceptions, no per-document signature schemes.
+
+Quick summary — full spec is in the linked file:
+
+- Two parties, never mixed on the same row:
+  - **external** — counterparty on their phone via a token link, draws a
+    signature. Base64 PNG stored inline.
+  - **internal** — LPC staff, authenticated in the ERP, clicks to sign. No
+    image, ever. Identity resolved server-side from `UserProfile`.
+- One table: `document_signatures` (migrations 048 + 050).
+- One class: `DocumentSignature` — with per-doc-type canonical payload
+  functions. Registering a new doc type is a four-step checklist in
+  `docs/SIGNATURES.md`.
+- One endpoint: `/api/v1/signatures_controller.php` — `sign_internal`,
+  `sign_external`, `revoke`, `status`.
+- One render partial: `includes/components/signature_block.php` — used by
+  every HTML page AND every dompdf template. **Do not hand-render a
+  signature stamp anywhere else in the codebase.**
+- One verify page: `/verify.php?token=…` — three sections (auth banner,
+  structured summary, LPC contact block); three states (unknown / revoked
+  / valid).
+
+Historic, kept dormant (do not extend): `SignerOtp` class, the phone-OTP
+gate, legacy per-doc-type signature columns on `deliveries` and
+`cre_documents`.
+
+Full spec → **[docs/SIGNATURES.md](docs/SIGNATURES.md)**.
+
+---
+
 ## 7. How to work in this folder
 
 ### Before you start

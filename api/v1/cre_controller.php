@@ -118,102 +118,43 @@ if ($action === 'sign_cre' || $action === 'reject_cre') {
     $token = $payload['token'] ?? '';
     if (empty($token)) sendResponse('error', 'Token manquant.');
 
+    // -----------------------------------------------------------------------
+    // sign_cre is DEPRECATED here. The unified signature system lives at
+    // /api/v1/signatures_controller.php?action=sign_external — every new
+    // customer-facing sign_cre.php POST hits that instead. This branch is
+    // kept only so any stale link / offline queued request that still POSTs
+    // here gets a helpful pointer rather than a silent failure.
+    //
+    // reject_cre still lives here because it's not a signature action —
+    // it flips business state (status='rejected', notify admin) with no
+    // audit-trail row of its own.
+    // -----------------------------------------------------------------------
+    if ($action === 'sign_cre') {
+        http_response_code(410); // Gone
+        echo json_encode([
+            'status'  => 'error',
+            'code'    => 'endpoint_moved',
+            'message' => "Cette route a été remplacée. Rechargez la page pour utiliser le nouveau flux.",
+            'moved_to' => '/api/v1/signatures_controller.php?action=sign_external&type=cre',
+        ]);
+        exit;
+    }
+
     try {
         $pdo->beginTransaction();
-        
-        $stmt = $pdo->prepare("SELECT id, client_id, site_id, reference, operator_id FROM cre_documents WHERE token = ? AND status = 'en_transit' FOR UPDATE");
+
+        $stmt = $pdo->prepare("SELECT id, reference FROM cre_documents WHERE token = ? AND status = 'en_transit' FOR UPDATE");
         $stmt->execute([$token]);
         $cre = $stmt->fetch(PDO::FETCH_ASSOC);
-        
         if (!$cre) throw new Exception("Document introuvable ou déjà traité.");
 
-        if ($action === 'reject_cre') {
-            $reason = trim($payload['reason']);
-            $pdo->prepare("UPDATE cre_documents SET status = 'rejected', rejection_reason = ? WHERE id = ?")->execute([$reason, $cre['id']]);
-            notifyAdmin($pdo, "CRE Refusé", "Le client a refusé le bon de retour " . $cre['reference'] . ".\nRaison: " . $reason);
-            $pdo->commit();
-            sendResponse('success', 'Document refusé et annulé.');
-        }
-
-        if ($action === 'sign_cre') {
-            $name = trim($payload['signatory_name']);
-            $role = trim($payload['signatory_role']);
-            $phone = trim($payload['signatory_phone']);
-
-            // Sprint 7C · Deliverable 1: reject if the signer OTP was not
-            // verified for this token within the last 30 minutes.
-            require_once __DIR__ . '/../../includes/classes/SignerOtp.php';
-            if (!SignerOtp::isVerified($token)) {
-                if ($pdo->inTransaction()) $pdo->rollBack();
-                http_response_code(403);
-                echo json_encode([
-                    'status'  => 'error',
-                    'code'    => 'otp_required',
-                    'message' => "Vérification de l'identité requise. Reprenez la procédure d'envoi du code.",
-                ]);
-                exit;
-            }
-            // Sprint-2 hardening: signature decoded server-side into a real
-            // PNG under /uploads/signatures/cre/. DB stores the path.
-            require_once __DIR__ . '/../../includes/classes/Uploads.php';
-            try {
-                $sigUp = Uploads::saveBase64DataUrl($payload['signature_image'] ?? '', 'signatures/cre', [
-                    'allowed_mime' => ['image/png'],
-                    'max_bytes'    => 512 * 1024,
-                ]);
-            } catch (Throwable $e) {
-                throw new Exception('Signature refusée : ' . $e->getMessage());
-            }
-            $signature = $sigUp['path'];
-            $ip = $_SERVER['REMOTE_ADDR'];
-            $timestamp = date('Y-m-d H:i:s');
-
-            $hash = hash('sha256', $cre['reference'] . $name . $phone . $ip . $timestamp . $sigUp['sha256']);
-
-            $update = $pdo->prepare("
-                UPDATE cre_documents
-                SET status = 'signed', signatory_name = ?, signatory_role = ?, signatory_phone = ?,
-                    signature_image = ?, ip_address = ?, signed_at = ?, digital_hash = ?
-                WHERE id = ?
-            ");
-            $update->execute([$name, $role, $phone, $signature, $ip, $timestamp, $hash, $cre['id']]);
-
-            $stmtItems = $pdo->prepare("SELECT product_id, quantity FROM cre_items WHERE cre_document_id = ? AND quantity > 0");
-            $stmtItems->execute([$cre['id']]);
-            $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
-
-            $updateLedger = $pdo->prepare("
-                UPDATE client_empties_ledger 
-                SET total_in = total_in + ?, quantity_owed = GREATEST(0, quantity_owed - ?)
-                WHERE client_id = ? AND (site_id = ? OR (? IS NULL AND site_id IS NULL)) AND product_id = ?
-            ");
-            
-            $insertLedger = $pdo->prepare("
-                INSERT IGNORE INTO client_empties_ledger (client_id, site_id, product_id, total_in, quantity_owed) 
-                VALUES (?, ?, ?, ?, 0)
-            ");
-
-            // ALSO: Auto-add the collected empties back to the driver/warehouse stock
-            $stmtMove = $pdo->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, logged_by) VALUES (?, 'in_return_emp', ?, ?)");
-
-            foreach ($items as $item) {
-                $pid = $item['product_id'];
-                if ($pid) {
-                    // Update Ledger
-                    $insertLedger->execute([$cre['client_id'], $cre['site_id'], $pid, 0]);
-                    $updateLedger->execute([$item['quantity'], $item['quantity'], $cre['client_id'], $cre['site_id'], $cre['site_id'], $pid]);
-                    
-                    // Put empties physically back into stock (Driver's hand)
-                    $stmtMove->execute([$pid, $item['quantity'], $cre['operator_id']]);
-                }
-            }
-
-            notifyAdmin($pdo, "CRE Signé & Scellé", "Le bon de retour " . $cre['reference'] . " a été signé par $name ($role).");
-            
-            $pdo->commit();
-            SignerOtp::consume($token);   // one-shot: clear the verified session flag
-            sendResponse('success', 'Document signé et scellé.');
-        }
+        $reason = trim($payload['reason'] ?? '');
+        if ($reason === '') throw new Exception("Motif du refus requis.");
+        $pdo->prepare("UPDATE cre_documents SET status = 'rejected', rejection_reason = ? WHERE id = ?")
+            ->execute([$reason, $cre['id']]);
+        notifyAdmin($pdo, "CRE Refusé", "Le client a refusé le bon de retour " . $cre['reference'] . ".\nRaison: " . $reason);
+        $pdo->commit();
+        sendResponse('success', 'Document refusé et annulé.');
     } catch (Exception $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         sendResponse('error', $e->getMessage());

@@ -186,8 +186,37 @@ $LPC_PERMISSIONS = [
         'admin.settings.edit'        => 'Modifier les paramètres système',
 
         // Sprint 7C · optional gate for a future signer-OTP config screen.
-        // Nobody-by-default; admin's '*' grant still covers it implicitly.
-        'admin.signer_otp.config'    => 'Configurer la vérification par code SMS / e-mail (signature client)',
+        // DORMANT — the phone-OTP flow was retired by migration 050. Kept so
+        // the permission isn't orphaned on installs that already granted it.
+        'admin.signer_otp.config'    => 'Configurer la vérification par code SMS / e-mail (signature client) — obsolète',
+    ],
+
+    // ---------------- Signatures (universal) ------------------------------
+    // One permission per (document type, party) pair. See docs/SIGNATURES.md.
+    //
+    //   internal = an LPC staff member attests to the figures from inside
+    //              the ERP (hash-only, no drawn image).
+    //   external = authority to INVITE the counterparty to sign via a token
+    //              link. The signing endpoint itself is token-gated, not
+    //              permission-gated — the token is the credential.
+    //
+    // Seeded to admin only (migration 050). Grant onward explicitly from
+    // Administration → Rôles & Permissions.
+    'signatures' => [
+        'signatures.quote.internal.sign'        => 'Signer un devis en interne (LPC atteste des chiffres)',
+        'signatures.quote.external.sign'        => 'Inviter le client à signer un devis en externe',
+        'signatures.cre.internal.sign'          => 'Signer un CRE en interne (LPC atteste des quantités)',
+        'signatures.cre.external.sign'          => 'Inviter le client à signer un CRE en externe',
+        'signatures.bl.internal.sign'           => 'Signer un BL en interne (LPC atteste de la livraison)',
+        'signatures.bl.external.sign'           => 'Inviter le client à signer un BL en externe',
+        'signatures.facture.internal.sign'      => 'Signer une facture en interne (LPC atteste du montant)',
+        'signatures.facture.external.sign'      => 'Inviter le client à contresigner une facture',
+        'signatures.bon_commande.internal.sign' => 'Signer un bon de commande en interne',
+        'signatures.bon_commande.external.sign' => 'Inviter le fournisseur à contresigner un bon de commande',
+        'signatures.payslip.internal.sign'      => 'Signer un bulletin de paie en interne (RH atteste)',
+        'signatures.payslip.external.sign'      => 'Inviter le salarié à accuser réception d\'un bulletin',
+        'signatures.contract.internal.sign'     => 'Signer un contrat en interne',
+        'signatures.contract.external.sign'     => 'Inviter le cocontractant à signer un contrat',
     ],
 ];
 

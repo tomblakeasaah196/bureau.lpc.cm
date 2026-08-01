@@ -75,18 +75,7 @@
         async function fetchTabData(tab) {
             try {
                 if (tab === 'stock') {
-                    if (pagers.stock) { pagers.stock.reload(); return; }
-                    pagers.stock = LPC.paginator.attach(document.getElementById('tbody-stock'), {
-                        url: '/api/v1/inventory_controller.php?action=read&tab=stock',
-                        renderRow: renderStockRow,
-                        pageSize: 25,
-                        searchInput: document.getElementById('search-stock'),
-                        dataPath: 'data.table',
-                        envelopePath: 'data.pagination',
-                        colspan: 6,
-                        onRender: recomputeStockKpis,
-                        hashKey: 'stk',
-                    });
+                    attachStockPager();
                     return;
                 }
                 if (tab === 'movements') {
@@ -139,23 +128,108 @@
                 </tr>`;
         }
 
-        // KPIs + damage-modal dropdown recomputed from the current page.
-        // Not perfectly accurate across the full dataset — a follow-up KPI
-        // endpoint would fix that — but the page shows what's in view.
-        function recomputeStockKpis(rows) {
-            const selectDmg = document.getElementById('dmg_product');
-            let totalVal = 0, alerts = 0;
-            const opts = [];
-            (rows || []).forEach(p => {
-                const qty = parseInt(p.current_qty);
-                const min = parseInt(p.min_stock_level);
-                if (qty <= min) alerts++;
-                totalVal += Number(p.total_value || 0);
-                opts.push(LPC.html`<option value="${p.id}">${p.name} (Stock: ${qty})</option>`);
+        // Current KPI filter narrowing the stock table. Cards mutate this
+        // and rebuild the paginator so the WHOLE dataset is filtered, not
+        // just the visible page.
+        let currentStockFilter = 'all';
+
+        function stockUrlFor(filter) {
+            const f = filter && filter !== 'all' ? `&filter=${encodeURIComponent(filter)}` : '';
+            return `/api/v1/inventory_controller.php?action=read&tab=stock${f}`;
+        }
+
+        function attachStockPager() {
+            if (pagers.stock) { pagers.stock.destroy(); pagers.stock = null; }
+            pagers.stock = LPC.paginator.attach(document.getElementById('tbody-stock'), {
+                url: stockUrlFor(currentStockFilter),
+                renderRow: renderStockRow,
+                pageSize: 25,
+                searchInput: document.getElementById('search-stock'),
+                dataPath: 'data.table',
+                envelopePath: 'data.pagination',
+                colspan: 6,
+                onRender: onStockPageRendered,
+                hashKey: 'stk',
+                emptyMsg: emptyMsgFor(currentStockFilter),
             });
-            if (selectDmg) selectDmg.innerHTML = opts.join('');
-            document.getElementById('kpi_stock_value').innerText  = LPC.fmt.fcfa(totalVal);
-            document.getElementById('kpi_stock_alerts').innerText = alerts;
+            paintActiveKpi();
+        }
+
+        function emptyMsgFor(filter) {
+            if (filter === 'rupture') return 'Aucun article en rupture.';
+            if (filter === 'alert')   return 'Aucun article en alerte.';
+            return 'Aucun résultat.';
+        }
+
+        function setStockFilter(filter) {
+            const next = (filter === 'alert' || filter === 'rupture') ? filter : 'all';
+            if (next === currentStockFilter) {
+                // Second click on the active filter clears it — a common
+                // affordance for toggle-style KPI cards.
+                if (next === 'all') return;
+                currentStockFilter = 'all';
+            } else {
+                currentStockFilter = next;
+            }
+            attachStockPager();
+        }
+
+        function paintActiveKpi() {
+            document.querySelectorAll('.kpi-filter-btn').forEach(btn => {
+                btn.classList.toggle('kpi-active', btn.dataset.kpiFilter === currentStockFilter);
+            });
+        }
+
+        // Event delegation so we don't race the DOM: works whether this
+        // deferred script runs before or after the KPI cards get parsed.
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('.kpi-filter-btn');
+            if (!btn) return;
+            e.preventDefault();
+            setStockFilter(btn.dataset.kpiFilter);
+        });
+
+        // Post-render: KPI cards read the accurate full-catalogue totals
+        // out of the response envelope (data.kpis, added server-side); the
+        // damage-modal dropdown still lists the current page since that's
+        // all the operator picks from.
+        function onStockPageRendered(rows, state, raw) {
+            const selectDmg = document.getElementById('dmg_product');
+            if (selectDmg) {
+                selectDmg.innerHTML = (rows || []).map(p =>
+                    LPC.html`<option value="${p.id}">${p.name} (Stock: ${parseInt(p.current_qty)})</option>`
+                ).join('');
+            }
+
+            const kpis = raw && raw.data && raw.data.kpis;
+            if (kpis) {
+                setKpiNumbers(kpis);
+            } else {
+                // Fallback if the server didn't include KPIs (older cache,
+                // partial response): derive from the current page.
+                let totalVal = 0, alerts = 0, rupture = 0;
+                (rows || []).forEach(p => {
+                    const qty = parseInt(p.current_qty);
+                    const min = parseInt(p.min_stock_level);
+                    if (qty <= 0) rupture++;
+                    else if (qty <= min) alerts++;
+                    totalVal += Number(p.total_value || 0);
+                });
+                setKpiNumbers({
+                    total_value: totalVal,
+                    total_skus:  state ? state.total : (rows || []).length,
+                    alert_count: alerts,
+                    rupture_count: rupture,
+                });
+            }
+        }
+
+        function setKpiNumbers(k) {
+            const $ = (id) => document.getElementById(id);
+            if ($('kpi_stock_value'))   $('kpi_stock_value').innerText   = LPC.fmt.fcfa(Number(k.total_value || 0));
+            if ($('kpi_stock_total'))   $('kpi_stock_total').innerText   = LPC.fmt.int(Number(k.total_skus || 0));
+            if ($('kpi_stock_alerts'))  $('kpi_stock_alerts').innerText  = LPC.fmt.int(Number(k.alert_count || 0));
+            if ($('kpi_stock_rupture')) $('kpi_stock_rupture').innerText = LPC.fmt.int(Number(k.rupture_count || 0));
         }
 
         function renderReceptions(pos) {

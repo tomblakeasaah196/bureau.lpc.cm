@@ -41,13 +41,18 @@ require_once __DIR__ . '/../../includes/functions/proposal_template.php';
 
 // Sprint 10: the "Signer" button in the nav below is the internal digital
 // sign-off for the one-page PDF (?pdf=1 — see lpc_render_quote_pdf_html()).
-// Gated on crm.proposals.sign rather than hidden by JS: this page is reached
-// by a bare token with no login required, so the gate has to hold even if a
-// visitor is not authenticated at all — Rbac::hasPermission() returns false
-// for an empty session exactly as it would for a logged-in user without the
-// permission, so this one check covers both.
+//
+// Sprint 11: the button, its modal and its permission gate all moved into
+// includes/components/signature_sign_button.php (required from the nav
+// below), which is the one internal-signature flow for every document type.
+// It gates on signatures.quote.internal.sign, falling back to the legacy
+// crm.proposals.sign so an install that has not yet re-run the permission
+// sync does not lose the button on upgrade. The gate has to hold for
+// anonymous visitors too — this page is reached by a bare token with no
+// login required — and Rbac::hasPermission() returns false for an empty
+// session exactly as it does for a logged-in user without the permission,
+// so one check covers both.
 require_once __DIR__ . '/../../includes/classes/UserProfile.php';
-$lpcCanSign = Rbac::hasPermission('crm.proposals.sign');
 
 /**
  * Echo a template value, HTML-escaped, in French.
@@ -165,12 +170,17 @@ $proposalLogos = lpc_proposal_logos();
                     <i class="fas fa-file-invoice"></i> <span data-i18n="btn_offer"><?= pq('btn_offer') ?></span>
                 </a>
 
-                <?php if ($lpcCanSign): ?>
-                <button onclick="openSignModal()" id="btn-sign"
-                        class="flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg font-bold text-sm hover:bg-amber-100 transition-all">
-                    <i class="fas fa-stamp"></i> <span id="btn-sign-label">Signature</span>
-                </button>
-                <?php endif; ?>
+                <?php
+                // Sprint 11: the devis moved onto the shared internal-signature
+                // component so there is exactly ONE such flow in the codebase
+                // rather than a bespoke devis one plus a generic one. The
+                // component renders its own button, modal, data block and
+                // script, and gates itself on signatures.quote.internal.sign.
+                // See docs/SIGNATURES.md.
+                $sign_btn_type  = 'quote';
+                $sign_btn_token = (string) ($_GET['token'] ?? '');
+                require __DIR__ . '/../../includes/components/signature_sign_button.php';
+                ?>
             </div>
         </div>
     </nav>
@@ -492,19 +502,11 @@ $proposalLogos = lpc_proposal_logos();
         </div>
     </div>
 
-    <?php if ($lpcCanSign): ?>
-    <div id="signModal" class="modal fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm px-4">
-        <div class="modal-content bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-100">
-            <div class="bg-lpc-dark px-6 py-4 flex justify-between items-center text-white">
-                <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-stamp"></i> Signature électronique interne</h3>
-                <button onclick="closeModal('signModal')" class="text-gray-300 hover:text-white transition-colors"><i class="fas fa-times text-xl"></i></button>
-            </div>
-            <div class="p-6 space-y-4" id="sign_modal_body">
-                <p class="text-sm text-gray-500">Chargement…</p>
-            </div>
-        </div>
-    </div>
-    <?php endif; ?>
+    <?php
+    // (The bespoke #signModal that used to live here is now emitted by
+    //  includes/components/signature_sign_button.php, required from the nav
+    //  above — one modal, one JS module, every document type.)
+    ?>
 
     <script type="application/json" id="lpc-proposal-template">
 <?php
@@ -520,15 +522,11 @@ echo json_encode(
 ?>
     </script>
     <script src="<?= lpc_asset('/assets/js/modules/documents-quote.js') ?>" defer></script>
-    <?php if ($lpcCanSign): ?>
-    <script type="application/json" id="lpc-page-data"><?= json_encode([
-        'token'       => (string) ($_GET['token'] ?? ''),
-        'csrf'        => Csrf::token(),
-        'csrfField'   => '_csrf',
-        'signerName'  => UserProfile::displayName(),
-        'signerRole'  => UserProfile::roleLabel(),
-    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?></script>
-    <script src="<?= lpc_asset('/assets/js/modules/documents-quote-sign.js') ?>" defer></script>
-    <?php endif; ?>
+    <?php
+    // (The #lpc-page-data block and documents-quote-sign.js that used to be
+    //  emitted here are now part of signature_sign_button.php, required from
+    //  the nav above. It emits #lpc-sign-data — a distinct id — so it cannot
+    //  collide with any page-data block a host page needs for its own reasons.)
+    ?>
 </body>
 </html>

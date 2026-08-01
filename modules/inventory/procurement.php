@@ -10,7 +10,7 @@ $user_role = $_SESSION['user_role'];
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= htmlspecialchars(__t('ui.x.achats_depenses_lpc_erp')) ?></title>
+    <title>Gestion des Achats — LPC ERP</title>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
@@ -39,22 +39,32 @@ $user_role = $_SESSION['user_role'];
 
 
     <?php
-    $pageTitle    = __t('ui.x.achats_depenses');
-    $pageSubtitle = __t('ui.x.gestion_des_approvisionnements_et_frais');
+    // Page title renamed on 31 July 2026 — see migration 053_expenses_module.sql.
+    // "Frais Généraux (OPEX)" has moved to its own module
+    // (modules/accounting/expenses.php) and this page is now exclusively
+    // about purchase orders. The tab strip is gone with it.
+    $pageTitle    = 'Gestion des Achats';
+    $pageSubtitle = 'Bons de commande fournisseurs et réception de stocks';
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     ?>
 
     <div id="lpc-shell-main">
 
-        <nav class="lpc-tabs" id="procurement-tabs">
-            <button onclick="switchTab('inventory')" class="tab-link py-4 border-b-2 border-lpc-dark text-lpc-dark font-black text-sm uppercase tracking-wider transition-all" id="tab-inventory">
-                <i class="fas fa-boxes mr-2"></i> Commandes Stocks (PO)
-            </button>
-            <button onclick="switchTab('overheads')" class="tab-link py-4 border-b-2 border-transparent text-gray-500 hover:text-gray-700 font-bold text-sm uppercase tracking-wider transition-all" id="tab-overheads">
-                <i class="fas fa-receipt mr-2"></i> Frais Généraux (OPEX)
-            </button>
-        </nav>
+        <?php /* OPEX tab removed — see modules/accounting/expenses.php. The
+                 tab strip was the only reason this <nav> existed on a page
+                 that now has one tab; keeping an inert bar reads as a bug.
+                 A slim helper banner replaces it, pointing users at the new
+                 module the first time they miss the old one. */ ?>
+        <div class="bg-lpc-bg border-b border-gray-200 px-6 py-3 flex items-center justify-between text-xs">
+            <div class="text-gray-600 font-bold">
+                <i class="fas fa-info-circle mr-1 text-lpc-dark"></i>
+                Les frais généraux ont leur propre module.
+            </div>
+            <a href="/modules/accounting/expenses.php" class="text-lpc-dark font-black uppercase tracking-widest hover:underline">
+                Aller à Gestion des Dépenses <i class="fas fa-arrow-right ml-1"></i>
+            </a>
+        </div>
 
         <main role="main" id="main" class="lpc-page lpc-page-col">
             
@@ -234,63 +244,8 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
-    <div id="overheadModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/70 backdrop-blur-sm p-4 transition-opacity">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden flex flex-col">
-            <div class="bg-gray-900 px-8 py-5 flex justify-between items-center text-white shrink-0">
-                <h3 class="font-black text-xl tracking-wide flex items-center"><i class="fas fa-receipt mr-3"></i> <span id="oh-modal-title"><?= htmlspecialchars(__t('ui.x.enregistrer_une_depense')) ?></span></h3>
-                <button type="button" onclick="closeModal('overheadModal')" class="text-white/70 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
-            </div>
-            
-            <div class="p-8 overflow-y-auto">
-                <form id="form-overhead" class="space-y-5">
-                    <input type="hidden" name="id" id="oh_id" value="">
-                    
-                    <div>
-                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.titre_de_la_depense')) ?></label>
-                        <input type="text" name="title" id="oh_title" required placeholder="ex: Réparation Camion LT-123" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-gray-900">
-                    </div>
-                    
-                    <div class="grid grid-cols-2 gap-5">
-                        <div>
-                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.categorie_2')) ?></label>
-                            <select name="category" id="oh_category" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-gray-900">
-                                <option value="Logistique"><?= htmlspecialchars(__t('ui.x.logistique_transport')) ?></option>
-                                <option value="Maintenance"><?= htmlspecialchars(__t('ui.x.maintenance_flotte')) ?></option>
-                                <option value="Loyer"><?= htmlspecialchars(__t('ui.x.loyer_immobilier')) ?></option>
-                                <option value="Salaires"><?= htmlspecialchars(__t('ui.x.salaires_primes')) ?></option>
-                                <option value="Bureau"><?= htmlspecialchars(__t('ui.x.fournitures_bureau')) ?></option>
-                                <option value="Marketing"><?= htmlspecialchars(__t('ui.x.marketing_pub')) ?></option>
-                                <option value="Autre"><?= htmlspecialchars(__t('ui.x.autre_opex')) ?></option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.date_2')) ?></label>
-                            <input type="date" name="date" id="oh_date" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-gray-900">
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-5">
-                        <div>
-                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.montant_fcfa')) ?></label>
-                            <input type="number" name="amount" id="oh_amount" required min="1" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-lg font-black text-lpc-dark outline-none focus:ring-2 focus:ring-gray-900">
-                        </div>
-                        <div>
-                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.statut_2')) ?></label>
-                            <select name="payment_status" id="oh_payment_status" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-gray-900">
-                                <option value="paid"><?= htmlspecialchars(__t('ui.x.paye')) ?></option>
-                                <option value="unpaid"><?= htmlspecialchars(__t('ui.x.en_attente_de_paiement')) ?></option>
-                            </select>
-                        </div>
-                    </div>
-                </form>
-            </div>
-            
-            <div class="bg-gray-50 px-8 py-5 border-t border-gray-200 flex justify-end gap-4 shrink-0">
-                <button type="button" onclick="closeModal('overheadModal')" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
-                <button type="button" onclick="submitOverhead()" class="px-8 py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl font-bold text-sm shadow-md transition-all"><?= htmlspecialchars(__t('ui.x.sauvegarder_depense')) ?></button>
-            </div>
-        </div>
-    </div>
+    <?php /* overheadModal deleted 31 July 2026. Frais Généraux moved to
+             modules/accounting/expenses.php — see migration 053. */ ?>
 
     <div id="deliveryPlacesModal" style="z-index: 9999;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh]">

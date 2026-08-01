@@ -152,6 +152,18 @@ if (($_GET['pdf'] ?? '') === '1') {
                             </div>
                         </div>
                     </div>
+
+                    <?php
+                    // Universal internal signature. Distinct from "Faire Signer"
+                    // above: that invites the CLIENT to sign externally on a
+                    // device; this is LPC attesting to the delivery from inside
+                    // the ERP. Renders nothing unless the viewer holds
+                    // signatures.bl.internal.sign. See docs/SIGNATURES.md.
+                    $sign_btn_type  = 'bl';
+                    $sign_btn_token = (string) ($_GET['token'] ?? '');
+                    $sign_btn_class = 'justify-center';
+                    require __DIR__ . '/../../includes/components/signature_sign_button.php';
+                    ?>
                 </div>
 
             </div>

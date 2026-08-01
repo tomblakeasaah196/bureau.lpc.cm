@@ -111,6 +111,16 @@ if (($_GET['pdf'] ?? '') === '1') {
                     <button onclick="generatePDF()" id="btn-download" class="flex justify-center items-center w-10 h-10 md:w-auto md:h-auto md:px-6 md:py-2 bg-gray-900 text-white rounded-lg font-bold text-sm hover:bg-black transition-all shadow-md" title="Télécharger PDF" aria-label="Télécharger PDF">
                         <i class="fas fa-file-pdf text-red-400 text-lg"></i> <span class="hidden md:inline md:ml-2" data-i18n="btn_pdf">Télécharger PDF</span>
                     </button>
+
+                    <?php
+                    // Universal internal signature — renders nothing unless the
+                    // viewer holds signatures.bon_commande.internal.sign.
+                    // See docs/SIGNATURES.md.
+                    $sign_btn_type  = 'bon_commande';
+                    $sign_btn_token = (string) ($_GET['token'] ?? '');
+                    $sign_btn_class = 'justify-center';
+                    require __DIR__ . '/../../includes/components/signature_sign_button.php';
+                    ?>
                 </div>
             </div>
         </div>

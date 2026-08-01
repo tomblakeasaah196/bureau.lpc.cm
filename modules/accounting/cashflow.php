@@ -174,24 +174,44 @@ $user_role = $_SESSION['user_role'];
                         </form>
                     </div>
 
+                    <?php /* Sortie de Caisse — rewired 31 July 2026.
+                             This card used to POST action=expense to
+                             api/v1/treasury_controller.php, which posted a JE
+                             but wrote nothing into a durable expense table.
+                             It now POSTs to api/v1/expenses_controller.php
+                             (action=quick_entry) so the row lands in
+                             `expenses` alongside every other outflow, shows
+                             up in Gestion des Dépenses, and rolls into
+                             Budgets. A category picker was added — defaults
+                             to "Autre / Divers" for one-tap entry. See
+                             migration 053_expenses_module.sql. */ ?>
                     <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                        <h3 class="font-black text-gray-800 text-sm uppercase tracking-widest mb-6"><i class="fas fa-money-bill-wave text-rose-500 mr-2"></i> <?= htmlspecialchars(__t('ui.x.sortie_de_caisse_depense')) ?></h3>
-                        <p class="text-xs text-gray-500 font-bold mb-4 border-b border-gray-100 pb-4"><?= htmlspecialchars(__t('ui.x.enregistrer_une_depense_directe_non_liee')) ?></p>
-                        
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="font-black text-gray-800 text-sm uppercase tracking-widest"><i class="fas fa-money-bill-wave text-rose-500 mr-2"></i> Sortie de Caisse (Dépense)</h3>
+                            <a href="/modules/accounting/expenses.php" class="text-[10px] font-black text-lpc-dark uppercase tracking-widest hover:underline">Historique complet <i class="fas fa-arrow-right ml-1"></i></a>
+                        </div>
+                        <p class="text-xs text-gray-500 font-bold mb-4 border-b border-gray-100 pb-4">Saisie rapide. Chaque dépense atterrit dans Gestion des Dépenses avec écriture comptable immédiate.</p>
+
                         <form id="form-expense" class="space-y-4">
                             <div>
-                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.compte_a_debiter')) ?></label>
+                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Compte à débiter *</label>
                                 <select id="ex_account" required class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm font-bold outline-none"></select>
                             </div>
                             <div>
-                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.montant_fcfa')) ?></label>
+                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Catégorie</label>
+                                <select id="ex_category" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm font-bold outline-none">
+                                    <option value="">— Autre / Divers —</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Montant (FCFA) *</label>
                                 <input type="number" id="ex_amount" required class="w-full bg-white border border-rose-300 rounded-lg p-3 text-lg font-black text-right text-rose-600 outline-none focus:ring-2 focus:ring-rose-200">
                             </div>
                             <div>
-                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.description')) ?></label>
+                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Description *</label>
                                 <input type="text" id="ex_desc" required placeholder="Ex: Achat fournitures bureau" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm font-medium outline-none">
                             </div>
-                            <button type="button" onclick="submitExpense()" class="w-full bg-gray-900 hover:bg-black text-white font-bold text-sm py-3 rounded-lg shadow-md transition-all mt-2"><?= htmlspecialchars(__t('ui.x.valider_depense')) ?></button>
+                            <button type="button" onclick="submitExpense()" class="w-full bg-gray-900 hover:bg-black text-white font-bold text-sm py-3 rounded-lg shadow-md transition-all mt-2">Valider Dépense</button>
                         </form>
                     </div>
 

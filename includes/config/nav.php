@@ -105,6 +105,10 @@ $CATALOGUE = [
   'acc_journal'    => ['href'=>'/modules/accounting/journal_entry.php',          'icon'=>$I['book'],      'permission'=>'accounting.journal.view',      'label_fr'=>'Écritures',               'label_en'=>'Journal Entries'],
   'acc_ledger'     => ['href'=>'/modules/accounting/ledger.php',                 'icon'=>$I['book'],      'permission'=>'accounting.ledger.view',       'label_fr'=>'Grand Livre',             'label_en'=>'Ledger'],
   'acc_cashflow'   => ['href'=>'/modules/accounting/cashflow.php',               'icon'=>$I['wallet'],    'permission'=>'accounting.cashflow.view',     'label_fr'=>'Trésorerie',              'label_en'=>'Cashflow'],
+  // acc_expenses added 31 July 2026 with migration 053_expenses_module.sql.
+  // The OPEX tab on inv_procure is gone; this is where Frais Généraux + the
+  // Sortie de Caisse quick-entry both land now.
+  'acc_expenses'   => ['href'=>'/modules/accounting/expenses.php',               'icon'=>$I['calculator'],'permission'=>'accounting.expenses.view',     'label_fr'=>'Dépenses',                'label_en'=>'Expenses'],
   'acc_budgets'    => ['href'=>'/modules/accounting/budgets.php',                'icon'=>$I['chart'],     'permission'=>'accounting.budgets.view',      'label_fr'=>'Budgets',                 'label_en'=>'Budgets'],
   'acc_assets'     => ['href'=>'/modules/accounting/fixed_assets.php',           'icon'=>$I['building'],  'permission'=>'accounting.fixed_assets.view', 'label_fr'=>'Immobilisations',         'label_en'=>'Fixed Assets'],
   'acc_reports'    => ['href'=>'/modules/accounting/reports.php',                'icon'=>$I['calculator'],'permission'=>'accounting.reports.view',      'label_fr'=>'Bilan & Résultat',        'label_en'=>'Reports (SYSCOHADA)'],
@@ -168,6 +172,7 @@ $PROFILES = [
     ]],
     ['heading_fr'=>'Comptabilité & Finance', 'heading_en'=>'Accounting & Finance', 'items'=>[
       ['ref'=>'acc_invoices',   'label_fr'=>'Facturation & AR',         'label_en'=>'Invoicing & AR'],
+      ['ref'=>'acc_expenses',   'label_fr'=>'Gestion des Dépenses',     'label_en'=>'Expenses Management'],
       ['ref'=>'acc_journal',    'label_fr'=>'Écritures',                'label_en'=>'Journal Entries'],
       ['ref'=>'acc_ledger',     'label_fr'=>'Grand Livre OHADA',        'label_en'=>'OHADA Ledger'],
       ['ref'=>'acc_cashflow',   'label_fr'=>'Trésorerie & Banque',      'label_en'=>'Treasury & Bank'],
@@ -199,6 +204,7 @@ $PROFILES = [
     ]],
     ['heading_fr'=>'Tiers (AR/AP)', 'heading_en'=>'Receivables & Payables', 'items'=>[
       ['ref'=>'acc_invoices',   'label_fr'=>'Factures Clients (AR)',        'label_en'=>'Customer Invoices (AR)'],
+      ['ref'=>'acc_expenses',   'label_fr'=>'Dépenses & Charges',           'label_en'=>'Expenses & Charges'],
     ]],
     ['heading_fr'=>'Comptabilité Générale', 'heading_en'=>'General Ledger', 'items'=>[
       ['ref'=>'acc_journal',    'label_fr'=>'Saisie des Journaux',          'label_en'=>'Journal Entry'],
@@ -284,7 +290,7 @@ $PROFILES['default'] = [
   ['heading_fr'=>'Flotte','heading_en'=>'Fleet','items'=>[
     ['ref'=>'fleet_vehicles'],['ref'=>'fleet_fuel'],['ref'=>'fleet_break']]],
   ['heading_fr'=>'Comptabilité','heading_en'=>'Accounting','items'=>[
-    ['ref'=>'acc_invoices'],['ref'=>'acc_journal'],['ref'=>'acc_ledger'],['ref'=>'acc_cashflow'],
+    ['ref'=>'acc_invoices'],['ref'=>'acc_expenses'],['ref'=>'acc_journal'],['ref'=>'acc_ledger'],['ref'=>'acc_cashflow'],
     ['ref'=>'acc_budgets'],['ref'=>'acc_assets'],['ref'=>'acc_reports'],['ref'=>'acc_tax']]],
   ['heading_fr'=>'Ressources Humaines','heading_en'=>'Human Resources','items'=>[['ref'=>'hr_payroll']]],
   ['heading_fr'=>'Analyses','heading_en'=>'Analytics','items'=>[['ref'=>'analytics']]],

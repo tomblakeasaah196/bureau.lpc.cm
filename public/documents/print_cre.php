@@ -106,6 +106,14 @@ $labels = [
         .print-btn {
             position: fixed; top: 20px; right: 20px; z-index: 50;
         }
+        /* The internal-signature button sits directly under the download
+           button rather than beside it: this page has no nav bar, and both
+           are position:fixed, so sharing .print-btn would stack them on top
+           of one another. 20px + the download button's ~48px height + an
+           8px gap = 76px. */
+        .sign-btn {
+            position: fixed; top: 76px; right: 20px; z-index: 50;
+        }
         @media print {
             body { background: white; margin: 0; padding: 0; }
             .a4-container { box-shadow: none; margin: 0; padding: 10mm; width: 100%; }
@@ -121,6 +129,18 @@ $labels = [
     <button onclick="downloadPDF()" class="no-print print-btn bg-gray-900 hover:bg-black text-white px-6 py-3 rounded-xl font-black shadow-2xl flex items-center gap-2 transition-all">
         <i class="fas fa-file-pdf text-red-500"></i> Télécharger PDF
     </button>
+
+    <?php
+    // Universal internal signature. The CRE's floating-button layout has no
+    // nav bar, so the affordance sits beside the download button — same
+    // `print-btn` positioning class, nudged clear of it. Renders nothing
+    // unless the viewer holds signatures.cre.internal.sign.
+    // See docs/SIGNATURES.md.
+    $sign_btn_type  = 'cre';
+    $sign_btn_token = (string) ($_GET['token'] ?? '');
+    $sign_btn_class = 'sign-btn shadow-2xl';
+    require __DIR__ . '/../../includes/components/signature_sign_button.php';
+    ?>
 
    <div class="a4-container" id="cre-document">
     <div class="flex justify-between items-start border-b-2 border-gray-800 pb-6 mb-8">

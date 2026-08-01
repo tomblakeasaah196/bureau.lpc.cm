@@ -120,6 +120,15 @@ if (($_GET['pdf'] ?? '') === '1') {
                 <button onclick="generatePDF()" id="btn-download" class="flex items-center gap-2 px-6 py-2 bg-gray-900 hover:bg-black text-white rounded-lg font-bold text-sm shadow-md transition-all">
                     <i class="fas fa-print"></i> <span data-i18n="btn_pdf">Télécharger PDF</span>
                 </button>
+
+                <?php
+                // Universal internal signature — renders nothing unless the
+                // viewer is logged in AND holds signatures.facture.internal.sign.
+                // See docs/SIGNATURES.md.
+                $sign_btn_type  = 'facture';
+                $sign_btn_token = (string) ($_GET['token'] ?? '');
+                require __DIR__ . '/../../includes/components/signature_sign_button.php';
+                ?>
             </div>
         </div>
     </nav>

@@ -61,11 +61,21 @@ function sendResponse($status, $message, $data = null) {
 
 // ------------------------------------------------------------------
 // HELPER: Dynamic Actuals Aggregator (Engagé)
-// Pulls real data from Fleet, Sales, etc., grouped by OHADA account
+// Pulls real data from Fleet, Sales, and the Expenses module (migration
+// 053), grouped by OHADA account.
+//
+// EDITED 31 July 2026 — the Dépenses module (modules/accounting/expenses.php)
+// is now the durable source for every operating charge that isn't
+// carburant/maintenance/goods-received. Before this edit the budget's
+// "Total Engagé" column ignored it entirely, so any budget line for e.g.
+// 6132 (Loyer) or 6231 (Publicité) would show 0 no matter how many
+// expenses were posted. This function now unions the expenses table in,
+// grouped by the OHADA account_number the expense's category is mapped
+// to. Categories with no mapping contribute nothing (their expenses
+// still exist; they just cannot be attributed to a budget line).
 // ------------------------------------------------------------------
 function getActualsByAccountAndMonth($pdo, $year) {
     $actuals = [];
-    // Initialize empty array for all 12 months
     for ($m = 1; $m <= 12; $m++) $actuals[$m] = [];
 
     // 1. Account 605: Carburant (From Fleet)
@@ -78,10 +88,40 @@ function getActualsByAccountAndMonth($pdo, $year) {
     $stmt->execute([$year]);
     while($row = $stmt->fetch()) $actuals[$row['m']]['615'] = (float)$row['total'];
 
-    // 3. Account 701: Ventes (From Invoices - Accrual basis means we count it when invoiced)
+    // 3. Account 701: Ventes (From Invoices - Accrual basis)
     $stmt = $pdo->prepare("SELECT MONTH(date) as m, SUM(subtotal) as total FROM invoices WHERE YEAR(date) = ? GROUP BY MONTH(date)");
     $stmt->execute([$year]);
     while($row = $stmt->fetch()) $actuals[$row['m']]['701'] = (float)$row['total'];
+
+    // 4. Expenses module (migration 053). Guarded by information_schema so
+    //    installs where the module hasn't been rolled out yet see the same
+    //    numbers they did before. Sum overlays additively — if a category
+    //    maps to 605 the fuel_logs total for 605 and any 'Carburant' expense
+    //    for 605 both count, which is correct: they are both charges.
+    $has = (int) $pdo->query("
+        SELECT COUNT(*) FROM information_schema.tables
+         WHERE table_schema = DATABASE() AND table_name = 'expenses'
+    ")->fetchColumn();
+
+    if ($has > 0) {
+        $stmt = $pdo->prepare("
+            SELECT MONTH(e.expense_date) AS m,
+                   oa.account_number      AS acc,
+                   SUM(e.amount)          AS total
+              FROM expenses e
+              JOIN expense_categories ec ON ec.id = e.category_id
+              JOIN chart_of_accounts coa ON coa.id = ec.coa_account_id
+              JOIN ohada_accounts    oa  ON oa.id  = coa.ohada_account_id
+             WHERE YEAR(e.expense_date) = ?
+             GROUP BY MONTH(e.expense_date), oa.account_number
+        ");
+        $stmt->execute([$year]);
+        while ($row = $stmt->fetch()) {
+            $m   = (int) $row['m'];
+            $acc = (string) $row['acc'];
+            $actuals[$m][$acc] = (float)($actuals[$m][$acc] ?? 0) + (float)$row['total'];
+        }
+    }
 
     return $actuals;
 }

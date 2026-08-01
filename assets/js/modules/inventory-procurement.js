@@ -9,7 +9,11 @@
  * -----------------------------------------------------------------------------
  */
         // --- 1. STATE MANAGEMENT ---
-        let currentTab = 'inventory'; // 'inventory' or 'overheads'
+        // OPEX tab was removed on 31 July 2026 — see migration 053_expenses_module.sql
+        // and modules/accounting/expenses.php. currentTab is retained as a
+        // constant because switchTab() still handles KPI ribbon rendering
+        // for the (now single) inventory tab.
+        let currentTab = 'inventory';
         let moduleData = [];
         let metaData = { suppliers: [], products: [], delivery_places: [] };
 
@@ -50,31 +54,15 @@
                     { id: 'kpi_inv_count', label: 'Volume Commandes', icon: 'fa-boxes', color: 'text-blue-600', bg: 'bg-blue-50' }
                 ]
             },
-            overheads: {
-                api: 'overheads',
-                btnText: "Saisir Frais Généraux",
-                columns: [
-                    { key: 'date', label: 'Date', render: v => `<span class="text-xs font-bold text-gray-500">${new Date(v).toLocaleDateString('fr-FR')}</span>` },
-                    { key: 'reference', label: 'Ref', render: v => `<span class="text-xs font-mono text-gray-500">${v}</span>` },
-                    { key: 'title', label: 'Désignation de la Dépense', render: v => `<span class="font-bold text-gray-900">${v}</span>` },
-                    { key: 'category', label: 'Catégorie', render: v => `<span class="px-2 py-1 bg-gray-100 text-gray-700 rounded text-[10px] uppercase font-bold tracking-wider">${v}</span>` },
-                    { key: 'payment_status', label: 'Statut', render: v => v === 'paid' ? '<span class="text-green-500 text-xs font-bold"><i class="fas fa-check-circle mr-1"></i>Payé</span>' : '<span class="text-red-500 text-xs font-bold"><i class="fas fa-exclamation-circle mr-1"></i>Impayé</span>' },
-                    { key: 'amount', label: 'Montant', render: v => `<span class="font-black text-gray-900">${LPC.fmt.int(v)} FCFA</span>` }
-                ],
-                kpis: [
-                    { id: 'kpi_oh_total', label: 'Total OPEX (Période)', icon: 'fa-calculator', color: 'text-gray-900', bg: 'bg-gray-200' },
-                    { id: 'kpi_oh_log', label: 'Dépenses Logistique', icon: 'fa-truck', color: 'text-amber-700', bg: 'bg-amber-50' },
-                    { id: 'kpi_oh_unpaid', label: 'Factures en Attente', icon: 'fa-clock', color: 'text-red-600', bg: 'bg-red-50' },
-                    { id: 'kpi_oh_count', label: 'Nbre de Lignes', icon: 'fa-receipt', color: 'text-blue-600', bg: 'bg-blue-50' }
-                ]
-            }
+            // overheads config removed with the OPEX tab. See
+            // modules/accounting/expenses.php for its replacement.
         };
 
         // --- 2. INITIALIZATION & DATA FETCHING ---
         document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('po_date').valueAsDate = new Date();
-            document.getElementById('oh_date').valueAsDate = new Date();
-            await fetchMetaData(); 
+            // Overhead date field (oh_date) removed with the OPEX tab.
+            await fetchMetaData();
             switchTab('inventory');
         });
 
@@ -252,48 +240,27 @@
             tbody.innerHTML = '';
             let filteredData = [];
 
-            // Filter logic based on which KPI was clicked
-            if (currentTab === 'inventory') {
-                if (kpiId === 'kpi_inv_total' || kpiId === 'kpi_inv_count') {
-                    titleEl.innerText = "Toutes les Commandes (Période)";
-                    filteredData = moduleData; 
-                } else if (kpiId === 'kpi_inv_unpaid') {
-                    titleEl.innerText = "Dettes Fournisseurs (Non Payées)";
-                    filteredData = moduleData.filter(x => x.payment_status !== 'paid');
-                } else if (kpiId === 'kpi_inv_discount') {
-                    titleEl.innerText = "Détails des Achats";
-                    filteredData = moduleData; // Fallback
-                }
-                
-                filteredData.forEach(row => {
-                    tbody.innerHTML += LPC.html`<tr>
-                        <td class="py-3 px-4">${new Date(row.date).toLocaleDateString('fr-FR')}</td>
-                        <td class="py-3 px-4 font-mono text-xs">${row.reference}</td>
-                        <td class="py-3 px-4 font-bold text-gray-800">${row.supplier_name}</td>
-                        <td class="py-3 px-4 text-right font-black text-lpc-dark">${LPC.fmt.int(row.total_amount)} F</td>
-                    </tr>`;
-                });
-            } else {
-                 if (kpiId === 'kpi_oh_unpaid') {
-                     titleEl.innerText = "Factures OPEX Impayées";
-                     filteredData = moduleData.filter(x => x.payment_status !== 'paid');
-                 } else if (kpiId === 'kpi_oh_log') {
-                     titleEl.innerText = "Dépenses Logistiques";
-                     filteredData = moduleData.filter(x => x.category === 'Logistique');
-                 } else {
-                     titleEl.innerText = "Toutes les Dépenses OPEX";
-                     filteredData = moduleData;
-                 }
-                 
-                 filteredData.forEach(row => {
-                    tbody.innerHTML += LPC.html`<tr>
-                        <td class="py-3 px-4">${new Date(row.date).toLocaleDateString('fr-FR')}</td>
-                        <td class="py-3 px-4 font-mono text-xs">${row.reference}</td>
-                        <td class="py-3 px-4 font-bold text-gray-800">${row.title} <span class="ml-2 px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-[9px] uppercase tracking-wider">${row.category}</span></td>
-                        <td class="py-3 px-4 text-right font-black text-lpc-dark">${LPC.fmt.int(row.amount)} F</td>
-                    </tr>`;
-                });
+            // Only the inventory branch remains — the OPEX branch was removed
+            // with its tab on 31 July 2026 (migration 053).
+            if (kpiId === 'kpi_inv_total' || kpiId === 'kpi_inv_count') {
+                titleEl.innerText = "Toutes les Commandes (Période)";
+                filteredData = moduleData;
+            } else if (kpiId === 'kpi_inv_unpaid') {
+                titleEl.innerText = "Dettes Fournisseurs (Non Payées)";
+                filteredData = moduleData.filter(x => x.payment_status !== 'paid');
+            } else if (kpiId === 'kpi_inv_discount') {
+                titleEl.innerText = "Détails des Achats";
+                filteredData = moduleData;
             }
+
+            filteredData.forEach(row => {
+                tbody.innerHTML += LPC.html`<tr>
+                    <td class="py-3 px-4">${new Date(row.date).toLocaleDateString('fr-FR')}</td>
+                    <td class="py-3 px-4 font-mono text-xs">${row.reference}</td>
+                    <td class="py-3 px-4 font-bold text-gray-800">${row.supplier_name}</td>
+                    <td class="py-3 px-4 text-right font-black text-lpc-dark">${LPC.fmt.int(row.total_amount)} F</td>
+                </tr>`;
+            });
             
             if(filteredData.length === 0) {
                 tbody.innerHTML = LPC.html`<tr><td colspan="4" class="py-6 text-center text-gray-500 font-bold italic">Aucune donnée pour ce critère.</td></tr>`;
@@ -434,32 +401,15 @@
         // --- 3. DYNAMIC PURCHASE ORDER & SDP RISTOURNE LOGIC ---
 
         function openActionModal(id = null) {
-            if (currentTab === 'inventory') {
-                document.getElementById('form-po').reset();
-                document.getElementById('po_date').valueAsDate = new Date();
-                document.getElementById('po_id').value = '';
-                document.getElementById('po-lines-container').innerHTML = '';
-                document.getElementById('sdp-rebate-info').classList.add('hidden'); // Hide rebate hint by default
-                addPOLine(); 
-                calculatePOTotals();
-                
-                document.getElementById('poModal').classList.remove('hidden');
-            } else {
-                document.getElementById('form-overhead').reset();
-                document.getElementById('oh_id').value = id || '';
-                document.getElementById('oh-modal-title').innerText = id ? 'Modifier Dépense' : 'Enregistrer une Dépense';
-                document.getElementById('oh_date').valueAsDate = new Date();
-                
-                if (id) {
-                    const oh = moduleData.find(x => x.id == id);
-                    document.getElementById('oh_title').value = oh.title;
-                    document.getElementById('oh_category').value = oh.category;
-                    document.getElementById('oh_amount').value = oh.amount;
-                    document.getElementById('oh_date').value = oh.date;
-                    document.getElementById('oh_payment_status').value = oh.payment_status;
-                }
-                document.getElementById('overheadModal').classList.remove('hidden');
-            }
+            // OPEX branch removed with the tab — see modules/accounting/expenses.php.
+            document.getElementById('form-po').reset();
+            document.getElementById('po_date').valueAsDate = new Date();
+            document.getElementById('po_id').value = '';
+            document.getElementById('po-lines-container').innerHTML = '';
+            document.getElementById('sdp-rebate-info').classList.add('hidden');
+            addPOLine();
+            calculatePOTotals();
+            document.getElementById('poModal').classList.remove('hidden');
         }
 
         function closeModal(modalId) { document.getElementById(modalId).classList.add('hidden'); }
@@ -828,23 +778,9 @@ function openRistourneModal() {
             }
         }
 
-        async function submitOverhead() {
-            const formElement = document.getElementById('form-overhead');
-            if (!formElement.reportValidity()) return;
-
-            const formData = new FormData(formElement);
-            formData.append('action', 'save_overhead');
-
-            try {
-                const response = await fetch('/api/v1/procurement_controller.php', { method: 'POST', body: formData });
-                const result = await response.json();
-                
-                if(result.status === 'success') {
-                    closeModal('overheadModal');
-                    loadTabData();
-                } else LPC.modal.alert("Erreur: " + result.message);
-            } catch (e) { LPC.modal.alert("Erreur système."); }
-        }
+        // submitOverhead() removed 31 July 2026. The Frais Généraux tab is gone
+        // from this page; expense creation lives in modules/accounting/expenses.php
+        // and its API at api/v1/expenses_controller.php.
 
         /**
          * Cancel a purchase order.
@@ -880,19 +816,8 @@ function openRistourneModal() {
             } catch (e) { LPC.modal.alert("Erreur système."); }
         }
 
-        /** Overheads only — they carry no stock and no reversal chain. */
-        async function deleteRecord(id) {
-            if(!(await LPC.modal.confirm("⚠️ ATTENTION : Voulez-vous vraiment supprimer cet enregistrement ? Cette action est irréversible et impactera la comptabilité."))) return;
-
-            const fd = new FormData();
-            fd.append('action', `delete_${currentTab}`);
-            fd.append('id', id);
-
-            try {
-                const response = await fetch('/api/v1/procurement_controller.php', { method: 'POST', body: fd });
-                const result = await response.json();
-                if(result.status === 'success') loadTabData();
-                else LPC.modal.alert("Erreur: " + result.message);
-            } catch (e) { LPC.modal.alert("Erreur système."); }
-        }
+        // deleteRecord() was only called from the OPEX tab's row actions —
+        // removed with the tab. Purchase orders are cancelled through
+        // cancelPurchaseOrder() (soft-reversal), never deleted, so nothing on
+        // this page needs a generic delete helper anymore.
     

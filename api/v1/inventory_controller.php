@@ -71,6 +71,15 @@ try {
             $lpc_q = trim((string) ($_GET['q'] ?? ''));
 
             if ($tab === 'stock' || $tab === 'audit') {
+                // The `current_qty` subquery is reused in a few places below
+                // (SELECT list, KPI aggregation, filter WHERE). Kept as a
+                // local so all four callsites stay in lockstep.
+                $currentQtyExpr = "COALESCE((
+                    SELECT SUM(CASE WHEN movement_type LIKE 'in_%' THEN quantity ELSE -quantity END)
+                    FROM inventory_movements
+                    WHERE product_id = p.id
+                ), 0)";
+
                 // Body without SELECT — Paginator builds the SELECT + COUNT.
                 $body = "
                     FROM products p
@@ -82,18 +91,36 @@ try {
                         ['p.name', 'p.category', 'p.format']
                     );
                 }
+
+                // KPI-driven filter: the four KPI cards on the stock tab set
+                // ?filter=alert|rupture|all. Whitelisted here so the string
+                // never lands raw in SQL.
+                $stockFilter = null;
+                if ($tab === 'stock') {
+                    $req = (string) ($_GET['filter'] ?? 'all');
+                    if (in_array($req, ['alert', 'rupture'], true)) {
+                        $stockFilter = $req;
+                    }
+                }
+                if ($stockFilter === 'rupture') {
+                    $body .= " " . (preg_match('/\bWHERE\b/i', $body) ? 'AND' : 'WHERE')
+                          . " ($currentQtyExpr) <= 0";
+                } elseif ($stockFilter === 'alert') {
+                    $body .= " " . (preg_match('/\bWHERE\b/i', $body) ? 'AND' : 'WHERE')
+                          . " ($currentQtyExpr) > 0 AND ($currentQtyExpr) <= p.min_stock_level";
+                }
+
                 $body .= " ORDER BY p.category ASC, p.name ASC";
 
                 $select = "
                     p.id, p.category, p.name, p.format, p.cump, p.min_stock_level,
-                    COALESCE((
-                        SELECT SUM(CASE WHEN movement_type LIKE 'in_%' THEN quantity ELSE -quantity END)
-                        FROM inventory_movements
-                        WHERE product_id = p.id
-                    ), 0) as current_qty
+                    $currentQtyExpr as current_qty
                 ";
 
-                $page = Paginator::paginate($db, $body, $bodyParams, $select, null, null, "inventory.read.$tab");
+                // Filter is part of the identity so the cached COUNT for
+                // "all" doesn't get reused when a KPI narrows the list.
+                $identity = "inventory.read.$tab" . ($stockFilter ? ".f=$stockFilter" : '');
+                $page = Paginator::paginate($db, $body, $bodyParams, $select, null, null, $identity);
                 foreach ($page['data'] as &$p) {
                     $p['total_value'] = (int) $p['current_qty'] * (float) $p['cump'];
                 }
@@ -108,6 +135,44 @@ try {
                     'has_prev'    => $page['has_prev'],
                     'has_next'    => $page['has_next'],
                 ];
+
+                // KPI totals across the WHOLE catalogue (never narrowed by
+                // the current filter — the cards need to keep showing the
+                // full counts so the user can switch filters). Search still
+                // narrows because the user has typed intent to scope.
+                if ($tab === 'stock') {
+                    $kpiSql = "
+                        SELECT
+                            COUNT(*) AS total_skus,
+                            SUM(CASE WHEN q.qty <= 0 THEN 1 ELSE 0 END) AS rupture_count,
+                            SUM(CASE WHEN q.qty > 0 AND q.qty <= p.min_stock_level THEN 1 ELSE 0 END) AS alert_count,
+                            SUM(q.qty * p.cump) AS total_value
+                        FROM products p
+                        LEFT JOIN (
+                            SELECT product_id,
+                                   SUM(CASE WHEN movement_type LIKE 'in_%' THEN quantity ELSE -quantity END) AS qty
+                            FROM inventory_movements
+                            GROUP BY product_id
+                        ) q ON q.product_id = p.id
+                    ";
+                    $kpiParams = [];
+                    if ($lpc_q !== '') {
+                        [$kpiSql, $kpiParams] = Paginator::addWhere(
+                            $kpiSql, $kpiParams, $lpc_q,
+                            ['p.name', 'p.category', 'p.format']
+                        );
+                    }
+                    $kpiStmt = $db->prepare($kpiSql);
+                    $kpiStmt->execute($kpiParams);
+                    $k = $kpiStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+                    $responseData['kpis'] = [
+                        'total_skus'    => (int) ($k['total_skus']    ?? 0),
+                        'rupture_count' => (int) ($k['rupture_count'] ?? 0),
+                        'alert_count'   => (int) ($k['alert_count']   ?? 0),
+                        'total_value'   => (float) ($k['total_value'] ?? 0),
+                        'active_filter' => $stockFilter ?: 'all',
+                    ];
+                }
 
             } elseif ($tab === 'dashboard') {
                 // Dashboard needs the full list to compute chart aggregates —

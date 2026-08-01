@@ -59,7 +59,10 @@ $user_role = $_SESSION['user_role'];
         <main role="main" id="main" class="lpc-page lpc-page-col relative">
 
             <div id="content-stock" class="tab-content active flex-col h-full gap-4">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 shrink-0">
+                <!-- KPI row: the last three cards are clickable filters for
+                     the table below (data-kpi-filter). The first card
+                     (Valeur globale) is display-only. -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 shrink-0">
                     <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between">
                         <div>
                             <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.valeur_globale_du_stock')) ?></p>
@@ -67,14 +70,35 @@ $user_role = $_SESSION['user_role'];
                         </div>
                         <div class="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center text-xl"><i class="fas fa-vault"></i></div>
                     </div>
-                    <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between">
+                    <button type="button" data-kpi-filter="all" class="kpi-filter-btn text-left bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between hover:border-gray-400 hover:shadow transition-all focus:outline-none focus:ring-2 focus:ring-lpc-dark">
                         <div>
-                            <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.articles_en_rupture_alerte')) ?></p>
-                            <h3 class="text-2xl font-black text-red-600 mt-1" id="kpi_stock_alerts">0</h3>
+                            <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Références</p>
+                            <h3 class="text-2xl font-black text-gray-900 mt-1" id="kpi_stock_total">0</h3>
                         </div>
-                        <div class="w-12 h-12 bg-red-50 text-red-600 rounded-xl flex items-center justify-center text-xl"><i class="fas fa-exclamation-triangle"></i></div>
-                    </div>
+                        <div class="w-12 h-12 bg-gray-100 text-gray-700 rounded-xl flex items-center justify-center text-xl"><i class="fas fa-boxes-stacked"></i></div>
+                    </button>
+                    <button type="button" data-kpi-filter="alert" class="kpi-filter-btn text-left bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between hover:border-amber-400 hover:shadow transition-all focus:outline-none focus:ring-2 focus:ring-amber-500">
+                        <div>
+                            <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">En Alerte</p>
+                            <h3 class="text-2xl font-black text-amber-600 mt-1" id="kpi_stock_alerts">0</h3>
+                        </div>
+                        <div class="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center text-xl"><i class="fas fa-triangle-exclamation"></i></div>
+                    </button>
+                    <button type="button" data-kpi-filter="rupture" class="kpi-filter-btn text-left bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between hover:border-red-400 hover:shadow transition-all focus:outline-none focus:ring-2 focus:ring-red-500">
+                        <div>
+                            <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">En Rupture</p>
+                            <h3 class="text-2xl font-black text-red-600 mt-1" id="kpi_stock_rupture">0</h3>
+                        </div>
+                        <div class="w-12 h-12 bg-red-50 text-red-600 rounded-xl flex items-center justify-center text-xl"><i class="fas fa-ban"></i></div>
+                    </button>
                 </div>
+                <style>
+                    /* Active-filter card gets a coloured ring so it's obvious
+                       which KPI is currently narrowing the table below. */
+                    .kpi-filter-btn.kpi-active[data-kpi-filter="all"]     { border-color: #111827; box-shadow: 0 0 0 2px rgba(17,24,39,.15); }
+                    .kpi-filter-btn.kpi-active[data-kpi-filter="alert"]   { border-color: #d97706; box-shadow: 0 0 0 2px rgba(217,119,6,.2); }
+                    .kpi-filter-btn.kpi-active[data-kpi-filter="rupture"] { border-color: #dc2626; box-shadow: 0 0 0 2px rgba(220,38,38,.2); }
+                </style>
 
                 <div class="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col flex-1 overflow-hidden mt-2">
                     <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
