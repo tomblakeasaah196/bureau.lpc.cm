@@ -43,7 +43,7 @@ $LPC_PERMISSIONS = [
         'crm.clients.create'      => 'Créer un client (prospect ou actif)',
         'crm.clients.edit'        => 'Modifier un client',
         'crm.clients.convert'     => 'Convertir prospect → client actif',
-        // Sprint 11 · migration 050. Deliberately split into three so an
+        // Sprint 11 · migration 055. Deliberately split into three so an
         // admin can hand out "send to corbeille" without also handing out
         // "empty the corbeille forever" — see ClientTrash.php.
         'crm.clients.delete'      => 'Déplacer un client vers la corbeille (réassigne ses données à un autre client)',
@@ -186,7 +186,7 @@ $LPC_PERMISSIONS = [
         'admin.settings.edit'        => 'Modifier les paramètres système',
 
         // Sprint 7C · optional gate for a future signer-OTP config screen.
-        // DORMANT — the phone-OTP flow was retired by migration 050. Kept so
+        // DORMANT — the phone-OTP flow was retired by migration 055. Kept so
         // the permission isn't orphaned on installs that already granted it.
         'admin.signer_otp.config'    => 'Configurer la vérification par code SMS / e-mail (signature client) — obsolète',
     ],
@@ -200,7 +200,7 @@ $LPC_PERMISSIONS = [
     //              link. The signing endpoint itself is token-gated, not
     //              permission-gated — the token is the credential.
     //
-    // Seeded to admin only (migration 050). Grant onward explicitly from
+    // Seeded to admin only (migration 055). Grant onward explicitly from
     // Administration → Rôles & Permissions.
     'signatures' => [
         'signatures.quote.internal.sign'        => 'Signer un devis en interne (LPC atteste des chiffres)',

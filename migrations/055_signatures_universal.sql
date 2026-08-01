@@ -1,5 +1,5 @@
 -- =============================================================================
--- 050_signatures_universal.sql
+-- 055_signatures_universal.sql
 -- -----------------------------------------------------------------------------
 -- Bureau LPC ERP — universal digital signature system across every document
 -- type. Extends migration 048 (document_signatures) rather than replacing it,

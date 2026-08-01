@@ -1053,7 +1053,7 @@ Quick summary — full spec is in the linked file:
     signature. Base64 PNG stored inline.
   - **internal** — LPC staff, authenticated in the ERP, clicks to sign. No
     image, ever. Identity resolved server-side from `UserProfile`.
-- One table: `document_signatures` (migrations 048 + 050).
+- One table: `document_signatures` (migrations 048 + 055).
 - One class: `DocumentSignature` — with per-doc-type canonical payload
   functions. Registering a new doc type is a four-step checklist in
   `docs/SIGNATURES.md`.

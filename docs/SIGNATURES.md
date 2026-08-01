@@ -7,7 +7,7 @@
 > If a future feature ships a new document type that needs a signature and
 > does not appear in this file, that is a bug in the pull request.
 
-Last consolidated: migration `050_signatures_universal.sql`.
+Last consolidated: migration `055_signatures_universal.sql`.
 
 ---
 
@@ -73,7 +73,7 @@ should have that authority and the "invite to sign" button appears.
 
 ## Storage
 
-One table, `document_signatures`, defined in migrations 048 and 050.
+One table, `document_signatures`, defined in migrations 048 and 055.
 
 Every signature row carries:
 
@@ -266,7 +266,7 @@ Four steps, in this order:
    Keys are load-bearing forever.
 3. **Add the two permissions in a migration.** Rows for
    `signatures.{slug}.internal.sign` and `signatures.{slug}.external.sign`
-   in the `permissions` table, seeded to admin. See migration 050 for the
+   in the `permissions` table, seeded to admin. See migration 055 for the
    idiom.
 4. **Wire the PDF template to the shared render partial.** Set `$sig_type`,
    `$sig_doc_id`, `$sig_doc`, `$sig_context` and `require`
@@ -297,7 +297,7 @@ updating deliveries.status): register a handler in
 ## Related files
 
 - Migration: `migrations/048_document_signature.sql` (original schema),
-  `migrations/050_signatures_universal.sql` (universal extension)
+  `migrations/055_signatures_universal.sql` (universal extension)
 - Class: `includes/classes/DocumentSignature.php`
 - Side effects: `includes/functions/signature_side_effects.php`
 - Render partial: `includes/components/signature_block.php`
