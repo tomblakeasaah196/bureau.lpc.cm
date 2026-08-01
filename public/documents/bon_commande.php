@@ -113,11 +113,21 @@ if (($_GET['pdf'] ?? '') === '1') {
                     </button>
 
                     <?php
-                    // Universal internal signature — renders nothing unless the
-                    // viewer holds signatures.bon_commande.internal.sign.
+                    // Two distinct signature actions. Each component renders
+                    // nothing unless the viewer holds its permission.
                     // See docs/SIGNATURES.md.
+                    $lpcPoToken = (string) ($_GET['token'] ?? '');
+
+                    // Ask the SUPPLIER to confirm the order.
+                    $share_type  = 'bon_commande';
+                    $share_token = $lpcPoToken;
+                    $share_who   = 'le fournisseur';
+                    $share_class = 'justify-center';
+                    require __DIR__ . '/../../includes/components/signature_share_button.php';
+
+                    // LPC attests to its own commitment, from inside the ERP.
                     $sign_btn_type  = 'bon_commande';
-                    $sign_btn_token = (string) ($_GET['token'] ?? '');
+                    $sign_btn_token = $lpcPoToken;
                     $sign_btn_class = 'justify-center';
                     require __DIR__ . '/../../includes/components/signature_sign_button.php';
                     ?>

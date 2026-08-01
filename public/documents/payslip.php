@@ -71,6 +71,15 @@ echo lpc_render_document_html('payslip', $doc);
 // employee opening their own payslip link sees exactly what they saw before.
 // See docs/SIGNATURES.md.
 // -----------------------------------------------------------------------------
+// Ask the SALARIÉ to acknowledge receipt. Sits under the internal button.
+$share_type  = 'payslip';
+$share_token = $token;
+$share_who   = 'le salarié';
+$share_label = 'Faire accuser réception';
+$share_class = 'fixed top-20 right-5 z-50 shadow-2xl';
+require __DIR__ . '/../../includes/components/signature_share_button.php';
+
+// HR attests to the figures, from inside the ERP.
 $sign_btn_type  = 'payslip';
 $sign_btn_token = $token;
 $sign_btn_class = 'fixed top-5 right-5 z-50 shadow-2xl';

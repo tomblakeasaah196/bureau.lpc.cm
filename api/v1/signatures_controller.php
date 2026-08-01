@@ -343,6 +343,76 @@ switch ($action) {
     }
 
     // -------------------------------------------------------------------------
+    // decline — the counterparty says no, without signing. Token-gated like
+    // sign_external, and rate-limited for the same reason.
+    //
+    // Currently quote-only. CRE and BL keep their own reject_cre / reject_bl
+    // actions, which predate this controller and are wired into their pages
+    // already — rerouting them here would be churn for no gain today. If a
+    // third type ever needs declining, unify all three here rather than
+    // adding a fourth bespoke endpoint.
+    // -------------------------------------------------------------------------
+    case 'decline': {
+        if ($method !== 'POST') sig_fail('POST requis.', 405, 'method');
+        Csrf::requireValid();
+
+        $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0');
+        RateLimiter::guard('sig_decline_ip', $ip, 30, 15);
+
+        [$type, $docId, $doc] = sig_resolve();
+        if ($type !== 'quote') {
+            sig_fail('Type non pris en charge pour cette action.', 400, 'unsupported_type');
+        }
+
+        $body   = sig_body();
+        $reason = trim((string) ($body['reason'] ?? ''));
+        if ($reason === '') sig_fail('Motif requis.', 400, 'bad_request');
+
+        try {
+            $db = Database::getInstance()->getConnection();
+        } catch (Throwable $e) {
+            error_log('signatures_controller: DB unavailable at decline: ' . $e->getMessage());
+            sig_fail('Service indisponible.', 503, 'db_down');
+        }
+
+        try {
+            $db->beginTransaction();
+
+            $stmt = $db->prepare("SELECT id, reference, status, client_name FROM proposals WHERE id = ? FOR UPDATE");
+            $stmt->execute([$docId]);
+            $p = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$p) throw new RuntimeException('Devis introuvable.');
+            if ($p['status'] === 'accepted') {
+                throw new RuntimeException('Ce devis a déjà été accepté et signé.');
+            }
+
+            // 'rejected' is a pre-existing value of the proposals.status
+            // enum. The reason rides on notes rather than a new column —
+            // it is commercial feedback for the rep, not structured data.
+            $db->prepare("UPDATE proposals SET status = 'rejected' WHERE id = ?")->execute([$docId]);
+
+            lpc_signature_notify_admin(
+                $db,
+                'Devis à revoir',
+                "Le client ({$p['client_name']}) souhaite discuter du devis {$p['reference']}.\n"
+                . "Message : " . mb_substr($reason, 0, 500)
+            );
+
+            $db->commit();
+        } catch (RuntimeException $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            sig_fail($e->getMessage(), 400, 'decline_refused');
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            error_log('signatures_controller: decline failed: ' . $e->getMessage());
+            sig_fail("La demande n'a pas pu être enregistrée.", 500, 'server');
+        }
+
+        sig_ok(['message' => 'Votre message a été transmis à votre conseiller.']);
+        break;
+    }
+
+    // -------------------------------------------------------------------------
     // revoke — authenticated, gated by the same permission that grants
     // signing. Revoking is by row id, not by (doc, party), because revoking
     // "the current active signature" is ambiguous if multiple have accrued.

@@ -87,6 +87,19 @@ function lpc_qr_svg(string $data, int $size_px = 300, int $margin_px = 0): strin
             //  anywhere in this file — its closing angle sequence ends the
             //  PHP block and produces a syntax error further down.)
             \Endroid\QrCode\Writer\SvgWriter::WRITER_OPTION_EXCLUDE_XML_DECLARATION => true,
+
+            // Emit viewBox ONLY, no width/height attributes.
+            //
+            // The writer otherwise stamps the pixel size on the root element
+            // ($size_px, default 300). An <svg width="300" height="300"> then
+            // renders 300px wide no matter what its container says, which is
+            // how a 15mm verification code ended up sprawling across half a
+            // devis. viewBox alone makes the thing scalable, and
+            // lpc_qr_or_fallback() below sets the real physical size.
+            //
+            // The writer adds viewBox unconditionally (SvgWriter line 52), so
+            // this never leaves the SVG without intrinsic proportions.
+            \Endroid\QrCode\Writer\SvgWriter::WRITER_OPTION_EXCLUDE_SVG_WIDTH_AND_HEIGHT => true,
         ]);
 
         $svg = trim((string) $result->getString());
@@ -127,26 +140,44 @@ function lpc_qr_svg(string $data, int $size_px = 300, int $margin_px = 0): strin
  *   package has never been installed and this fallback is what every
  *   document has actually printed. See docs/SIGNATURES.md.
  *
- * @param string $extra_style     inline CSS appended to the fallback box only;
- *                                 size the returned <svg> via its wrapping element.
+ * @param string $size            physical size of the square, as a CSS length.
+ *                                Applied to BOTH the QR and the fallback, so
+ *                                the block occupies identical space either way.
+ *                                Use absolute units (mm/pt) — dompdf resolves
+ *                                percentages against the page, not the cell.
  * @param string $fallback_label  short text for the fallback box. Defaults to
  *                                 $data, which is usually too long to fit.
  */
-function lpc_qr_or_fallback(string $data, string $extra_style = '', string $fallback_label = ''): string
+function lpc_qr_or_fallback(string $data, string $size = '15mm', string $fallback_label = ''): string
 {
-    $svg = lpc_qr_svg($data);
+    $size = trim($size) !== '' ? $size : '15mm';
+    $svg  = lpc_qr_svg($data);
+
     if ($svg !== '') {
-        return $svg;
+        // lpc_qr_svg() deliberately returns a viewBox-only SVG with no
+        // intrinsic width/height, so stamp the physical size on the root
+        // element here. Physical units + viewBox is the one combination that
+        // renders at the intended size in a browser AND in dompdf.
+        //
+        // shape-rendering="crispEdges" stops the renderer antialiasing module
+        // edges into grey mush at 15mm, which is what makes a small printed
+        // code fail to scan.
+        $attrs = ' width="' . htmlspecialchars($size, ENT_QUOTES, 'UTF-8') . '"'
+               . ' height="' . htmlspecialchars($size, ENT_QUOTES, 'UTF-8') . '"'
+               . ' shape-rendering="crispEdges"';
+        return preg_replace('/<svg\b/i', '<svg' . $attrs, $svg, 1) ?? $svg;
     }
 
     $label = trim($fallback_label) !== '' ? $fallback_label : $data;
     $e     = htmlspecialchars($label, ENT_QUOTES, 'UTF-8');
+    $s     = htmlspecialchars($size, ENT_QUOTES, 'UTF-8');
 
     // A framed placeholder that reads as "deliberate stand-in", not as a
     // rendering failure: a small mark, the word VÉRIFIER, and the short
-    // reference. Sized in % so it fills whatever cell the caller gives it.
-    return '<div style="' . $extra_style . ';border:0.5pt solid #D1D5DB;'
-         . 'text-align:center;padding:1mm 0.5mm;line-height:1.25;overflow:hidden;">'
+    // reference — occupying exactly the same square the QR would have.
+    return '<div style="width:' . $s . ';height:' . $s . ';box-sizing:border-box;'
+         . 'border:0.5pt solid #D1D5DB;text-align:center;padding:1mm 0.5mm;'
+         . 'line-height:1.25;overflow:hidden;">'
          . '<div style="font-size:8pt;color:#9CA3AF;line-height:1;">&#9635;</div>'
          . '<div style="font-size:4.4pt;color:#6B7280;letter-spacing:0.3pt;'
          . 'text-transform:uppercase;margin-top:0.5mm;">Vérifier</div>'

@@ -122,11 +122,21 @@ if (($_GET['pdf'] ?? '') === '1') {
                 </button>
 
                 <?php
-                // Universal internal signature — renders nothing unless the
-                // viewer is logged in AND holds signatures.facture.internal.sign.
+                // Two distinct signature actions. Each component renders
+                // nothing unless the viewer holds its permission.
                 // See docs/SIGNATURES.md.
+                $lpcFactureToken = (string) ($_GET['token'] ?? '');
+
+                // Ask the CLIENT to acknowledge receipt of the invoice.
+                $share_type  = 'facture';
+                $share_token = $lpcFactureToken;
+                $share_who   = 'le client';
+                $share_label = 'Faire accuser réception';
+                require __DIR__ . '/../../includes/components/signature_share_button.php';
+
+                // LPC attests to its own figures, from inside the ERP.
                 $sign_btn_type  = 'facture';
-                $sign_btn_token = (string) ($_GET['token'] ?? '');
+                $sign_btn_token = $lpcFactureToken;
                 require __DIR__ . '/../../includes/components/signature_sign_button.php';
                 ?>
             </div>

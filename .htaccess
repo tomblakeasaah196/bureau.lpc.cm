@@ -69,6 +69,8 @@ RewriteRule ^facture\.php$           /public/documents/facture.php         [L,QS
 RewriteRule ^quote\.php$             /public/documents/quote.php           [L,QSA]
 RewriteRule ^sign_bl\.php$           /public/documents/sign_bl.php         [L,QSA]
 RewriteRule ^sign_cre\.php$          /public/documents/sign_cre.php        [L,QSA]
+RewriteRule ^sign_quote\.php$        /public/documents/sign_quote.php      [L,QSA]
+RewriteRule ^sign_document\.php$     /public/documents/sign_document.php   [L,QSA]
 RewriteRule ^print_cre\.php$         /public/documents/print_cre.php       [L,QSA]
 RewriteRule ^verify\.php$            /public/verify.php                    [L,QSA]
 RewriteRule ^password_manager\.php$  /public/auth/password_manager.php     [L,QSA]
@@ -82,6 +84,10 @@ RewriteRule ^quote/([A-Fa-f0-9]{16,64})/?$      /public/documents/quote.php?toke
 RewriteRule ^po/([A-Fa-f0-9]{16,64})/?$         /public/documents/bon_commande.php?token=$1   [L,QSA]
 RewriteRule ^sign/bl/([A-Fa-f0-9]{16,64})/?$    /public/documents/sign_bl.php?token=$1        [L,QSA]
 RewriteRule ^sign/cre/([A-Fa-f0-9]{16,64})/?$   /public/documents/sign_cre.php?token=$1       [L,QSA]
+RewriteRule ^sign/quote/([A-Fa-f0-9]{16,64})/?$ /public/documents/sign_quote.php?token=$1     [L,QSA]
+# Generic counterparty signing page: /sign/{type}/{token} for facture,
+# bon_commande and payslip, which share one summary page.
+RewriteRule ^sign/([a-z_]+)/([A-Fa-f0-9]{16,64})/?$ /public/documents/sign_document.php?type=$1&token=$2 [L,QSA]
 # verify_token is always exactly 40 lowercase hex chars (bin2hex of 20 random
 # bytes — DocumentSignature::sign()) — matches DocumentSignature::verifyByToken()'s
 # own ^[a-f0-9]{40}$ check, unlike the {16,64} mixed-case document tokens above.

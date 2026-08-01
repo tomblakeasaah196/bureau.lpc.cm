@@ -93,9 +93,20 @@ try {
     // 5. Insert Line Items (Mapped exactly to your 7 columns, plus pack_note
     //    from migration 047 — see that file for why this is snapshotted
     //    rather than joined at read time.)
+    // product_id (migration 056) is written for ONE reason: so the Devis tab
+    // can reopen this devis and preselect the right product in the picker.
+    // The snapshot columns remain the only thing that renders — see the
+    // migration for why this is not a join. Guarded like pack_note so an
+    // install that has the code but not the migration still creates devis.
+    $hasProductIdCol = (int) $db->query("
+        SELECT COUNT(*) FROM information_schema.columns
+         WHERE table_schema = DATABASE() AND table_name = 'proposal_items'
+           AND column_name = 'product_id'
+    ")->fetchColumn() > 0;
+
     $itemStmt = $db->prepare("
-        INSERT INTO proposal_items (proposal_id, product_description, product_format, pack_note, quantity, unit_price)
-        VALUES (:proposal_id, :product_description, :product_format, :pack_note, :quantity, :unit_price)
+        INSERT INTO proposal_items (proposal_id, " . ($hasProductIdCol ? 'product_id, ' : '') . "product_description, product_format, pack_note, quantity, unit_price)
+        VALUES (:proposal_id, " . ($hasProductIdCol ? ':product_id, ' : '') . ":product_description, :product_format, :pack_note, :quantity, :unit_price)
     ");
 
     // units_per_pack / unit_of_measure only exist on schema-v2 databases
@@ -134,14 +145,18 @@ try {
             }
         }
 
-        $itemStmt->execute([
+        $itemBind = [
             'proposal_id'         => $proposal_id,
             'product_description' => $p_name,
             'product_format'      => $p_format,
             'pack_note'           => $p_pack_note,
             'quantity'            => (int)$item['quantity'],
             'unit_price'          => (float)$item['unit_price']
-        ]);
+        ];
+        if ($hasProductIdCol) {
+            $itemBind['product_id'] = (int) $item['product_id'];
+        }
+        $itemStmt->execute($itemBind);
         // Note: total_price is STORED GENERATED in your DB, so we don't insert it.
     }
 

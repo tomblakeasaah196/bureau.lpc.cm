@@ -171,14 +171,44 @@ $proposalLogos = lpc_proposal_logos();
                 </a>
 
                 <?php
-                // Sprint 11: the devis moved onto the shared internal-signature
-                // component so there is exactly ONE such flow in the codebase
-                // rather than a bespoke devis one plus a generic one. The
-                // component renders its own button, modal, data block and
-                // script, and gates itself on signatures.quote.internal.sign.
-                // See docs/SIGNATURES.md.
+                // Two DIFFERENT signature actions sit side by side here, and
+                // conflating them is the mistake to avoid:
+                //
+                //   "Faire signer le client" — sends the PROSPECT a link to
+                //       sign_quote.php, where they draw a signature and the
+                //       devis becomes 'accepted'. This is the commercial act.
+                //
+                //   "Signer côté LPC" — an LPC staffer attesting to our own
+                //       figures from inside the ERP. No image, no client.
+                //
+                // The first is rendered below; the second comes from the
+                // shared component. See docs/SIGNATURES.md.
+                $lpcQuoteToken = (string) ($_GET['token'] ?? '');
+
+                // Reference only — used to personalise the WhatsApp message.
+                // A targeted one-column read rather than lpc_signature_doc(),
+                // which pulls items, the consigne schedule and the annexes and
+                // is already called further down for the signature block.
+                $lpcQuoteRef = '';
+                if ($lpcQuoteToken !== '') {
+                    try {
+                        $s = Database::getInstance()->getConnection()
+                             ->prepare('SELECT reference FROM proposals WHERE token = ? LIMIT 1');
+                        $s->execute([$lpcQuoteToken]);
+                        $lpcQuoteRef = (string) ($s->fetchColumn() ?: '');
+                    } catch (Throwable $lpcRefErr) {
+                        error_log('quote.php: reference lookup failed: ' . $lpcRefErr->getMessage());
+                    }
+                }
+
+                $share_type  = 'quote';
+                $share_token = $lpcQuoteToken;
+                $share_ref   = $lpcQuoteRef;
+                $share_who   = 'le client';
+                require __DIR__ . '/../../includes/components/signature_share_button.php';
+
                 $sign_btn_type  = 'quote';
-                $sign_btn_token = (string) ($_GET['token'] ?? '');
+                $sign_btn_token = $lpcQuoteToken;
                 require __DIR__ . '/../../includes/components/signature_sign_button.php';
                 ?>
             </div>
@@ -521,9 +551,11 @@ $proposalLogos = lpc_proposal_logos();
     </div>
 
     <?php
-    // (The bespoke #signModal that used to live here is now emitted by
-    //  includes/components/signature_sign_button.php, required from the nav
-    //  above — one modal, one JS module, every document type.)
+    // Both signature modals on this page are emitted by shared components,
+    // required from the nav above:
+    //   includes/components/signature_share_button.php  → "Faire signer le client"
+    //   includes/components/signature_sign_button.php   → "Signer côté LPC"
+    // Neither markup nor JS lives in this file any more. See docs/SIGNATURES.md.
     ?>
 
     <script type="application/json" id="lpc-proposal-template">

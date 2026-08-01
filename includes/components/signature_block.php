@@ -194,16 +194,15 @@ if (!function_exists('lpc_render_signature_block')) {
                             <div style="font-size:5.6pt; color:#9CA3AF; margin-top:0.6mm; letter-spacing:0.2pt;">Hash <?= $esc(substr((string) $internal['content_hash'], 0, 16)) ?>&hellip;</div>
                         </td>
                         <td style="width:16mm; vertical-align:top; text-align:right;">
-                            <div style="width:15mm; height:15mm;">
-                                <?php // 2nd arg sizes the box; 3rd is the short label the
-                                      // text fallback prints when endroid/qr-code is not
-                                      // installed — the full URL would overflow 15mm. ?>
-                                <?= lpc_qr_or_fallback(
-                                        $vurl($internal),
-                                        'width:15mm;height:15mm;overflow:hidden;',
-                                        substr((string) $internal['verify_token'], 0, 8)
-                                    ) ?>
-                            </div>
+                            <?php // 2nd arg is the physical size, applied to the QR
+                                  // itself as well as to the text fallback. 3rd is the
+                                  // short label the fallback prints — the full URL
+                                  // would overflow the square. ?>
+                            <?= lpc_qr_or_fallback(
+                                    $vurl($internal),
+                                    '15mm',
+                                    substr((string) $internal['verify_token'], 0, 8)
+                                ) ?>
                             <div style="font-size:4.6pt; color:#9CA3AF; margin-top:0.6mm;">Scannez</div>
                         </td>
                     </tr>
@@ -235,13 +234,11 @@ if (!function_exists('lpc_render_signature_block')) {
                             <div style="font-size:6.5pt; color:#6B7280;">Le <?= $esc($fdt($external['signed_at'])) ?></div>
                         </td>
                         <td style="width:16mm; vertical-align:top; text-align:right;">
-                            <div style="width:15mm; height:15mm;">
-                                <?= lpc_qr_or_fallback(
-                                        $vurl($external),
-                                        'width:15mm;height:15mm;overflow:hidden;',
-                                        substr((string) $external['verify_token'], 0, 8)
-                                    ) ?>
-                            </div>
+                            <?= lpc_qr_or_fallback(
+                                    $vurl($external),
+                                    '15mm',
+                                    substr((string) $external['verify_token'], 0, 8)
+                                ) ?>
                             <div style="font-size:4.6pt; color:#9CA3AF; margin-top:0.6mm;">Scannez</div>
                         </td>
                     </tr>

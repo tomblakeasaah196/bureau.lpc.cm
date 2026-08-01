@@ -67,6 +67,11 @@ printf("  %-34s %s\n", 'endroid/qr-code version', $installed);
 $url = 'https://bureau.lpc.cm/verify/' . str_repeat('a1b2c3d4', 5);
 $svg = lpc_qr_svg($url, 300, 0);
 
+// Grab the root element on its own — every dimension assertion below is
+// about THAT tag, not about anything nested inside it.
+preg_match('/<svg\b[^>]*>/i', $svg, $m);
+$rootTag = $m[0] ?? '';
+
 $checks = [
     'returns a non-empty string'      => $svg !== '',
     'is an <svg> element'             => stripos($svg, '<svg') !== false,
@@ -74,6 +79,14 @@ $checks = [
     'has no DOCTYPE'                  => stripos(ltrim($svg), '<!doctype') !== 0,
     'contains drawn modules'          => (stripos($svg, '<path') !== false || stripos($svg, '<rect') !== false),
     'is a plausible size (>500 B)'    => strlen($svg) > 500,
+
+    // The sizing contract. lpc_qr_svg() must hand back something SCALABLE:
+    // viewBox present, no intrinsic width/height. A QR carrying
+    // width="300" height="300" ignores its container and sprawls across the
+    // document — which is exactly what shipped once.
+    'root has a viewBox'              => stripos($rootTag, 'viewbox=') !== false,
+    'root has NO width attribute'     => !preg_match('/\swidth\s*=/i', $rootTag),
+    'root has NO height attribute'    => !preg_match('/\sheight\s*=/i', $rootTag),
 ];
 
 foreach ($checks as $label => $pass) {
@@ -82,6 +95,25 @@ foreach ($checks as $label => $pass) {
 }
 
 printf("  %-34s %d bytes\n", 'generated length', strlen($svg));
+
+// 4. And the wrapper that documents actually call: it must stamp the
+//    requested physical size onto the root element.
+echo str_repeat('-', 72) . "\n";
+$boxed = lpc_qr_or_fallback($url, '15mm', 'a1b2c3d4');
+preg_match('/<svg\b[^>]*>/i', $boxed, $bm);
+$boxedRoot = $bm[0] ?? '';
+
+$boxChecks = [
+    'lpc_qr_or_fallback returns QR'   => stripos($boxed, '<svg') !== false,
+    'sized width="15mm"'              => stripos($boxedRoot, 'width="15mm"') !== false,
+    'sized height="15mm"'             => stripos($boxedRoot, 'height="15mm"') !== false,
+    'viewBox survived sizing'         => stripos($boxedRoot, 'viewbox=') !== false,
+    'crispEdges for small print'      => stripos($boxedRoot, 'crispedges') !== false,
+];
+foreach ($boxChecks as $label => $pass) {
+    printf("  %-34s %s\n", $label, $pass ? 'OK' : 'FAIL');
+    if (!$pass) $fail++;
+}
 
 echo str_repeat('-', 72) . "\n";
 if ($fail === 0) {

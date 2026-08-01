@@ -334,6 +334,60 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
 }
 
 // ============================================================================
+// Devis / proposition commerciale
+// ============================================================================
+
+/**
+ * Apply the business consequence of a CLIENT signing a devis: "Bon pour
+ * accord" is acceptance, so the proposal moves to 'accepted'. Assumes an
+ * open transaction on $db.
+ *
+ * Only ever reached from sign_external — an INTERNAL signature is LPC
+ * attesting to its own figures and must not move the commercial status.
+ * That distinction is enforced by construction: the dispatcher below is
+ * called from the sign_external branch only.
+ *
+ * 'accepted' and 'rejected' are pre-existing values of the
+ * proposals.status enum ('draft','sent','accepted','rejected') — this
+ * introduces no new state, it just finally drives the one the schema
+ * always anticipated.
+ *
+ * @throws Exception on any DB error — caller will rollback
+ */
+function lpc_signature_side_effects_quote(PDO $db, int $proposalId): void
+{
+    $stmt = $db->prepare(
+        "SELECT id, reference, status, client_name
+           FROM proposals
+          WHERE id = ?
+          FOR UPDATE"
+    );
+    $stmt->execute([$proposalId]);
+    $p = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$p) {
+        throw new Exception('Devis introuvable.');
+    }
+    if ($p['status'] === 'rejected') {
+        throw new Exception('Ce devis a été refusé et ne peut plus être signé.');
+    }
+
+    // Idempotent: re-signing an already-accepted devis (a client tapping
+    // twice, or a re-send after an edit) must not error, it just stays
+    // accepted. The signature row itself is what records each event.
+    if ($p['status'] !== 'accepted') {
+        $db->prepare("UPDATE proposals SET status = 'accepted' WHERE id = ?")
+           ->execute([$proposalId]);
+    }
+
+    lpc_signature_notify_admin(
+        $db,
+        'Devis accepté et signé',
+        "Le devis {$p['reference']} a été signé électroniquement par le client "
+        . "({$p['client_name']}). Bon pour accord."
+    );
+}
+
+// ============================================================================
 // Dispatcher — called by signatures_controller after signExternal succeeds.
 // ============================================================================
 
@@ -354,8 +408,10 @@ function lpc_signature_side_effects_dispatch(PDO $db, string $type, int $docId, 
         case 'bl':
             lpc_signature_side_effects_bl($db, $docId, $extras);
             return;
-
         case 'quote':
+            lpc_signature_side_effects_quote($db, $docId);
+            return;
+
         case 'facture':
         case 'bon_commande':
         case 'payslip':

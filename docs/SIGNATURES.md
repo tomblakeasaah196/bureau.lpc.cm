@@ -172,18 +172,54 @@ without its state change, or vice versa.
 
 ## Frontend
 
-Three shared pieces. None of them should ever be duplicated per document
+Four shared pieces. None of them should ever be duplicated per document
 type — that duplication is exactly what this system replaced.
 
-**1. External signing page** (customer, on their phone)
+**1. External signing page** (counterparty, on their phone)
 
-`public/documents/sign_cre.php` and `public/documents/sign_bl.php`, both
-driven by `assets/js/modules/signature-universal.js`. A new external-signing
-page follows the same pattern: identity fields with ids `sig_name` /
-`sig_role` / `sig_phone`, a `#signature-pad` canvas, a `#sig_submit_btn`,
-and a `#lpc-page-data` block carrying `{token, docType, csrf, csrfField}`.
+All driven by `assets/js/modules/signature-universal.js`. The page supplies
+identity fields with ids `sig_name` / `sig_role` / `sig_phone`, a
+`#signature-pad` canvas, a `#sig_submit_btn`, and a `#lpc-page-data` block
+carrying `{token, docType, csrf, csrfField}`. The module does the rest.
 
-**2. Internal signing button** (LPC staff, inside the ERP)
+| Type | Page |
+|---|---|
+| `cre` | `sign_cre.php` — bottle-type grid |
+| `bl` | `sign_bl.php` — customer amends quantities/cash before signing |
+| `quote` | `sign_quote.php` — offer summary, validity, link to full proposal |
+| `facture`, `bon_commande`, `payslip` | `sign_document.php?type=…` — shared |
+
+**Use `sign_document.php` for a new type** unless the counterparty must EDIT
+something before signing, or the document has a shape a line table cannot
+express. Those two conditions are the only reason the first three have
+bespoke pages. Adding a type to the generic page is one entry in its
+`$PRESENTATION` array — title, party noun, consent wording, CTA label.
+
+**2. Share sheet** — inviting the counterparty to sign
+
+`includes/components/signature_share_button.php`, driven by
+`assets/js/modules/signature-share.js`. Two lines in the operator page's nav:
+
+```php
+<?php
+$share_type  = 'facture';
+$share_token = (string) ($_GET['token'] ?? '');
+$share_who   = 'le client';   // or 'le fournisseur', 'le salarié'
+require __DIR__ . '/../../includes/components/signature_share_button.php';
+?>
+```
+
+Emits a button, a modal offering copy / WhatsApp / QR, and the right signing
+URL for that type — or nothing at all, if the viewer lacks
+`signatures.{type}.external.sign`. Wired on `quote.php`, `facture.php`,
+`bon_commande.php`, `payslip.php`.
+
+CRE and BL keep their own share UI (the CRE's lives in
+`empties_collection.php`, the BL's in its "Faire Signer" dropdown). Both
+predate this component and are wired into workflows of their own; converting
+them would be churn. A new type should use the component.
+
+**3. Internal signing button** (LPC staff, inside the ERP)
 
 `includes/components/signature_sign_button.php`. Two lines in the host
 page's nav:
@@ -208,7 +244,7 @@ Note the id is `lpc-sign-data`, **not** `lpc-page-data`: several host pages
 already emit their own `#lpc-page-data` for unrelated reasons, and two
 elements sharing an id would leave the winner to document order.
 
-**3. Rendered signature area** (HTML page + dompdf PDF)
+**4. Rendered signature area** (HTML page + dompdf PDF)
 
 `includes/components/signature_block.php`. **Never** hand-render a signature
 stamp in a document template — setting the `$sig_*` variables and
@@ -329,9 +365,13 @@ updating deliveries.status): register a handler in
 - Side effects: `includes/functions/signature_side_effects.php`
 - Render partial: `includes/components/signature_block.php`
 - Internal sign button: `includes/components/signature_sign_button.php`
+- Share sheet: `includes/components/signature_share_button.php`
+- Generic signing page: `public/documents/sign_document.php`
 - Controller: `api/v1/signatures_controller.php`
-- Shared JS: `assets/js/modules/signature-universal.js` (external, customer)
-  and `assets/js/modules/signature-internal.js` (internal, LPC staff)
+- Shared JS — three modules, three jobs, three data-block ids:
+  - `signature-universal.js` — counterparty signs (`#lpc-page-data`)
+  - `signature-internal.js` — LPC staff attests (`#lpc-sign-data`)
+  - `signature-share.js` — send the invite (`#lpc-share-data`)
 - Verify page: `public/verify.php`
 - QR helper: `includes/functions/qr.php`
 - Tests: `scripts/tests/signature_canonical_payload.test.php`

@@ -71,6 +71,56 @@ $lang = lpc_i18n_current_lang();
            the modal body would have grown unbounded on a long debtor list and
            pushed its own Fermer button off-screen. §5.5. */
         .kpi-modal-scroll { max-height: 60vh; overflow-y: auto; }
+
+        /* ---- Devis tab ---------------------------------------------------
+           Written as plain CSS, not Tailwind arbitrary values: those compile
+           at build time and are not in assets/css/tailwind.css, the same trap
+           documented above for max-h-[60vh]. */
+        .lpc-tab {
+            border-color: transparent;
+            color: #6b7280;
+        }
+        .lpc-tab:hover { color: #111827; }
+        .lpc-tab[aria-selected="true"] {
+            color: var(--lpc-brand, #005A2B);
+            border-color: var(--lpc-brand, #005A2B);
+        }
+
+        .devis-chip {
+            font-size: .6875rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .04em; padding: .35rem .7rem; border-radius: 999px;
+            border: 1px solid #e5e7eb; background: #fff; color: #6b7280;
+            transition: background .12s, color .12s, border-color .12s;
+        }
+        .devis-chip:hover { border-color: #d1d5db; color: #111827; }
+        .devis-chip.is-active {
+            background: var(--lpc-brand, #005A2B);
+            border-color: var(--lpc-brand, #005A2B);
+            color: #fff;
+        }
+
+        .devis-badge {
+            display: inline-flex; align-items: center; gap: .25rem;
+            padding: .2rem .55rem; border-radius: 999px;
+            font-size: .625rem; font-weight: 800; text-transform: uppercase;
+            letter-spacing: .04em; white-space: nowrap;
+        }
+        .devis-badge-sent    { background: #eff6ff; color: #1d4ed8; }
+        .devis-badge-signed  { background: #ecfdf5; color: #047857; }
+        .devis-badge-expired { background: #fef2f2; color: #b91c1c; }
+        /* Signed, then edited. Amber rather than green: the signature exists
+           but no longer matches the figures, and that is a discrepancy to
+           investigate, not a clean sign-off. */
+        .devis-badge-stale   { background: #fffbeb; color: #b45309; }
+
+        .devis-modal-scroll { max-height: 62vh; overflow-y: auto; }
+
+        /* A read-only line: pre-migration-056 devis carry no product_id, so
+           the picker cannot preselect anything and the line is shown as the
+           frozen text it is. */
+        .devis-line-locked {
+            background: #f9fafb; color: #6b7280;
+        }
     </style>
 <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
@@ -125,7 +175,41 @@ $lang = lpc_i18n_current_lang();
         </div>
 
         <main role="main" id="main" class="lpc-page">
-        
+
+        <?php
+        // Devis tab visibility. crm.proposals.view was defined back in
+        // migration 001 and, until this tab, no page consumed it — the
+        // répertoire is what it was always for. Rendered server-side rather
+        // than hidden with data-perm so a user without the permission never
+        // receives the markup at all; fetch_proposals.php re-checks anyway.
+        $canViewProposals = Rbac::hasPermission('crm.proposals.view');
+        ?>
+
+        <?php if ($canViewProposals): ?>
+        <!-- Clients | Devis. Two views over the same page: the client base as
+             it always was, and the quote history that previously existed
+             nowhere. Tabs rather than a separate page because a rep moves
+             between "who is this client" and "what did we quote them"
+             constantly, and the toolbar (new client, studio, corbeille, help)
+             serves both. -->
+        <div class="mb-6 border-b border-lpc-border" role="tablist" aria-label="Vues CRM">
+            <button type="button" id="tab-btn-clients" role="tab" aria-selected="true"
+                    aria-controls="tab-panel-clients" onclick="switchCrmTab('clients')"
+                    class="lpc-tab px-5 py-3 text-sm font-bold border-b-2 -mb-px transition-colors">
+                <?php echo __t('ui.r_pertoire_clients'); ?>
+            </button>
+            <button type="button" id="tab-btn-devis" role="tab" aria-selected="false"
+                    aria-controls="tab-panel-devis" onclick="switchCrmTab('devis')"
+                    class="lpc-tab px-5 py-3 text-sm font-bold border-b-2 -mb-px transition-colors">
+                Devis
+                <span id="tab-devis-count"
+                      class="ml-1.5 px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 text-[10px] font-black align-middle"></span>
+            </button>
+        </div>
+        <?php endif; ?>
+
+        <div id="tab-panel-clients" role="tabpanel" aria-labelledby="tab-btn-clients">
+
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
             <button type="button" class="lpc-kpi-card bg-white p-5 rounded-2xl border border-lpc-border shadow-sm flex items-center justify-between w-full text-left" data-metric="clients" aria-haspopup="dialog">
                 <div>
@@ -235,6 +319,148 @@ $lang = lpc_i18n_current_lang();
                 </table>
             </div>
         </div>
+        </div><!-- /#tab-panel-clients -->
+
+        <?php if ($canViewProposals): ?>
+        <!-- =====================================================================
+             DEVIS — the quote history.
+             Everything here is rendered by crm-devis.js from
+             /api/v1/fetch_proposals.php. Server-side paging (25/rows), so the
+             markup is a shell: the KPIs, the filter bar, an empty tbody and a
+             pager.
+             ===================================================================== -->
+        <div id="tab-panel-devis" class="hidden" role="tabpanel" aria-labelledby="tab-btn-devis">
+
+            <!-- The three KPIs. They describe the FILTERED set, not the whole
+                 table — narrow to one rep and they narrow with you. Cards that
+                 ignored the filters would contradict the rows underneath and
+                 read as a bug. Not clickable (unlike the client KPIs): the
+                 drill-down here IS the table below them. -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <div class="bg-white p-5 rounded-2xl border border-lpc-border shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">Devis envoyés</p>
+                        <h3 class="text-2xl font-black text-gray-900 mt-1" id="kpi-devis-sent">...</h3>
+                        <p class="text-[11px] text-gray-400 mt-1" id="kpi-devis-sent-sub">&nbsp;</p>
+                    </div>
+                    <div class="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center shrink-0">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    </div>
+                </div>
+
+                <div class="bg-white p-5 rounded-2xl border border-lpc-border shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">Devis signés</p>
+                        <h3 class="text-2xl font-black text-green-600 mt-1" id="kpi-devis-signed">...</h3>
+                        <p class="text-[11px] text-gray-400 mt-1" id="kpi-devis-signed-sub">&nbsp;</p>
+                    </div>
+                    <div class="w-12 h-12 bg-green-50 text-green-600 rounded-full flex items-center justify-center shrink-0">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"></path></svg>
+                    </div>
+                </div>
+
+                <!-- Pipeline deliberately EXCLUDES expired unsigned devis. An
+                     expired quote is a follow-up task, not money in play, and
+                     folding it in inflates the figure a sales review reads. -->
+                <div class="bg-white p-5 rounded-2xl border border-lpc-border shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">En attente de signature</p>
+                        <h3 class="text-2xl font-black text-amber-600 mt-1" id="kpi-devis-pipeline">...</h3>
+                        <p class="text-[11px] text-gray-400 mt-1" id="kpi-devis-pipeline-sub">&nbsp;</p>
+                    </div>
+                    <div class="w-12 h-12 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center shrink-0">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-lpc-border shadow-sm overflow-hidden">
+                <div class="px-6 py-4 border-b border-lpc-border bg-gray-50">
+                    <div class="flex flex-wrap justify-between items-center gap-3">
+                        <h2 class="font-bold text-gray-800">Répertoire des devis</h2>
+                        <input type="text" id="devis-search"
+                               placeholder="Rechercher une référence ou un client…"
+                               class="border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-lpc-light outline-none w-full md:w-72 transition-all">
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2 mt-3">
+                        <!-- Status chips. data-status is read by the JS; the
+                             active one carries .is-active, styled below. -->
+                        <div class="flex gap-1" id="devis-status-chips">
+                            <button type="button" class="devis-chip is-active" data-status="all">Tous</button>
+                            <button type="button" class="devis-chip" data-status="sent">Envoyés</button>
+                            <button type="button" class="devis-chip" data-status="signed">Signés</button>
+                            <button type="button" class="devis-chip" data-status="expired">Expirés</button>
+                        </div>
+
+                        <span class="mx-1 h-5 w-px bg-gray-200 hidden md:inline-block"></span>
+
+                        <label class="text-[11px] font-bold text-gray-400 uppercase">Du</label>
+                        <input type="date" id="devis-from" class="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-lpc-light outline-none">
+                        <label class="text-[11px] font-bold text-gray-400 uppercase">Au</label>
+                        <input type="date" id="devis-to" class="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-lpc-light outline-none">
+
+                        <select id="devis-rep" class="border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white focus:ring-2 focus:ring-lpc-light outline-none">
+                            <option value="">Tous les commerciaux</option>
+                        </select>
+
+                        <select id="devis-sort" class="border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white focus:ring-2 focus:ring-lpc-light outline-none">
+                            <option value="date:desc">Plus récents</option>
+                            <option value="date:asc">Plus anciens</option>
+                            <option value="amount:desc">Montant ↓</option>
+                            <option value="amount:asc">Montant ↑</option>
+                            <option value="client:asc">Client A–Z</option>
+                            <option value="reference:desc">Référence</option>
+                        </select>
+
+                        <button type="button" onclick="resetDevisFilters()"
+                                class="text-xs font-bold text-gray-400 hover:text-lpc-dark px-2 py-1.5 transition-colors">
+                            Réinitialiser
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="bg-white border-b border-lpc-border text-xs uppercase text-gray-500 font-bold">
+                            <tr>
+                                <th class="py-4 px-6">Référence</th>
+                                <th class="py-4 px-6">Client</th>
+                                <th class="py-4 px-6">Date</th>
+                                <th class="py-4 px-6 text-right">Montant</th>
+                                <th class="py-4 px-6">Statut</th>
+                                <!-- One column, two meanings, decided per row:
+                                     an unsigned devis shows its commercial and
+                                     its expiry (what you chase); a signed one
+                                     shows who signed and when (what you cite).
+                                     Two separate columns would leave whichever
+                                     half doesn't apply blank on every row. -->
+                                <th class="py-4 px-6">Suivi</th>
+                                <th class="py-4 px-6 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="devis-tbody" class="divide-y divide-gray-100">
+                            <tr><td colspan="7" class="py-10 text-center text-gray-400 text-sm italic">Chargement…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="px-6 py-3 border-t border-lpc-border bg-gray-50 flex items-center justify-between">
+                    <p class="text-xs text-gray-500" id="devis-pager-label"></p>
+                    <div class="flex gap-2">
+                        <button type="button" id="devis-prev" onclick="devisPage(-1)"
+                                class="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                            Précédent
+                        </button>
+                        <button type="button" id="devis-next" onclick="devisPage(1)"
+                                class="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                            Suivant
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div><!-- /#tab-panel-devis -->
+        <?php endif; ?>
     </main>
     </div>
 
@@ -530,6 +756,53 @@ $lang = lpc_i18n_current_lang();
         </div>
     </div>
 
+    <?php if ($canViewProposals): ?>
+    <!-- =========================================================================
+         Devis detail modal. One modal, two modes, decided by the server:
+
+           editable  → the terms and the lines are inputs, footer offers Save.
+           locked    → everything is text, footer offers "Nouveau devis à
+                       partir de celui-ci" plus the signature proof block.
+
+         proposal_detail.php returns `editable`; update_proposal.php re-derives
+         the same rule inside its transaction, so this is presentation only and
+         a stale tab cannot be used to edit a devis someone signed meanwhile.
+         ========================================================================= -->
+    <div id="devisModal" class="modal hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm p-2 md:p-6"
+         role="dialog" aria-modal="true" aria-labelledby="devis-modal-title">
+        <div class="modal-content bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-full md:h-auto md:max-h-full overflow-hidden flex flex-col border border-gray-200">
+
+            <div class="bg-white border-b border-gray-100 px-6 py-4 flex justify-between items-start shrink-0">
+                <div>
+                    <h3 class="font-extrabold text-xl text-gray-900 flex items-center gap-2" id="devis-modal-title">
+                        <span id="devis-modal-ref">—</span>
+                        <span id="devis-modal-badge"></span>
+                    </h3>
+                    <p class="text-sm text-gray-500 font-medium mt-0.5" id="devis-modal-sub"></p>
+                </div>
+                <button type="button" onclick="closeModal('devisModal')" class="p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 rounded-full transition-colors" aria-label="Fermer">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-y-auto custom-scrollbar flex-1 bg-gray-50/50 devis-modal-scroll" id="devis-modal-body">
+                <p class="text-sm text-gray-400 text-center py-10"><?= htmlspecialchars(__t('ui.account.loading')) ?></p>
+            </div>
+
+            <div class="bg-white px-6 py-4 border-t border-gray-200 flex flex-wrap justify-between items-center gap-3 shrink-0">
+                <div class="flex gap-2" id="devis-modal-share"></div>
+                <div class="flex gap-3" id="devis-modal-actions"></div>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <script src="<?= lpc_asset('/assets/js/modules/crm-clients.js') ?>" defer></script>
+    <?php if ($canViewProposals): ?>
+    <!-- Loaded after crm-clients.js: openProposalModal()/addProposalRow() live
+         there and the duplicate flow calls straight into them rather than
+         reimplementing the create form. -->
+    <script src="<?= lpc_asset('/assets/js/modules/crm-devis.js') ?>" defer></script>
+    <?php endif; ?>
 </body>
 </html>

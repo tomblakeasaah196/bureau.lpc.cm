@@ -196,22 +196,45 @@
         var overlay = document.getElementById('loading_overlay');
         if (overlay) overlay.classList.remove('hidden');
 
-        // Rejection still lives on the doc-specific controller (cre or
-        // sales) because it flips business state — status = 'rejected',
-        // notify admin, etc. — that has nothing to do with signatures.
-        var endpoint = DOC_TYPE === 'cre'
-            ? '/api/v1/cre_controller.php'
-            : '/api/v1/sales_controller.php';
-        postJson(endpoint, {
-            action: DOC_TYPE === 'cre' ? 'reject_cre' : 'reject_bl',
-            token: TOKEN,
-            reason: reason
-        }).then(function (r) {
+        // Declining is not a signature, so it does not go through
+        // sign_external. CRE and BL each keep the reject action that already
+        // existed on their own controller; quote uses the unified
+        // controller's decline action, which is where any future type
+        // should go too. See docs/SIGNATURES.md.
+        var req;
+        if (DOC_TYPE === 'quote') {
+            req = postJson('/api/v1/signatures_controller.php?action=decline', {
+                type: DOC_TYPE,
+                token: TOKEN,
+                reason: reason
+            });
+        } else {
+            req = postJson(
+                DOC_TYPE === 'cre' ? '/api/v1/cre_controller.php' : '/api/v1/sales_controller.php',
+                {
+                    action: DOC_TYPE === 'cre' ? 'reject_cre' : 'reject_bl',
+                    token: TOKEN,
+                    reason: reason
+                }
+            );
+        }
+        req.then(function (r) {
             if (overlay) overlay.classList.add('hidden');
             var modal = document.getElementById('reject_modal');
             if (modal) modal.classList.add('hidden');
             if (r.ok && r.json && r.json.status === 'success') {
-                renderSuccess({ rejected: true, message: r.json.message || 'Document refusé et annulé.' });
+                // A devis decline is "let's talk", not a rejection — the
+                // client asked for changes, they didn't void a document.
+                // CRE/BL declines genuinely do cancel the document.
+                renderSuccess({
+                    rejected: true,
+                    title:   DOC_TYPE === 'quote' ? 'Message envoyé' : 'Document refusé',
+                    icon:    DOC_TYPE === 'quote' ? 'text-amber-500' : 'text-rose-500',
+                    message: r.json.message
+                             || (DOC_TYPE === 'quote'
+                                 ? 'Votre conseiller reviendra vers vous.'
+                                 : 'Document refusé et annulé.')
+                });
             } else {
                 alert((r.json && r.json.message) || 'Erreur.');
             }
@@ -230,7 +253,7 @@
         var area = document.getElementById('main_form_area');
         if (!area) return;
         var rejected = !!result.rejected;
-        var title = rejected ? 'Document refusé' : 'Document enregistré !';
+        var title = result.title || (rejected ? 'Document refusé' : 'Document enregistré !');
         var body  = rejected
             ? (result.message || 'Le document a été refusé et annulé.')
             : 'Merci. La transaction a été signée et scellée.';
@@ -245,7 +268,7 @@
                   + 'class="inline-block mt-3 text-xs font-bold text-gray-500 hover:text-lpc-dark">'
                   + '<i class="fas fa-qrcode mr-1"></i> Vérifier cette signature</a>';
         }
-        var iconColor = rejected ? 'text-rose-500' : 'text-green-500';
+        var iconColor = result.icon || (rejected ? 'text-rose-500' : 'text-green-500');
         area.innerHTML =
             '<div class="text-center py-8 space-y-4">' +
               '<i class="fas fa-check-circle text-6xl ' + iconColor + ' mb-2"></i>' +
