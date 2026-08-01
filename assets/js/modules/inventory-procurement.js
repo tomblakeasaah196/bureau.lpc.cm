@@ -126,18 +126,18 @@
                 activeLink.classList.add('border-lpc-dark', 'text-lpc-dark', 'font-black');
             }
 
-            document.getElementById('btn-action-text').innerText = c.btnText;
-            
-            // Ristournes button + config link only make sense on the Commandes Stocks tab.
+            const actionText = document.getElementById('btn-action-text');
+            if (actionText) actionText.innerText = c.btnText;
+
+            // #btn-config-ristournes was removed on 1 Aug 2026: rebate_config.php
+            // was linked twice and the link inside the Ristournes modal is the
+            // one that makes sense in context. Nothing to toggle for it here.
+            //
+            // #btn-sdp-ristourne is still toggled, but defensively — RBAC may
+            // hide it (data-perm) and there is now only one tab, so an absent
+            // node must never abort switchTab() the way the tab strip did.
             const sdpBtn = document.getElementById('btn-sdp-ristourne');
-            const cfgLink = document.getElementById('btn-config-ristournes');
-            if (tab === 'inventory') {
-                sdpBtn.classList.remove('hidden');
-                cfgLink.classList.remove('hidden');
-            } else {
-                sdpBtn.classList.add('hidden');
-                cfgLink.classList.add('hidden');
-            }
+            if (sdpBtn) sdpBtn.classList.toggle('hidden', tab !== 'inventory');
 
             const ribbon = document.getElementById('kpi-ribbon');
             ribbon.innerHTML = '';

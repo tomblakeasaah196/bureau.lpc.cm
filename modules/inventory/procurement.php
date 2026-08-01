@@ -51,81 +51,124 @@ $user_role = $_SESSION['user_role'];
 
     <div id="lpc-shell-main">
 
-        <?php /* OPEX tab removed — see modules/accounting/expenses.php. The
-                 tab strip was the only reason this <nav> existed on a page
-                 that now has one tab; keeping an inert bar reads as a bug.
-                 A slim helper banner replaces it, pointing users at the new
-                 module the first time they miss the old one. */ ?>
-        <div class="bg-lpc-bg border-b border-gray-200 px-6 py-3 flex items-center justify-between text-xs">
-            <div class="text-gray-600 font-bold">
-                <i class="fas fa-info-circle mr-1 text-lpc-dark"></i>
-                Les frais généraux ont leur propre module.
-            </div>
-            <a href="/modules/accounting/expenses.php" class="text-lpc-dark font-black uppercase tracking-widest hover:underline">
-                Aller à Gestion des Dépenses <i class="fas fa-arrow-right ml-1"></i>
+        <?php /* README §5.5: page controls live in .lpc-toolbar — a floating
+                 branded card — never a hand-styled bar. What was here before
+                 was both: a full-bleed "les frais généraux ont leur propre
+                 module" band, plus a second bar of buttons inside <main>. The
+                 band is gone (this page is Achats only; the OPEX move is
+                 finished and the sidebar already carries Gestion des Dépenses),
+                 and the buttons have come up here where every other module
+                 keeps them.
+
+                 Four controls, then help. "Configurer les Ristournes" is not
+                 among them on purpose — rebate_config.php was linked twice, and
+                 the surviving link inside the Ristournes modal is the better
+                 one: that is where you are looking at a balance when you decide
+                 the ladder is wrong. Its slot goes to Stock & Emballages, since
+                 the pairing that matters on this page is Achats↔Stocks. */ ?>
+        <div class="lpc-toolbar">
+
+            <?php /* data-perm rather than a server-side `if`: switchTab() writes
+                     to #btn-action-text on load, so this node must exist in the
+                     DOM for every role. Omitting it server-side would reproduce
+                     the exact null-reference crash the tab strip caused.
+                     procurement_controller.php re-checks on write regardless. */ ?>
+            <button id="btn-primary-action" onclick="openActionModal()"
+                    data-perm="inventory.procurement.create_po"
+                    class="bg-lpc-dark hover:bg-[#004722] text-white px-4 md:px-5 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2 shrink-0 lpc-focusable">
+                <i class="fas fa-plus"></i>
+                <span id="btn-action-text"><?= htmlspecialchars(__t('ui.x.nouveau_bon_de_commande')) ?></span>
+            </button>
+
+            <button id="btn-sdp-ristourne" onclick="openRistourneModal()"
+                    title="Solde et historique de la remise accordée par un fournisseur (paliers par catégorie) — différent des remises manuelles saisies sur une commande."
+                    class="bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300 px-4 py-2.5 rounded-xl font-black text-sm shadow-sm flex items-center gap-2 shrink-0 transition-all lpc-focusable">
+                <i class="fas fa-gift"></i> <span>Ristournes</span>
+            </button>
+
+            <a href="/modules/inventory/stock.php"
+               data-perm="inventory.stock.view"
+               class="w-11 h-11 rounded-xl border border-lpc-border bg-white text-gray-500 hover:text-lpc-dark hover:border-lpc-dark flex items-center justify-center shrink-0 transition-all lpc-focusable"
+               title="Stock &amp; Emballages — réceptionner les commandes de cette page"
+               aria-label="Stock &amp; Emballages">
+                <i class="fas fa-warehouse"></i>
             </a>
+
+            <div class="lpc-toolbar-sep"></div>
+
+            <div class="lpc-field">
+                <label for="kpi_period_type"><?= htmlspecialchars(__t('ui.x.periode_2')) ?></label>
+                <?php
+                /*
+                 * Default is "Année en cours", not "Ce mois".
+                 *
+                 * With a monthly default, opening this page in a month
+                 * where nothing has been ordered yet shows an empty
+                 * table, four zeroed KPIs and no indication that a
+                 * filter is responsible — which reads exactly like the
+                 * purchase history has been wiped. That is not a
+                 * hypothetical: it is what prompted this whole change.
+                 *
+                 * YTD is the smallest default that cannot produce a
+                 * blank page for an active business, and the KPI labels
+                 * below now say "Période" rather than hardcoding
+                 * "(Mois)" so the numbers always describe the filter
+                 * actually in force.
+                 */
+                ?>
+                <select id="kpi_period_type" onchange="handlePeriodUI()">
+                    <option value="ytd" selected><?= htmlspecialchars(__t('ui.x.annee_en_cours_ytd')) ?></option>
+                    <option value="current_month"><?= htmlspecialchars(__t('ui.ce_mois')) ?></option>
+                    <option value="all"><?= htmlspecialchars(__t('ui.x.tout_l_historique')) ?></option>
+                    <option value="custom"><?= htmlspecialchars(__t('ui.x.plage_personnalisee')) ?></option>
+                </select>
+            </div>
+
+            <?php /* NOT .lpc-field — README §5.5: lpc-shell.css loads after
+                     tailwind.css, so .lpc-field's `display` would beat Tailwind's
+                     .hidden and handlePeriodUI() could never hide this again.
+                     Tailwind display utilities only; .lpc-control on the inputs. */ ?>
+            <div id="custom_period_wrapper" class="hidden items-center gap-2 shrink-0">
+                <input type="month" id="kpi_start_month" onchange="loadTabData()" class="lpc-control" aria-label="Mois de début">
+                <span class="text-gray-500 font-bold text-sm">à</span>
+                <input type="month" id="kpi_end_month" onchange="loadTabData()" class="lpc-control" aria-label="Mois de fin">
+            </div>
+
+            <?php
+            // Help for THIS page. Renders nothing until an article is anchored
+            // to 'inventory.procurement' (migration 058) or if the reader lacks
+            // the gating permission, so it is safe either way.
+            echo lpc_help_link('inventory.procurement', $lang, ['class' => 'ml-auto']);
+            ?>
         </div>
 
         <main role="main" id="main" class="lpc-page lpc-page-col">
-            
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-lg font-black text-gray-800"><?= htmlspecialchars(__t('ui.x.indicateurs_cles_kpis')) ?></h2>
-                <div class="flex flex-wrap items-center gap-3">
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.periode_2')) ?></label>
-                    <select id="kpi_period_type" onchange="handlePeriodUI()" class="bg-white border border-gray-200 rounded-lg px-4 py-2 text-sm font-black text-lpc-dark focus:ring-2 focus:ring-lpc-light outline-none cursor-pointer shadow-sm">
-                        <?php
-                        /*
-                         * Default is "Année en cours", not "Ce mois".
-                         *
-                         * With a monthly default, opening this page in a month
-                         * where nothing has been ordered yet shows an empty
-                         * table, four zeroed KPIs and no indication that a
-                         * filter is responsible — which reads exactly like the
-                         * purchase history has been wiped. That is not a
-                         * hypothetical: it is what prompted this whole change.
-                         *
-                         * YTD is the smallest default that cannot produce a
-                         * blank page for an active business, and the KPI labels
-                         * below now say "Période" rather than hardcoding
-                         * "(Mois)" so the numbers always describe the filter
-                         * actually in force.
-                         */
-                        ?>
-                        <option value="ytd" selected><?= htmlspecialchars(__t('ui.x.annee_en_cours_ytd')) ?></option>
-                        <option value="current_month"><?= htmlspecialchars(__t('ui.ce_mois')) ?></option>
-                        <option value="all"><?= htmlspecialchars(__t('ui.x.tout_l_historique')) ?></option>
-                        <option value="custom"><?= htmlspecialchars(__t('ui.x.plage_personnalisee')) ?></option>
-                    </select>
 
-                    <div id="custom_period_wrapper" class="hidden items-center gap-2 bg-white border border-gray-200 rounded-lg px-2 py-1 shadow-sm">
-                        <input type="month" id="kpi_start_month" onchange="loadTabData()" class="text-sm font-bold text-gray-700 outline-none cursor-pointer bg-transparent">
-                        <span class="text-gray-500 font-bold">à</span>
-                        <input type="month" id="kpi_end_month" onchange="loadTabData()" class="text-sm font-bold text-gray-700 outline-none cursor-pointer bg-transparent">
-                    </div>
-                </div>
-            </div>
+            <h2 class="text-lg font-black text-gray-800 mb-4"><?= htmlspecialchars(__t('ui.x.indicateurs_cles_kpis')) ?></h2>
             <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8" id="kpi-ribbon"></div>
 
-            <div class="flex justify-between items-center mb-6" id="toolbar">
-                <div class="relative w-96">
-                    <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
-                    <input type="text" id="search-input" placeholder="Rechercher une référence ou fournisseur..." class="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-dark transition-shadow shadow-sm">
-                </div>
-                <div class="flex gap-3">
-                    <button id="btn-sdp-ristourne" onclick="openRistourneModal()" title="Solde et historique de la remise accordée par un fournisseur (paliers par catégorie) — différent des remises manuelles saisies sur une commande." class="bg-amber-100 hover:bg-amber-200 text-amber-800 px-6 py-3 rounded-xl font-black text-sm shadow-sm flex items-center gap-2 transition-transform active:scale-95 border border-amber-300">
-                        <i class="fas fa-gift"></i> <span>Ristournes</span>
-                    </button>
-                    <a id="btn-config-ristournes" href="/modules/inventory/rebate_config.php" class="bg-white hover:bg-gray-50 text-gray-700 px-6 py-3 rounded-xl font-black text-sm shadow-sm flex items-center gap-2 transition-transform active:scale-95 border border-gray-200">
-                        <i class="fas fa-sliders-h"></i> <span>Configurer les Ristournes</span>
-                    </a>
-
-                    <button id="btn-primary-action" onclick="openActionModal()" class="bg-lpc-dark hover:bg-green-800 text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg shadow-lpc-dark/20 flex items-center gap-2 transition-transform active:scale-95">
-                        <i class="fas fa-plus"></i> <span id="btn-action-text"><?= htmlspecialchars(__t('ui.x.nouveau_bon_de_commande')) ?></span>
-                    </button>
-                </div>
-            </div>
-
             <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex-1 flex flex-col min-h-[400px] md:min-h-[600px]">
+
+                <?php /* Search sits with the rows it filters, as in clients.php,
+                         rather than in the toolbar — it searches the table, not
+                         the page. No inline handler: attachPager() hands this
+                         element to LPC.paginator as `searchInput`, which debounces
+                         it into the server-side query. (The old client-side
+                         filterData() was removed with pagination; wiring an
+                         oninput to it here would throw on every keystroke.) */ ?>
+                <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 shrink-0">
+                    <h3 class="text-sm font-black text-gray-800 uppercase tracking-widest shrink-0">
+                        Bons de Commande
+                    </h3>
+                    <div class="relative w-full max-w-sm">
+                        <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                        <label for="search-input" class="sr-only">Rechercher une référence ou un fournisseur</label>
+                        <input type="text" id="search-input"
+                               placeholder="Rechercher une référence ou fournisseur..."
+                               class="w-full pl-11 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-dark focus:bg-white transition-all">
+                    </div>
+                </div>
+
                 <div class="overflow-auto flex-1">
                     <table class="min-w-full text-left border-collapse">
                         <thead class="bg-gray-50 border-b border-gray-200 sticky top-0 z-10" id="table-head">
