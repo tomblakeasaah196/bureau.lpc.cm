@@ -29,9 +29,22 @@ if (basename($_SERVER['PHP_SELF'] ?? '') === basename(__FILE__)) {
     die('Direct access not permitted.');
 }
 
+/**
+ * Whether a QR can actually be generated.
+ *
+ * Checks the two classes lpc_qr_svg() actually instantiates — QrCode and
+ * SvgWriter — and nothing else.
+ *
+ * It used to check Endroid\QrCode\Builder\Builder instead. That class still
+ * exists in v6, so the check passed, but v6 removed its static create()
+ * factory — so lpc_qr_svg() then died on an undefined method, the catch
+ * swallowed it, and every document silently printed the text fallback while
+ * this function cheerfully reported the library as available. Check what you
+ * call, not what you remember the API looking like.
+ */
 function lpc_qr_available(): bool
 {
-    return class_exists('Endroid\\QrCode\\Builder\\Builder')
+    return class_exists('Endroid\\QrCode\\QrCode')
         && class_exists('Endroid\\QrCode\\Writer\\SvgWriter');
 }
 
@@ -47,20 +60,50 @@ function lpc_qr_svg(string $data, int $size_px = 300, int $margin_px = 0): strin
         return '';
     }
     try {
-        $result = \Endroid\QrCode\Builder\Builder::create()
-            ->writer(new \Endroid\QrCode\Writer\SvgWriter())
-            ->data($data)
-            ->size($size_px)
-            ->margin($margin_px)
-            ->build();
+        // endroid/qr-code v6 API: construct QrCode and hand it to a writer.
+        // v6 removed Builder::create(); Builder itself survives but is only
+        // worth using for logos and labels, neither of which a verification
+        // stamp needs. Going straight to the writer is fewer moving parts
+        // and skips Builder's default label font file read.
+        //
+        // ErrorCorrectionLevel::Medium (~15% recoverable) rather than the
+        // default Low: these codes get printed at 15mm on documents that are
+        // photocopied, faxed and photographed in warehouses. Medium survives
+        // that; the extra modules cost nothing at this size.
+        $qrCode = new \Endroid\QrCode\QrCode(
+            data: $data,
+            errorCorrectionLevel: \Endroid\QrCode\ErrorCorrectionLevel::Medium,
+            size: $size_px,
+            margin: $margin_px,
+        );
 
-        $svg = (string) $result->getString();
-        // Strip any XML prolog / doctype the writer prepended.
+        $result = (new \Endroid\QrCode\Writer\SvgWriter())->write($qrCode, null, null, [
+            // Ask the writer to omit the XML declaration rather than
+            // regex-stripping it afterwards: this SVG is spliced into the
+            // middle of an existing HTML document, where a second XML
+            // declaration would be invalid and dompdf would choke.
+            //
+            // (Do not write that declaration out literally in a comment
+            //  anywhere in this file — its closing angle sequence ends the
+            //  PHP block and produces a syntax error further down.)
+            \Endroid\QrCode\Writer\SvgWriter::WRITER_OPTION_EXCLUDE_XML_DECLARATION => true,
+        ]);
+
+        $svg = trim((string) $result->getString());
+
+        // Belt and braces: if a future version ignores the option above, or
+        // prepends a doctype, strip them anyway.
         $svg = preg_replace('/^\s*<\?xml[^>]*\?>\s*/i', '', $svg) ?? $svg;
         $svg = preg_replace('/^\s*<!DOCTYPE[^>]*>\s*/i', '', $svg) ?? $svg;
+
         return trim($svg);
     } catch (\Throwable $e) {
-        error_log('lpc_qr_svg: ' . $e->getMessage());
+        // Logged loudly with the class name: a silent catch here is exactly
+        // what hid the v6 API break for an entire release. The caller still
+        // degrades to the text fallback — a document must never fail to
+        // render because a decorative QR could not be built — but the reason
+        // now lands in the error log where the monitor will surface it.
+        error_log('lpc_qr_svg FAILED (' . get_class($e) . '): ' . $e->getMessage());
         return '';
     }
 }
