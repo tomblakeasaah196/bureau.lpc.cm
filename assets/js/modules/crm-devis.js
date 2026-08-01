@@ -176,10 +176,31 @@
         if (n) n.textContent = s;
     }
 
+    /**
+     * Status badge.
+     *
+     * "Signé" means the CLIENT signed — that is the commercial event. An
+     * internal LPC attestation is shown as a separate "Visé LPC" marker
+     * beside the status, never as "Signé": a devis nobody outside the
+     * building has agreed to is still in the pipeline, and colouring it green
+     * would tell a sales review it had been won.
+     *
+     * See docs/SIGNATURES.md for the two-party model.
+     */
     function badge(row) {
-        if (row.derived_status === 'signed')  return H`<span class="devis-badge devis-badge-signed">Signé</span>`;
-        if (row.derived_status === 'expired') return H`<span class="devis-badge devis-badge-expired">Expiré</span>`;
-        return H`<span class="devis-badge devis-badge-sent">Envoyé</span>`;
+        var visa = row.lpc_signed
+            ? H`<span class="devis-badge devis-badge-visa" title="Signé en interne par La Petite Cour — le client n'a pas encore signé">Visé LPC</span>`
+            : '';
+
+        if (row.derived_status === 'signed') {
+            // Client signed. The internal visa is implied context at that
+            // point, so it is not repeated.
+            return H`<span class="devis-badge devis-badge-signed">Signé</span>`;
+        }
+        if (row.derived_status === 'expired') {
+            return H`<span class="devis-badge devis-badge-expired">Expiré</span>${visa}`;
+        }
+        return H`<span class="devis-badge devis-badge-sent">Envoyé</span>${visa}`;
     }
 
     /**
@@ -193,11 +214,19 @@
      */
     function followCell(row) {
         if (row.derived_status === 'signed') {
+            // signer_name is COALESCE(signatory_name, signer_name) server-side,
+            // so this is the client's typed name on an external signature.
             return H`<div class="text-sm font-bold text-gray-800">${row.signer_name || '—'}</div>
                      <div class="text-xs text-gray-500">${row.signed_at ? 'le ' + F.date(row.signed_at) : ''}</div>`;
         }
         var expiry = row.expires_on ? F.date(row.expires_on) : '—';
         var late   = row.derived_status === 'expired';
+        // Not client-signed: the rep chases it. If LPC has already visaed it
+        // internally, say so here — otherwise "Visé LPC" in the status column
+        // has no explanation anywhere on the row.
+        var visaLine = row.lpc_signed
+            ? H`<div class="text-[11px] text-gray-400 mt-0.5">visé par ${row.lpc_signer_name || 'LPC'}${row.lpc_signed_at ? ' le ' + F.date(row.lpc_signed_at) : ''}</div>`
+            : '';
         return H`<div class="text-sm text-gray-700">${row.sales_rep_name || '—'}</div>
                  <div class="text-xs ${late ? 'text-red-600 font-bold' : 'text-gray-500'}">
                     ${late ? 'expiré le ' : "valable jusqu'au "}${expiry}

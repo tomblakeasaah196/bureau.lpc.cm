@@ -108,6 +108,12 @@ $lang = lpc_i18n_current_lang();
         .devis-badge-sent    { background: #eff6ff; color: #1d4ed8; }
         .devis-badge-signed  { background: #ecfdf5; color: #047857; }
         .devis-badge-expired { background: #fef2f2; color: #b91c1c; }
+        /* "Visé LPC" — an INTERNAL attestation, shown alongside the real
+           status rather than instead of it. Deliberately not green: the
+           client has not agreed to anything yet, and a green badge here
+           would read as a won deal on a sales review. Slate, so it reads
+           as metadata next to the status it accompanies. */
+        .devis-badge-visa    { background: #f1f5f9; color: #475569; margin-left: .3rem; }
         /* Signed, then edited. Amber rather than green: the signature exists
            but no longer matches the figures, and that is a discrepancy to
            investigate, not a clean sign-off. */

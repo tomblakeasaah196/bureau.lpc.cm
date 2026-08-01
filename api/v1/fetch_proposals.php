@@ -131,14 +131,38 @@ $sortSql = ($sortMap[$sort] ?? 'p.date') . ' ' . $dir . ', p.id ' . $dir;
 // ones). MAX(id) picks the most recent live signature; the two snapshot
 // columns are read back from it by the outer join.
 // -----------------------------------------------------------------------------
+// Two joins, because migration 055 made "is this devis signed?" two questions.
+//
+//   external — the CLIENT signed. "Bon pour accord": the commercial event a
+//              sales review means by "signé", and what moves money.
+//   internal — an LPC staff member attested to our own figures. Useful, but
+//              it is not the client agreeing to anything.
+//
+// Before 055 only internal signatures existed, so a single unfiltered join
+// was unambiguous. It is not any more: left as-was, a devis nobody outside
+// the building had seen would show as SIGNÉ the moment a rep clicked "Signer
+// côté LPC", and the pipeline figure would drop by its value. Hence the
+// explicit ds.party filters below — the whole point of this fix.
 $sigJoin = "
     LEFT JOIN (
         SELECT ds.document_id, MAX(ds.id) AS sig_id
           FROM document_signatures ds
-         WHERE ds.document_type = 'quote' AND ds.revoked_at IS NULL
+         WHERE ds.document_type = 'quote'
+           AND ds.party = 'external'
+           AND ds.revoked_at IS NULL
          GROUP BY ds.document_id
     ) live ON live.document_id = p.id
     LEFT JOIN document_signatures s ON s.id = live.sig_id
+
+    LEFT JOIN (
+        SELECT ds.document_id, MAX(ds.id) AS sig_id
+          FROM document_signatures ds
+         WHERE ds.document_type = 'quote'
+           AND ds.party = 'internal'
+           AND ds.revoked_at IS NULL
+         GROUP BY ds.document_id
+    ) livei ON livei.document_id = p.id
+    LEFT JOIN document_signatures si ON si.id = livei.sig_id
 ";
 
 // migration 048 may not have run on an older install; the whole page degrades
@@ -209,13 +233,27 @@ try {
             p.sales_rep_name,
             p.token,
             p.language,
-            " . ($hasSigTable ? 's.signer_name, s.signer_role, s.signed_at, s.verify_token' :
-                                'NULL AS signer_name, NULL AS signer_role, NULL AS signed_at, NULL AS verify_token') . ",
+            " . ($hasSigTable
+                    // External rows carry the counterparty's typed identity in
+                    // signatory_name/_role; internal rows use signer_name/_role.
+                    // COALESCE keeps one pair of output columns whichever party
+                    // the row belongs to — the old query read signer_name only,
+                    // so a client-signed devis came back with a blank signer.
+                    ? 'COALESCE(s.signatory_name, s.signer_name)  AS signer_name,
+                       COALESCE(s.signatory_role, s.signer_role)  AS signer_role,
+                       s.signed_at,
+                       s.verify_token,
+                       si.signer_name                             AS lpc_signer_name,
+                       si.signed_at                               AS lpc_signed_at,
+                       si.verify_token                            AS lpc_verify_token'
+                    : 'NULL AS signer_name, NULL AS signer_role, NULL AS signed_at, NULL AS verify_token,
+                       NULL AS lpc_signer_name, NULL AS lpc_signed_at, NULL AS lpc_verify_token') . ",
             CASE
                 WHEN {$signedExpr}  THEN 'signed'
                 WHEN {$expiredExpr} THEN 'expired'
                 ELSE 'sent'
-            END AS derived_status
+            END AS derived_status,
+            " . ($hasSigTable ? 'si.id IS NOT NULL' : '0') . " AS lpc_signed
         FROM proposals p
         {$sigJoin}
         {$whereSql}
