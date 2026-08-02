@@ -46,13 +46,30 @@
 --      and not a guess. ON DELETE SET NULL: losing a supplier record must never
 --      cascade into deleting delivery history.
 --
---   3. A CHECK constraint tying the two together, so the pair cannot drift:
---      a supplier id is allowed only in 'supplier' mode, and 'supplier' mode
---      requires one. MariaDB 10.2+ / MySQL 8.0.16+ enforce CHECK for real; on
---      older engines it parses and is ignored, and the API-side validation in
---      sales_controller.php `generate_dispatch` is the enforcing layer either
---      way. The constraint is added inside a guard so an engine that rejects
---      the syntax outright does not abort the migration.
+--   3. NO CHECK constraint tying the two together. The first version of this
+--      migration added `chk_delivery_supplier_mode` asserting that a supplier
+--      id is allowed only in 'supplier' mode and that 'supplier' mode requires
+--      one. It cannot exist, and the failure is not a syntax quirk:
+--
+--        ERROR 1901: Function or expression 'delivery_supplier_id' cannot be
+--        used in the CHECK clause of 'chk_delivery_supplier_mode'
+--
+--      `delivery_supplier_id` carries ON DELETE SET NULL (see 2 above). Delete
+--      a supplier and the engine writes NULL into rows whose delivery_mode is
+--      'supplier' — which is precisely the state the CHECK forbids. MySQL and
+--      MariaDB both refuse to create a constraint pair they can be forced to
+--      violate; referential actions are prohibited on columns used in a CHECK.
+--      The two rules are genuinely incompatible, so one had to go.
+--
+--      SET NULL was kept because losing a supplier record must never cascade
+--      into deleting delivery history — that is the more important guarantee.
+--      The mode/supplier invariant is therefore enforced in the API layer, in
+--      sales_controller.php `generate_dispatch`, which validated it already.
+--
+--      Residual hole, stated plainly: deleting a supplier leaves its past
+--      deliveries reading 'supplier' with a NULL supplier id. That is visible
+--      and reportable rather than destructive, and it is the price of not
+--      cascading. A query to find them is in the VERIFY block at the bottom.
 --
 --   4. Backfill of existing rows from the old implicit encoding:
 --        driver_id IS NOT NULL  ->  'own_fleet'
@@ -90,7 +107,6 @@
 -- --------
 --   ALTER TABLE deliveries DROP FOREIGN KEY fk_delivery_supplier;
 --   ALTER TABLE deliveries DROP INDEX  idx_deliveries_mode_date;
---   ALTER TABLE deliveries DROP CHECK  chk_delivery_supplier_mode;
 --   ALTER TABLE deliveries DROP COLUMN delivery_supplier_id;
 --   ALTER TABLE deliveries DROP COLUMN delivery_mode;
 -- Dropping the columns loses the channel distinction for rows created after
@@ -170,24 +186,31 @@ UPDATE deliveries
    AND delivery_mode = 'own_fleet';
 
 -- -----------------------------------------------------------------------------
--- 4. CHECK constraint: mode and supplier id cannot disagree
+-- 4. (removed) CHECK constraint on mode + supplier id
 -- -----------------------------------------------------------------------------
--- Guarded twice: on prior existence, and on engine support. MariaDB < 10.2 and
--- MySQL < 8.0.16 parse CHECK and silently ignore it — harmless, the API layer
--- validates the same rule. Nothing here can fail the migration.
+-- Deliberately absent. See §3 of the header: a CHECK referencing
+-- `delivery_supplier_id` is rejected outright because that column carries
+-- ON DELETE SET NULL, and the engine will not create a constraint its own
+-- referential action would break. Error 1901 on MySQL 8 / MariaDB 10.
+--
+-- Do not "fix" this by re-adding the CHECK — it will fail the migration again.
+-- If you ever need the invariant enforced in the database rather than in
+-- sales_controller.php, the FK action has to change to RESTRICT first, and
+-- that is a behaviour change: suppliers with delivery history stop being
+-- deletable. That was considered and rejected on 2026-08-02.
+--
+-- Defensive cleanup: if a half-applied run on some environment managed to
+-- create the constraint before this section was removed, drop it, so every
+-- database ends up in the same shape.
 SET @chk_exists := (
     SELECT COUNT(*) FROM information_schema.table_constraints
      WHERE table_schema    = DATABASE()
        AND table_name      = 'deliveries'
        AND constraint_name = 'chk_delivery_supplier_mode'
 );
-SET @sql := IF(@chk_exists = 0,
-    'ALTER TABLE deliveries
-       ADD CONSTRAINT chk_delivery_supplier_mode CHECK (
-             (delivery_mode =  ''supplier'' AND delivery_supplier_id IS NOT NULL)
-          OR (delivery_mode <> ''supplier'' AND delivery_supplier_id IS NULL)
-       )',
-    'SELECT ''chk_delivery_supplier_mode exists'' AS info'
+SET @sql := IF(@chk_exists > 0,
+    'ALTER TABLE deliveries DROP CONSTRAINT chk_delivery_supplier_mode',
+    'SELECT ''chk_delivery_supplier_mode absent (expected)'' AS info'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
@@ -233,10 +256,21 @@ ALTER TABLE deliveries
 --   SELECT delivery_mode, COUNT(*) FROM deliveries GROUP BY delivery_mode;
 --   -- every historical row must be own_fleet or client_pickup; zero supplier
 --
+--   -- The invariant the removed CHECK would have enforced. It is now the API
+--   -- layer's job (sales_controller.php generate_dispatch), so this is the
+--   -- query that audits it. Expect 0 immediately after the migration.
 --   SELECT COUNT(*) FROM deliveries
 --    WHERE (delivery_mode =  'supplier' AND delivery_supplier_id IS NULL)
 --       OR (delivery_mode <> 'supplier' AND delivery_supplier_id IS NOT NULL);
 --   -- expect 0
+--
+--   -- Worth running periodically, not just once: deleting a supplier sets
+--   -- delivery_supplier_id to NULL without touching delivery_mode, so orphans
+--   -- accumulate here rather than being blocked at write time. These rows are
+--   -- not corrupt — the delivery happened, the supplier record is simply gone.
+--   SELECT id, date, delivery_mode
+--     FROM deliveries
+--    WHERE delivery_mode = 'supplier' AND delivery_supplier_id IS NULL;
 --
 --   -- The rule this whole migration exists to establish: a BL can be cut with
 --   -- no affectation journalière at all.
