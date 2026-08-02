@@ -167,18 +167,76 @@ $user_role = $_SESSION['user_role'];
                         <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.date_de_livraison_prevue')) ?></label>
                         <input type="date" id="disp_date" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-600">
                     </div>
+                    <?php
+                    // Migration 061 — the logistics channel is chosen up front
+                    // instead of being inferred from which fields were left
+                    // blank. The old modal had a single "Chauffeur assigné"
+                    // select whose empty option silently meant "enlèvement
+                    // magasin", and it was populated only from the day's
+                    // affectation — so with no affectation the only reachable
+                    // choice was pickup, and a supplier delivery had nowhere to
+                    // be recorded at all.
+                    //
+                    // INTERNAL ONLY. None of the three modes, and no supplier
+                    // name, is ever rendered on the customer's bon de livraison
+                    // (public/documents/bon_livraison.php). This is how LPC
+                    // moved the goods; the client's document states what was
+                    // delivered and to whom.
+                    ?>
                     <div>
-                        <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.chauffeur_assigne')) ?> <span class="text-blue-500">*</span></label>
-                        <select id="disp_driver" onchange="autoSelectVehicle()" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-600">
-                            <option value=""><?= htmlspecialchars(__t('ui.x.enlevement_magasin_vehicule_client')) ?></option>
-                        </select>
+                        <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.mode_de_livraison')) ?> <span class="text-blue-500">*</span></label>
+                        <div class="grid grid-cols-3 gap-2" id="disp_mode_group" role="radiogroup" aria-label="<?= htmlspecialchars(__t('ui.x.mode_de_livraison')) ?>">
+                            <button type="button" data-mode="own_fleet" onclick="setDeliveryMode('own_fleet')" role="radio" aria-checked="true"
+                                class="disp-mode-btn flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 text-[10px] font-black uppercase tracking-wide transition-all">
+                                <i class="fas fa-truck text-lg"></i><span><?= htmlspecialchars(__t('ui.x.flotte_lpc')) ?></span>
+                            </button>
+                            <button type="button" data-mode="supplier" onclick="setDeliveryMode('supplier')" role="radio" aria-checked="false"
+                                class="disp-mode-btn flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 text-[10px] font-black uppercase tracking-wide transition-all">
+                                <i class="fas fa-industry text-lg"></i><span><?= htmlspecialchars(__t('ui.x.livraison_fournisseur')) ?></span>
+                            </button>
+                            <button type="button" data-mode="client_pickup" onclick="setDeliveryMode('client_pickup')" role="radio" aria-checked="false"
+                                class="disp-mode-btn flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 text-[10px] font-black uppercase tracking-wide transition-all">
+                                <i class="fas fa-store text-lg"></i><span><?= htmlspecialchars(__t('ui.x.enlevement_magasin')) ?></span>
+                            </button>
+                        </div>
+                        <input type="hidden" id="disp_mode" value="own_fleet">
                     </div>
-                    <div>
-                        <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.vehicule_auto_assigne')) ?></label>
-                        <select id="disp_vehicle" class="w-full bg-gray-200 border border-gray-300 rounded-xl p-3 text-sm font-bold text-gray-600 outline-none pointer-events-none appearance-none" tabindex="-1">
-                            <option value=""><?= htmlspecialchars(__t('ui.x.aucun')) ?></option>
+
+                    <?php // Shown for own_fleet only. ?>
+                    <div id="disp_fleet_fields" class="space-y-5">
+                        <div>
+                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.chauffeur_assigne')) ?> <span class="text-blue-500">*</span></label>
+                            <select id="disp_driver" onchange="autoSelectVehicle()" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-600">
+                                <option value=""><?= htmlspecialchars(__t('ui.x.selectionner_un_chauffeur')) ?></option>
+                            </select>
+                        </div>
+                        <div>
+                            <?php
+                            // Was a locked, pointer-events-none mirror of the
+                            // day's affectation. The vehicle is now a free
+                            // choice among active vehicles; the affectation, if
+                            // any, merely pre-selects one.
+                            ?>
+                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.vehicule')) ?></label>
+                            <select id="disp_vehicle" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-600">
+                                <option value=""><?= htmlspecialchars(__t('ui.x.aucun')) ?></option>
+                            </select>
+                            <p class="text-[9px] text-gray-400 font-bold mt-1" id="disp_vehicle_hint"><i class="fas fa-info-circle"></i> <?= htmlspecialchars(__t('ui.x.vehicule_optionnel_affectation_prerempli')) ?></p>
+                        </div>
+                    </div>
+
+                    <?php // Shown for supplier only. ?>
+                    <div id="disp_supplier_fields" class="hidden">
+                        <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.fournisseur_livreur')) ?> <span class="text-blue-500">*</span></label>
+                        <select id="disp_supplier" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-600">
+                            <option value=""><?= htmlspecialchars(__t('ui.x.selectionner_un_fournisseur')) ?></option>
                         </select>
-                        <p class="text-[9px] text-gray-400 font-bold mt-1"><i class="fas fa-link"></i> <?= htmlspecialchars(__t('ui.x.lie_a_l_affectation_journaliere_de_la_fl')) ?></p>
+                        <p class="text-[9px] text-gray-400 font-bold mt-1"><i class="fas fa-eye-slash"></i> <?= htmlspecialchars(__t('ui.x.information_interne_absente_du_bl')) ?></p>
+                    </div>
+
+                    <?php // Shown for client_pickup only. ?>
+                    <div id="disp_pickup_note" class="hidden bg-gray-50 border border-gray-200 rounded-xl p-4">
+                        <p class="text-[11px] font-bold text-gray-600"><i class="fas fa-store text-gray-400 mr-1"></i> <?= htmlspecialchars(__t('ui.x.enlevement_magasin_vehicule_client')) ?></p>
                     </div>
                 </form>
             </div>
@@ -229,7 +287,8 @@ $user_role = $_SESSION['user_role'];
                             <h4 class="text-xs font-black text-gray-600 uppercase tracking-widest mb-4"><?= htmlspecialchars(__t('ui.x.informations_financieres')) ?></h4>
                             <div class="space-y-4">
                                 <div>
-                                    <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.montant_collecte_par_le_chauffeur_fcfa')) ?></label>
+                                    <?php // Label is rewritten per delivery_mode by openCompleteDeliveryModal(). ?>
+                                    <label id="close_cash_label" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.montant_collecte_par_le_chauffeur_fcfa')) ?></label>
                                     <input type="number" id="close_cash" value="0" min="0" class="w-full bg-emerald-50 text-emerald-900 border border-emerald-200 rounded-lg p-3 text-lg font-black outline-none focus:ring-2 focus:ring-emerald-500">
                                 </div>
                                 <div>

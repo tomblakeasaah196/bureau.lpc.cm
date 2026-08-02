@@ -67,7 +67,14 @@
                     result.data.table.forEach(r => {
                         const d = new Date(r.created_at);
                         const dateStr = d.toLocaleDateString('fr-FR');
-                        
+
+                        // Migration 060: flag sales that were priced off-catalogue
+                        // so whoever reconciles the cash knows to expect a
+                        // different figure, and can click through to the motive.
+                        const badge = Number(r.override_count) > 0
+                            ? LPC.raw(LPC.html`<span class="ml-1 inline-block bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded text-[9px] font-black uppercase" title="Prix négocié(s)"><i class="fas fa-tag"></i> ${r.override_count} prix négocié</span>`)
+                            : '';
+
                         tbody.innerHTML += LPC.html`
                             <tr class="hover:bg-gray-50 transition-colors">
                                 <td class="py-3 px-4 text-xs font-bold text-gray-500">${dateStr}<br><span class="text-[10px] font-black text-amber-600">${r.reference}</span></td>
@@ -75,13 +82,72 @@
                                 <td class="py-3 px-4">
                                     <p class="text-[10px] text-gray-400 font-black uppercase mb-1">${r.recycler_location}</p>
                                     <p class="text-xs font-bold text-blue-600 italic">${r.details}</p>
+                                    ${badge}
                                 </td>
                                 <td class="py-3 px-4 text-right font-black text-emerald-600 text-lg">${fmt(r.total_amount)} F</td>
                             </tr>
                         `;
                     });
+
+                    loadPriceOverrides();
                 }
             } catch(e) { console.error(e); }
+        }
+
+        /**
+         * The negotiated-price register: every deviation, who made it, by how
+         * much, and why. Lives under the revenue table because that is where a
+         * supervisor asks "why doesn't this match?" — the answer should be on
+         * the same screen as the question, not in a separate report.
+         */
+        async function loadPriceOverrides() {
+            const box = document.getElementById('override_log');
+            if (!box) return;
+            try {
+                const res = await fetch('/api/v1/cre_controller.php?action=get_price_overrides');
+                const result = await res.json();
+                const rows = (result && result.data) || [];
+
+                if (rows.length === 0) {
+                    box.innerHTML = '<p class="text-center py-6 text-gray-400 font-bold text-xs">Aucun prix négocié enregistré.</p>';
+                    return;
+                }
+
+                box.innerHTML = '';
+                rows.forEach(o => {
+                    const when   = new Date(o.created_at).toLocaleString('fr-FR');
+                    const up     = Number(o.delta_amount) > 0;
+                    const pct    = o.delta_pct === null || o.delta_pct === undefined
+                        ? '' : ` (${Number(o.delta_pct) > 0 ? '+' : ''}${Number(o.delta_pct).toFixed(1)}%)`;
+                    const impact = Number(o.total_impact);
+
+                    box.innerHTML += LPC.html`
+                        <div class="p-3 border-b border-gray-100 last:border-0">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0 flex-1">
+                                    <p class="text-xs font-black text-gray-900">${o.product_name}
+                                        <span class="text-[10px] font-bold text-gray-400 ml-1">${o.sale_reference || ''}</span>
+                                    </p>
+                                    <p class="text-[11px] font-bold text-gray-600 mt-0.5">
+                                        ${fmt(o.base_price)} F → <span class="${up ? 'text-emerald-600' : 'text-rose-600'}">${fmt(o.override_price)} F</span>${pct}
+                                        <span class="text-gray-400">· ${o.quantity} u.</span>
+                                    </p>
+                                    <p class="text-[11px] text-gray-500 italic mt-1 break-words">« ${o.reason} »</p>
+                                    <p class="text-[10px] font-bold text-gray-400 mt-1">
+                                        <i class="fas fa-user mr-1"></i>${o.user_name || 'Utilisateur supprimé'} · ${when}
+                                        ${o.recycler_location ? LPC.raw(LPC.html` · <span>${o.recycler_location}</span>`) : ''}
+                                    </p>
+                                </div>
+                                <div class="text-right shrink-0">
+                                    <p class="text-[9px] font-black uppercase text-gray-400">Impact</p>
+                                    <p class="text-sm font-black ${impact > 0 ? 'text-emerald-600' : 'text-rose-600'}">${impact > 0 ? '+' : ''}${fmt(impact)} F</p>
+                                </div>
+                            </div>
+                        </div>`;
+                });
+            } catch (e) {
+                box.innerHTML = '<p class="text-center py-6 text-gray-400 font-bold text-xs">Registre indisponible.</p>';
+            }
         }
 
         function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
@@ -226,6 +292,45 @@
         let globalEmptyCatalog = [];    // [{ id, name, base_price, bottle_size, has_cork, type_key }]
         const LEGACY_TYPE_MAP = { '20L_cork':'901','20L_nocork':'902','10L_cork':'903','10L_nocork':'904' };
 
+        /* ---------------------------------------------------------------------
+           NEGOTIATED PRICES (migration 060).
+
+           Prices at the recycler's gate are haggled — bottle shape, cork
+           condition, lot quality, market. Until now the driver could only book
+           the catalogue price, so the cash in his hand and the cash in the
+           system drifted apart and nobody could say why.
+
+           `priceOverrides` holds the deviations for the sale currently being
+           composed, keyed by product id:
+               { [productId]: { price: Number, reason: String } }
+
+           It is deliberately transient — cleared on submit and on reset. A
+           negotiated price belongs to one transaction, not to the catalogue,
+           so nothing here is ever written back to globalRecyclePrices (which
+           stays the pristine catalogue) and nothing is persisted client-side.
+           The server re-validates every figure and refuses any deviation it
+           cannot attribute and explain, so this object is a convenience, not
+           a source of truth.
+           ------------------------------------------------------------------ */
+        let priceOverrides = {};
+        let priceModalProductId = null;   // product being edited in the modal
+        const canOverridePrice = window.LPC_CAN_OVERRIDE_PRICE === true;
+
+        /** Catalogue price for a product — never mutated by an override. */
+        function basePriceOf(productId) {
+            return parseFloat(globalRecyclePrices[productId]) || 0;
+        }
+
+        /** Price actually applied: the negotiated one if present, else catalogue. */
+        function effectivePriceOf(productId) {
+            const o = priceOverrides[productId];
+            return o ? o.price : basePriceOf(productId);
+        }
+
+        function productByLegacyId(legacyId) {
+            return globalEmptyCatalog.find(p => LEGACY_TYPE_MAP[p.type_key] === String(legacyId)) || null;
+        }
+
         async function loadRecyclingPrices() {
             try {
                 const res = await fetch('/api/v1/cre_controller.php?action=get_empty_products');
@@ -234,14 +339,166 @@
                     globalEmptyCatalog = result.data || [];
                     globalEmptyCatalog.forEach(p => {
                         globalRecyclePrices[p.id] = parseFloat(p.base_price);
-                        const legacyId = LEGACY_TYPE_MAP[p.type_key];
-                        if (legacyId) {
-                            const labelEl = document.getElementById(`price_${legacyId}`);
-                            if (labelEl) labelEl.innerText = `${p.base_price} F`;
-                        }
                     });
+                    renderRecyclingPrices();
                 }
             } catch(e) { console.error("Could not load empty-product catalog", e); }
+        }
+
+        /**
+         * Paint the four price labels. An overridden label turns orange with a
+         * strikethrough of the catalogue price, so the deviation is visible at
+         * a glance on the form itself — not only after submitting.
+         */
+        function renderRecyclingPrices() {
+            globalEmptyCatalog.forEach(p => {
+                const legacyId = LEGACY_TYPE_MAP[p.type_key];
+                if (!legacyId) return;
+                const labelEl = document.getElementById(`price_${legacyId}`);
+                if (!labelEl) return;
+
+                const base = basePriceOf(p.id);
+                const ov   = priceOverrides[p.id];
+
+                if (ov) {
+                    labelEl.className = 'text-[10px] font-black text-orange-600';
+                    labelEl.innerHTML = LPC.html`<span class="line-through text-gray-400 font-bold mr-1">${fmt(base)}</span>${fmt(ov.price)} F`;
+                    labelEl.title = `Prix négocié — ${ov.reason}`;
+                } else {
+                    labelEl.className = 'text-[10px] font-black text-amber-600';
+                    labelEl.innerText = `${fmt(base)} F`;
+                    labelEl.title = '';
+                }
+            });
+            renderOverrideBanner();
+        }
+
+        /** The running summary above the cash total. Hidden when nothing deviates. */
+        function renderOverrideBanner() {
+            const banner = document.getElementById('override_banner');
+            const list   = document.getElementById('override_list');
+            if (!banner || !list) return;
+
+            const ids = Object.keys(priceOverrides);
+            if (ids.length === 0) { banner.classList.add('hidden'); list.innerHTML = ''; return; }
+
+            list.innerHTML = '';
+            ids.forEach(pid => {
+                const p  = globalEmptyCatalog.find(x => String(x.id) === String(pid));
+                const ov = priceOverrides[pid];
+                if (!p) return;
+                const legacyId = LEGACY_TYPE_MAP[p.type_key];
+                list.innerHTML += LPC.html`
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="min-w-0">
+                            <p class="text-[11px] font-black text-orange-900 leading-tight">${p.name}</p>
+                            <p class="text-[10px] font-bold text-orange-700">${fmt(basePriceOf(p.id))} F → ${fmt(ov.price)} F</p>
+                            <p class="text-[10px] text-orange-600 italic break-words">${ov.reason}</p>
+                        </div>
+                        <button type="button" class="js-clear-override shrink-0 text-orange-400 hover:text-rose-600 p-1" data-legacy="${legacyId}" title="Rétablir le prix catalogue" aria-label="Rétablir le prix catalogue">
+                            <i class="fas fa-times-circle"></i>
+                        </button>
+                    </div>`;
+            });
+            banner.classList.remove('hidden');
+        }
+
+        /** Open the modal for one bottle type, prefilled with any existing override. */
+        function openPriceModal(legacyId) {
+            if (!canOverridePrice) return;
+            const p = productByLegacyId(legacyId);
+            if (!p) return LPC.modal.alert("Catalogue non chargé. Réessayez dans un instant.");
+
+            priceModalProductId = p.id;
+            const base = basePriceOf(p.id);
+            const ov   = priceOverrides[p.id];
+
+            document.getElementById('price_modal_product').innerText = p.name;
+            document.getElementById('price_modal_base').innerText    = fmt(base);
+            document.getElementById('price_modal_input').value       = ov ? ov.price : base;
+            document.getElementById('price_modal_reason').value      = ov ? ov.reason : '';
+            document.getElementById('price_modal_reset').classList.toggle('hidden', !ov);
+            hidePriceModalError();
+            updatePriceDelta();
+            openModal('modal-price');
+            setTimeout(() => {
+                const input = document.getElementById('price_modal_input');
+                input.focus(); input.select();
+            }, 50);
+        }
+
+        /** Live "+50 F (+16.7%)" preview under the price input. */
+        function updatePriceDelta() {
+            const el = document.getElementById('price_modal_delta');
+            if (!el || priceModalProductId === null) return;
+            const base = basePriceOf(priceModalProductId);
+            const val  = parseFloat(document.getElementById('price_modal_input').value);
+
+            if (isNaN(val)) { el.innerText = ''; return; }
+            const delta = val - base;
+            if (Math.abs(delta) < 0.005) {
+                el.className = 'text-[11px] font-bold mt-1.5 h-4 text-gray-400';
+                el.innerText = 'Identique au prix catalogue';
+                return;
+            }
+            const pct = base > 0 ? ` (${delta > 0 ? '+' : ''}${((delta / base) * 100).toFixed(1)}%)` : '';
+            el.className = `text-[11px] font-bold mt-1.5 h-4 ${delta > 0 ? 'text-emerald-600' : 'text-rose-600'}`;
+            el.innerText = `${delta > 0 ? '+' : ''}${fmt(delta)} F par unité${pct}`;
+        }
+
+        function showPriceModalError(msg) {
+            const el = document.getElementById('price_modal_error');
+            el.innerText = msg;
+            el.classList.remove('hidden');
+        }
+        function hidePriceModalError() {
+            document.getElementById('price_modal_error').classList.add('hidden');
+        }
+
+        /**
+         * Validate and stage the override. These checks mirror the server's in
+         * cre_controller.php (resolveRecyclingUnitPrice) so the operator gets
+         * the message at the keyboard instead of after a round trip — the
+         * server still owns the decision.
+         */
+        function applyPriceOverride() {
+            if (priceModalProductId === null) return;
+            const base   = basePriceOf(priceModalProductId);
+            const raw    = document.getElementById('price_modal_input').value;
+            const reason = document.getElementById('price_modal_reason').value.trim();
+            const price  = parseFloat(raw);
+
+            if (raw === '' || isNaN(price))  return showPriceModalError("Saisissez un prix valide.");
+            if (price < 0)                   return showPriceModalError("Le prix ne peut pas être négatif.");
+            if (price > 1000000)             return showPriceModalError("Prix irréaliste (max 1 000 000 FCFA/unité).");
+            if (base > 0 && price > base * 10) {
+                return showPriceModalError(`Prix irréaliste : ${fmt(price)} F contre ${fmt(base)} F au catalogue. Vérifiez la saisie.`);
+            }
+
+            // Back to catalogue → drop the override rather than storing a
+            // zero-delta "deviation" that would pollute the audit log.
+            if (Math.abs(price - base) < 0.005) {
+                delete priceOverrides[priceModalProductId];
+                closeModal('modal-price');
+                renderRecyclingPrices();
+                calcRecycleTotal();
+                return;
+            }
+
+            if (reason.length < 5) return showPriceModalError("Motif requis (au moins 5 caractères) — il sera enregistré avec votre nom.");
+
+            priceOverrides[priceModalProductId] = { price: Math.round(price * 100) / 100, reason: reason.slice(0, 500) };
+            closeModal('modal-price');
+            renderRecyclingPrices();
+            calcRecycleTotal();
+        }
+
+        /** Revert one product to its catalogue price. */
+        function resetPriceOverride() {
+            if (priceModalProductId !== null) delete priceOverrides[priceModalProductId];
+            closeModal('modal-price');
+            renderRecyclingPrices();
+            calcRecycleTotal();
         }
 
         function calcRecycleTotal() {
@@ -250,7 +507,7 @@
                 const legacyId = LEGACY_TYPE_MAP[p.type_key];
                 if (!legacyId) return;
                 const qty = parseInt(document.getElementById(`rec_${legacyId}`).value) || 0;
-                total += (qty * (globalRecyclePrices[p.id] || 0));
+                total += (qty * effectivePriceOf(p.id));
             });
             document.getElementById('recycle_total').innerText = fmt(total);
         }
@@ -260,14 +517,60 @@
             if (!location) return LPC.modal.alert("Veuillez saisir le lieu de recyclage.");
 
             const itemsToSell = [];
+            let overridesInSale = 0;
             globalEmptyCatalog.forEach(p => {
                 const legacyId = LEGACY_TYPE_MAP[p.type_key];
                 if (!legacyId) return;
                 const qty = parseInt(document.getElementById(`rec_${legacyId}`).value) || 0;
-                if (qty > 0) itemsToSell.push({ product_id: p.id, quantity: qty });
+                if (qty <= 0) return;
+
+                const item = { product_id: p.id, quantity: qty };
+                // Only send a price when it actually deviates. Staying silent
+                // on untouched lines keeps the server on its catalogue path and
+                // means a stray client value can never become an unlogged price.
+                const ov = priceOverrides[p.id];
+                if (ov) {
+                    item.unit_price   = ov.price;
+                    item.price_reason = ov.reason;
+                    overridesInSale++;
+                }
+                itemsToSell.push(item);
             });
 
             if (itemsToSell.length === 0) return LPC.modal.alert("Veuillez saisir au moins une quantité à vendre.");
+
+            // Deviations are consequential and irreversible once booked, so the
+            // driver confirms them explicitly rather than discovering them in
+            // the admin notification afterwards.
+            if (overridesInSale > 0) {
+                // LPC.modal.confirm() escapes its message into a single <p>, so
+                // newlines would collapse and the list would read as one run-on
+                // line. custom() takes real markup — worth it here, because the
+                // whole point is that the driver can check each figure.
+                let rows = '';
+                itemsToSell.filter(i => i.unit_price !== undefined).forEach(i => {
+                    const p = globalEmptyCatalog.find(x => x.id === i.product_id);
+                    rows += LPC.html`
+                        <li style="margin-bottom:.5rem">
+                            <strong>${p ? p.name : i.product_id}</strong><br>
+                            ${fmt(basePriceOf(i.product_id))} F → <strong>${fmt(i.unit_price)} F</strong><br>
+                            <em style="opacity:.7">${priceOverrides[i.product_id].reason}</em>
+                        </li>`;
+                });
+                const ok = await LPC.modal.custom({
+                    level: 'warn',
+                    title: 'Confirmer les prix négociés',
+                    bodyHtml:
+                        '<p><strong>' + overridesInSale + '</strong> prix hors catalogue sur cette vente :</p>' +
+                        '<ul style="margin:.75rem 0;padding-left:1.1rem">' + rows + '</ul>' +
+                        '<p>Votre nom et le motif seront enregistrés de façon permanente.</p>',
+                    buttons: [
+                        { label: 'Annuler',              value: false, variant: 'secondary' },
+                        { label: 'Confirmer la vente',   value: true,  variant: 'primary', primary: true },
+                    ],
+                });
+                if (!ok) return;
+            }
 
             const btn = document.getElementById('btn-submit-recycling');
             btn.innerHTML = '<i class="fas fa-spinner fa-spin text-lg"></i> Validation...';
@@ -279,8 +582,14 @@
                 const res = await fetch('/api/v1/cre_controller.php', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
                 const result = await res.json();
                 if (result.status === 'success') {
-                    LPC.modal.alert(`Vente validée ! Montant attendu en caisse : ${fmt(result.data.total_amount)} FCFA`);
+                    const note = result.data.override_count > 0
+                        ? ` — ${result.data.override_count} prix négocié(s) enregistré(s) à votre nom.`
+                        : '';
+                    LPC.modal.alert(`Vente validée ! Montant attendu en caisse : ${fmt(result.data.total_amount)} FCFA${note}`);
                     document.getElementById('form-recycle').reset();
+                    // A negotiated price is scoped to the sale that just closed.
+                    priceOverrides = {};
+                    renderRecyclingPrices();
                     calcRecycleTotal();
                 } else {
                     LPC.modal.alert("Erreur: " + result.message);
@@ -292,6 +601,29 @@
                 btn.disabled = false;
             }
         }
+
+        /* Delegated listeners for the price-edit affordances. Delegated rather
+           than per-element because the banner rows are re-rendered on every
+           change, and the pencil buttons only exist when the server decided the
+           user may override. */
+        document.addEventListener('click', function (ev) {
+            const editBtn = ev.target.closest('.js-edit-price');
+            if (editBtn) { openPriceModal(editBtn.dataset.legacy); return; }
+
+            const clearBtn = ev.target.closest('.js-clear-override');
+            if (clearBtn) {
+                const p = productByLegacyId(clearBtn.dataset.legacy);
+                if (p) {
+                    delete priceOverrides[p.id];
+                    renderRecyclingPrices();
+                    calcRecycleTotal();
+                }
+            }
+        });
+
+        document.addEventListener('input', function (ev) {
+            if (ev.target && ev.target.id === 'price_modal_input') updatePriceDelta();
+        });
 
         // ==========================================
         // TAB 4: HISTORY LOGIC

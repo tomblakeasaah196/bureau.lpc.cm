@@ -166,6 +166,13 @@ $LPC_PERMISSIONS = [
         'operations.empties.sign'       => 'Signer un CRE',
         'operations.recycling.view'     => 'Voir les revenus recyclage',
         'operations.recycling.sell'     => 'Vendre au recycleur',
+        // Migration 060. Granted alongside .sell by default: the driver at the
+        // recycler's gate is the person doing the negotiating, so gating him
+        // would push the deviation off the books rather than prevent it. The
+        // control is the audit trail (recycling_price_overrides), not the gate
+        // — but the permission exists so it CAN be revoked per role from
+        // Administration → Rôles without touching code.
+        'operations.recycling.override_price' => 'Négocier / modifier le prix de vente des vides',
     ],
 
     // ---------------- Fleet -----------------------------------------------

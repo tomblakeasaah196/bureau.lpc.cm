@@ -11,7 +11,16 @@
         // 1. STATE MANAGEMENT
         let currentTab = 'orders';
         let moduleData = [];
-        let metaData = { clients: [], products: [], drivers: [], vehicles: [] };
+        let metaData = { clients: [], products: [], drivers: [], vehicles: [], suppliers: [], assignments: [] };
+
+        // Migration 061 · logistics channel. Kept in sync with the enum on
+        // deliveries.delivery_mode and with $ALLOWED_MODES in
+        // api/v1/sales_controller.php. INTERNAL ONLY — never printed on the BL.
+        const DELIVERY_MODES = {
+            own_fleet:     { label: 'Flotte LPC',        icon: 'fa-truck',    short: 'Flotte' },
+            supplier:      { label: 'Livr. Fournisseur', icon: 'fa-industry', short: 'Fournisseur' },
+            client_pickup: { label: 'Enlèvement',        icon: 'fa-store',    short: 'Enlèvement' }
+        };
 
         const config = {
             orders: {
@@ -40,7 +49,26 @@
                     { key: 'date', label: 'Date Sortie', render: v => `<span class="text-xs font-bold text-gray-500">${new Date(v).toLocaleDateString('fr-FR')}</span>` },
                     { key: 'reference', label: 'Réf. BL', render: v => `<span class="font-black text-blue-700 tracking-wide">${v}</span>` },
                     { key: 'client_name', label: 'Client', render: v => `<span class="font-bold text-gray-700">${v}</span>` },
-                    { key: 'driver_name', label: 'Chauffeur', render: v => v ? `<span class="text-xs font-bold text-gray-600"><i class="fas fa-id-badge mr-1"></i>${v}</span>` : `<span class="text-[10px] font-bold text-gray-400 uppercase italic">Enlèvement</span>` },
+                    // Migration 061: this column read driver_name alone and
+                    // rendered "Enlèvement" for anything null — which after the
+                    // business-model change would have mislabelled every
+                    // supplier delivery as a warehouse pickup. It now reports
+                    // the explicit channel. INTERNAL VIEW ONLY: none of this
+                    // reaches the customer's BL.
+                    { key: 'delivery_mode', label: 'Acheminement', render: (v, row) => {
+                        const m = DELIVERY_MODES[v] || DELIVERY_MODES.own_fleet;
+                        const who = v === 'supplier' ? (row.supplier_name || '—')
+                                  : v === 'client_pickup' ? 'Véhicule client'
+                                  : (row.driver_name || '—');
+                        const tone = v === 'supplier' ? 'text-violet-700 bg-violet-50'
+                                   : v === 'client_pickup' ? 'text-gray-500 bg-gray-100'
+                                   : 'text-gray-700 bg-gray-50';
+                        return LPC.html`<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded ${tone}">
+                            <i class="fas ${m.icon} text-[10px]"></i>
+                            <span class="text-[10px] font-black uppercase tracking-wide">${m.short}</span>
+                            <span class="text-xs font-bold">${who}</span>
+                        </span>`;
+                    }},
                     { key: 'status', label: 'Statut Logistique', render: v => {
                         if(v === 'draft') return '<span class="text-gray-500 bg-gray-100 px-2 py-1 rounded text-[10px] font-black uppercase">Brouillon</span>';
                         if(v === 'dispatched') return '<span class="text-blue-600 bg-blue-50 px-2 py-1 rounded text-[10px] font-black uppercase animate-pulse">En Transit</span>';
@@ -51,7 +79,10 @@
                     { key: 'payment_collected', label: 'Cash Collecté', render: v => parseFloat(v) > 0 ? `<span class="font-black text-emerald-600">${LPC.fmt.int(v)} FCFA</span>` : `<span class="text-gray-400 font-bold">-</span>` }
                 ],
                 kpis: [
-                    { id: 'kpi_dl_dispatched', label: 'Camions en Route', icon: 'fa-truck-moving', color: 'text-blue-600', bg: 'bg-blue-50' },
+                    // Was "Camions en Route". The value is now split by channel
+                    // (fleet vs supplier) server-side, so the label can no
+                    // longer claim every in-transit BL is an LPC truck.
+                    { id: 'kpi_dl_dispatched', label: 'En Transit', icon: 'fa-truck-moving', color: 'text-blue-600', bg: 'bg-blue-50' },
                     { id: 'kpi_dl_completed', label: 'Livrées (Aujourd\'hui)', icon: 'fa-check-double', color: 'text-emerald-600', bg: 'bg-emerald-50' },
                     { id: 'kpi_dl_cash', label: 'Cash Collecté (Jour)', icon: 'fa-money-bill-wave', color: 'text-gray-900', bg: 'bg-gray-200' },
                     { id: 'kpi_dl_returns', label: 'Rejets / Avaries', icon: 'fa-exclamation-triangle', color: 'text-red-600', bg: 'bg-red-50' }
@@ -63,6 +94,14 @@
         document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('so_date').valueAsDate = new Date();
             await fetchMetaData();
+
+            // Mark a deliberate vehicle choice so switching driver afterwards
+            // does not quietly overwrite it with that driver's affectation.
+            document.getElementById('disp_vehicle')?.addEventListener('change', function () {
+                if (this.value) { this.dataset.userPicked = '1'; }
+                else { delete this.dataset.userPicked; }
+            });
+            setDeliveryMode('own_fleet');   // paint the default mode buttons
 
             // Honour a #hash so other pages can deep-link straight to a tab
             // (the sales dashboard's "en attente de dispatch" card links to
@@ -83,28 +122,103 @@
                     const clientSel = document.getElementById('so_client');
                     metaData.clients.forEach(c => clientSel.innerHTML += LPC.html`<option value="${c.id}">${c.name}</option>`);
 
-                    // Inject Drivers from Today's Assignments
+                    // Migration 061 · drivers come from the full active-driver
+                    // roster, NOT from today's vehicle_assignments. The old
+                    // code looped metaData.assignments here, so on any day
+                    // Flotte had not yet run the morning affectation this
+                    // dropdown was empty and no BL could name a driver.
                     const driverSel = document.getElementById('disp_driver');
-                    metaData.assignments.forEach(a => {
-                        driverSel.innerHTML += LPC.html`<option value="${a.driver_id}">${a.first_name} ${a.last_name}</option>`;
+                    (metaData.drivers || []).forEach(d => {
+                        driverSel.innerHTML += LPC.html`<option value="${d.id}">${d.first_name} ${d.last_name}</option>`;
+                    });
+
+                    // Vehicle is now a free choice among active vehicles rather
+                    // than a locked mirror of the day's pairing.
+                    const vehSel = document.getElementById('disp_vehicle');
+                    (metaData.vehicles || []).forEach(v => {
+                        vehSel.innerHTML += LPC.html`<option value="${v.id}">${v.plate_number} (${v.type})</option>`;
+                    });
+
+                    const supSel = document.getElementById('disp_supplier');
+                    (metaData.suppliers || []).forEach(s => {
+                        supSel.innerHTML += LPC.html`<option value="${s.id}">${s.name}</option>`;
                     });
                 }
             } catch(e) { console.error("Metadata load failed"); }
         }
 
-        // NEW FUNCTION: Auto-link the vehicle when a driver is picked
+        /**
+         * Pre-select the vehicle from today's affectation, if there is one.
+         *
+         * This used to REPLACE the whole option list with the single vehicle
+         * the driver was assigned to — the select was `pointer-events-none`, so
+         * whatever Flotte had recorded that morning was the only vehicle a BL
+         * could carry. Now the full active fleet stays listed and the
+         * affectation only moves the selection: a hint, not a constraint.
+         * Drivers with no affectation simply land on "Aucun".
+         */
         function autoSelectVehicle() {
             const driverId = document.getElementById('disp_driver').value;
-            const vehSel = document.getElementById('disp_vehicle');
-            
-            vehSel.innerHTML = '<option value="">-- Aucun --</option>'; // Reset
+            const vehSel   = document.getElementById('disp_vehicle');
+            const hint     = document.getElementById('disp_vehicle_hint');
+            if (!vehSel) return;
 
-            if(driverId) {
-                // Find the assignment link in metaData
-                const assignment = metaData.assignments.find(a => a.driver_id == driverId);
-                if (assignment) {
-                    vehSel.innerHTML = LPC.html`<option value="${assignment.vehicle_id}">${assignment.plate_number} (${assignment.type})</option>`;
-                }
+            const assignment = driverId
+                ? (metaData.assignments || []).find(a => a.driver_id == driverId)
+                : null;
+
+            // Only override an untouched selection, so a deliberate manual
+            // choice is not silently undone by changing the driver.
+            if (assignment && !vehSel.dataset.userPicked) {
+                vehSel.value = assignment.vehicle_id;
+            } else if (!assignment && !vehSel.dataset.userPicked) {
+                vehSel.value = '';
+            }
+
+            if (hint) {
+                hint.innerHTML = assignment
+                    ? '<i class="fas fa-link"></i> Pré-rempli depuis l\'affectation du jour — modifiable.'
+                    : '<i class="fas fa-info-circle"></i> Véhicule optionnel. Aucune affectation aujourd\'hui pour ce chauffeur.';
+            }
+        }
+
+        /**
+         * Switch the logistics channel.
+         *
+         * The three modes are mutually exclusive, so this shows one field group
+         * and clears the others. Clearing matters: the server normalises the
+         * payload to the mode anyway (a supplier id sent in own_fleet mode is
+         * dropped), but leaving stale values visible behind a hidden panel is
+         * how a user ends up believing they recorded something they did not.
+         */
+        function setDeliveryMode(mode) {
+            if (!Object.prototype.hasOwnProperty.call(DELIVERY_MODES, mode)) return;
+            document.getElementById('disp_mode').value = mode;
+
+            document.querySelectorAll('.disp-mode-btn').forEach(btn => {
+                const on = btn.dataset.mode === mode;
+                btn.setAttribute('aria-checked', on ? 'true' : 'false');
+                btn.className = 'disp-mode-btn flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 text-[10px] font-black uppercase tracking-wide transition-all '
+                    + (on ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-sm'
+                          : 'border-gray-200 bg-white text-gray-400 hover:border-gray-300 hover:text-gray-600');
+            });
+
+            const fleet   = document.getElementById('disp_fleet_fields');
+            const supp    = document.getElementById('disp_supplier_fields');
+            const pickup  = document.getElementById('disp_pickup_note');
+            const vehSel  = document.getElementById('disp_vehicle');
+
+            fleet.classList.toggle('hidden',  mode !== 'own_fleet');
+            supp.classList.toggle('hidden',   mode !== 'supplier');
+            pickup.classList.toggle('hidden', mode !== 'client_pickup');
+
+            if (mode !== 'own_fleet') {
+                document.getElementById('disp_driver').value = '';
+                vehSel.value = '';
+                delete vehSel.dataset.userPicked;
+            }
+            if (mode !== 'supplier') {
+                document.getElementById('disp_supplier').value = '';
             }
         }
 
@@ -209,7 +323,14 @@
                     actions = `<a href="/bon_livraison.php?token=${row.token}" target="_blank" class="text-blue-600 bg-blue-50 hover:bg-blue-100 p-2 rounded-lg mr-2" title="Imprimer BL PDF"><i class="fas fa-print"></i></a>`;
                     
                     if(row.status === 'dispatched') {
-                        actions += `<button onclick="openCompleteDeliveryModal(${row.id}, '${row.reference}', ${row.payment_collected || 0})" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-sm transition-colors"><i class="fas fa-check-double mr-1"></i> Retour Chauffeur</button>`;
+                        // "Retour Chauffeur" only makes sense on the fleet
+                        // channel. A supplier delivery has no driver coming
+                        // back to the yard, and a pickup has no one to return
+                        // at all — the same close-out step is just an ops user
+                        // recording what the client actually accepted.
+                        const closeLabel = row.delivery_mode === 'own_fleet'
+                            ? 'Retour Chauffeur' : 'Clôturer';
+                        actions += `<button onclick="openCompleteDeliveryModal(${row.id}, '${row.reference}', ${row.payment_collected || 0}, '${row.delivery_mode || 'own_fleet'}')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-sm transition-colors"><i class="fas fa-check-double mr-1"></i> ${closeLabel}</button>`;
                     } else if (row.status === 'driver_confirmed') {
                         actions += `<button onclick="showBLShareModal('${row.reference}', '${row.token}', '')" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-sm transition-colors"><i class="fas fa-qrcode mr-1"></i> Signature Client</button>`;
                     } else if (row.status === 'completed') {
@@ -398,17 +519,36 @@
             document.getElementById('disp_so_ref').innerText = reference;
             document.getElementById('disp_client_name').innerText = clientName;
             document.getElementById('disp_date').valueAsDate = new Date();
-            autoSelectVehicle(); // Ensure vehicle drops back to empty
+
+            // form.reset() does not clear a dataset flag, and the mode buttons
+            // are not form controls, so both are reset explicitly.
+            delete document.getElementById('disp_vehicle').dataset.userPicked;
+            setDeliveryMode('own_fleet');
+            autoSelectVehicle();
             document.getElementById('dispatchModal').classList.remove('hidden');
         }
 
         async function submitDispatch() {
+            const mode = document.getElementById('disp_mode').value;
+
+            // Client-side guards mirror the server's, purely for a faster and
+            // more specific message. sales_controller.php re-validates all of
+            // this — the browser is not the enforcement point.
+            if (mode === 'own_fleet' && !document.getElementById('disp_driver').value) {
+                return LPC.modal.alert("Sélectionnez le chauffeur, ou choisissez un autre mode de livraison.");
+            }
+            if (mode === 'supplier' && !document.getElementById('disp_supplier').value) {
+                return LPC.modal.alert("Sélectionnez le fournisseur qui assure la livraison.");
+            }
+
             const payload = {
                 action: 'generate_dispatch',
                 sales_order_id: document.getElementById('disp_so_id').value,
                 date: document.getElementById('disp_date').value,
-                driver_id: document.getElementById('disp_driver').value,
-                vehicle_id: document.getElementById('disp_vehicle').value
+                delivery_mode: mode,
+                driver_id: mode === 'own_fleet' ? document.getElementById('disp_driver').value : '',
+                vehicle_id: mode === 'own_fleet' ? document.getElementById('disp_vehicle').value : '',
+                delivery_supplier_id: mode === 'supplier' ? document.getElementById('disp_supplier').value : ''
             };
 
             try {
@@ -426,12 +566,23 @@
         }
 
         // 5. DELIVERY COMPLETION (Driver Returns & Empties Collection)
-        async function openCompleteDeliveryModal(deliveryId, reference, cashCollected) {
+        async function openCompleteDeliveryModal(deliveryId, reference, cashCollected, mode) {
             document.getElementById('form-close-delivery').reset();
             document.getElementById('close_delivery_id').value = deliveryId;
             document.getElementById('close_bl_ref').innerText = reference;
             document.getElementById('close_cash').value = cashCollected || 0;
-            
+
+            // The cash field was hardcoded "collecté par le chauffeur". On a
+            // supplier or pickup delivery nobody called a chauffeur handled the
+            // money, and asking for it under that name is how a real payment
+            // gets left at zero.
+            const cashLabel = document.getElementById('close_cash_label');
+            if (cashLabel) {
+                cashLabel.innerText = (mode === 'own_fleet' || !mode)
+                    ? 'Montant collecté par le chauffeur (FCFA)'
+                    : 'Montant collecté à la livraison (FCFA)';
+            }
+
             try {
                 const response = await fetch(`/api/v1/sales_controller.php?action=get_delivery_items&id=${deliveryId}`);
                 const result = await response.json();

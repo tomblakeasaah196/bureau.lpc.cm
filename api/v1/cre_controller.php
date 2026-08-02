@@ -79,6 +79,102 @@ function getEmptyProductsCatalog($pdo) {
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+/**
+ * Migration 060 — negotiated price guardrails.
+ *
+ * A driver may deviate from products.base_price at the recycler's gate, but
+ * only inside a band. The band exists to catch fat-fingers ("3000" for "300"),
+ * not to second-guess the negotiation: a 10x ceiling and a floor of zero are
+ * loose enough that no honest haggle ever hits them, and tight enough that a
+ * misplaced digit always does.
+ *
+ * When base_price is 0 (unpriced catalogue row) the multiplier is meaningless,
+ * so the absolute ceiling alone applies.
+ */
+const LPC_OVERRIDE_MAX_MULTIPLIER = 10;      // <= 10x the catalogue price
+const LPC_OVERRIDE_ABS_CEILING    = 1000000; // and never above 1 000 000 FCFA/unit
+const LPC_OVERRIDE_MIN_REASON_LEN = 5;
+
+/**
+ * Has migration 060 run on this database?
+ *
+ * Probed, not assumed. Deploys and migrations are separate steps here, so
+ * there is a window where this file is live and the columns are not. In that
+ * window a plain catalogue-price sale must still go through — only the new
+ * negotiated-price path is allowed to refuse.
+ */
+function lpcHasOverrideSchema($pdo): bool
+{
+    static $cached = null;
+    if ($cached !== null) return $cached;
+    try {
+        $cached = (bool) $pdo->query("
+            SELECT COUNT(*) FROM information_schema.columns
+             WHERE table_schema = DATABASE()
+               AND table_name   = 'recycling_sale_items'
+               AND column_name  = 'is_price_overridden'
+        ")->fetchColumn();
+    } catch (Throwable $e) {
+        $cached = false;
+    }
+    return $cached;
+}
+
+/**
+ * Validate one submitted line against its catalogue price.
+ *
+ * Returns [$unit_price, $is_override, $reason]. Throws on anything the
+ * operator must fix before the sale can be recorded — an invalid price or a
+ * deviation with no stated justification never reaches the database, because
+ * a price nobody can explain later is worse than no sale at all.
+ */
+function resolveRecyclingUnitPrice(array $item, float $base_price, string $product_name): array
+{
+    // No price submitted at all → catalogue price, no override. This is the
+    // path every pre-060 client takes, so old JS keeps working untouched.
+    if (!array_key_exists('unit_price', $item) || $item['unit_price'] === null || $item['unit_price'] === '') {
+        return [$base_price, false, null];
+    }
+
+    if (!is_numeric($item['unit_price'])) {
+        throw new Exception("Prix invalide pour « {$product_name} ».");
+    }
+    $unit_price = round((float) $item['unit_price'], 2);
+
+    // Equal to catalogue (within rounding) → not an override, whatever the
+    // client claims. The server decides what counts as a deviation.
+    if (abs($unit_price - $base_price) < 0.005) {
+        return [$base_price, false, null];
+    }
+
+    if (!Rbac::hasPermission('operations.recycling.override_price')) {
+        throw new Exception("Vous n'êtes pas autorisé à modifier le prix de vente.");
+    }
+
+    if ($unit_price < 0) {
+        throw new Exception("Le prix négocié ne peut pas être négatif (« {$product_name} »).");
+    }
+    if ($unit_price > LPC_OVERRIDE_ABS_CEILING) {
+        throw new Exception("Prix négocié irréaliste pour « {$product_name} » (max "
+            . number_format(LPC_OVERRIDE_ABS_CEILING, 0, ',', ' ') . " FCFA/unité).");
+    }
+    if ($base_price > 0 && $unit_price > $base_price * LPC_OVERRIDE_MAX_MULTIPLIER) {
+        throw new Exception("Prix négocié irréaliste pour « {$product_name} » : "
+            . number_format($unit_price, 0, ',', ' ') . " FCFA contre "
+            . number_format($base_price, 0, ',', ' ') . " FCFA au catalogue. "
+            . "Vérifiez la saisie.");
+    }
+
+    $reason = trim((string) ($item['price_reason'] ?? ''));
+    if (mb_strlen($reason) < LPC_OVERRIDE_MIN_REASON_LEN) {
+        throw new Exception("Motif requis pour le prix modifié de « {$product_name} » "
+            . "(au moins " . LPC_OVERRIDE_MIN_REASON_LEN . " caractères).");
+    }
+    if (mb_strlen($reason) > 500) $reason = mb_substr($reason, 0, 500);
+
+    return [$unit_price, true, $reason];
+}
+
 $method  = $_SERVER['REQUEST_METHOD'];
 $action  = $_GET['action'] ?? null;
 $payload = json_decode(file_get_contents('php://input'), true) ?: [];
@@ -98,6 +194,7 @@ $ACTION_PERMS = [
     'get_empty_products'    => 'operations.empties.view',
     'get_recycling_prices'  => 'operations.recycling.view',
     'get_recycling_revenue' => 'operations.recycling.view',
+    'get_price_overrides'   => 'operations.recycling.view',
     'create_cre'            => 'operations.empties.create_cre',
     'sell_to_recycler'      => 'operations.recycling.sell',
 ];
@@ -292,14 +389,31 @@ if ($method === 'GET') {
         }
 
         try {
+            // Migration 060 may not be applied on every environment yet, so the
+            // override columns are probed rather than assumed. A revenue tab
+            // that 500s because a migration is pending is a worse failure than
+            // one that simply omits the "prix négocié" badge.
+            $hasOverrides = (bool) $pdo->query("
+                SELECT COUNT(*) FROM information_schema.columns
+                 WHERE table_schema = DATABASE()
+                   AND table_name   = 'recycling_sale_items'
+                   AND column_name  = 'is_price_overridden'
+            ")->fetchColumn();
+
+            $overrideSelect = $hasOverrides
+                ? ", (SELECT COUNT(*) FROM recycling_sale_items ri2
+                       WHERE ri2.sale_id = r.id AND ri2.is_price_overridden = 1) AS override_count"
+                : ", 0 AS override_count";
+
             // 1. Fetch Sales History
             $stmt = $pdo->query("
-                SELECT r.id, r.reference, r.recycler_location, r.total_amount, r.created_at, 
+                SELECT r.id, r.reference, r.recycler_location, r.total_amount, r.created_at,
                        CONCAT(u.first_name, ' ', u.last_name) as driver_name,
-                       (SELECT GROUP_CONCAT(CONCAT(ri.quantity, 'x ', p.name) SEPARATOR ', ') 
-                        FROM recycling_sale_items ri 
-                        JOIN products p ON ri.product_id = p.id 
+                       (SELECT GROUP_CONCAT(CONCAT(ri.quantity, 'x ', p.name) SEPARATOR ', ')
+                        FROM recycling_sale_items ri
+                        JOIN products p ON ri.product_id = p.id
                         WHERE ri.sale_id = r.id) as details
+                       $overrideSelect
                 FROM recycling_sales r
                 JOIN users u ON r.driver_id = u.id
                 ORDER BY r.created_at DESC
@@ -334,8 +448,39 @@ if ($method === 'GET') {
             }
 
             sendResponse('success', 'OK', ['table' => $sales, 'stats' => $stats]);
-        } catch (Exception $e) { 
-            sendResponse('error', 'Erreur DB: ' . $e->getMessage()); 
+        } catch (Exception $e) {
+            sendResponse('error', 'Erreur DB: ' . $e->getMessage());
+        }
+    }
+
+    // Migration 060: the negotiated-price register. Answers "who changed a
+    // price, on what, by how much, and why" without making a supervisor read
+    // sale lines one by one.
+    if ($action === 'get_price_overrides') {
+        if (!in_array($_SESSION['user_role'], ['admin', 'finance', 'accountant'])) {
+            sendResponse('error', 'Accès refusé.');
+        }
+        try {
+            $limit = max(1, min(200, (int) ($_GET['limit'] ?? 100)));
+            $stmt = $pdo->prepare("
+                SELECT o.id, o.base_price, o.override_price, o.delta_amount, o.delta_pct,
+                       o.quantity, o.total_impact, o.reason, o.created_at,
+                       p.name AS product_name,
+                       s.reference AS sale_reference, s.recycler_location,
+                       CONCAT(u.first_name, ' ', u.last_name) AS user_name
+                  FROM recycling_price_overrides o
+                  JOIN products p        ON p.id = o.product_id
+                  LEFT JOIN recycling_sales s ON s.id = o.sale_id
+                  LEFT JOIN users u      ON u.id = o.created_by
+                 ORDER BY o.created_at DESC
+                 LIMIT $limit
+            ");
+            $stmt->execute();
+            sendResponse('success', 'OK', $stmt->fetchAll(PDO::FETCH_ASSOC));
+        } catch (Exception $e) {
+            // Table absent = migration 060 not applied yet. Degrade to an empty
+            // register instead of breaking the whole revenue tab.
+            sendResponse('success', 'OK', []);
         }
     }
 }
@@ -397,48 +542,144 @@ if ($method === 'POST') {
             $sale_id = $pdo->lastInsertId();
 
             $total_amount = 0;
-            $stmtItem = $pdo->prepare("INSERT INTO recycling_sale_items (sale_id, product_id, quantity, unit_price, total_price) VALUES (?, ?, ?, ?, ?)");
-            
+            $hasOverrideSchema = lpcHasOverrideSchema($pdo);
+
+            // Migration 060: the line now stores the catalogue price alongside
+            // the price actually charged, so a later reader can see the gap
+            // without joining back to products (whose base_price will have
+            // moved on by then).
+            $stmtItem = $hasOverrideSchema
+                ? $pdo->prepare("
+                    INSERT INTO recycling_sale_items
+                        (sale_id, product_id, quantity, unit_price, total_price,
+                         base_price, is_price_overridden, override_reason, override_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  ")
+                : $pdo->prepare("
+                    INSERT INTO recycling_sale_items
+                        (sale_id, product_id, quantity, unit_price, total_price)
+                    VALUES (?, ?, ?, ?, ?)
+                  ");
+
+            // Append-only deviation log — see 060_recycling_price_override.sql
+            // for why this exists in addition to the columns above.
+            $stmtOverride = $hasOverrideSchema ? $pdo->prepare("
+                INSERT INTO recycling_price_overrides
+                    (sale_id, sale_item_id, product_id, base_price, override_price,
+                     delta_amount, delta_pct, quantity, total_impact, reason,
+                     created_by, ip_address, user_agent)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ") : null;
+
             // Added reference_id ($sale_id) to keep the inventory cleanly linked
             $stmtMove = $pdo->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, reference_id, logged_by) VALUES (?, 'out_delivery', ?, ?, ?)");
             $stmtPrice = $pdo->prepare("SELECT base_price, name FROM products WHERE id = ?");
 
-            $details_notif = [];
+            $client_ip  = substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
+            $client_ua  = substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255);
+
+            $details_notif   = [];
+            $override_notif  = [];
+            $override_count  = 0;
+            $line_count      = 0;
 
             foreach ($items as $item) {
                 $pid = (int)$item['product_id'];
                 $qty = (int)$item['quantity'];
-                
+
                 if ($qty > 0) {
                     $stmtPrice->execute([$pid]);
                     $prod = $stmtPrice->fetch(PDO::FETCH_ASSOC);
                     if (!$prod) throw new Exception("Produit invalide.");
 
-                    $unit_price = (float)$prod['base_price'];
+                    $base_price = (float)$prod['base_price'];
+
+                    // The client may propose a negotiated price; the server
+                    // decides whether that counts as a deviation, whether the
+                    // user may make it, and whether it is explained. Throws
+                    // rather than silently falling back, so a rejected price
+                    // is never quietly replaced by the catalogue one.
+                    [$unit_price, $is_override, $override_reason] =
+                        resolveRecyclingUnitPrice($item, $base_price, $prod['name']);
+
+                    // Refuse rather than record an unauditable deviation: if the
+                    // audit columns are missing, a negotiated price would be
+                    // indistinguishable from a catalogue one after the fact.
+                    if ($is_override && !$hasOverrideSchema) {
+                        throw new Exception("Le prix négocié n'est pas encore activé sur ce serveur "
+                            . "(migration 060 en attente). Contactez l'administrateur.");
+                    }
+
                     $line_total = $qty * $unit_price;
                     $total_amount += $line_total;
 
                     // Log the sale item
-                    $stmtItem->execute([$sale_id, $pid, $qty, $unit_price, $line_total]);
-                    
+                    $stmtItem->execute($hasOverrideSchema
+                        ? [
+                            $sale_id, $pid, $qty, $unit_price, $line_total,
+                            $base_price, $is_override ? 1 : 0,
+                            $is_override ? $override_reason : null,
+                            $is_override ? $user_id : null,
+                          ]
+                        : [$sale_id, $pid, $qty, $unit_price, $line_total]
+                    );
+                    $sale_item_id = $pdo->lastInsertId();
+
+                    if ($is_override) {
+                        $delta     = $unit_price - $base_price;
+                        $delta_pct = $base_price > 0 ? round(($delta / $base_price) * 100, 2) : null;
+                        $stmtOverride->execute([
+                            $sale_id, $sale_item_id, $pid,
+                            $base_price, $unit_price,
+                            $delta, $delta_pct, $qty, $delta * $qty,
+                            $override_reason, $user_id, $client_ip, $client_ua,
+                        ]);
+                        $override_count++;
+                        $override_notif[] = "· {$prod['name']} : "
+                            . number_format($base_price, 0, ',', ' ') . " → "
+                            . number_format($unit_price, 0, ',', ' ') . " FCFA"
+                            . ($delta_pct !== null ? sprintf(' (%+.1f%%)', $delta_pct) : '')
+                            . "\n  Motif : " . $override_reason;
+                    }
+
                     // Deduct from physical stock (Driver selling empties out of stock)
                     $stmtMove->execute([$pid, $qty, $sale_id, $user_id]);
 
-                    $details_notif[] = "$qty x {$prod['name']}";
+                    $details_notif[] = "$qty x {$prod['name']}"
+                        . ($is_override ? ' (prix négocié)' : '');
+                    $line_count++;
                 }
             }
 
-            if ($total_amount <= 0) throw new Exception("Quantité totale invalide.");
+            // This used to be `$total_amount <= 0`, which conflated "nothing was
+            // entered" with "the sale is worth nothing". Migration 060 makes the
+            // second case reachable and legitimate — a recycler can take a bad
+            // lot for free, and that hand-off still needs its stock movement and
+            // its paper trail. So the guard now tests what it always meant to:
+            // did the operator actually enter any lines, and is the total sane.
+            if ($line_count === 0)  throw new Exception("Quantité totale invalide.");
+            if ($total_amount < 0)  throw new Exception("Montant total négatif — vérifiez les prix saisis.");
 
             // Update Total
             $pdo->prepare("UPDATE recycling_sales SET total_amount = ? WHERE id = ?")->execute([$total_amount, $sale_id]);
 
             $operator_name = $_SESSION['user_name'] ?? 'Un Opérateur';
             $msg = "$operator_name a vendu des emballages vides à '$location'.\nArticles:\n" . implode("\n", $details_notif) . "\n\nMontant Cash Attendu : " . number_format($total_amount, 0, ',', ' ') . " FCFA.";
-            notifyAdmin($pdo, "Vente Recyclage (Cash)", $msg);
+            if ($override_count > 0) {
+                // Surfaced in the notification body rather than as a separate
+                // alert: whoever reconciles the cash needs the negotiated price
+                // in the same message as the amount they are reconciling.
+                $msg .= "\n\n⚠ PRIX NÉGOCIÉ(S) — $override_count ligne(s) hors catalogue :\n"
+                      . implode("\n", $override_notif);
+            }
+            notifyAdmin($pdo, $override_count > 0 ? "Vente Recyclage (Prix négocié)" : "Vente Recyclage (Cash)", $msg);
 
             $pdo->commit();
-            sendResponse('success', 'Vente enregistrée avec succès.', ['total_amount' => $total_amount]);
+            sendResponse('success', 'Vente enregistrée avec succès.', [
+                'total_amount'   => $total_amount,
+                'reference'      => $reference,
+                'override_count' => $override_count,
+            ]);
             
         } catch (Throwable $e) { 
             // Using Throwable instead of Exception catches PHP Fatal Errors (like missing tables)

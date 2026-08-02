@@ -172,17 +172,67 @@ try {
             $clients = $db->query("SELECT id, name FROM clients WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
             $products = $db->query("SELECT id, name, format, base_price FROM products WHERE category != 'Emballage' AND is_active = 1 ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
             
+            // Migration 061 · business-model change.
+            //
+            // This used to be the ONLY source of drivers for the BL modal:
+            //
+            //   FROM vehicle_assignments a JOIN users u ... JOIN vehicles v ...
+            //   WHERE a.assignment_date = CURRENT_DATE()
+            //
+            // i.e. sales could dispatch to a driver only if Flotte had already
+            // recorded that morning's affectation. No affectation row, no
+            // driver in the dropdown, no BL — a sales-blocking dependency on a
+            // fleet-office task. Now that suppliers deliver direct to client
+            // sites, that dependency is not merely inconvenient, it is wrong:
+            // a supplier delivery has no LPC affectation by definition.
+            //
+            // Three independent lists are returned instead, and the affectation
+            // is demoted to a CONVENIENCE — it pre-selects the vehicle for a
+            // driver who happens to have one today, and is silent otherwise.
+            $drivers = $db->query("
+                SELECT u.id, u.first_name, u.last_name
+                  FROM users u
+                  JOIN roles r ON u.role_id = r.id
+                 WHERE u.status = 'active' AND r.name = 'driver'
+                 ORDER BY u.first_name ASC, u.last_name ASC
+            ")->fetchAll(PDO::FETCH_ASSOC);
+
+            // Free choice of vehicle: no longer locked to the day's pairing.
+            $vehicles = $db->query("
+                SELECT id, plate_number, type
+                  FROM vehicles
+                 WHERE status = 'active' AND is_active = 1
+                 ORDER BY plate_number ASC
+            ")->fetchAll(PDO::FETCH_ASSOC);
+
+            // Suppliers who can deliver straight to the client site.
+            $suppliers = $db->query("
+                SELECT id, name
+                  FROM suppliers
+                 WHERE is_active = 1
+                 ORDER BY name ASC
+            ")->fetchAll(PDO::FETCH_ASSOC);
+
+            // Today's affectation, kept only as a hint for the UI's vehicle
+            // pre-fill. Nothing downstream may treat an empty result as a
+            // reason to refuse a dispatch.
             $stmt = $db->query("
-                SELECT u.id as driver_id, u.first_name, u.last_name, v.id as vehicle_id, v.plate_number, v.type 
-                FROM vehicle_assignments a
-                JOIN users u ON a.driver_id = u.id
-                JOIN vehicles v ON a.vehicle_id = v.id
-                WHERE a.assignment_date = CURRENT_DATE() AND u.status = 'active'
-                ORDER BY u.first_name ASC
+                SELECT a.driver_id, a.vehicle_id
+                  FROM vehicle_assignments a
+                  JOIN users u    ON a.driver_id  = u.id
+                  JOIN vehicles v ON a.vehicle_id = v.id
+                 WHERE a.assignment_date = CURRENT_DATE() AND u.status = 'active'
             ");
             $daily_assignments = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            echo json_encode(['status' => 'success', 'data' => ['clients' => $clients, 'products' => $products, 'assignments' => $daily_assignments]]);
+            echo json_encode(['status' => 'success', 'data' => [
+                'clients'     => $clients,
+                'products'    => $products,
+                'drivers'     => $drivers,
+                'vehicles'    => $vehicles,
+                'suppliers'   => $suppliers,
+                'assignments' => $daily_assignments,
+            ]]);
             break;
 
         case 'read':
@@ -234,23 +284,30 @@ try {
                     'kpi_so_count'   => $kpis['kpi_so_count']
                 ];
             } elseif ($tab === 'dispatch') {
+                // Migration 061: the transporter column can now be a supplier
+                // as well as a driver, so the supplier table joins in here and
+                // the free-text search covers supplier names too — otherwise a
+                // BL delivered by "Prometal" would be unfindable by that word.
                 $body = "
                     FROM deliveries d
                     JOIN clients c ON d.client_id = c.id
                     LEFT JOIN users u ON d.driver_id = u.id
+                    LEFT JOIN suppliers s ON d.delivery_supplier_id = s.id
                 ";
                 $params = [];
                 if ($lpc_q !== '') {
                     [$body, $params] = Paginator::addWhere(
                         $body, $params, $lpc_q,
-                        ['d.reference', 'c.name', 'd.status', 'u.first_name', 'u.last_name']
+                        ['d.reference', 'c.name', 'd.status', 'u.first_name', 'u.last_name', 's.name']
                     );
                 }
                 $body .= " ORDER BY d.date DESC, d.id DESC";
                 $page = Paginator::paginate($db, $body, $params,
                     "d.id, d.reference, d.date, d.status, d.token, d.payment_collected,
+                     d.delivery_mode,
                      c.name as client_name,
-                     CONCAT(u.first_name, ' ', u.last_name) as driver_name",
+                     CONCAT(u.first_name, ' ', u.last_name) as driver_name,
+                     s.name as supplier_name",
                     null, null, "sales.read.dispatch");
                 $responseData['table']      = $page['data'];
                 $responseData['pagination'] = [
@@ -262,9 +319,16 @@ try {
                     'has_next'    => $page['has_next'],
                 ];
 
+                // "Camions en Route" counted every dispatched row as a truck.
+                // Since Migration 061 an in-transit row may be a supplier
+                // delivering on their own means, or a client who drove off with
+                // their own vehicle — neither is an LPC truck, and counting
+                // them as one overstates fleet load. Split by channel so the
+                // number means what its label says.
                 $kpis = $db->query("
-                    SELECT 
-                        COUNT(CASE WHEN d.status = 'dispatched' THEN 1 END) as kpi_dl_dispatched,
+                    SELECT
+                        COUNT(CASE WHEN d.status = 'dispatched' AND d.delivery_mode = 'own_fleet' THEN 1 END) as kpi_dl_fleet,
+                        COUNT(CASE WHEN d.status = 'dispatched' AND d.delivery_mode = 'supplier'  THEN 1 END) as kpi_dl_supplier,
                         COUNT(CASE WHEN d.status = 'completed' AND d.date = CURRENT_DATE() THEN 1 END) as kpi_dl_completed,
                         COALESCE(SUM(CASE WHEN d.date = CURRENT_DATE() THEN d.payment_collected ELSE 0 END), 0) as kpi_dl_cash,
                         (SELECT COUNT(*) FROM delivery_items WHERE delivered_quantity < quantity AND delivered_quantity IS NOT NULL) as kpi_dl_returns
@@ -272,7 +336,7 @@ try {
                 ")->fetch(PDO::FETCH_ASSOC);
 
                 $responseData['kpis'] = [
-                    'kpi_dl_dispatched' => $kpis['kpi_dl_dispatched'] . ' Camion(s)',
+                    'kpi_dl_dispatched' => $kpis['kpi_dl_fleet'] . ' Camion(s) · ' . $kpis['kpi_dl_supplier'] . ' Frn.',
                     'kpi_dl_completed'  => $kpis['kpi_dl_completed'] . ' BL(s)',
                     'kpi_dl_cash'       => number_format($kpis['kpi_dl_cash'], 0, ',', ' ') . ' FCFA',
                     'kpi_dl_returns'    => $kpis['kpi_dl_returns'] . ' Ligne(s)'
@@ -319,6 +383,71 @@ try {
             $driver_id = !empty($jsonData['driver_id']) ? (int)$jsonData['driver_id'] : null;
             $vehicle_id = !empty($jsonData['vehicle_id']) ? (int)$jsonData['vehicle_id'] : null;
 
+            // Migration 061 · the logistics channel is now explicit rather than
+            // inferred from which FKs happen to be NULL. Default 'own_fleet'
+            // keeps any client that has not shipped the new modal working.
+            $delivery_mode = $jsonData['delivery_mode'] ?? 'own_fleet';
+            $delivery_supplier_id = !empty($jsonData['delivery_supplier_id'])
+                ? (int)$jsonData['delivery_supplier_id'] : null;
+
+            $ALLOWED_MODES = ['own_fleet', 'supplier', 'client_pickup'];
+            if (!in_array($delivery_mode, $ALLOWED_MODES, true)) {
+                throw new Exception("Mode de livraison invalide.");
+            }
+
+            // Normalise the payload to the channel, rather than trusting the
+            // client to have cleared the fields it hid. A stale 'supplier'
+            // select left populated after the user switched back to the fleet
+            // would otherwise violate chk_delivery_supplier_mode and surface as
+            // an opaque 500 instead of a clear rule.
+            if ($delivery_mode === 'supplier') {
+                if (!$delivery_supplier_id) {
+                    throw new Exception("Sélectionnez le fournisseur qui assure la livraison.");
+                }
+                // FK would catch a bad id, but the message would be a constraint
+                // violation. Check explicitly so the user gets a usable one.
+                $stmtSup = $db->prepare("SELECT id FROM suppliers WHERE id = ? AND is_active = 1");
+                $stmtSup->execute([$delivery_supplier_id]);
+                if (!$stmtSup->fetchColumn()) {
+                    throw new Exception("Fournisseur introuvable ou inactif.");
+                }
+                // A supplier delivery uses the supplier's own means. No LPC
+                // driver, no LPC vehicle — by definition, not by omission.
+                $driver_id = null;
+                $vehicle_id = null;
+            } elseif ($delivery_mode === 'client_pickup') {
+                // Enlèvement magasin: the client's own vehicle.
+                $driver_id = null;
+                $vehicle_id = null;
+                $delivery_supplier_id = null;
+            } else { // own_fleet
+                $delivery_supplier_id = null;
+                // The driver is required for the fleet channel — but note what
+                // is NOT required: an entry in vehicle_assignments. Any active
+                // driver is dispatchable whether or not Flotte ran the morning
+                // affectation. That gate is what this change removes.
+                if (!$driver_id) {
+                    throw new Exception("Sélectionnez le chauffeur, ou choisissez un autre mode de livraison.");
+                }
+                $stmtDrv = $db->prepare("
+                    SELECT u.id FROM users u JOIN roles r ON u.role_id = r.id
+                     WHERE u.id = ? AND u.status = 'active' AND r.name = 'driver'
+                ");
+                $stmtDrv->execute([$driver_id]);
+                if (!$stmtDrv->fetchColumn()) {
+                    throw new Exception("Chauffeur introuvable ou inactif.");
+                }
+                if ($vehicle_id) {
+                    $stmtVeh = $db->prepare("SELECT id FROM vehicles WHERE id = ? AND status = 'active' AND is_active = 1");
+                    $stmtVeh->execute([$vehicle_id]);
+                    if (!$stmtVeh->fetchColumn()) {
+                        throw new Exception("Véhicule introuvable ou hors service.");
+                    }
+                }
+                // $vehicle_id stays optional: a driver can leave on foot with a
+                // handcart, or the vehicle can be recorded later.
+            }
+
             $stmtCheck = $db->prepare("SELECT client_id, status FROM sales_orders WHERE id = ? FOR UPDATE");
             $stmtCheck->execute([$so_id]);
             $order = $stmtCheck->fetch(PDO::FETCH_ASSOC);
@@ -330,8 +459,8 @@ try {
             $reference = Prefs::docNumber('delivery', $hash);
             $token = bin2hex(random_bytes(16));
 
-            $stmtDel = $db->prepare("INSERT INTO deliveries (reference, sales_order_id, client_id, driver_id, vehicle_id, date, status, token, created_by) VALUES (?, ?, ?, ?, ?, ?, 'dispatched', ?, ?)");
-            $stmtDel->execute([$reference, $so_id, $order['client_id'], $driver_id, $vehicle_id, $date, $token, $user_id]);
+            $stmtDel = $db->prepare("INSERT INTO deliveries (reference, sales_order_id, client_id, driver_id, vehicle_id, delivery_mode, delivery_supplier_id, date, status, token, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'dispatched', ?, ?)");
+            $stmtDel->execute([$reference, $so_id, $order['client_id'], $driver_id, $vehicle_id, $delivery_mode, $delivery_supplier_id, $date, $token, $user_id]);
             $delivery_id = $db->lastInsertId();
 
             $stmtItems = $db->prepare("SELECT product_id, quantity, unit_price FROM sales_order_items WHERE sales_order_id = ?");

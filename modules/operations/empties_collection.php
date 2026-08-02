@@ -7,6 +7,13 @@ Rbac::requirePermission('operations.empties.view');
  * DESCRIPTION: Mobile-first interface for operators to see owed empties, log collections, and sell empties.
  */
 $lang = lpc_i18n_current_lang();
+
+// Migration 060 — negotiated prices. The pencil buttons and the override modal
+// are rendered only for users who may actually deviate from the catalogue
+// price, so an operator without the permission never sees an affordance that
+// would fail server-side.
+$canOverridePrice = Rbac::hasPermission('operations.recycling.override_price');
+$editPriceLabel   = __t('ui.x.modifier_le_prix');
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo $lang; ?>">
@@ -182,14 +189,24 @@ $lang = lpc_i18n_current_lang();
                                     <div>
                                         <div class="flex justify-between items-center mb-1">
                                             <label class="text-[10px] font-bold text-gray-500 uppercase"><?= htmlspecialchars(__t('ui.x.avec_bouchon')) ?></label>
-                                            <span id="price_901" class="text-[10px] font-black text-amber-600">... F</span>
+                                            <span class="flex items-center gap-1">
+                                                <span id="price_901" class="text-[10px] font-black text-amber-600">... F</span>
+                                                <?php if ($canOverridePrice): ?>
+                                                <button type="button" class="js-edit-price text-gray-400 hover:text-amber-600 transition-colors p-0.5" data-legacy="901" title="<?= htmlspecialchars($editPriceLabel) ?>" aria-label="<?= htmlspecialchars($editPriceLabel) ?>"><i class="fas fa-pen text-[9px]"></i></button>
+                                                <?php endif; ?>
+                                            </span>
                                         </div>
                                         <input type="number" id="rec_901" min="0" value="0" oninput="calcRecycleTotal()" class="w-full border border-gray-300 rounded-lg p-2 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
                                     </div>
                                     <div>
                                         <div class="flex justify-between items-center mb-1">
                                             <label class="text-[10px] font-bold text-rose-500 uppercase"><?= htmlspecialchars(__t('ui.x.sans_bouchon')) ?></label>
-                                            <span id="price_902" class="text-[10px] font-black text-amber-600">... F</span>
+                                            <span class="flex items-center gap-1">
+                                                <span id="price_902" class="text-[10px] font-black text-amber-600">... F</span>
+                                                <?php if ($canOverridePrice): ?>
+                                                <button type="button" class="js-edit-price text-gray-400 hover:text-amber-600 transition-colors p-0.5" data-legacy="902" title="<?= htmlspecialchars($editPriceLabel) ?>" aria-label="<?= htmlspecialchars($editPriceLabel) ?>"><i class="fas fa-pen text-[9px]"></i></button>
+                                                <?php endif; ?>
+                                            </span>
                                         </div>
                                         <input type="number" id="rec_902" min="0" value="0" oninput="calcRecycleTotal()" class="w-full border border-rose-300 bg-rose-50 text-rose-900 rounded-lg p-2 outline-none focus:border-rose-500">
                                     </div>
@@ -202,14 +219,24 @@ $lang = lpc_i18n_current_lang();
                                     <div>
                                         <div class="flex justify-between items-center mb-1">
                                             <label class="text-[10px] font-bold text-gray-500 uppercase"><?= htmlspecialchars(__t('ui.x.avec_bouchon')) ?></label>
-                                            <span id="price_903" class="text-[10px] font-black text-amber-600">... F</span>
+                                            <span class="flex items-center gap-1">
+                                                <span id="price_903" class="text-[10px] font-black text-amber-600">... F</span>
+                                                <?php if ($canOverridePrice): ?>
+                                                <button type="button" class="js-edit-price text-gray-400 hover:text-amber-600 transition-colors p-0.5" data-legacy="903" title="<?= htmlspecialchars($editPriceLabel) ?>" aria-label="<?= htmlspecialchars($editPriceLabel) ?>"><i class="fas fa-pen text-[9px]"></i></button>
+                                                <?php endif; ?>
+                                            </span>
                                         </div>
                                         <input type="number" id="rec_903" min="0" value="0" oninput="calcRecycleTotal()" class="w-full border border-gray-300 rounded-lg p-2 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
                                     </div>
                                     <div>
                                         <div class="flex justify-between items-center mb-1">
                                             <label class="text-[10px] font-bold text-rose-500 uppercase"><?= htmlspecialchars(__t('ui.x.sans_bouchon')) ?></label>
-                                            <span id="price_904" class="text-[10px] font-black text-amber-600">... F</span>
+                                            <span class="flex items-center gap-1">
+                                                <span id="price_904" class="text-[10px] font-black text-amber-600">... F</span>
+                                                <?php if ($canOverridePrice): ?>
+                                                <button type="button" class="js-edit-price text-gray-400 hover:text-amber-600 transition-colors p-0.5" data-legacy="904" title="<?= htmlspecialchars($editPriceLabel) ?>" aria-label="<?= htmlspecialchars($editPriceLabel) ?>"><i class="fas fa-pen text-[9px]"></i></button>
+                                                <?php endif; ?>
+                                            </span>
                                         </div>
                                         <input type="number" id="rec_904" min="0" value="0" oninput="calcRecycleTotal()" class="w-full border border-rose-300 bg-rose-50 text-rose-900 rounded-lg p-2 outline-none focus:border-rose-500">
                                     </div>
@@ -217,6 +244,21 @@ $lang = lpc_i18n_current_lang();
                             </div>
                         </div>
                         
+                        <!-- Migration 060: standing reminder that this sale is
+                             priced off-catalogue. Hidden until an override
+                             exists, and lists each one so the driver sees the
+                             negotiated figures next to the cash he is about to
+                             count. -->
+                        <div id="override_banner" class="hidden bg-orange-50 border border-orange-200 rounded-xl p-3 mb-3">
+                            <div class="flex items-start gap-2">
+                                <i class="fas fa-tag text-orange-500 mt-0.5"></i>
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-[10px] font-black uppercase tracking-widest text-orange-700 mb-1.5"><?= htmlspecialchars(__t('ui.x.prix_negocies')) ?></p>
+                                    <div id="override_list" class="space-y-1.5 text-left"></div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="bg-amber-50 p-4 rounded-xl text-center border border-amber-200 mt-2">
                             <p class="text-[10px] font-black uppercase tracking-widest text-amber-700"><?= htmlspecialchars(__t('ui.x.cash_total_attendu_en_caisse')) ?></p>
                             <p class="text-3xl font-black text-amber-900 mt-1"><span id="recycle_total">0</span> <span class="text-lg">FCFA</span></p>
@@ -287,6 +329,18 @@ $lang = lpc_i18n_current_lang();
                         </table>
                     </div>
                 </div>
+
+                <!-- Migration 060 — the negotiated-price register. Placed under
+                     the revenue table on purpose: "why doesn't the cash match
+                     the catalogue?" and its answer belong on one screen. -->
+                <div class="mt-6">
+                    <h2 class="text-sm font-black text-gray-800 uppercase tracking-widest mb-3">
+                        <i class="fas fa-tag text-orange-500 mr-1"></i> <?= htmlspecialchars(__t('ui.x.registre_des_prix_negocies')) ?>
+                    </h2>
+                    <div id="override_log" class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                        <p class="text-center py-6 text-gray-400 font-bold text-xs"><i class="fas fa-spinner fa-spin"></i> <?= htmlspecialchars(__t('ui.x.chargement')) ?></p>
+                    </div>
+                </div>
             </div>
             <?php endif; ?>
 
@@ -315,6 +369,66 @@ $lang = lpc_i18n_current_lang();
         </div>
     </div>
 
+    <?php if ($canOverridePrice): ?>
+    <!-- =====================================================================
+         Migration 060 — negotiated price modal.
+         Static markup rather than a LPC.modal.custom() string: the reason is a
+         multi-line textarea with its own validation, and the live "impact"
+         preview needs stable element IDs to write into. Rendered once and
+         reused for whichever bottle type the operator taps.
+         ================================================================== -->
+    <div id="modal-price" class="hidden fixed inset-0 z-50 flex items-end md:items-center justify-center bg-gray-900/90 backdrop-blur-sm">
+        <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
+            <div class="bg-amber-50 p-5 border-b border-amber-200 relative">
+                <button type="button" onclick="closeModal('modal-price')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800 text-2xl" aria-label="<?= htmlspecialchars(__t('ui.fermer')) ?>"><i class="fas fa-times-circle"></i></button>
+                <h3 class="font-black text-lg text-gray-900 tracking-tight"><?= htmlspecialchars(__t('ui.x.prix_negocie')) ?></h3>
+                <p class="text-xs font-bold text-gray-500 mt-0.5" id="price_modal_product">—</p>
+            </div>
+
+            <div class="p-5 space-y-4">
+                <div class="flex items-center justify-between bg-gray-50 rounded-xl p-3 border border-gray-200">
+                    <span class="text-[10px] font-black uppercase tracking-widest text-gray-400"><?= htmlspecialchars(__t('ui.x.prix_catalogue')) ?></span>
+                    <span class="text-sm font-black text-gray-700"><span id="price_modal_base">0</span> F</span>
+                </div>
+
+                <div>
+                    <label for="price_modal_input" class="block text-xs font-bold text-gray-700 mb-1"><?= htmlspecialchars(__t('ui.x.nouveau_prix_unitaire')) ?></label>
+                    <div class="relative">
+                        <input type="number" id="price_modal_input" min="0" step="0.01" inputmode="decimal"
+                               class="w-full bg-white border-2 border-amber-300 rounded-xl p-3 pr-16 text-lg font-black text-gray-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200">
+                        <span class="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-black text-gray-400 pointer-events-none">FCFA</span>
+                    </div>
+                    <p id="price_modal_delta" class="text-[11px] font-bold mt-1.5 h-4"></p>
+                </div>
+
+                <div>
+                    <label for="price_modal_reason" class="block text-xs font-bold text-gray-700 mb-1">
+                        <?= htmlspecialchars(__t('ui.x.motif_de_la_modification')) ?> <span class="text-rose-500">*</span>
+                    </label>
+                    <textarea id="price_modal_reason" rows="3" maxlength="500"
+                              placeholder="<?= htmlspecialchars(__t('ui.x.ex_forme_des_bouteilles_negociation')) ?>"
+                              class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-medium text-gray-900 outline-none focus:ring-2 focus:ring-amber-500 resize-none"></textarea>
+                    <p class="text-[10px] font-bold text-gray-400 mt-1"><i class="fas fa-user-shield mr-1"></i><?= htmlspecialchars(__t('ui.x.votre_nom_et_ce_motif_seront_enregistres')) ?></p>
+                </div>
+
+                <p id="price_modal_error" class="hidden text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-lg p-2"></p>
+
+                <div class="flex gap-2 pt-1">
+                    <button type="button" id="price_modal_reset" onclick="resetPriceOverride()"
+                            class="hidden flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 p-3 rounded-xl font-black text-xs uppercase tracking-widest">
+                        <i class="fas fa-undo mr-1"></i> <?= htmlspecialchars(__t('ui.x.retablir')) ?>
+                    </button>
+                    <button type="button" onclick="applyPriceOverride()"
+                            class="flex-1 bg-amber-500 hover:bg-amber-600 text-white p-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-transform">
+                        <i class="fas fa-check mr-1"></i> <?= htmlspecialchars(__t('ui.x.appliquer')) ?>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <script>window.LPC_CAN_OVERRIDE_PRICE = <?= $canOverridePrice ? 'true' : 'false' ?>;</script>
     <script src="<?= lpc_asset('/assets/js/modules/operations-empties_collection.js') ?>" defer></script>
 </body>
 </html>
