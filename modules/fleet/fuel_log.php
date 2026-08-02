@@ -47,7 +47,8 @@ $lang = lpc_i18n_current_lang();
             <div class="bg-green-50 p-4 rounded-xl border border-green-200 flex justify-between items-center">
                 <div>
                     <p class="text-[10px] font-black text-lpc-dark uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.vehicule_assigne')) ?></p>
-                    <p class="text-lg font-black text-gray-900 uppercase" id="display_plate">---</p>
+                    <p class="text-lg font-black text-gray-900" id="display_vehicle_name">---</p>
+                    <p class="text-xs font-bold text-gray-500 uppercase tracking-wider" id="display_plate">---</p>
                 </div>
                 <i class="fas fa-check-circle text-lpc-light text-2xl"></i>
             </div>
@@ -79,12 +80,13 @@ $lang = lpc_i18n_current_lang();
             </div>
 
             <div>
-                <label class="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.kilometrage_actuel')) ?> <span class="text-red-500">*</span></label>
+                <label class="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.kilometrage_actuel')) ?> <span class="text-gray-400 normal-case font-bold">(optionnel)</span></label>
                 <div class="relative">
                     <i class="fas fa-tachometer-alt absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                    <input type="number" id="fuel_odometer" required placeholder="Ex: 102550" class="w-full bg-white border border-gray-300 rounded-xl pl-11 pr-4 py-3.5 text-lg font-black text-gray-900 outline-none focus:border-lpc-dark focus:ring-1 focus:ring-lpc-dark">
+                    <input type="number" id="fuel_odometer" placeholder="Ex: 102550" class="w-full bg-white border border-gray-300 rounded-xl pl-11 pr-4 py-3.5 text-lg font-black text-gray-900 outline-none focus:border-lpc-dark focus:ring-1 focus:ring-lpc-dark">
                 </div>
                 <p class="text-[10px] font-bold text-blue-600 mt-1.5"><i class="fas fa-info-circle"></i> <?= htmlspecialchars(__t('ui.x.dernier_releve')) ?> <span id="last_odo_display">0</span> Km</p>
+                <p class="text-[10px] font-bold text-gray-400 mt-1">Laissez vide si vous n'avez pas relevé le compteur.</p>
             </div>
 
             <div class="grid grid-cols-2 gap-4 border-t border-gray-100 pt-4">

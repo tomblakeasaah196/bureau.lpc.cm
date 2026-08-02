@@ -77,6 +77,15 @@ final class Prefs
         'notify_invoice_due_days'     => '3',
         'notify_email_enabled'        => '1',
         'ops_allow_negative_stock'    => '0',
+        // Ceiling on an EXPLICIT remise, as a percentage of the order subtotal.
+        // Above it, sales_controller.php requires sales.orders.discount_approve
+        // (migration 062). Applies only to a declared discount — repricing a
+        // client is ordinary commercial work and is never gated by this.
+        // 0 disables the ceiling entirely.
+        'sales_discount_max_pct'      => '15',
+        // The buy-side twin (migration 063). Same rule, same exemption:
+        // repricing a supplier is never gated by this, only a declared remise.
+        'purchase_discount_max_pct'   => '15',
     ];
 
     /** Human labels for the section headings in Settings → Préférences. */

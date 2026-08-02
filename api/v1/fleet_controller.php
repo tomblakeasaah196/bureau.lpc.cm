@@ -75,7 +75,7 @@ if ($method === 'GET') {
     if ($action === 'get_my_vehicle') {
         try {
             $stmt = $pdo->prepare("
-                SELECT v.id as vehicle_id, v.plate_number, v.current_odometer
+                SELECT v.id as vehicle_id, v.plate_number, v.make_model, v.current_odometer
                 FROM vehicle_assignments a
                 JOIN vehicles v ON a.vehicle_id = v.id
                 WHERE a.driver_id = ? AND a.assignment_date = CURRENT_DATE()
@@ -120,26 +120,26 @@ if ($method === 'GET') {
                 // Alert Generation (Strategy 7B: Automated Notification)
                 $alerts = [];
                 // 1. Insurance Expiry (within 15 days)
-                $stmt = $pdo->query("SELECT plate_number, insurance_expiry FROM vehicles WHERE status != 'retired' AND insurance_expiry IS NOT NULL AND insurance_expiry <= DATE_ADD(CURRENT_DATE(), INTERVAL 15 DAY)");
+                $stmt = $pdo->query("SELECT plate_number, make_model, insurance_expiry FROM vehicles WHERE status != 'retired' AND insurance_expiry IS NOT NULL AND insurance_expiry <= DATE_ADD(CURRENT_DATE(), INTERVAL 15 DAY)");
                 while($row = $stmt->fetch()) {
-                    $alerts[] = ['plate_number' => $row['plate_number'], 'message' => 'Assurance expire le ' . date('d/m/Y', strtotime($row['insurance_expiry']))];
+                    $alerts[] = ['plate_number' => $row['plate_number'], 'make_model' => $row['make_model'], 'message' => 'Assurance expire le ' . date('d/m/Y', strtotime($row['insurance_expiry']))];
                 }
                 // 2. Technical Visit Expiry (within 15 days)
-                $stmt = $pdo->query("SELECT plate_number, technical_visit_expiry FROM vehicles WHERE status != 'retired' AND technical_visit_expiry IS NOT NULL AND technical_visit_expiry <= DATE_ADD(CURRENT_DATE(), INTERVAL 15 DAY)");
+                $stmt = $pdo->query("SELECT plate_number, make_model, technical_visit_expiry FROM vehicles WHERE status != 'retired' AND technical_visit_expiry IS NOT NULL AND technical_visit_expiry <= DATE_ADD(CURRENT_DATE(), INTERVAL 15 DAY)");
                 while($row = $stmt->fetch()) {
-                    $alerts[] = ['plate_number' => $row['plate_number'], 'message' => 'Visite technique expire le ' . date('d/m/Y', strtotime($row['technical_visit_expiry']))];
+                    $alerts[] = ['plate_number' => $row['plate_number'], 'make_model' => $row['make_model'], 'message' => 'Visite technique expire le ' . date('d/m/Y', strtotime($row['technical_visit_expiry']))];
                 }
                 // 3. Odometer Maintenance Trigger (Strategy 2B)
                 $stmt = $pdo->query("
-                    SELECT v.plate_number, m.next_service_odometer, v.current_odometer 
-                    FROM vehicles v 
-                    JOIN vehicle_maintenance m ON v.id = m.vehicle_id 
-                    WHERE v.status != 'retired' AND m.next_service_odometer IS NOT NULL 
+                    SELECT v.plate_number, v.make_model, m.next_service_odometer, v.current_odometer
+                    FROM vehicles v
+                    JOIN vehicle_maintenance m ON v.id = m.vehicle_id
+                    WHERE v.status != 'retired' AND m.next_service_odometer IS NOT NULL
                     AND (m.next_service_odometer - v.current_odometer) <= 500
                     AND m.id = (SELECT MAX(id) FROM vehicle_maintenance WHERE vehicle_id = v.id)
                 ");
                 while($row = $stmt->fetch()) {
-                    $alerts[] = ['plate_number' => $row['plate_number'], 'message' => 'Entretien imminent (Prochain: '.$row['next_service_odometer'].' Km)'];
+                    $alerts[] = ['plate_number' => $row['plate_number'], 'make_model' => $row['make_model'], 'message' => 'Entretien imminent (Prochain: '.$row['next_service_odometer'].' Km)'];
                 }
 
                 // Chart Data (Last 6 Months)
@@ -172,7 +172,7 @@ if ($method === 'GET') {
 
             case 'affectations':
                 $stmt = $pdo->query("
-                    SELECT a.*, v.plate_number, CONCAT(u.first_name, ' ', u.last_name) AS driver_name 
+                    SELECT a.*, v.plate_number, v.make_model, CONCAT(u.first_name, ' ', u.last_name) AS driver_name
                     FROM vehicle_assignments a
                     JOIN vehicles v ON a.vehicle_id = v.id
                     JOIN users u ON a.driver_id = u.id
@@ -183,15 +183,15 @@ if ($method === 'GET') {
 
             case 'maintenance':
                 $alerts = $pdo->query("
-                    SELECT id, plate_number, 'Assurance' as type, CAST(insurance_expiry AS CHAR) as date_or_km 
-                    FROM vehicles 
+                    SELECT id, plate_number, make_model, 'Assurance' as type, CAST(insurance_expiry AS CHAR) as date_or_km
+                    FROM vehicles
                     WHERE status != 'retired' AND insurance_expiry IS NOT NULL AND insurance_expiry <= DATE_ADD(CURRENT_DATE(), INTERVAL 15 DAY)
                     UNION ALL
-                    SELECT id, plate_number, 'Visite Tech' as type, CAST(technical_visit_expiry AS CHAR) as date_or_km 
-                    FROM vehicles 
+                    SELECT id, plate_number, make_model, 'Visite Tech' as type, CAST(technical_visit_expiry AS CHAR) as date_or_km
+                    FROM vehicles
                     WHERE status != 'retired' AND technical_visit_expiry IS NOT NULL AND technical_visit_expiry <= DATE_ADD(CURRENT_DATE(), INTERVAL 15 DAY)
                     UNION ALL
-                    SELECT v.id, v.plate_number, 'Entretien Odomètre' as type, CONCAT(m.next_service_odometer, ' Km') as date_or_km 
+                    SELECT v.id, v.plate_number, v.make_model, 'Entretien Odomètre' as type, CONCAT(m.next_service_odometer, ' Km') as date_or_km
                     FROM vehicles v 
                     JOIN vehicle_maintenance m ON v.id = m.vehicle_id 
                     WHERE v.status != 'retired' AND m.next_service_odometer IS NOT NULL AND (m.next_service_odometer - v.current_odometer) <= 500
@@ -199,7 +199,7 @@ if ($method === 'GET') {
                 ")->fetchAll();
 
                 $history = $pdo->query("
-                    SELECT m.*, v.plate_number 
+                    SELECT m.*, v.plate_number, v.make_model
                     FROM vehicle_maintenance m
                     JOIN vehicles v ON m.vehicle_id = v.id
                     ORDER BY m.service_date DESC, m.id DESC LIMIT 100
@@ -215,7 +215,7 @@ if ($method === 'GET') {
 
             case 'carburant':
                 $stmt = $pdo->query("
-                    SELECT f.*, v.plate_number, CONCAT(u.first_name, ' ', u.last_name) AS logged_by_name 
+                    SELECT f.*, v.plate_number, v.make_model, CONCAT(u.first_name, ' ', u.last_name) AS logged_by_name
                     FROM fuel_logs f
                     JOIN vehicles v ON f.vehicle_id = v.id
                     JOIN users u ON f.logged_by = u.id
@@ -293,7 +293,10 @@ else if ($method === 'POST') {
             $v_id = (int)$payload['vehicle_id'];
             $d_id = (int)$payload['driver_id'];
             $date = $payload['assignment_date'];
-            $odo_start = (int)$payload['odometer_start'];
+            // Km de départ is OPTIONAL — resolved to the vehicle's current reading
+            // when left blank (see below); odometer_start is NOT NULL in the schema.
+            $odo_raw = $payload['odometer_start'] ?? '';
+            $odo_start = (is_string($odo_raw) ? trim($odo_raw) : $odo_raw) === '' ? null : (int)$odo_raw;
 
             // Strategy 3B: Strict Blocking
             $stmt = $pdo->prepare("SELECT status, current_odometer FROM vehicles WHERE id = ? FOR UPDATE");
@@ -304,8 +307,11 @@ else if ($method === 'POST') {
                 throw new Exception("Affectation impossible. Le véhicule est actuellement en statut: " . strtoupper($veh['status']));
             }
 
+            if ($odo_start === null) {
+                $odo_start = (int)$veh['current_odometer'];
+            }
             // Strategy 8B: Sequential Odometer Check
-            if ($odo_start < $veh['current_odometer']) {
+            elseif ($odo_start < $veh['current_odometer']) {
                 throw new Exception("Incohérence Odomètre: Le km de départ saisi ($odo_start) est inférieur au dernier relevé connu du véhicule (".$veh['current_odometer'].").");
             }
 
@@ -326,7 +332,12 @@ else if ($method === 'POST') {
             $v_id = (int)$payload['vehicle_id'];
             $liters = (float)$payload['liters'];
             $price = (float)$payload['cost_per_liter'];
-            $odo = (int)$payload['odometer_reading'];
+            // Odometer is OPTIONAL. Blank / missing means the operator didn't note
+            // the counter — we resolve it to the vehicle's last known reading below
+            // (fuel_logs.odometer_reading is NOT NULL, and a 0 would corrupt the
+            // consumption reports). Note the null, don't coerce it yet.
+            $odo_raw = $payload['odometer_reading'] ?? '';
+            $odo = (is_string($odo_raw) ? trim($odo_raw) : $odo_raw) === '' ? null : (int)$odo_raw;
             $gas_station = trim($payload['gas_station'] ?? '');
             $fuel_type = trim($payload['fuel_type'] ?? '');
             $total = $liters * $price;
@@ -366,16 +377,24 @@ else if ($method === 'POST') {
             $jump_warn = (int) env('FLEET_ODOMETER_JUMP_WARN', 800);
             $jump_max  = (int) env('FLEET_ODOMETER_JUMP_MAX',  3000);
 
-            if ($odo < $current_odo) {
-                throw new Exception("Km saisi ($odo) inférieur au dernier relevé ($current_odo). Une nouvelle valeur doit être ≥ à la précédente.");
+            if ($odo === null) {
+                // No reading supplied: carry the vehicle's last known value forward.
+                // The refuel is still recorded in full (litres, cost, receipt); only
+                // the distance signal is missing for this row.
+                $odo = $current_odo;
+                $odo_warning = null;
+            } else {
+                if ($odo < $current_odo) {
+                    throw new Exception("Km saisi ($odo) inférieur au dernier relevé ($current_odo). Une nouvelle valeur doit être ≥ à la précédente.");
+                }
+                $delta = $odo - $current_odo;
+                if ($delta > $jump_max) {
+                    throw new Exception("Km saisi ($odo) : saut de $delta km depuis le dernier relevé ($current_odo). Au-delà de $jump_max km — vérifiez le compteur avant de valider.");
+                }
+                // A warning-level jump gets logged but doesn't block. Include it in
+                // the response so the driver's app can display a soft warning UI.
+                $odo_warning = ($delta > $jump_warn) ? "Écart inhabituel de $delta km depuis le dernier relevé." : null;
             }
-            $delta = $odo - $current_odo;
-            if ($delta > $jump_max) {
-                throw new Exception("Km saisi ($odo) : saut de $delta km depuis le dernier relevé ($current_odo). Au-delà de $jump_max km — vérifiez le compteur avant de valider.");
-            }
-            // A warning-level jump gets logged but doesn't block. Include it in
-            // the response so the driver's app can display a soft warning UI.
-            $odo_warning = ($delta > $jump_warn) ? "Écart inhabituel de $delta km depuis le dernier relevé." : null;
 
             // Insert Fuel Log
             $stmt = $pdo->prepare("INSERT INTO fuel_logs (vehicle_id, date, liters, fuel_type, cost_per_liter, total_cost, odometer_reading, gas_station, receipt_image, logged_by) VALUES (?, CURRENT_DATE(), ?, ?, ?, ?, ?, ?, ?, ?)");

@@ -4,6 +4,11 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 Rbac::requirePermission('sales.orders.view');
 $lang = lpc_i18n_current_lang();
 $user_role = $_SESSION['user_role'];
+
+// Ceiling on an EXPLICIT remise, surfaced to the JS so the modal can warn
+// before the operator submits rather than after the server refuses. The server
+// re-checks regardless — this is a courtesy, not the enforcement point.
+$discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo $lang; ?>">
@@ -11,12 +16,22 @@ $user_role = $_SESSION['user_role'];
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= htmlspecialchars(__t('ui.x.ventes_logistique_lpc_erp')) ?></title>
-    
+
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
     <script src="/assets/vendor/qrcodejs/qrcode.min.js" integrity="sha384-3zSEDfvllQohrq0PHL1fOXJuC/jSOO34H46t6UQfobFOmxE5BpjjaIJY5F2/bMnU" crossorigin="anonymous"></script>
+    <?php
+    // Server-side pagination, as on Achats. THIS WAS THE BUG: the API has
+    // paginated this list since Sprint 5, but the page never loaded the
+    // paginator and sales-orders.js never sent a `page` param — so the browser
+    // received Paginator's default 25 rows, discarded `data.pagination`, and
+    // rendered those 25 as though they were the whole table. With 38 orders on
+    // file, thirteen of them were unreachable from this screen with nothing to
+    // indicate anything was missing.
+    ?>
+    <script src="<?= lpc_asset('/assets/js/lpc-dom.js') ?>"></script>
+    <script src="<?= lpc_asset('/assets/js/lpc-paginator.js') ?>"></script>
 
-    
     <style>
         .tab-content { display: none; animation: slideUp 0.3s ease-out; }
         .tab-content.active { display: block; }
@@ -47,29 +62,130 @@ $user_role = $_SESSION['user_role'];
                 <i class="fas fa-list-ul mr-2"></i> Commandes Clients
             </button>
             <button onclick="switchTab('dispatch')" class="tab-link py-4 border-b-2 border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider transition-all relative" id="tab-dispatch">
-                <i class="fas fa-truck-loading mr-2"></i> Dispatch & BL
+                <i class="fas fa-truck-loading mr-2"></i> Dispatch &amp; BL
                 <span id="badge-pending-dispatch" class="absolute top-2 right-[-15px] bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full hidden">0</span>
             </button>
         </nav>
 
-        <main role="main" id="main" class="lpc-page lpc-page-col">
-            
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8" id="kpi-ribbon"></div>
+        <?php /* README §5.5: page controls belong in .lpc-toolbar, the floating
+                 branded card every other module uses. This page had a
+                 hand-rolled `flex justify-between` bar holding the search box
+                 and the add button, which is why it looked unlike Achats even
+                 before any of the functional gaps.
 
-            <div class="flex justify-between items-center mb-6">
-                <div class="relative w-96">
-                    <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                    <input type="text" id="search-input" placeholder="Rechercher une référence ou un client..." onkeyup="filterData()" class="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-dark shadow-sm">
-                </div>
-                <div id="toolbar-actions">
-                    <button onclick="openOrderModal()" class="bg-gray-900 hover:bg-black text-white px-6 py-3 rounded-xl font-bold text-sm shadow-xl flex items-center gap-2 transition-all active:scale-95">
-                        <i class="fas fa-plus"></i> <span><?= htmlspecialchars(__t('ui.x.nouvelle_commande')) ?></span>
-                    </button>
-                </div>
+                 Order: primary action, then the module this page hands off to,
+                 then the period, then help. The invoicing shortcut is the
+                 sell-side counterpart of the warehouse icon on Achats — Achats
+                 flows into Stock, Ventes flows into Facturation, and neither
+                 link existed here. */ ?>
+        <div class="lpc-toolbar">
+
+            <?php /* data-perm rather than a server-side `if`: switchTab() hides
+                     this for the dispatch tab and shows it again for orders, so
+                     the node must exist in the DOM for every role or that
+                     toggle hits null. sales_controller.php re-checks on write. */ ?>
+            <button id="btn-primary-action" onclick="openOrderModal()"
+                    data-perm="sales.orders.create"
+                    class="bg-gray-900 hover:bg-black text-white px-4 md:px-5 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2 shrink-0 lpc-focusable">
+                <i class="fas fa-plus"></i>
+                <span id="btn-action-text"><?= htmlspecialchars(__t('ui.x.nouvelle_commande')) ?></span>
+            </button>
+
+            <a href="/modules/accounting/invoices.php#to_invoice"
+               data-perm="accounting.invoices.view"
+               class="relative w-11 h-11 rounded-xl border border-lpc-border bg-white text-gray-500 hover:text-lpc-dark hover:border-lpc-dark flex items-center justify-center shrink-0 transition-all lpc-focusable"
+               title="Facturation &amp; AR — facturer les BL clôturés de cette page"
+               aria-label="Facturation">
+                <i class="fas fa-file-invoice-dollar"></i>
+                <?php /* Count of completed-but-unbilled BLs. Filled by JS; the
+                         node is always present so there is nothing to create
+                         later. */ ?>
+                <span id="badge-to-invoice"
+                      class="hidden absolute -top-1.5 -right-1.5 bg-amber-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">0</span>
+            </a>
+
+            <a href="/modules/inventory/stock.php"
+               data-perm="inventory.stock.view"
+               class="w-11 h-11 rounded-xl border border-lpc-border bg-white text-gray-500 hover:text-lpc-dark hover:border-lpc-dark flex items-center justify-center shrink-0 transition-all lpc-focusable"
+               title="Stock &amp; Emballages — ce qui peut être promis"
+               aria-label="Stock &amp; Emballages">
+                <i class="fas fa-warehouse"></i>
+            </a>
+
+            <div class="lpc-toolbar-sep"></div>
+
+            <div class="lpc-field">
+                <label for="kpi_period_type"><?= htmlspecialchars(__t('ui.x.periode_2')) ?></label>
+                <?php
+                /*
+                 * This module had no period control at all, and the KPI query
+                 * was hardcoded to MONTH(date) = MONTH(CURRENT_DATE()). So
+                 * "Ventes (Mois)" could only ever mean the calendar month you
+                 * were standing in, and last month's figures were unreachable
+                 * from this page.
+                 *
+                 * Default is "Année en cours", matching Achats and for the same
+                 * reason: with a monthly default, opening the page early in a
+                 * quiet month shows zeroed KPIs and an empty table with nothing
+                 * to indicate a filter is responsible — which reads exactly
+                 * like the sales history has been wiped.
+                 */
+                ?>
+                <select id="kpi_period_type" onchange="handlePeriodUI()">
+                    <option value="ytd" selected><?= htmlspecialchars(__t('ui.x.annee_en_cours_ytd')) ?></option>
+                    <option value="current_month"><?= htmlspecialchars(__t('ui.ce_mois')) ?></option>
+                    <option value="all"><?= htmlspecialchars(__t('ui.x.tout_l_historique')) ?></option>
+                    <option value="custom"><?= htmlspecialchars(__t('ui.x.plage_personnalisee')) ?></option>
+                </select>
             </div>
 
-            <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex-1 flex flex-col">
-                <div class="overflow-x-auto">
+            <?php /* NOT .lpc-field — README §5.5: lpc-shell.css loads after
+                     tailwind.css, so .lpc-field's `display` would beat
+                     Tailwind's .hidden and handlePeriodUI() could never hide
+                     this again. Tailwind display utilities only. */ ?>
+            <div id="custom_period_wrapper" class="hidden items-center gap-2 shrink-0">
+                <input type="month" id="kpi_start_month" onchange="loadTabData()" class="lpc-control" aria-label="Mois de début">
+                <span class="text-gray-500 font-bold text-sm">à</span>
+                <input type="month" id="kpi_end_month" onchange="loadTabData()" class="lpc-control" aria-label="Mois de fin">
+            </div>
+
+            <?php
+            // Help for THIS page. Renders nothing until an article is anchored
+            // to 'sales.orders' (migration 064) or if the reader lacks the
+            // gating permission, so it is safe either way.
+            echo lpc_help_link('sales.orders', $lang, ['class' => 'ml-auto']);
+            ?>
+        </div>
+
+        <main role="main" id="main" class="lpc-page lpc-page-col">
+
+            <h2 class="text-lg font-black text-gray-800 mb-4"><?= htmlspecialchars(__t('ui.x.indicateurs_cles_kpis')) ?></h2>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8" id="kpi-ribbon"></div>
+
+            <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex-1 flex flex-col min-h-[400px] md:min-h-[600px]">
+
+                <?php /* Search sits with the rows it filters, as on Achats and
+                         clients.php — it searches the table, not the page. No
+                         inline handler: attachPager() hands this element to
+                         LPC.paginator as `searchInput`, which debounces it into
+                         the SERVER-side query. The old oninput="filterData()"
+                         only hid rows already in the DOM, so it searched the 25
+                         rows that happened to be loaded and quietly reported
+                         nothing for anything on page 2. */ ?>
+                <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 shrink-0">
+                    <h3 id="table-caption" class="text-sm font-black text-gray-800 uppercase tracking-widest shrink-0">
+                        Commandes Clients
+                    </h3>
+                    <div class="relative w-full max-w-sm">
+                        <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                        <label for="search-input" class="sr-only">Rechercher une référence ou un client</label>
+                        <input type="text" id="search-input"
+                               placeholder="Rechercher une référence ou un client..."
+                               class="w-full pl-11 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-dark focus:bg-white transition-all">
+                    </div>
+                </div>
+
+                <div class="overflow-auto flex-1">
                     <table class="min-w-full text-left border-collapse">
                         <thead class="bg-gray-50 border-b border-gray-200 sticky top-0 z-10" id="table-head"></thead>
                         <tbody id="table-body" class="divide-y divide-gray-100 text-sm"></tbody>
@@ -79,27 +195,38 @@ $user_role = $_SESSION['user_role'];
         </main>
     </div>
 
+    <!-- ===================================================================
+         MODAL: Saisie de commande
+         =================================================================== -->
     <div id="orderModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/70 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col h-[90vh]">
             <div class="bg-gray-900 px-8 py-5 flex justify-between items-center text-white shrink-0">
                 <div>
-                    <h3 class="font-black text-xl tracking-wide flex items-center"><i class="fas fa-shopping-cart mr-3"></i> <span><?= htmlspecialchars(__t('ui.x.saisie_de_commande_client')) ?></span></h3>
+                    <h3 class="font-black text-xl tracking-wide flex items-center"><i class="fas fa-shopping-cart mr-3"></i> <span id="order-modal-title"><?= htmlspecialchars(__t('ui.x.saisie_de_commande_client')) ?></span></h3>
                     <p class="text-xs text-gray-400 font-bold mt-1 uppercase"><?= htmlspecialchars(__t('ui.x.genere_une_commande_en_attente_de_dispat')) ?></p>
                 </div>
                 <button type="button" onclick="closeModal('orderModal')" class="text-white/70 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
             </div>
-            
+
             <div class="flex-1 overflow-y-auto p-8 bg-gray-50/50">
                 <form id="form-order" class="space-y-8">
+                    <input type="hidden" id="so_id" value="">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                         <div>
-                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.client_4')) ?></label>
-                            <select id="so_client" required class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-gray-900">
+                            <label for="so_client" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.client_4')) ?></label>
+                            <?php /* onchange re-prices the lines already on
+                                     screen. Without it, choosing products and
+                                     THEN changing the client leaves the first
+                                     client's prices on the second client's
+                                     order — and every one of those lines would
+                                     raise a false disparity at submit. */ ?>
+                            <select id="so_client" required onchange="onOrderClientChange()" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-gray-900">
                                 <option value=""><?= htmlspecialchars(__t('ui.x.selectionner_un_client')) ?></option>
                             </select>
+                            <p id="so_client_hint" class="text-[10px] font-bold text-gray-400 mt-1"></p>
                         </div>
                         <div>
-                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.date_de_commande')) ?></label>
+                            <label for="so_date" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.date_de_commande')) ?></label>
                             <input type="date" id="so_date" required class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-gray-900">
                         </div>
                     </div>
@@ -112,8 +239,9 @@ $user_role = $_SESSION['user_role'];
                         <table class="w-full text-left">
                             <thead class="bg-white border-b border-gray-100 text-[10px] uppercase text-gray-400 font-black tracking-widest">
                                 <tr>
-                                    <th class="py-3 px-6 w-1/2"><?= htmlspecialchars(__t('ui.x.designation')) ?></th>
-                                    <th class="py-3 px-4 w-32 text-center"><?= htmlspecialchars(__t('ui.x.quantite')) ?></th>
+                                    <th class="py-3 px-6 w-2/5"><?= htmlspecialchars(__t('ui.x.designation')) ?></th>
+                                    <th class="py-3 px-4 w-24 text-center"><?= htmlspecialchars(__t('ui.x.quantite')) ?></th>
+                                    <th class="py-3 px-4 text-right">Tarif</th>
                                     <th class="py-3 px-4 text-right"><?= htmlspecialchars(__t('ui.x.prix_unitaire_fcfa')) ?></th>
                                     <th class="py-3 px-6 text-right"><?= htmlspecialchars(__t('ui.x.montant_total')) ?></th>
                                     <th class="py-3 px-4 text-center w-12"></th>
@@ -121,17 +249,60 @@ $user_role = $_SESSION['user_role'];
                             </thead>
                             <tbody id="so-lines-container" class="divide-y divide-gray-50 text-sm font-medium"></tbody>
                         </table>
+                        <?php /* The tariff column above is display-only. It is
+                                 the client's standing price, shown next to the
+                                 editable one so the operator can see they are
+                                 departing from it as they type — rather than
+                                 finding out in a modal at submit. */ ?>
+                        <div class="px-6 py-2 bg-gray-50 border-t border-gray-100">
+                            <p class="text-[10px] font-bold text-gray-500">
+                                <i class="fas fa-circle-info mr-1"></i>
+                                « Tarif » est le prix actuel de ce client. Si vous saisissez un prix différent,
+                                il vous sera demandé à l'enregistrement s'il s'agit de son <strong>nouveau prix</strong>
+                                ou d'une <strong>remise ponctuelle</strong>.
+                            </p>
+                        </div>
                     </div>
 
                     <div class="flex flex-col items-end pt-4">
-                        <div class="w-full md:w-1/3 space-y-3 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                        <div class="w-full md:w-2/5 space-y-3 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                             <div class="flex justify-between items-center text-sm font-bold text-gray-600">
                                 <span><?= htmlspecialchars(__t('ui.x.sous_total')) ?></span><span id="calc_so_subtotal">0 FCFA</span>
                             </div>
+
+                            <?php /* Line remises are declared in the price
+                                     reconciliation modal, not typed here, so
+                                     this row is read-only and appears only when
+                                     there are any. */ ?>
+                            <div id="calc_so_line_discount_row" class="hidden flex justify-between items-center text-sm font-bold text-blue-700">
+                                <span>Remises sur lignes <i class="fas fa-circle-info text-gray-400" title="Réductions déclarées ligne par ligne lors de la confirmation des prix."></i></span>
+                                <span id="calc_so_line_discount">0 FCFA</span>
+                            </div>
+
                             <div class="border-t border-gray-100 pt-3">
-                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.remise_exceptionnelle_fcfa')) ?></label>
+                                <label for="so_discount" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.remise_exceptionnelle_fcfa')) ?></label>
                                 <input type="number" id="so_discount" value="0" min="0" oninput="calculateOrderTotals()" class="w-full bg-blue-50 text-blue-900 border border-blue-200 rounded-lg p-2 text-right font-black outline-none focus:ring-2 focus:ring-blue-500">
                             </div>
+
+                            <?php /* Motif. Achats has had one on the PO since
+                                     051; Ventes never did, so the 550 FCFA
+                                     remise sitting on CMD-2602-F33A has no
+                                     recorded reason. The server now rejects a
+                                     non-zero remise without one. */ ?>
+                            <div id="so_discount_note_wrap" class="hidden">
+                                <input type="text" id="so_discount_note" maxlength="255"
+                                       placeholder="Motif de la remise (obligatoire)"
+                                       class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2 text-xs text-gray-600 outline-none focus:border-gray-400">
+                            </div>
+
+                            <?php /* Referenced by calculateOrderTotals() since
+                                     the discount-validation work, but never
+                                     added to the markup — the function
+                                     null-guarded both this and the submit
+                                     button, so the warning silently never
+                                     appeared and submit was never blocked. */ ?>
+                            <p id="calc_so_discount_warning" class="text-xs mt-1 hidden"></p>
+
                             <div class="border-t-2 border-gray-900 pt-3 flex justify-between items-center text-lg font-black text-gray-900">
                                 <span><?= htmlspecialchars(__t('ui.x.total_commande')) ?></span><span id="calc_so_grandtotal" class="text-lpc-dark">0 FCFA</span>
                             </div>
@@ -139,21 +310,132 @@ $user_role = $_SESSION['user_role'];
                     </div>
                 </form>
             </div>
-            
+
             <div class="bg-gray-50 px-8 py-5 border-t border-gray-200 flex justify-end gap-4 shrink-0">
                 <button type="button" onclick="closeModal('orderModal')" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
-                <button type="button" onclick="submitOrder()" class="px-8 py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2"><i class="fas fa-save"></i> <?= htmlspecialchars(__t('ui.x.enregistrer_la_commande')) ?></button>
+                <button type="button" id="btn-submit-order" onclick="submitOrder()" class="px-8 py-2.5 bg-gray-900 hover:bg-black disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2"><i class="fas fa-save"></i> <?= htmlspecialchars(__t('ui.x.enregistrer_la_commande')) ?></button>
             </div>
         </div>
     </div>
 
+    <!-- ===================================================================
+         MODAL: Confirmation des prix
+         -------------------------------------------------------------------
+         The mechanism. A line priced differently from the client's standing
+         tariff is NOT interpreted — it is put back to the operator, who says
+         which of the two things it is. Ticked: the client's new price, and the
+         tariff moves. Unticked: a one-off remise, and the tariff stands.
+
+         Nothing here is pre-ticked. A default would decide on the operator's
+         behalf, which is the entire thing being avoided.
+         =================================================================== -->
+    <div id="priceConfirmModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[85vh]">
+            <div class="bg-blue-600 px-8 py-5 text-white shrink-0">
+                <h3 class="font-black text-xl tracking-wide flex items-center"><i class="fas fa-tags mr-3"></i> Prix différents du tarif</h3>
+                <p class="text-xs text-blue-100 font-bold mt-1">
+                    Cochez les lignes dont le prix saisi devient le <strong>nouveau prix du client</strong>.
+                    Les lignes non cochées seront enregistrées comme <strong>remise ponctuelle</strong>.
+                </p>
+            </div>
+
+            <div class="px-8 py-3 bg-blue-50 border-b border-blue-100 flex items-center justify-between shrink-0">
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="price_confirm_all" onchange="togglePriceConfirmAll(this.checked)" class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                    <span class="text-xs font-black text-blue-900 uppercase tracking-widest">Tout confirmer comme nouveau prix</span>
+                </label>
+                <span id="price_confirm_summary" class="text-xs font-bold text-blue-800"></span>
+            </div>
+
+            <div class="flex-1 overflow-y-auto">
+                <table class="w-full text-left">
+                    <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-500 font-black tracking-widest sticky top-0">
+                        <tr>
+                            <th class="py-3 px-6">Produit</th>
+                            <th class="py-3 px-4 text-right">Tarif actuel</th>
+                            <th class="py-3 px-4 text-right">Prix saisi</th>
+                            <th class="py-3 px-4 text-center">Qté</th>
+                            <th class="py-3 px-6 text-center">Nouveau prix ?</th>
+                        </tr>
+                    </thead>
+                    <tbody id="price-confirm-body" class="divide-y divide-gray-100 text-sm"></tbody>
+                </table>
+            </div>
+
+            <div class="bg-gray-50 px-8 py-5 border-t border-gray-200 flex justify-between items-center gap-4 shrink-0">
+                <p class="text-[11px] font-bold text-gray-500">
+                    <i class="fas fa-shield-halved mr-1"></i>
+                    Un changement de prix est enregistré dans l'historique du client — ce n'est pas une remise.
+                </p>
+                <div class="flex gap-3">
+                    <button type="button" onclick="closeModal('priceConfirmModal')" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors">Retour</button>
+                    <button type="button" onclick="submitPriceDecisions()" class="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2"><i class="fas fa-check"></i> Valider et enregistrer</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================================================================
+         MODAL: KPI details
+         =================================================================== -->
+    <div id="kpiDetailsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col h-[70vh]">
+            <div class="bg-gray-900 px-8 py-5 flex justify-between items-center shrink-0">
+                <div>
+                    <h3 class="font-black text-white text-xl flex items-center"><i class="fas fa-list-alt mr-3 text-lpc-light"></i> <span id="kpi-detail-title">Détails</span></h3>
+                    <p id="kpi-detail-period" class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1"></p>
+                </div>
+                <button type="button" onclick="closeModal('kpiDetailsModal')" class="text-gray-400 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-8">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-600 font-black tracking-widest sticky top-0" id="kpi-detail-head"></thead>
+                    <tbody id="kpi-detail-body" class="divide-y divide-gray-100 text-sm"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================================================================
+         MODAL: Annuler une commande
+         =================================================================== -->
+    <div id="cancelOrderModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+            <div class="bg-red-600 px-8 py-5 flex justify-between items-center text-white shrink-0">
+                <h3 class="font-black text-lg tracking-wide flex items-center"><i class="fas fa-ban mr-3"></i> Annuler la commande</h3>
+                <button type="button" onclick="closeModal('cancelOrderModal')" class="text-red-200 hover:text-white"><i class="fas fa-times text-xl"></i></button>
+            </div>
+            <div class="p-8 space-y-4">
+                <input type="hidden" id="cancel_so_id" value="">
+                <p class="text-sm font-bold text-gray-700">
+                    Commande <span id="cancel_so_ref" class="font-black text-gray-900">—</span>
+                </p>
+                <p class="text-xs text-gray-500 font-medium">
+                    La commande reste visible dans l'historique, grisée, et sort de tous les indicateurs.
+                    Elle n'est pas supprimée.
+                </p>
+                <div>
+                    <label for="cancel_reason" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Motif <span class="text-red-500">*</span></label>
+                    <textarea id="cancel_reason" rows="3" maxlength="255" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-medium outline-none focus:ring-2 focus:ring-red-500" placeholder="ex: Client s'est rétracté"></textarea>
+                </div>
+            </div>
+            <div class="bg-gray-50 px-8 py-5 border-t border-gray-200 flex justify-end gap-3 shrink-0">
+                <button type="button" onclick="closeModal('cancelOrderModal')" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900">Retour</button>
+                <button type="button" onclick="submitCancelOrder()" class="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm shadow-md flex items-center gap-2"><i class="fas fa-ban"></i> Confirmer l'annulation</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================================================================
+         MODAL: Générer BL / Dispatch
+         =================================================================== -->
     <div id="dispatchModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/70 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
             <div class="bg-blue-600 px-8 py-5 flex justify-between items-center text-white shrink-0">
                 <h3 class="font-black text-xl tracking-wide flex items-center"><i class="fas fa-truck-loading mr-3"></i> <span><?= htmlspecialchars(__t('ui.x.generer_bl_dispatch')) ?></span></h3>
                 <button type="button" onclick="closeModal('dispatchModal')" class="text-blue-200 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
             </div>
-            
+
             <div class="p-8">
                 <div class="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6">
                     <p class="text-xs text-blue-800 font-bold mb-1"><?= htmlspecialchars(__t('ui.x.commande_ref')) ?> <span id="disp_so_ref" class="font-black">...</span></p>
@@ -162,9 +444,9 @@ $user_role = $_SESSION['user_role'];
 
                 <form id="form-dispatch" class="space-y-5">
                     <input type="hidden" id="disp_so_id" value="">
-                    
+
                     <div>
-                        <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.date_de_livraison_prevue')) ?></label>
+                        <label for="disp_date" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.date_de_livraison_prevue')) ?></label>
                         <input type="date" id="disp_date" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-600">
                     </div>
                     <?php
@@ -205,7 +487,7 @@ $user_role = $_SESSION['user_role'];
                     <?php // Shown for own_fleet only. ?>
                     <div id="disp_fleet_fields" class="space-y-5">
                         <div>
-                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.chauffeur_assigne')) ?> <span class="text-blue-500">*</span></label>
+                            <label for="disp_driver" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.chauffeur_assigne')) ?> <span class="text-blue-500">*</span></label>
                             <select id="disp_driver" onchange="autoSelectVehicle()" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-600">
                                 <option value=""><?= htmlspecialchars(__t('ui.x.selectionner_un_chauffeur')) ?></option>
                             </select>
@@ -217,7 +499,7 @@ $user_role = $_SESSION['user_role'];
                             // choice among active vehicles; the affectation, if
                             // any, merely pre-selects one.
                             ?>
-                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.vehicule')) ?></label>
+                            <label for="disp_vehicle" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.vehicule')) ?></label>
                             <select id="disp_vehicle" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-600">
                                 <option value=""><?= htmlspecialchars(__t('ui.x.aucun')) ?></option>
                             </select>
@@ -227,7 +509,7 @@ $user_role = $_SESSION['user_role'];
 
                     <?php // Shown for supplier only. ?>
                     <div id="disp_supplier_fields" class="hidden">
-                        <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.fournisseur_livreur')) ?> <span class="text-blue-500">*</span></label>
+                        <label for="disp_supplier" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.fournisseur_livreur')) ?> <span class="text-blue-500">*</span></label>
                         <select id="disp_supplier" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-600">
                             <option value=""><?= htmlspecialchars(__t('ui.x.selectionner_un_fournisseur')) ?></option>
                         </select>
@@ -240,7 +522,7 @@ $user_role = $_SESSION['user_role'];
                     </div>
                 </form>
             </div>
-            
+
             <div class="bg-gray-50 px-8 py-5 border-t border-gray-200 flex justify-end gap-4 shrink-0">
                 <button type="button" onclick="closeModal('dispatchModal')" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
                 <button type="button" onclick="submitDispatch()" class="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2"><i class="fas fa-print"></i> <?= htmlspecialchars(__t('ui.x.valider_imprimer_bl')) ?></button>
@@ -248,6 +530,9 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
+    <!-- ===================================================================
+         MODAL: Clôturer la livraison
+         =================================================================== -->
     <div id="closeDeliveryModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/70 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col h-[85vh]">
             <div class="bg-emerald-600 px-8 py-5 flex justify-between items-center text-white shrink-0">
@@ -257,7 +542,7 @@ $user_role = $_SESSION['user_role'];
                 </div>
                 <button type="button" onclick="closeModal('closeDeliveryModal')" class="text-emerald-200 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
             </div>
-            
+
             <div class="flex-1 overflow-y-auto p-8 bg-gray-50">
                 <div class="mb-6 flex justify-between items-center">
                     <div>
@@ -267,7 +552,7 @@ $user_role = $_SESSION['user_role'];
 
                 <form id="form-close-delivery" class="space-y-6">
                     <input type="hidden" id="close_delivery_id" value="">
-                    
+
                     <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                         <table class="w-full text-left">
                             <thead class="bg-emerald-50 border-b border-emerald-100 text-[10px] uppercase text-emerald-700 font-black tracking-widest">
@@ -275,6 +560,14 @@ $user_role = $_SESSION['user_role'];
                                     <th class="py-3 px-6"><?= htmlspecialchars(__t('ui.x.produit')) ?></th>
                                     <th class="py-3 px-4 text-center"><?= htmlspecialchars(__t('ui.x.qte_expediee')) ?></th>
                                     <th class="py-3 px-4 text-center"><?= htmlspecialchars(__t('ui.x.qte_acceptee_client')) ?></th>
+                                    <?php /* The driver flow has always written
+                                             delivery_items.returned_empty_qty,
+                                             but the ops close-out modal never
+                                             asked for it — so an ops user
+                                             clôturing a supplier delivery or a
+                                             pickup had no way to record the
+                                             empties that came back. */ ?>
+                                    <th class="py-3 px-4 text-center">Vides retournés</th>
                                 </tr>
                             </thead>
                             <tbody id="close-lines-container" class="divide-y divide-gray-100 text-sm font-medium">
@@ -288,7 +581,7 @@ $user_role = $_SESSION['user_role'];
                             <div class="space-y-4">
                                 <div>
                                     <?php // Label is rewritten per delivery_mode by openCompleteDeliveryModal(). ?>
-                                    <label id="close_cash_label" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.montant_collecte_par_le_chauffeur_fcfa')) ?></label>
+                                    <label id="close_cash_label" for="close_cash" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.montant_collecte_par_le_chauffeur_fcfa')) ?></label>
                                     <input type="number" id="close_cash" value="0" min="0" class="w-full bg-emerald-50 text-emerald-900 border border-emerald-200 rounded-lg p-3 text-lg font-black outline-none focus:ring-2 focus:ring-emerald-500">
                                 </div>
                                 <div>
@@ -299,14 +592,14 @@ $user_role = $_SESSION['user_role'];
                     </div>
                 </form>
             </div>
-            
+
             <div class="bg-white px-8 py-5 border-t border-gray-200 flex justify-end gap-4 shrink-0">
                 <button type="button" onclick="closeModal('closeDeliveryModal')" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
                 <button type="button" onclick="submitCloseDelivery()" class="px-8 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2"><i class="fas fa-check"></i> <?= htmlspecialchars(__t('ui.x.valider_cloturer')) ?></button>
             </div>
         </div>
     </div>
-    
+
     <div id="modal-share-bl" class="hidden fixed inset-0 z-50 flex items-end md:items-center justify-center bg-gray-900/90 backdrop-blur-sm transition-opacity">
         <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
             <div class="bg-gray-50 p-6 text-center border-b border-gray-200 relative">
@@ -330,7 +623,7 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
-
+    <script>window.LPC_DISCOUNT_MAX_PCT = <?= json_encode((float) $discount_max_pct) ?>;</script>
     <script src="<?= lpc_asset('/assets/js/modules/sales-orders.js') ?>" defer></script>
 </body>
 </html>

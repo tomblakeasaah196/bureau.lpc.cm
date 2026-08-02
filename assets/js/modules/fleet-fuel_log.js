@@ -19,16 +19,22 @@
                 if(result.status === 'success' && result.data) {
                     document.getElementById('form-fuel').classList.remove('hidden');
                     document.getElementById('fuel_vehicle_id').value = result.data.vehicle_id;
+                    // Drivers recognise the vehicle by name; the plate is the tie-breaker.
+                    const vehName = (result.data.make_model || '').trim();
                     document.getElementById('display_plate').innerText = result.data.plate_number;
-                    
+                    const nameEl = document.getElementById('display_vehicle_name');
+                    if (nameEl) nameEl.innerText = vehName || '—';
+
                     lastOdometer = parseInt(result.data.current_odometer);
                     document.getElementById('last_odo_display').innerText = lastOdometer;
-                    
-                    // Set strict min/max bounds
+
+                    // Lower bound only. The old `max = lastOdometer + 10` cap mirrored a
+                    // server rule that was relaxed in Sprint 4 (long-haul refuels are
+                    // legitimate); the backend now owns the jump limits.
                     const odoInput = document.getElementById('fuel_odometer');
                     odoInput.min = lastOdometer;
-                    odoInput.max = lastOdometer + 10;
-                    odoInput.value = lastOdometer; // Prefill
+                    odoInput.removeAttribute('max');
+                    odoInput.value = ''; // Optional — leave blank to keep the last reading
                 } else {
                     document.getElementById('no-vehicle-error').classList.remove('hidden');
                     document.getElementById('error-msg').innerText = result.message;
@@ -66,13 +72,14 @@
                 return LPC.modal.alert("Bien vouloir prendre une photo du ticket (reçu) !");
             }
 
-            // 2. Strict Odometer Validation
-            const odoInput = parseInt(document.getElementById('fuel_odometer').value);
-            if (odoInput < lastOdometer) {
+            // 2. Odometer Validation — the reading is now OPTIONAL. Blank means
+            //    "I didn't note the counter"; the server keeps the last known value.
+            //    We still refuse a reading that would rewind history. The old
+            //    +10 km ceiling is gone: the server's FLEET_ODOMETER_JUMP_MAX owns it.
+            const odoRaw = document.getElementById('fuel_odometer').value.trim();
+            const odoInput = odoRaw === '' ? '' : parseInt(odoRaw, 10);
+            if (odoRaw !== '' && (Number.isNaN(odoInput) || odoInput < lastOdometer)) {
                 return LPC.modal.alert(`Erreur: L'odomètre ne peut pas reculer. Le dernier relevé était ${lastOdometer} Km.`);
-            }
-            if ((odoInput - lastOdometer) > 10) {
-                return LPC.modal.alert(`Erreur: Vous ne pouvez pas ajouter plus de 10 Km au compteur (Max: ${lastOdometer + 10} Km). Veuillez contacter la logistique.`);
             }
 
             // 3. Show Loading Overlay

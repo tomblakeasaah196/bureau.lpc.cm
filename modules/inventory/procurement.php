@@ -374,6 +374,66 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
     
+    <!-- ===================================================================
+         MODAL: Confirmation des prix fournisseur  (migration 063)
+         -------------------------------------------------------------------
+         The buy-side twin of the sales modal. A PO line priced differently
+         from the supplier's standing tariff is not interpreted — the buyer
+         declares whether it is the supplier's NEW PRICE or a one-off remise.
+
+         This matters more here than it looks. A supplier raising their price
+         is the most ordinary event in procurement; if the software filed that
+         difference under "remise", a price increase would be recorded as a
+         negative discount, and it would sit on this very page next to the
+         Ristournes button — three unrelated things silently contaminating each
+         other. Nothing is pre-ticked, for the same reason as on the sell side.
+         =================================================================== -->
+    <div id="poPriceConfirmModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[85vh]">
+            <div class="bg-lpc-dark px-8 py-5 text-white shrink-0">
+                <h3 class="font-black text-xl tracking-wide flex items-center"><i class="fas fa-tags mr-3"></i> Prix différents du tarif fournisseur</h3>
+                <p class="text-xs text-white/80 font-bold mt-1">
+                    Cochez les lignes dont le prix saisi devient le <strong>nouveau prix du fournisseur</strong>.
+                    Les lignes non cochées seront enregistrées comme <strong>remise ponctuelle</strong>.
+                </p>
+            </div>
+
+            <div class="px-8 py-3 bg-lpc-bg border-b border-lpc-border flex items-center justify-between shrink-0">
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="po_price_confirm_all" onchange="togglePOPriceConfirmAll(this.checked)" class="w-4 h-4 rounded border-gray-300 text-lpc-dark focus:ring-lpc-dark">
+                    <span class="text-xs font-black text-gray-800 uppercase tracking-widest">Tout confirmer comme nouveau prix</span>
+                </label>
+                <span id="po_price_confirm_summary" class="text-xs font-bold text-gray-700"></span>
+            </div>
+
+            <div class="flex-1 overflow-y-auto">
+                <table class="w-full text-left">
+                    <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-500 font-black tracking-widest sticky top-0">
+                        <tr>
+                            <th class="py-3 px-6">Produit</th>
+                            <th class="py-3 px-4 text-right">Tarif actuel</th>
+                            <th class="py-3 px-4 text-right">Prix saisi</th>
+                            <th class="py-3 px-4 text-center">Qté</th>
+                            <th class="py-3 px-6 text-center">Nouveau prix ?</th>
+                        </tr>
+                    </thead>
+                    <tbody id="po-price-confirm-body" class="divide-y divide-gray-100 text-sm"></tbody>
+                </table>
+            </div>
+
+            <div class="bg-gray-50 px-8 py-5 border-t border-gray-200 flex justify-between items-center gap-4 shrink-0">
+                <p class="text-[11px] font-bold text-gray-500">
+                    <i class="fas fa-shield-halved mr-1"></i>
+                    Un changement de prix est tracé dans l'historique du fournisseur — ce n'est ni une remise, ni une ristourne.
+                </p>
+                <div class="flex gap-3">
+                    <button type="button" onclick="closeModal('poPriceConfirmModal')" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors">Retour</button>
+                    <button type="button" onclick="submitPOPriceDecisions()" class="px-8 py-2.5 bg-lpc-dark hover:bg-[#004722] text-white rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2"><i class="fas fa-check"></i> Valider et enregistrer</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal: KPI Details -->
     <div id="kpiDetailsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-3xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col h-[70vh]">

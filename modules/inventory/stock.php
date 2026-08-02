@@ -40,6 +40,22 @@ $user_role = $_SESSION['user_role'];
 
     <div id="lpc-shell-main">
 
+        <?php /* Help for THIS page. Deliberately its OWN .lpc-toolbar row and
+                 NOT a child of .lpc-tabs below: that nav is `overflow-x: auto`,
+                 so on a narrow screen the four tabs scroll and an `ml-auto`
+                 button inside them would scroll out of sight — the one place a
+                 help affordance must never be. .lpc-toolbar is
+                 `justify-content: flex-end`, so a lone button right-aligns with
+                 no extra class, matching procurement.php next door.
+
+                 Renders nothing if no article is anchored to 'inventory.stock'
+                 (migration 054) or if the reader lacks inventory.stock.view,
+                 so it is safe either way. README §5.5: page-specific help
+                 belongs in the page toolbar, not the topbar. */ ?>
+        <div class="lpc-toolbar">
+            <?php echo lpc_help_link('inventory.stock', $lang); ?>
+        </div>
+
         <nav class="lpc-tabs">
             <button onclick="switchTab('stock')" class="tab-link py-4 border-b-[3px] border-lpc-dark text-lpc-dark font-black text-sm uppercase tracking-wider whitespace-nowrap" id="tab-stock">
                 <i class="fas fa-layer-group mr-2"></i> Stock Actuel

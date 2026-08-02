@@ -3,6 +3,9 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/Paginator.php';   // Sprint 5
 require_once __DIR__ . '/../../includes/classes/JournalPoster.php';
 require_once __DIR__ . '/../../includes/functions/procurement.php';
+// Supplier tariff + the price-change log. Migration 063 — a supplier changing
+// their price is a new price, not a remise and not a ristourne.
+require_once __DIR__ . '/../../includes/functions/pricing.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 // Baseline gate. Every write action below re-checks with its own permission:
@@ -560,17 +563,137 @@ try {
                 throw new UserFacingException("Statut de paiement invalide.");
             }
 
-            $subtotal = 0;
+            $clean_items = [];
             foreach ($items as $item) {
+                $pid        = (int)   ($item['product_id'] ?? 0);
                 $qty        = (int)   ($item['quantity']   ?? 0);
-                $unit_price = (float) ($item['unit_price'] ?? 0);
+                $unit_price = round((float) ($item['unit_price'] ?? 0), 2);
                 // Negative quantities or prices would let a line subtract from
                 // the order total, and on reception would subtract from stock
                 // through an 'in_supplier' movement.
+                if ($pid <= 0) {
+                    throw new UserFacingException("Ligne de commande sans produit.");
+                }
                 if ($qty <= 0 || $unit_price < 0) {
                     throw new UserFacingException("Ligne de commande invalide : quantité et prix doivent être positifs.");
                 }
-                $subtotal += $qty * $unit_price;
+                $clean_items[] = ['product_id' => $pid, 'quantity' => $qty, 'unit_price' => $unit_price];
+            }
+
+            // -----------------------------------------------------------------
+            // Migration 063 · a supplier price change is a price change.
+            //
+            // The subtotal used to be simply Σ(qty × typed price), which meant a
+            // supplier's price movement and a negotiated one-off reduction were
+            // the same event as far as this system was concerned: both just
+            // changed a number, and neither was recorded as anything.
+            //
+            // Nothing is inferred here. Lines differing from the supplier's
+            // standing tariff are returned to the browser, the buyer declares
+            // which they are, and this endpoint records the declaration —
+            // exactly as save_order does on the sell side.
+            //
+            // First order for a (supplier, product) pair: no tariff exists, so
+            // no question is raised and the typed price BECOMES the tariff.
+            // That is what lets supplier_prices start empty and fill itself
+            // from real decisions rather than from a seeded guess (see 063).
+            // -----------------------------------------------------------------
+            $price_decisions = is_array($jsonData['price_decisions'] ?? null)
+                             ? $jsonData['price_decisions'] : [];
+
+            $po_pids    = array_column($clean_items, 'product_id');
+            $sup_tariff = lpc_supplier_tariff($db, $supplier_id, $po_pids);
+            $disparities = lpc_supplier_price_disparities($clean_items, $sup_tariff);
+
+            $undecided = [];
+            foreach ($disparities as $pid => $d) {
+                if (!array_key_exists((string) $pid, $price_decisions)
+                    && !array_key_exists($pid, $price_decisions)) {
+                    $undecided[] = $pid;
+                }
+            }
+
+            if (!empty($undecided)) {
+                // Nothing written. Roll back the transaction opened above
+                // before returning, or the connection is left holding it.
+                if ($db->inTransaction()) $db->rollBack();
+
+                $nameStmt = $db->query(
+                    'SELECT id, name, format FROM products WHERE id IN ('
+                    . implode(',', array_map('intval', array_keys($disparities))) . ')'
+                );
+                $names = [];
+                foreach ($nameStmt->fetchAll(PDO::FETCH_ASSOC) as $n) {
+                    $names[(int) $n['id']] = trim($n['name'] . ' ' . ($n['format'] ?? ''));
+                }
+                $payload = [];
+                foreach ($disparities as $pid => $d) {
+                    $d['product_name'] = $names[$pid] ?? ('#' . $pid);
+                    $payload[] = $d;
+                }
+                echo json_encode(['status' => 'needs_price_confirmation', 'disparities' => $payload]);
+                break;
+            }
+
+            // Every disparity carries a decision. Price the lines.
+            $subtotal = 0.0;
+            $line_discount_total = 0.0;
+            $priced_lines = [];
+            $repriced_sup = [];
+
+            foreach ($clean_items as $l) {
+                $pid = $l['product_id']; $qty = $l['quantity']; $typed = $l['unit_price'];
+                $has_tariff = array_key_exists($pid, $sup_tariff);
+                $current = $has_tariff ? round((float) $sup_tariff[$pid], 2) : $typed;
+
+                $changed = $has_tariff && abs($typed - $current) >= 0.005;
+                $confirm = $changed
+                    && (($price_decisions[$pid] ?? $price_decisions[(string) $pid] ?? false) ? true : false);
+
+                if (!$has_tariff) {
+                    // No tariff on file. The typed price establishes it — this
+                    // is not a change, so it is not logged as one and carries
+                    // no discount.
+                    $list = $typed; $unit = $typed; $lineDisc = 0.0;
+                    $repriced_sup[$pid] = $typed;
+                } elseif (!$changed) {
+                    $list = $current; $unit = $current; $lineDisc = 0.0;
+                } elseif ($confirm) {
+                    // Declared: the supplier's new price. No discount.
+                    $list = $typed; $unit = $typed; $lineDisc = 0.0;
+                    $repriced_sup[$pid] = $typed;
+                } else {
+                    // Declared: a one-off reduction. Tariff stands.
+                    if ($typed > $current) {
+                        // Paying ABOVE tariff while refusing to call it the new
+                        // price would have to be a negative remise — a
+                        // surcharge dressed as a discount, which would corrupt
+                        // every total that sums this column.
+                        throw new UserFacingException(
+                            "Prix supérieur au tarif fournisseur sur une ligne sans confirmation. "
+                            . "Confirmez le nouveau prix, ou ramenez la ligne au tarif."
+                        );
+                    }
+                    $list = $current; $unit = $typed;
+                    $lineDisc = round(($current - $typed) * $qty, 2);
+                }
+
+                $subtotal            += $list * $qty;
+                $line_discount_total += $lineDisc;
+                $priced_lines[] = [
+                    'product_id' => $pid, 'quantity' => $qty,
+                    'unit_price' => $unit, 'list_price' => $list, 'discount' => $lineDisc,
+                ];
+            }
+
+            $subtotal = round($subtotal, 2);
+            // The typed "Remise (FCFA)" field plus whatever was declared line by
+            // line. discount_amount keeps its existing meaning — everything
+            // obtained as a reduction on this order — and gains a breakdown.
+            $discount_amount = round($discount_amount + $line_discount_total, 2);
+
+            if ($discount_amount > 0 && $discount_note === '') {
+                throw new UserFacingException("Motif de la remise obligatoire.");
             }
 
             // A discount cannot exceed what is being ordered. Without this the
@@ -583,6 +706,20 @@ try {
                     number_format($discount_amount, 0, ',', ' '),
                     number_format($subtotal, 0, ',', ' ')
                 ));
+            }
+
+            // Ceiling on the declared remise. Repricing a supplier is ordinary
+            // commercial work and is never gated by this.
+            $po_max_pct = Prefs::float('purchase_discount_max_pct', 15);
+            if ($po_max_pct > 0 && $subtotal > 0) {
+                $po_pct = ($discount_amount / $subtotal) * 100;
+                if ($po_pct > $po_max_pct
+                    && !Rbac::hasPermission('inventory.procurement.discount_approve')) {
+                    throw new UserFacingException(sprintf(
+                        "Remise de %.1f%% au-delà du plafond de %.0f%%. Approbation requise.",
+                        $po_pct, $po_max_pct
+                    ));
+                }
             }
 
             $total_amount = max(0, $subtotal - $discount_amount);
@@ -602,9 +739,27 @@ try {
             ]);
             $po_id = $db->lastInsertId();
 
-            $stmtLine = $db->prepare("INSERT INTO purchase_order_items (purchase_order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)");
-            foreach ($items as $item) {
-                $stmtLine->execute([$po_id, (int)$item['product_id'], (int)$item['quantity'], (float)$item['unit_price']]);
+            $stmtLine = $db->prepare("
+                INSERT INTO purchase_order_items
+                    (purchase_order_id, product_id, quantity, unit_price, list_price, discount_amount)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ");
+            foreach ($priced_lines as $p) {
+                $stmtLine->execute([
+                    $po_id, $p['product_id'], $p['quantity'],
+                    $p['unit_price'], $p['list_price'], $p['discount'],
+                ]);
+            }
+
+            // Repricing commits with the order that caused it. A PO that rolls
+            // back must not leave a new supplier tariff standing — the buyer
+            // confirmed a price FOR THIS ORDER, and if the order did not happen
+            // neither did the decision.
+            foreach ($repriced_sup as $rp_pid => $rp_price) {
+                lpc_apply_supplier_price_change(
+                    $db, $supplier_id, (int) $rp_pid, (float) $rp_price, $user_id,
+                    'purchase_order', $reference, 'Confirmé à la saisie du bon de commande'
+                );
             }
 
             // 1b. RISTOURNE LADDER TIER — frozen per category, at order
@@ -620,12 +775,21 @@ try {
             $tax = lpc_rebate_tax_settings($db);
             $stmtProdCat = $db->prepare("SELECT category_id FROM products WHERE id = ?");
             $category_ttc_totals = []; // category_id => TTC subtotal for this PO
-            foreach ($items as $item) {
-                $stmtProdCat->execute([(int) $item['product_id']]);
+            // Iterates $priced_lines, not the raw $items payload, and values at
+            // list_price rather than the typed price. Both matter since 063:
+            // the ladder is evaluated against the order's category subtotal,
+            // and that subtotal must be the same figure written to
+            // purchase_orders.subtotal. Valuing it at the typed price instead
+            // would make a line carrying a declared remise contribute less to
+            // the rebate base than it contributed to the order — so a
+            // negotiated reduction would quietly shrink the ristourne earned on
+            // it, which is not what the ladder agreement says.
+            foreach ($priced_lines as $p) {
+                $stmtProdCat->execute([$p['product_id']]);
                 $cat_id = $stmtProdCat->fetchColumn();
                 if (!$cat_id) continue; // product has no category assigned — cannot ladder it
                 $cat_id = (int) $cat_id;
-                $line_ttc = (int) $item['quantity'] * (float) $item['unit_price'];
+                $line_ttc = $p['quantity'] * (float) $p['list_price'];
                 $category_ttc_totals[$cat_id] = ($category_ttc_totals[$cat_id] ?? 0) + $line_ttc;
             }
 

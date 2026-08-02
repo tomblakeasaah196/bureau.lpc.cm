@@ -730,10 +730,18 @@ function openRistourneModal() {
 
         // --- 4. DATA SUBMISSION (WRITE/UPDATE/DELETE) ---
 
+        // Migration 063 · a supplier price change is a price change.
+        //
+        // Held between the two round trips of a save: the first returns the
+        // lines that differ from the supplier's tariff, the buyer declares what
+        // each one is, and the second carries those declarations.
+        let poPendingDisparities = [];
+        let poPendingPayload = null;
+
         async function submitPO() {
             const supplierId = document.getElementById('po_supplier').value;
             if(!supplierId) return LPC.modal.alert("Veuillez sélectionner un fournisseur.");
-            
+
             const rows = document.querySelectorAll('.item-row');
             if(rows.length === 0) return LPC.modal.alert("Veuillez ajouter au moins un produit.");
 
@@ -745,7 +753,8 @@ function openRistourneModal() {
                 discount_amount: document.getElementById('po_discount_amount').value || 0,
                 discount_note: document.getElementById('po_discount_note').value,
                 delivery_place_id: document.getElementById('po_delivery_place').value || null,
-                items: []
+                items: [],
+                price_decisions: {}
             };
 
             let valid = true;
@@ -759,6 +768,11 @@ function openRistourneModal() {
 
             if(!valid) return LPC.modal.alert("Veuillez remplir correctement toutes les lignes produit.");
 
+            poPendingPayload = payload;
+            await postPO(payload);
+        }
+
+        async function postPO(payload) {
             const btn = document.querySelector('#poModal button.bg-lpc-dark');
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Traitement...';
             btn.disabled = true;
@@ -770,10 +784,21 @@ function openRistourneModal() {
                     body: JSON.stringify(payload)
                 });
                 const result = await response.json();
-                
+
+                if (result.status === 'needs_price_confirmation') {
+                    // The server found lines priced off the supplier's tariff
+                    // and is asking, not deciding. Nothing has been written.
+                    poPendingDisparities = result.disparities || [];
+                    openPOPriceConfirmModal();
+                    return;
+                }
+
                 if(result.status === 'success') {
+                    closeModal('poPriceConfirmModal');
                     closeModal('poModal');
-                    loadTabData(); 
+                    poPendingPayload = null;
+                    poPendingDisparities = [];
+                    loadTabData();
                     window.open(`/bon_commande.php?token=${result.token}`, '_blank');
                 } else LPC.modal.alert("Erreur: " + result.message);
             } catch (e) {
@@ -782,6 +807,79 @@ function openRistourneModal() {
                 btn.innerHTML = '<i class="fas fa-save"></i> Enregistrer & Valider Stock';
                 btn.disabled = false;
             }
+        }
+
+        function openPOPriceConfirmModal() {
+            const body = document.getElementById('po-price-confirm-body');
+            body.innerHTML = '';
+
+            poPendingDisparities.forEach(d => {
+                const up = Number(d.delta) > 0;
+                body.innerHTML += LPC.html`
+                    <tr class="hover:bg-gray-50">
+                        <td class="py-3 px-6">
+                            <p class="font-bold text-gray-900">${d.product_name}</p>
+                            <p class="text-[10px] font-bold ${up ? 'text-rose-600' : 'text-emerald-600'}">
+                                ${up ? '▲' : '▼'} ${LPC.fmt.int(Math.abs(d.delta))} F par unité
+                            </p>
+                        </td>
+                        <td class="py-3 px-4 text-right font-bold text-gray-500">${LPC.fmt.int(d.current_price)} F</td>
+                        <td class="py-3 px-4 text-right font-black text-gray-900">${LPC.fmt.int(d.new_price)} F</td>
+                        <td class="py-3 px-4 text-center font-bold text-gray-600">${d.quantity}</td>
+                        <td class="py-3 px-6 text-center">
+                            <input type="checkbox" class="po-price-confirm-box w-5 h-5 rounded border-gray-300 text-lpc-dark focus:ring-lpc-dark"
+                                   data-product-id="${d.product_id}" onchange="updatePOPriceConfirmSummary()">
+                        </td>
+                    </tr>`;
+            });
+
+            // Nothing pre-ticked. A default would decide for the buyer, which
+            // is exactly what this modal exists to prevent.
+            document.getElementById('po_price_confirm_all').checked = false;
+            updatePOPriceConfirmSummary();
+            document.getElementById('poPriceConfirmModal').classList.remove('hidden');
+        }
+
+        function togglePOPriceConfirmAll(checked) {
+            document.querySelectorAll('.po-price-confirm-box').forEach(b => { b.checked = checked; });
+            updatePOPriceConfirmSummary();
+        }
+
+        function updatePOPriceConfirmSummary() {
+            const boxes = Array.from(document.querySelectorAll('.po-price-confirm-box'));
+            const confirmed = boxes.filter(b => b.checked).length;
+            const remise = boxes.length - confirmed;
+
+            const all = document.getElementById('po_price_confirm_all');
+            if (all) all.checked = boxes.length > 0 && confirmed === boxes.length;
+
+            document.getElementById('po_price_confirm_summary').textContent =
+                `${confirmed} nouveau(x) prix · ${remise} remise(s) ponctuelle(s)`;
+        }
+
+        async function submitPOPriceDecisions() {
+            if (!poPendingPayload) return;
+
+            const decisions = {};
+            document.querySelectorAll('.po-price-confirm-box').forEach(b => {
+                decisions[b.getAttribute('data-product-id')] = b.checked;
+            });
+            poPendingPayload.price_decisions = decisions;
+
+            // A declined line becomes a remise, and the server requires a motif
+            // for any remise. Checked here so the buyer is not bounced between
+            // two modals to discover it.
+            const anyRemise = Object.values(decisions).some(v => v === false);
+            const note = document.getElementById('po_discount_note').value.trim();
+            if (anyRemise && !note) {
+                closeModal('poPriceConfirmModal');
+                document.getElementById('po_discount_note').focus();
+                LPC.toast("Indiquez le motif de la remise avant de valider.", 'warning');
+                return;
+            }
+            poPendingPayload.discount_note = note;
+
+            await postPO(poPendingPayload);
         }
 
         // submitOverhead() removed 31 July 2026. The Frais Généraux tab is gone

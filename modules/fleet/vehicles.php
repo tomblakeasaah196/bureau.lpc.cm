@@ -373,9 +373,9 @@ $user_role = $_SESSION['user_role'];
                     </div>
 
                     <div>
-                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.odometre_actuel_km_2')) ?> <span class="text-amber-500">*</span></label>
-                        <input type="number" id="fuel_odometer" required min="0" class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-amber-500">
-                        <p class="text-[9px] font-bold text-gray-400 mt-1"><?= htmlspecialchars(__t('ui.x.sera_valide_sequentiellement_contre_la_d')) ?></p>
+                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.odometre_actuel_km_2')) ?> <span class="text-gray-400 normal-case">(optionnel)</span></label>
+                        <input type="number" id="fuel_odometer" min="0" class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-amber-500">
+                        <p class="text-[9px] font-bold text-gray-400 mt-1"><?= htmlspecialchars(__t('ui.x.sera_valide_sequentiellement_contre_la_d')) ?> Laissez vide pour conserver le dernier relevé du véhicule.</p>
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
@@ -507,8 +507,8 @@ $user_role = $_SESSION['user_role'];
                             <input type="date" id="assign_date" required class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-600">
                         </div>
                         <div>
-                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.km_depart')) ?> <span class="text-blue-600">*</span></label>
-                            <input type="number" id="assign_odo_start" required class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-600">
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.km_depart')) ?> <span class="text-gray-400 normal-case">(optionnel)</span></label>
+                            <input type="number" id="assign_odo_start" min="0" placeholder="Dernier relevé" class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-600">
                         </div>
                     </div>
                 </form>

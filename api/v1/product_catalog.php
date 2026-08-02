@@ -176,10 +176,35 @@ function lpc_catalog_has_col(PDO $db, string $col): bool
     return $cache[$col] = ((int) $stmt->fetchColumn() > 0);
 }
 
+require_once __DIR__ . '/../../includes/functions/pricing.php';
+
 try {
     $db      = Database::getInstance()->getConnection();
     $has_v2  = lpc_catalog_has_v2($db);
     $purpose = ($_GET['purpose'] ?? 'sell') === 'buy' ? 'buy' : 'sell';
+
+    // -------------------------------------------------------------------------
+    // Negotiated client pricing.
+    //
+    // assets/js/lpc-product-picker.js has always appended `&client_id=` — its
+    // own option is documented as "clientId: 42, // optional, for negotiated
+    // pricing" — and this endpoint has always ignored it. Every order line for
+    // every client was therefore priced from products.base_price, and
+    // client_prices.custom_price applied only when somebody remembered the
+    // negotiated figure and retyped it by hand.
+    //
+    // That was a wrong default on its own. It becomes load-bearing with the
+    // price-reconciliation modal (migration 062): that modal asks the operator
+    // to confirm any line whose price differs from the tariff, so a tariff
+    // resolved from the wrong source would raise a false disparity on every
+    // line of every negotiated client's order. Ask a question that is always
+    // wrong and the operator learns to dismiss it without reading — which
+    // costs more than never having asked.
+    //
+    // Sell side only. `buy` prices from cump/base and has no client.
+    // -------------------------------------------------------------------------
+    $client_id     = ($purpose === 'sell') ? (int) ($_GET['client_id'] ?? 0) : 0;
+    $client_tariff = $client_id > 0 ? lpc_client_tariff($db, $client_id) : [];
 
     $has_is_empty    = lpc_catalog_has_col($db, 'is_empty');
     $has_linked      = lpc_catalog_has_col($db, 'linked_empty_id');
@@ -263,7 +288,16 @@ try {
         // A PO priced at 0 is worse than a PO priced at last-known cost, and
         // cump is 0 until the first reception — fall back to base_price so the
         // buyer edits a number instead of typing one from scratch.
-        $price = ($purpose === 'buy') ? ($cump > 0 ? $cump : $base) : $base;
+        //
+        // Sell side: the client's negotiated price when there is one, the
+        // catalogue otherwise. `is_negotiated` is surfaced separately so the
+        // picker can say WHICH it is showing rather than presenting a
+        // client-specific figure as though it were the catalogue.
+        $pid_int      = (int) $r['id'];
+        $is_negotiated = ($purpose === 'sell') && array_key_exists($pid_int, $client_tariff);
+        $price = ($purpose === 'buy')
+            ? ($cump > 0 ? $cump : $base)
+            : lpc_effective_price($client_tariff, $pid_int, $base);
 
         $stock = (int) ($r['stock_qty'] ?? 0);
         $min   = isset($r['min_stock_level']) ? (int) $r['min_stock_level'] : 0;
@@ -298,6 +332,12 @@ try {
             'category_sort'   => isset($r['category_sort']) ? (int) $r['category_sort'] : 999,
             'price'           => $price,
             'base_price'      => $base,
+            // True when `price` came from client_prices rather than the
+            // catalogue. The picker badges these so a rep can see at a glance
+            // that they are looking at this client's own price — and so that a
+            // price they then change is understood to be changing THAT, not the
+            // catalogue.
+            'is_negotiated'   => $is_negotiated,
             'cump'            => $cump,
             'unit_of_measure' => $r['unit_of_measure'] ?? 'unite',
             'units_per_pack'  => isset($r['units_per_pack']) ? (int) $r['units_per_pack'] : 1,

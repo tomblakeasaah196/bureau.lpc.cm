@@ -50,6 +50,16 @@ $user_role = $_SESSION['user_role'];
                 </div>
                 <span class="lpc-field-label" id="lbl-fin"><?= htmlspecialchars(__t('ui.x.valeur_fcfa')) ?></span>
             </div>
+
+            <?php
+            // Help for THIS page. Renders nothing until an article is anchored
+            // to 'inventory.fiche_stock' (migration 054) or if the reader lacks
+            // inventory.fiche.view, so it is safe either way. `ml-auto` pins it
+            // to the right edge past the units/FCFA toggle, as in
+            // procurement.php. README §5.5: page-specific, so it lives in this
+            // toolbar and not in the topbar.
+            echo lpc_help_link('inventory.fiche_stock', $lang, ['class' => 'ml-auto']);
+            ?>
         </div>
 
         <main role="main" id="main" class="lpc-page space-y-6">

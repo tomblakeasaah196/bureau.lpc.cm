@@ -23,6 +23,28 @@
             return LPC.toast(message, type);
         }
 
+        /**
+         * Human-readable label for a vehicle in dropdowns / summaries.
+         * Operators think in names ("Toyota Dyna"), not plates, so lead with the
+         * name and keep the plate as the disambiguator. Falls back to the plate
+         * alone when make_model is empty.
+         */
+        function vehicleLabel(v) {
+            const name = (v.make_model || '').trim();
+            return name ? `${name} — ${v.plate_number}` : v.plate_number;
+        }
+
+        /**
+         * Two-line vehicle identity for table cells: name on top, plate beneath.
+         * Returns LPC.raw so it can be interpolated into an LPC.html template —
+         * the values inside are escaped by the inner LPC.html call.
+         */
+        function vehicleCell(v) {
+            const name = (v.make_model || '').trim();
+            if (!name) return LPC.raw(LPC.html`<span class="uppercase">${v.plate_number}</span>`);
+            return LPC.raw(LPC.html`${name}<br><span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">${v.plate_number}</span>`);
+        }
+
         /** Initialization Hook */
         window.onload = () => {
             document.getElementById('assign_date').valueAsDate = new Date(); // Default to today
@@ -165,7 +187,7 @@
                 data.alerts.forEach(a => {
                     tbody.innerHTML += LPC.html`
                         <tr class="hover:bg-red-50/30 transition-colors">
-                            <td class="py-3.5 px-6 font-black text-gray-800 text-xs">${a.plate_number}</td>
+                            <td class="py-3.5 px-6 font-black text-gray-800 text-xs">${vehicleCell(a)}</td>
                             <td class="py-3.5 px-6 text-right font-bold text-red-600 text-xs">${a.message}</td>
                         </tr>`;
                 });
@@ -216,7 +238,7 @@
                 tbody.innerHTML += LPC.html`
                     <tr class="hover:bg-gray-50/50 transition-colors">
                         <td class="py-4 px-6 font-bold text-gray-500 text-xs">${new Date(a.assignment_date).toLocaleDateString('fr-FR')}</td>
-                        <td class="py-4 px-6 font-black text-gray-900">${a.plate_number}</td>
+                        <td class="py-4 px-6 font-black text-gray-900">${vehicleCell(a)}</td>
                         <td class="py-4 px-6 font-bold text-gray-700 text-xs"><i class="fas fa-user-tie text-blue-400 mr-1"></i> ${a.driver_name}</td>
                         <td class="py-4 px-6 text-right font-black text-gray-600">${fmt(a.odometer_start)}</td>
                         <td class="py-4 px-6 text-center"><span class="bg-blue-50 text-blue-600 px-2.5 py-1 rounded text-[9px] uppercase font-black tracking-wider border border-blue-200">${a.status}</span></td>
@@ -251,7 +273,7 @@
                 tbody.innerHTML += LPC.html`
                     <tr class="bg-red-50 border-l-4 border-red-500 animate-pulse-slow">
                         <td class="py-4 px-6 font-black text-red-600 text-xs uppercase"><i class="fas fa-exclamation-triangle mr-2"></i>${alertLabel}</td>
-                        <td class="py-4 px-6 font-black text-gray-900">${a.plate_number}</td>
+                        <td class="py-4 px-6 font-black text-gray-900">${vehicleCell(a)}</td>
                         <td class="py-4 px-6 font-bold text-red-700 text-[10px] uppercase tracking-widest">${a.type}</td>
                         <td class="py-4 px-6 text-xs text-red-500 font-medium">${displayValue}</td>
                         <td class="py-4 px-6 text-right font-black">-</td>
@@ -272,7 +294,7 @@
             tbody.innerHTML += LPC.html`
                 <tr class="hover:bg-gray-50/50 transition-colors">
                     <td class="py-4 px-6 font-bold text-gray-500 text-xs">${new Date(l.service_date).toLocaleDateString('fr-FR')}</td>
-                    <td class="py-4 px-6 font-black text-gray-900">${l.plate_number}</td>
+                    <td class="py-4 px-6 font-black text-gray-900">${vehicleCell(l)}</td>
                     <td class="py-4 px-6 font-bold text-gray-700 text-xs uppercase tracking-wider">${l.service_type}</td>
                     <td class="py-4 px-6 font-medium text-gray-500 text-xs truncate max-w-[200px]">${l.description || '-'}</td>
                     <td class="py-4 px-6 text-right font-black text-gray-600">${l.odometer_at_service ? fmt(l.odometer_at_service) : '-'}</td>
@@ -293,7 +315,7 @@
                 tbody.innerHTML += LPC.html`
                     <tr class="hover:bg-gray-50/50 transition-colors">
                         <td class="py-4 px-6 font-bold text-gray-500 text-xs">${new Date(l.date).toLocaleDateString('fr-FR')}</td>
-                        <td class="py-4 px-6 font-black text-gray-900">${l.plate_number}</td>
+                        <td class="py-4 px-6 font-black text-gray-900">${vehicleCell(l)}</td>
                         <td class="py-4 px-6 text-right font-black text-amber-600">${l.liters} L</td>
                         <td class="py-4 px-6 text-right font-black text-gray-900">${fmt(l.total_cost)} F <br><span class="text-[9px] text-gray-400 font-normal">@ ${fmt(l.cost_per_liter)} F/L</span></td>
                         <td class="py-4 px-6 text-right font-black text-gray-600">${fmt(l.odometer_reading)}</td>
@@ -382,7 +404,7 @@
     // Fix: Access .vehicles and check if it exists
     if(globalData.flotte && Array.isArray(globalData.flotte.vehicles)) {
         globalData.flotte.vehicles.filter(v => v.status === 'active').forEach(v => {
-            sel.innerHTML += LPC.html`<option value="${v.id}">${v.plate_number} (Km: ${v.current_odometer})</option>`;
+            sel.innerHTML += LPC.html`<option value="${v.id}">${vehicleLabel(v)} (Km: ${v.current_odometer})</option>`;
         });
     } else {
         // Fallback: If user hasn't clicked the 'Flotte' tab yet, we should fetch it
@@ -420,7 +442,7 @@
             // 3. Populate Vehicles (Only Active ones)
             selVeh.innerHTML = '<option value="">-- Choisir un véhicule --</option>';
             vehResult.data.vehicles.filter(v => v.status === 'active').forEach(v => {
-                selVeh.innerHTML += LPC.html`<option value="${v.id}">${v.plate_number} (Actuel: ${fmt(v.current_odometer)} Km)</option>`;
+                selVeh.innerHTML += LPC.html`<option value="${v.id}">${vehicleLabel(v)} (Actuel: ${fmt(v.current_odometer)} Km)</option>`;
             });
 
             // 4. Populate Drivers
@@ -470,7 +492,7 @@
     sel.innerHTML = '<option value="">-- Choisir un véhicule --</option>';
     if(globalData.flotte && Array.isArray(globalData.flotte.vehicles)) {
         globalData.flotte.vehicles.filter(v => v.status !== 'retired').forEach(v => {
-            sel.innerHTML += LPC.html`<option value="${v.id}">${v.plate_number}</option>`;
+            sel.innerHTML += LPC.html`<option value="${v.id}">${vehicleLabel(v)}</option>`;
         });
     }
 }
