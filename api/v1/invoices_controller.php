@@ -902,6 +902,27 @@ try {
                  . ($air_amount > 0 ? " (dont AIR retenu à la source " . number_format($air_amount, 0, ',', ' ') . " FCFA)" : '') . '.';
             notifyAdminFinance($db, "Facture Émise", $msg);
 
+            // Batch B — misconfiguration warning: the client was flagged as
+            // agent de retenue but no rate is set, so the invoice booked
+            // as if the client would pay in full. Very likely a data-entry
+            // slip on the client's CRM record (fiche client → cochée mais
+            // taux à 0). Notify Finance/Admin so they fix the client's
+            // withholding_air_rate and re-issue if needed. Best-effort.
+            if ((int) $cliRow['is_wa'] === 1 && (float) $cliRow['wa_rate'] <= 0.0) {
+                try {
+                    $cname_stmt = $db->prepare("SELECT name FROM clients WHERE id = ?");
+                    $cname_stmt->execute([$client_id]);
+                    $cname_val = (string) ($cname_stmt->fetchColumn() ?: ('#' . $client_id));
+                    notifyAdminFinance(
+                        $db,
+                        'Configuration retenue AIR incomplète',
+                        "Facture {$reference} émise pour {$cname_val} : le client est marqué « retient à la source » mais son taux AIR est à 0. La facture a été émise sans scission AIR. Corrigez la fiche client (CRM → Modifier → cocher taux 2,2 %/5,5 %/10 %/15 %) puis, si nécessaire, ré-émettez la facture."
+                    );
+                } catch (Throwable $e) {
+                    error_log('generate_invoice wa-misconfigured notify: ' . $e->getMessage());
+                }
+            }
+
             $db->commit();
             echo json_encode(['status' => 'success', 'token' => $token,
                               'invoice_id' => $invoice_id,
@@ -1025,6 +1046,27 @@ try {
                     "Le paiement n'a pas pu être comptabilisé (configuration de trésorerie incomplète). "
                     . "Détail : " . $e->getMessage() . " — vérifiez Paramètres → Trésorerie."
                 );
+            }
+
+            // Batch B — immediate notification when a payment books AIR
+            // retenu but no certificate is attached yet. Best-effort: a
+            // notification insert must never break a successful payment.
+            if ($air_withheld > 0 && !$cert_id) {
+                try {
+                    // Fetch client name for the message (best-effort — the
+                    // notification is decoration, not a blocker).
+                    $cn = $db->prepare("SELECT name FROM clients WHERE id = ?");
+                    $cn->execute([$client_id]);
+                    $cname = (string) ($cn->fetchColumn() ?: ('#' . $client_id));
+                    $amount_fmt = number_format((float) $air_withheld, 0, ',', ' ');
+                    notifyAdminFinance(
+                        $db,
+                        'Retenue AIR sans attestation',
+                        "Paiement {$payRef} — {$cname} a retenu {$amount_fmt} FCFA d'AIR. Téléversez l'attestation dans Déclarations Fiscales → Retenues à la source pour créditer ce montant sur la déclaration AIR."
+                    );
+                } catch (Throwable $e) {
+                    error_log('register_payment air-uncertified notify: ' . $e->getMessage());
+                }
             }
 
             $db->commit();

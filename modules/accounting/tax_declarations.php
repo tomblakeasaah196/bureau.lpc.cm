@@ -76,6 +76,41 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                 </div>
             </div>
 
+            <!-- ============================================================
+                 AIR retenu en attente d'attestation — Batch B.
+                 Ce bloc reste masqué tant qu'aucune retenue n'est en
+                 attente. Sinon il liste par client × période avec un
+                 bouton "Demander l'attestation" qui télécharge un PDF
+                 formel via tax_controller.php?action=attestation_request.
+                 La query source est celle documentée dans
+                 docs/GUIDE_FISCAL_CAMEROUN.md §7.
+                 ============================================================ -->
+            <div id="pending-attest-card" class="hidden bg-amber-50 border-2 border-amber-300 rounded-2xl shadow-sm p-6 mb-8">
+                <div class="flex items-start justify-between gap-4 mb-4">
+                    <div>
+                        <p class="text-[10px] font-black text-amber-800 uppercase tracking-widest flex items-center gap-1.5"><i class="fas fa-exclamation-triangle"></i> AIR retenu en attente d'attestation</p>
+                        <h3 class="text-2xl font-black text-amber-900 mt-2 amt" id="pending-attest-total">— FCFA</h3>
+                        <p class="text-xs text-amber-800 mt-1" id="pending-attest-subline">Aucune retenue en attente.</p>
+                    </div>
+                    <button onclick="switchTab('withholding')" class="text-xs font-black text-amber-800 hover:text-amber-950 uppercase tracking-wider whitespace-nowrap"><i class="fas fa-upload mr-1"></i>Téléverser une attestation</button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="text-[10px] font-black text-amber-900 uppercase tracking-wider">
+                            <tr>
+                                <th class="text-left px-3 py-2">Client</th>
+                                <th class="text-left px-3 py-2">Période</th>
+                                <th class="text-right px-3 py-2">Nb paiements</th>
+                                <th class="text-right px-3 py-2">AIR à attester</th>
+                                <th class="text-right px-3 py-2">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pending-attest-body" class="divide-y divide-amber-200"></tbody>
+                    </table>
+                </div>
+                <p class="text-[10px] text-amber-700 mt-3 italic">Seules les retenues certifiées (attestation reçue) sont créditées sur la déclaration AIR mensuelle. Cf. art. L.94 LPF.</p>
+            </div>
+
             <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                 <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
                     <h2 class="font-black text-gray-900"><?= htmlspecialchars(__t('ui.x.echeances_imminentes')) ?></h2>

@@ -539,11 +539,14 @@
             } else {
                 wallets.forEach(w => {
                     totalAvoirs += parseFloat(w.balance);
-                    // JSON.stringify(name) escapes any quote in the client name
-                    // so we can inline it in the onclick without breaking out of
-                    // the attribute — LPC.html above escapes for text nodes but
-                    // this is an attribute string built by hand.
-                    const nameArg = JSON.stringify(w.client_name || '');
+                    // JSON.stringify wraps the name in double quotes, and that
+                    // JSON literal was being inlined directly into an onclick=""
+                    // attribute — the inner double quotes closed the attribute
+                    // early and the click did nothing. HTML-escape the JSON so
+                    // both `"` and `'` inside the name survive as entities the
+                    // browser decodes back to real quotes when parsing the
+                    // attribute value.
+                    const nameArg = LPC.escapeHtml(JSON.stringify(w.client_name || ''));
                     tbody.innerHTML += LPC.html`
                         <tr class="hover:bg-purple-50/30 transition-colors">
                             <td class="py-5 px-8 font-black text-gray-900">${w.client_name}</td>

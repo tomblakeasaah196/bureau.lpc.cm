@@ -47,7 +47,56 @@ async function get(qs) {
     return r.json();
 }
 
+// ============================================================
+// Pending-attestation panel — Batch B. Renders the amber card on
+// the dashboard tab (id="pending-attest-card") from the query
+// documented in docs/GUIDE_FISCAL_CAMEROUN.md §7. Hidden if the
+// server returns zero pending — no need to nag when everything
+// is certified.
+// ============================================================
+async function loadPendingAttestations() {
+    const card = document.getElementById('pending-attest-card');
+    if (!card) return;
+    try {
+        const r = await get('action=pending_attestations');
+        if (r.status !== 'success' || !r.data || !Array.isArray(r.data.rows) || r.data.rows.length === 0) {
+            card.classList.add('hidden');
+            return;
+        }
+        card.classList.remove('hidden');
+        document.getElementById('pending-attest-total').textContent = fmt(r.data.total_pending);
+        const subline = document.getElementById('pending-attest-subline');
+        subline.textContent = `${r.data.client_count} client(s) × ${r.data.rows.length} période(s) — attestations à réclamer pour créditer ces retenues.`;
+
+        const monthNames = ['','janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+        const body = document.getElementById('pending-attest-body');
+        body.innerHTML = r.data.rows.map(row => {
+            const period = `${monthNames[row.period_month]||row.period_month} ${row.period_year}`;
+            const qs = `action=attestation_request&client_id=${encodeURIComponent(row.client_id)}&period_year=${encodeURIComponent(row.period_year)}&period_month=${encodeURIComponent(row.period_month)}`;
+            const clientEsc = String(row.client_name || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            return `<tr>
+                <td class="px-3 py-2 font-bold text-amber-900">${clientEsc}</td>
+                <td class="px-3 py-2 text-amber-800">${period}</td>
+                <td class="px-3 py-2 text-right text-amber-800">${row.payment_count}</td>
+                <td class="px-3 py-2 text-right amt font-black text-amber-900">${fmt(row.air_pending)}</td>
+                <td class="px-3 py-2 text-right whitespace-nowrap">
+                    <a href="/api/v1/tax_controller.php?${qs}&format=html" target="_blank" class="text-xs font-bold text-amber-800 hover:text-amber-950 mr-3"><i class="fas fa-eye"></i> Aperçu</a>
+                    <a href="/api/v1/tax_controller.php?${qs}&format=pdf" class="text-xs font-black text-white bg-amber-700 hover:bg-amber-900 px-3 py-1.5 rounded uppercase tracking-wider"><i class="fas fa-file-pdf mr-1"></i>Demander (PDF)</a>
+                </td>
+            </tr>`;
+        }).join('');
+    } catch (e) {
+        // Non-blocking — the badge is a helper, not a blocker.
+        console.error('loadPendingAttestations failed:', e);
+        card.classList.add('hidden');
+    }
+}
+
 async function loadDashboard() {
+    // Fire the pending-attestations load in parallel — it hits a
+    // different SQL and shouldn't gate the échéances list.
+    loadPendingAttestations();
+
     const r = await get('action=dashboard');
     if (r.status !== 'success') return;
     const rows = r.data.upcoming.filter(x => x.net > 0 || x.total_due > 0);
