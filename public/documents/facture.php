@@ -326,30 +326,25 @@ if (($_GET['pdf'] ?? '') === '1') {
                         </div>
                     </div>
 
-                    <div class="mt-auto pt-12 pb-8 grid grid-cols-3 gap-8 items-end">
-                        <div class="col-span-1">
-                            <div class="digital-stamp">
-                                <p class="text-[10px] font-black uppercase tracking-widest border-b border-lpc-dark/30 pb-1 mb-1" data-i18n="stamp_title">Certifié Conforme</p>
-                                <p class="text-[9px] font-bold mt-1">Par: <span id="dyn_creator" class="font-mono text-xs">...</span></p>
-                                <p class="text-[9px] font-bold">Rôle: <span id="dyn_role" class="font-mono">...</span></p>
-                                <p class="text-[9px] font-bold">Le: <span id="dyn_stamp_date" class="font-mono">...</span></p>
-                                <p class="text-[8px] font-normal mt-1 opacity-70">Hash: <span id="dyn_hash" class="font-mono">...</span></p>
-                            </div>
-                        </div>
-                        <div class="col-span-2 text-right">
-                            <p class="text-xs italic text-gray-500 font-medium">
-                                <span data-i18n="legal_text">Arrêtée la présente facture à la somme de</span><br>
-                                <strong class="text-gray-900 text-sm not-italic" id="dyn_amount_words">...</strong>
-                            </p>
-                        </div>
+                    <div class="mt-auto pt-12 pb-8">
+                        <p class="text-xs italic text-gray-500 font-medium text-right">
+                            <span data-i18n="legal_text">Arrêtée la présente facture à la somme de</span><br>
+                            <strong class="text-gray-900 text-sm not-italic" id="dyn_amount_words">...</strong>
+                        </p>
                     </div>
 
                     <?php
-                    // Sprint 11: the "Certifié Conforme" stamp above records who
-                    // ISSUED the invoice — it is not a signature. This is the
-                    // signature area proper, the same shared partial every other
-                    // document uses, so the HTML view and the dompdf view show
-                    // the same thing. See docs/SIGNATURES.md.
+                    // The legacy "Certifié Conforme" issuer stamp used to live
+                    // above; removed once the shared signature_block partial
+                    // took over as the canonical LPC attestation. If you need
+                    // to know who ISSUED an invoice it's still recorded on the
+                    // invoice row (created_by / created_at) and surfaced in
+                    // the get_invoice.php payload as apiData.stamp — the block
+                    // below is what customers actually see.
+                    //
+                    // Shared signature area — same partial every document type
+                    // uses, so HTML view and dompdf view show the same thing.
+                    // See docs/SIGNATURES.md.
                     $sig_doc = lpc_signature_doc('facture', (string) ($_GET['token'] ?? ''));
                     if ($sig_doc) {
                         $sig_type    = 'facture';

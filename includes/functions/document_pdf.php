@@ -1168,40 +1168,25 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
 </table>
 </div>
 
-<!-- ── Certification stamp + amount in words ──────────────────────────────── -->
+<!-- ── Amount in words (OHADA practice: close the invoice with the total spelled out) ─── -->
 <div class="lpc-pad" style="margin-top: 8mm;">
-<table class="no-break">
-    <tr>
-        <td style="width: 42%;">
-            <div class="stamp">
-                <div class="caps" style="border-bottom: 0.5pt solid <?= $brand ?>;
-                            padding-bottom: 1mm; margin-bottom: 1mm; font-size: 7pt;">Certifié Conforme</div>
-                <div><span class="b">Par :</span> <?= $e($stamp['created_by'] ?? '—') ?></div>
-                <div><span class="b">Rôle :</span> <?= $e($stamp['role'] ?? '—') ?></div>
-                <div><span class="b">Le :</span> <?= $e($stamp['timestamp'] ?? '—') ?></div>
-                <div class="xtiny" style="opacity: 0.75; margin-top: 0.8mm;">Hash : <?= $e($stamp['hash'] ?? '') ?></div>
-            </div>
-        </td>
-        <td style="width: 58%; text-align: right; padding-left: 6mm;">
-            <?php // OHADA practice: close the invoice with the total spelled out. ?>
-            <div class="muted" style="font-size: 8pt; font-style: italic;">
-                Arrêtée la présente facture à la somme de :
-            </div>
-            <div class="b" style="font-size: 9.5pt; color: #111827; margin-top: 1.2mm;">
-                <?= $e($t['words']) ?>
-            </div>
-        </td>
-    </tr>
-</table>
+<div style="text-align: right;">
+    <div class="muted" style="font-size: 8pt; font-style: italic;">
+        Arrêtée la présente facture à la somme de :
+    </div>
+    <div class="b" style="font-size: 9.5pt; color: #111827; margin-top: 1.2mm;">
+        <?= $e($t['words']) ?>
+    </div>
+</div>
 </div>
 
 <!-- ── Universal signature block (internal + external) ─────────────────────── -->
 <div class="lpc-pad" style="margin-top: 6mm;">
 <?php
-// The "Certifié Conforme" stamp above records WHO CREATED the invoice at
-// issuance time — it's not a signature. This block below is the real
-// signature area, shared with every other document type via
-// includes/components/signature_block.php.
+// The legacy "Certifié Conforme" issuer stamp used to sit above this block;
+// removed once the shared signature_block partial became the canonical LPC
+// attestation. Issuer identity is still on the invoice row (created_by /
+// created_at) if audit needs it. The block below is what customers see.
 $sig_type    = 'facture';
 $sig_doc_id  = (int) ($doc['record_id'] ?? 0);
 $sig_doc     = $doc;

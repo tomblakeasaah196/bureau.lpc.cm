@@ -28,7 +28,7 @@
                 tot_precompte: "Withholding on purchases", tot_air: "AIR — Income tax instalment",
                 tot_net_transfer: "Net transferable to supplier",
                 tot_paid: "Amount Paid", tot_balance: "Balance Due",
-                stamp_title: "Certified True Copy", legal_text: "This invoice is closed at the sum of:",
+                legal_text: "This invoice is closed at the sum of:",
                 status_paid: "PAID", status_partial: "PARTIAL", status_unpaid: "UNPAID"
             },
             fr: {
@@ -45,7 +45,7 @@
                 tot_precompte: "Précompte sur achats", tot_air: "AIR — Acompte d'Impôt sur le Revenu",
                 tot_net_transfer: "Net à virer au fournisseur",
                 tot_paid: "Déjà Réglé (Avances)", tot_balance: "Reste à Payer",
-                stamp_title: "Certifié Conforme", legal_text: "Arrêtée la présente facture à la somme de :",
+                legal_text: "Arrêtée la présente facture à la somme de :",
                 status_paid: "PAYÉE", status_partial: "PARTIEL", status_unpaid: "NON PAYÉE"
             }
         };
@@ -246,11 +246,12 @@
                 document.getElementById('bl_refs_container').classList.remove('hidden');
             }
 
-            // Stamp
-            document.getElementById('dyn_creator').innerText = stamp.created_by;
-            document.getElementById('dyn_role').innerText = stamp.role;
-            document.getElementById('dyn_stamp_date').innerText = stamp.timestamp;
-            document.getElementById('dyn_hash').innerText = stamp.hash;
+            // The old "Certifié Conforme" issuer stamp lived here; its DOM
+            // nodes (#dyn_creator / #dyn_role / #dyn_stamp_date / #dyn_hash)
+            // were removed with the stamp itself. apiData.stamp is still
+            // sent by get_invoice.php — kept in case another surface (audit
+            // log, admin view) wants it — but the customer-facing document
+            // relies on the shared signature_block for LPC attestation now.
         }
 
         // 4. MODALS & COMMS
