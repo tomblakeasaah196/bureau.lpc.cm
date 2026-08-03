@@ -59,6 +59,14 @@ $user_role = $_SESSION['user_role'];
             <button onclick="switchTab('maintenance')" id="global-alert-badge" class="hidden items-center gap-2 bg-red-100 text-red-800 px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider border border-red-300 transition-all hover:bg-red-200 shadow-sm animate-pulse-slow">
                 <i class="fas fa-exclamation-triangle"></i> <span id="alert-count">0</span> Alertes Parc
             </button>
+
+            <?php
+            // Help for THIS page. Renders nothing until migration 071 anchors
+            // articles to 'fleet.vehicles', or if the reader lacks the gating
+            // permission — safe to keep in place either way. README §5.5:
+            // page-specific, therefore it belongs here, not in the topbar.
+            echo lpc_help_link('fleet.vehicles', $lang);
+            ?>
         </div>
 
         <nav class="lpc-tabs">

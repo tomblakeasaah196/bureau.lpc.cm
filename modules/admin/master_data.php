@@ -27,6 +27,18 @@ $lang = lpc_i18n_current_lang();
 
     <div id="lpc-shell-main">
 
+        <div class="lpc-toolbar">
+            <?php
+            // Help for THIS page. Anchored to 'admin.master_data' by
+            // migration 071 — currently one article, "why two Flotte tabs
+            // exist", surfaced primarily so admins on the Flotte tab of the
+            // Hub can reach it. Renders nothing on an un-migrated DB or if
+            // the reader lacks admin.master_data.view (page RBAC would have
+            // already rejected them). README §5.5.
+            echo lpc_help_link('admin.master_data', $lang);
+            ?>
+        </div>
+
         <nav class="lpc-tabs" data-lpc-async id="mdm-tabs"></nav>
 
         <main role="main" id="main" class="lpc-page">
