@@ -421,10 +421,11 @@
 
         async function submitAccount() {
             const payload = {
-                action:  'create_account',
-                name:    document.getElementById('acc_name').value,
-                type:    document.getElementById('acc_type').value,
-                balance: parseFloat(document.getElementById('acc_balance').value) || 0,
+                action:         'create_account',
+                name:           document.getElementById('acc_name').value,
+                type:           document.getElementById('acc_type').value,
+                account_number: document.getElementById('acc_number').value,
+                balance:        parseFloat(document.getElementById('acc_balance').value) || 0,
             };
             if (!payload.name || !payload.type) return LPC.modal.alert("Nom et type de compte obligatoires.");
             const r = await treasuryPost(payload, 'wallets');

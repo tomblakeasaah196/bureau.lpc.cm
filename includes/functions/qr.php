@@ -49,6 +49,59 @@ function lpc_qr_available(): bool
 }
 
 /**
+ * Whether we can emit a PNG QR (preferred path in dompdf).
+ *
+ * PngWriter extends AbstractGdWriter and calls imagecreatetruecolor(), so
+ * ext-gd MUST be loaded. If it isn't, lpc_qr_or_fallback() drops back to the
+ * SVG path, which needs no extension at all — then to the text placeholder.
+ */
+function lpc_qr_png_available(): bool
+{
+    return extension_loaded('gd')
+        && class_exists('Endroid\\QrCode\\QrCode')
+        && class_exists('Endroid\\QrCode\\Writer\\PngWriter');
+}
+
+/**
+ * PNG QR as a base64 data URI (`data:image/png;base64,...`).
+ *
+ * Preferred over SVG for dompdf output: dompdf routes SVGs through
+ * php-svg-lib which antialiases small rects into invisible mush at the
+ * 15mm signature-cell size, so a technically-correct QR renders as an
+ * almost-blank square. A raster PNG scaled by <img width/height> avoids
+ * that path entirely and prints crisp at any physical size.
+ *
+ * $size_px is the PNG's pixel size at generation time; the caller decides
+ * the physical size in mm via the <img> attributes downstream. 300 px is
+ * enough for scan reliability at 15mm print size on 300dpi output.
+ *
+ * Returns '' on any failure — caller falls back to SVG, then to the text
+ * placeholder. A document must never fail to render because a QR could not.
+ */
+function lpc_qr_png_datauri(string $data, int $size_px = 300, int $margin_px = 0): string
+{
+    if (!lpc_qr_png_available() || trim($data) === '') {
+        return '';
+    }
+    try {
+        $qrCode = new \Endroid\QrCode\QrCode(
+            data: $data,
+            errorCorrectionLevel: \Endroid\QrCode\ErrorCorrectionLevel::Medium,
+            size: $size_px,
+            margin: $margin_px,
+        );
+        $bytes = (new \Endroid\QrCode\Writer\PngWriter())->write($qrCode)->getString();
+        if ($bytes === '') return '';
+        return 'data:image/png;base64,' . base64_encode($bytes);
+    } catch (\Throwable $e) {
+        // Same defence-in-depth logging pattern as lpc_qr_svg(): loud in the
+        // error log, silent to the client, and the caller degrades gracefully.
+        error_log('lpc_qr_png_datauri FAILED (' . get_class($e) . '): ' . $e->getMessage());
+        return '';
+    }
+}
+
+/**
  * Inline <svg>…</svg> markup (no XML prolog — this is spliced into the
  * middle of an existing HTML document, where a second <?xml ?> declaration
  * would be invalid) for $data, roughly $size_px square. Returns '' if the
@@ -151,8 +204,22 @@ function lpc_qr_svg(string $data, int $size_px = 300, int $margin_px = 0): strin
 function lpc_qr_or_fallback(string $data, string $size = '15mm', string $fallback_label = ''): string
 {
     $size = trim($size) !== '' ? $size : '15mm';
-    $svg  = lpc_qr_svg($data);
+    $s    = htmlspecialchars($size, ENT_QUOTES, 'UTF-8');
 
+    // Preferred: PNG data URI. dompdf's SVG renderer (php-svg-lib) chokes on
+    // the tightly-packed <rect> grid endroid emits at 15mm, antialiasing the
+    // modules into invisible near-white blocks — a technically-correct QR
+    // that reads as blank on the printed page. A raster PNG scaled by the
+    // <img> element bypasses that path entirely and prints crisp.
+    $png = lpc_qr_png_datauri($data);
+    if ($png !== '') {
+        return '<img src="' . $png . '" width="' . $s . '" height="' . $s . '" alt="QR"'
+             . ' style="display:inline-block; width:' . $s . '; height:' . $s . ';">';
+    }
+
+    // Secondary: SVG. No extension required, but see comment above — this
+    // path is now taken only when ext-gd is missing on the host.
+    $svg = lpc_qr_svg($data);
     if ($svg !== '') {
         // lpc_qr_svg() deliberately returns a viewBox-only SVG with no
         // intrinsic width/height, so stamp the physical size on the root
@@ -162,15 +229,13 @@ function lpc_qr_or_fallback(string $data, string $size = '15mm', string $fallbac
         // shape-rendering="crispEdges" stops the renderer antialiasing module
         // edges into grey mush at 15mm, which is what makes a small printed
         // code fail to scan.
-        $attrs = ' width="' . htmlspecialchars($size, ENT_QUOTES, 'UTF-8') . '"'
-               . ' height="' . htmlspecialchars($size, ENT_QUOTES, 'UTF-8') . '"'
-               . ' shape-rendering="crispEdges"';
+        $attrs = ' width="' . $s . '" height="' . $s . '" shape-rendering="crispEdges"';
         return preg_replace('/<svg\b/i', '<svg' . $attrs, $svg, 1) ?? $svg;
     }
 
     $label = trim($fallback_label) !== '' ? $fallback_label : $data;
     $e     = htmlspecialchars($label, ENT_QUOTES, 'UTF-8');
-    $s     = htmlspecialchars($size, ENT_QUOTES, 'UTF-8');
+    // $s (escaped size) was already computed at the top of this function.
 
     // A framed placeholder that reads as "deliberate stand-in", not as a
     // rendering failure: a small mark, the word VÉRIFIER, and the short

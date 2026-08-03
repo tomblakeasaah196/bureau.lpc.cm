@@ -138,10 +138,15 @@ else if ($method === 'POST') {
 
         // 1. CREATE ACCOUNT (Init Wallet)
         if ($action === 'create_account') {
-            $name = trim($payload['name']);
-            $type = $payload['type'];
-            $acc_num = trim($payload['account_number']) ?: null;
-            $balance = (float)$payload['balance'];
+            $name = trim($payload['name'] ?? '');
+            $type = $payload['type'] ?? '';
+            $acc_num = trim($payload['account_number'] ?? '') ?: null;
+            $balance = (float)($payload['balance'] ?? 0);
+
+            if ($name === '' || $type === '') {
+                $pdo->rollBack();
+                sendResponse('error', 'Nom et type de compte obligatoires.');
+            }
 
             $stmt = $pdo->prepare("INSERT INTO treasury_accounts (name, type, account_number, balance, created_by) VALUES (?, ?, ?, ?, ?)");
             $stmt->execute([$name, $type, $acc_num, $balance, $user_id]);
