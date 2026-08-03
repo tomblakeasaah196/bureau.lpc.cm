@@ -109,8 +109,24 @@ const mdmConfig = {
             { name: 'address', label: 'Adresse Complète', type: 'text', width: 'col-span-2' }
         ]
     },
+    // The fleet tab is a READ-ONLY MIRROR of the vehicles table. Editing lives
+    // in /modules/fleet/vehicles.php, which is the only surface that exposes
+    // the fields that matter (insurance date, tech visit, odometer, fuel type)
+    // and the operational tabs (assignments, maintenance, fuel log). A vehicle
+    // created from here would leave those blank and immediately trip compliance
+    // alerts + odometer validation on the first fuel log. See help article
+    // `mdm-flotte-vs-module-flotte` (migration 071) for the full explanation.
+    //
+    // `readonly: true` is honoured in three places:
+    //   · openModal() short-circuits to a redirect to the fleet module.
+    //   · actionsCell() renders an « Ouvrir » link icon instead of edit/toggle.
+    //   · renderModulePanel() paints an explanatory banner above the table.
+    //
+    // `form` is kept for reference but is unreachable from the UI.
     fleet: {
-        title: "Flotte", addBtn: "Nouveau Véhicule", api: "fleet",
+        title: "Flotte", addBtn: "Ouvrir Flotte & Maintenance", api: "fleet",
+        readonly: true,
+        openUrl: "/modules/fleet/vehicles.php",
         columns: [
             { key: 'plate_number', label: 'Immatriculation', render: v => `<span class="font-black text-gray-900 bg-yellow-100 px-2 py-1 rounded border border-yellow-300">${v}</span>` },
             { key: 'type', label: 'Type', render: v => `<span class="text-sm uppercase font-bold text-gray-600">${v}</span>` },
@@ -239,6 +255,32 @@ async function fetchData() {
 function renderModulePanel() {
     const panel = document.getElementById('mdm-panel');
     if (!panel) return;
+
+    // Read-only tabs get a small explanatory banner + link out to the write
+    // surface. Painted here rather than as static HTML in master_data.php so
+    // it appears/disappears with switchTab() without extra plumbing.
+    const cfg = mdmConfig[currentModule];
+    if (cfg && cfg.readonly && cfg.openUrl) {
+        panel.classList.remove('hidden');
+        panel.innerHTML = LPC.html`
+          <div class="bg-emerald-50 border border-emerald-200 rounded-2xl px-5 py-4 flex items-start gap-4">
+            <svg class="w-5 h-5 text-lpc-dark shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-black text-lpc-dark">Vue référentiel — lecture seule</p>
+              <p class="text-[12px] text-emerald-900/80 font-medium mt-0.5 leading-snug">
+                Cette liste est un miroir de la table véhicules. Toute création
+                ou modification se fait dans <strong>Flotte & Maintenance</strong>,
+                qui expose aussi l'odomètre, le carburant, l'assurance et la
+                visite technique.
+              </p>
+            </div>
+            <a href="${cfg.openUrl}" class="shrink-0 bg-lpc-dark hover:bg-green-800 text-white px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider no-underline transition-colors flex items-center gap-1.5">
+              Ouvrir Flotte & Maintenance
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+            </a>
+          </div>`;
+        return;
+    }
 
     if (currentModule !== 'pricing') {
         panel.classList.add('hidden');
@@ -456,6 +498,15 @@ async function saveFallback() {
 // 3. TABLE RENDERING
 // ---------------------------------------------------------------------------
 function actionsCell(pk, statusFlag, showToggle) {
+    // Read-only tab: skip both the pencil and the toggle. Offer a single
+    // « Ouvrir » chevron that lands on the write module. Using an <a>, not a
+    // <button>, so middle-click / Ctrl-click open the module in a new tab —
+    // the behaviour an admin comparing rows across the two surfaces expects.
+    const cfg = mdmConfig[currentModule];
+    if (cfg && cfg.readonly && cfg.openUrl) {
+        return LPC.html`<a href="${cfg.openUrl}" title="Ouvrir dans Flotte & Maintenance" aria-label="Ouvrir dans Flotte & Maintenance" class="inline-flex items-center gap-1.5 text-lpc-dark hover:text-green-800 bg-green-50 hover:bg-green-100 px-3 py-2 rounded-lg no-underline text-xs font-black uppercase tracking-wider transition-colors">Ouvrir<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path></svg></a>`;
+    }
+
     const editBtn = LPC.html`<button onclick="openModal(${pk})" title="Modifier" aria-label="Modifier" class="text-blue-500 hover:text-blue-700 bg-blue-50 p-2 rounded-lg mr-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></button>`;
 
     // NOTE: this used to be built with `${LPC.raw(...)}` inside an UNTAGGED
@@ -651,6 +702,16 @@ function gotoPage(n) {
 // 4. MODAL — generic renderer (pricing / employees / suppliers / fleet)
 // ---------------------------------------------------------------------------
 function openModal(id = null) {
+    // Read-only tabs (fleet, today) don't own the write surface — the + button
+    // and the row edit button both funnel here, and both should take the user
+    // to the module that DOES own the write. Redirect before we touch the DOM
+    // so the modal never flashes open.
+    const cfg = mdmConfig[currentModule];
+    if (cfg && cfg.readonly && cfg.openUrl) {
+        window.location.href = cfg.openUrl;
+        return;
+    }
+
     const form = document.getElementById('dynamic-form');
     form.innerHTML = LPC.html`<input type="hidden" id="f_id" name="id" value="${id || ''}">`;
     document.getElementById('modal-title').innerText = id ? `Modifier` : mdmConfig[currentModule].addBtn;

@@ -998,21 +998,21 @@ Le champ de recherche filtre en direct sur la raison sociale et le téléphone. 
 > [!warning] Ne créez pas deux fiches pour le même fournisseur — l'historique des achats se retrouverait coupé en deux. Si un fournisseur a changé de nom, ouvrez sa fiche et corrigez le nom ; le code interne reste stable. Si vous soupçonnez un doublon existant, contactez un Admin pour une fusion (opération manuelle sur les tables `purchase_orders` et `expenses`)."
 
 UNION ALL SELECT 'mdm-flotte-vs-module-flotte',
- 'L''onglet Flotte du Hub — à quoi il sert',
- "Pourquoi une deuxième liste de véhicules existe dans le Master Data Hub, et lequel utiliser.",
- 'master data, mdm, flotte, doublon, referentiel, difference',
- "Le Master Data Hub contient un onglet **Flotte** qui affiche la même liste de véhicules que le module **Flotte & Maintenance**. Ce n'est pas un doublon accidentel — les deux écrans écrivent dans la même table `vehicles` — mais le rôle de chaque page est différent.
+ 'L''onglet Flotte du Hub — vue en lecture seule',
+ "Pourquoi une deuxième liste de véhicules existe dans le Master Data Hub, et pourquoi elle est en lecture seule.",
+ 'master data, mdm, flotte, doublon, referentiel, lecture seule, readonly',
+ "Le Master Data Hub contient un onglet **Flotte** qui affiche la même liste de véhicules que le module **Flotte & Maintenance**. Les deux écrans lisent la même table `vehicles`, mais le rôle de chaque page est différent — et depuis le renforcement de cet onglet, seul le module Flotte permet d'écrire.
 
-## Ce que fait l'onglet Flotte du Master Data Hub
+## Ce que fait l'onglet Flotte du Hub aujourd'hui
 
-Un éditeur de *référentiel* léger, aligné sur les autres onglets du Hub (Produits, Tarifs Clients, Employés, Fournisseurs). Il expose **quatre champs** :
+Une **vue en lecture seule** du parc, alignée sur les autres onglets du Hub (Produits, Tarifs Clients, Employés, Fournisseurs) pour la présentation, mais sans les boutons d'édition. Elle expose quatre colonnes :
 
 - Immatriculation
 - Type (Camion / Tricycle / Moto)
 - Marque & Modèle
 - Statut
 
-C'est tout. Pas d'odomètre, pas de type carburant, pas de dates d'assurance ou de visite technique.
+Le bouton d'action de chaque ligne est un simple lien **Ouvrir** qui envoie vers la fiche du véhicule dans le module Flotte. Le bouton **+** en haut à droite est libellé *Ouvrir Flotte & Maintenance* et redirige de la même façon. Un bandeau vert au-dessus du tableau rappelle la règle.
 
 Accès gouverné par la permission `admin.master_data.view`, réservée aux Administrateurs.
 
@@ -1026,12 +1026,15 @@ Le poste de commande complet des véhicules :
 
 Accès gouverné par `fleet.vehicles.*`, ouvert à Admin **et** Opérations.
 
-## Lequel utiliser
+## Pourquoi la restriction
 
-- Pour **créer** ou **modifier** un véhicule, ouvrez toujours **Flotte & Maintenance**. C'est la seule surface qui expose les dates de conformité et l'odomètre initial.
-- Pour **consulter** rapidement la liste depuis un poste admin, l'onglet du Master Data Hub est plus rapide, mais il ne remplace pas le module.
+Un véhicule créé depuis le Hub laissait l'assurance, la visite technique et l'odomètre initial vides. Il apparaissait dans les alertes de conformité comme *sans date connue*, et le premier plein était refusé par la validation d'odomètre (pas de dernier relevé). Ce n'était pas un bug — c'était le signal qu'il fallait compléter la fiche depuis le module Flotte. Rendre l'onglet en lecture seule supprime la porte d'entrée qui produisait ces demi-fiches.
 
-> [!warning] Créer un véhicule depuis le Master Data Hub laisse l'assurance, la visite technique et l'odomètre initial vides. Le véhicule apparaîtra dans les alertes de conformité comme *sans date connue*, et le premier plein sera refusé par la validation d'odomètre (il n'y a pas de dernier relevé). Ce n'est pas un bug — c'est le signal qu'il faut compléter la fiche depuis le module Flotte."
+## Véhicules déjà créés avant la restriction
+
+Si des véhicules ont été créés depuis le Hub avant la mise en lecture seule, ils existent dans la table mais avec les champs de conformité vides. Ouvrez-les depuis **Flotte & Maintenance → Parc Automobile → crayon** pour compléter les dates d'assurance et de visite technique, et faites une intervention *Vidange / Révision* pour poser l'odomètre initial.
+
+> [!tip] Si vous tentez de modifier un véhicule depuis cet onglet, un lien **Ouvrir** vous emmène directement sur le bon module. Un POST direct sur `/api/v1/mdm_controller.php?module=fleet&action=save` renvoie désormais un 403 avec un message explicatif — la garde est côté serveur, pas seulement côté UI."
 
 UNION ALL SELECT 'faq-mdm-produit-invisible-devis',
  'Mon nouveau produit n''apparaît pas dans le picker devis. Pourquoi ?',

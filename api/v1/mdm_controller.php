@@ -736,9 +736,23 @@ try {
     // supplying module=users can't inject arbitrary SQL. See AUDIT_REPORT §2.3.
     // =========================================================================
     if ($action === 'toggle_status' && $module !== 'pricing') {
+        // Fleet is read-only in the MDM path — the write surface is
+        // /modules/fleet/vehicles.php, which owns the compliance fields
+        // (insurance date, tech visit, odometer) that this stripped-down
+        // toggle would leave stale. Rejecting here means a direct POST cannot
+        // bypass the UI's "Ouvrir dans Flotte & Maintenance" redirect.
+        if ($module === 'fleet') {
+            http_response_code(403);
+            echo json_encode(['status' => 'error',
+                'message' => "La flotte est en lecture seule ici. Utilisez le module Flotte & Maintenance pour changer le statut d'un véhicule."]);
+            exit;
+        }
+
         // (table, column, on-value, off-value) per allowed module.
+        // NOTE: 'fleet' is intentionally absent — the guard above rejects it
+        // before this map is consulted. Leaving the row here would be a
+        // liability the next time someone removes the guard "temporarily".
         static $TOGGLE_MAP = [
-            'fleet'     => ['table' => 'vehicles',  'col' => 'status',    'on' => 'active', 'off' => 'inactive'],
             'employees' => ['table' => 'users',     'col' => 'status',    'on' => 'active', 'off' => 'inactive'],
             'products'  => ['table' => 'products',  'col' => 'is_active', 'on' => 1,        'off' => 0],
             'suppliers' => ['table' => 'suppliers', 'col' => 'is_active', 'on' => 1,        'off' => 0],
@@ -769,6 +783,24 @@ try {
     // =========================================================================
     if ($action === 'save') {
         $id = !empty($_POST['id']) ? $_POST['id'] : null;
+
+        // Fleet: read-only through this controller. The write surface is
+        // /modules/fleet/vehicles.php via api/v1/fleet_controller.php, which
+        // owns the compliance fields (insurance, tech visit) and the odometer
+        // that a save here would leave blank. The UI's + button and row-edit
+        // both redirect to the fleet module; this guard covers a direct POST.
+        //
+        // The historical fleet save block a few hundred lines down (search
+        // `$module === 'fleet'` inside this action) is left in place for now
+        // as documentation of what the old shape looked like, but it is
+        // unreachable — this branch exits first. Delete the dead block on the
+        // next pass through this file.
+        if ($module === 'fleet') {
+            http_response_code(403);
+            echo json_encode(['status' => 'error',
+                'message' => "La flotte est en lecture seule ici. Créez ou modifiez un véhicule dans le module Flotte & Maintenance."]);
+            exit;
+        }
 
         if ($module === 'products') {
             // -----------------------------------------------------------------
