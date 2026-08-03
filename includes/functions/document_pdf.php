@@ -216,7 +216,25 @@ function lpc_load_document(PDO $db, string $type, string $token): ?array
             ");
             $items->execute([$r['id']]);
             $lines = $items->fetchAll(PDO::FETCH_ASSOC);
-            return lpc_normalize_invoice($r, $lines);
+
+            // BL(s) this invoice was generated from. Same query as
+            // api/v1/get_invoice.php so the dompdf render and the HTML view
+            // list the exact same references. The template uses this to
+            // replace the old generic "conditions de règlement" boilerplate
+            // with actionable BL numbers the client can reconcile against.
+            $bl = $db->prepare("
+                SELECT d.reference,
+                       COALESCE(SUM(COALESCE(di.delivered_quantity, di.quantity)), 0) AS total_qty
+                  FROM invoice_deliveries invd
+                  JOIN deliveries d ON d.id = invd.delivery_id
+                  LEFT JOIN delivery_items di ON di.delivery_id = d.id
+                 WHERE invd.invoice_id = ?
+              GROUP BY d.id, d.reference
+              ORDER BY d.date ASC, d.id ASC
+            ");
+            $bl->execute([$r['id']]);
+            $deliveries = $bl->fetchAll(PDO::FETCH_ASSOC);
+            return lpc_normalize_invoice($r, $lines, $deliveries);
 
         case 'delivery':
             $stmt = $db->prepare("
@@ -390,7 +408,7 @@ function lpc_load_document(PDO $db, string $type, string $token): ?array
  * Totals are now read from the stored columns rather than recomputed. A reprint
  * must reproduce the invoice as issued, even if a product price has moved since.
  */
-function lpc_normalize_invoice(array $r, array $lines): array {
+function lpc_normalize_invoice(array $r, array $lines, array $deliveries = []): array {
     $items = [];
     foreach ($lines as $l) {
         $q = (float)$l['quantity'];
@@ -458,6 +476,15 @@ function lpc_normalize_invoice(array $r, array $lines): array {
             'words'            => lpc_amount_in_words($grand),
         ],
         'notes' => $r['notes'] ?? '',
+        // Delivery notes this invoice was raised from — [{reference, total_qty}, ...].
+        // Used by the PDF template to replace the old boilerplate payment-terms
+        // paragraph with the actual BL references the client can reconcile.
+        'deliveries' => array_map(static function ($d) {
+            return [
+                'reference' => (string) ($d['reference'] ?? ''),
+                'total_qty' => (float)  ($d['total_qty'] ?? 0),
+            ];
+        }, $deliveries),
         'source_updated_at' => $r['updated_at'] ?? $r['created_at'] ?? null,
         'status' => $r['status'] ?? 'unpaid',
         // Frozen at issue by lpc_attach_invoice_payment_accounts(); [] for
@@ -976,10 +1003,14 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
      so no capture race can lose it. -->
 <div class="lpc-pad" style="padding-top: 9mm;">
 <?= lpc_document_header([
-    'title' => 'Facture',
-    'logo'  => $lhLogo,
-    'badge' => [$status_label, $sc_border, $sc_bg],
-    'meta'  => [
+    'title'    => 'Facture',
+    'logo'     => $lhLogo,
+    'badge'    => [$status_label, $sc_border, $sc_bg],
+    // Issuer identity moves under the logo instead of into a full-width strip
+    // below — the classic invoice header (issuer left, doc metadata right).
+    // See includes/pdf_templates/document_header.php for the layout modes.
+    'identity' => 'inline',
+    'meta'     => [
         ['N° Facture', $doc['reference']],
         ['Date',       $fdate($doc['date'])],
         ['Échéance',   $fdate($doc['due_date']), 'danger'],
@@ -1081,12 +1112,25 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
                 Merci de préciser le N° de facture en motif du règlement.
             </div>
 
-            <div class="caps muted xtiny" style="margin-top: 4mm; margin-bottom: 1.5mm;">Conditions de Règlement</div>
+            <?php
+            // Bordereaux de Livraison — replaces the old "Conditions de
+            // Règlement" boilerplate with the actual BL references and
+            // accepted quantities this invoice was raised from, so the
+            // client can reconcile it against their own receiving stock.
+            // Matches what documents-facture.js renders on the HTML view.
+            // Hidden entirely for invoices not generated from a BL batch.
+            $bl_list = $doc['deliveries'] ?? [];
+            if (!empty($bl_list)):
+                $bl_str = implode(', ', array_map(static function ($d) {
+                    $qty = (int) round((float) ($d['total_qty'] ?? 0));
+                    return ($d['reference'] ?? '') . ' (' . number_format($qty, 0, ',', ' ') . ')';
+                }, $bl_list));
+            ?>
+            <div class="caps muted xtiny" style="margin-top: 4mm; margin-bottom: 1.5mm;">Bordereaux de Livraison</div>
             <div class="xtiny muted" style="line-height: 1.6;">
-                Paiement exigible au plus tard à la date d'échéance indiquée. Passé ce délai, une
-                pénalité de retard est applicable de plein droit, sans mise en demeure préalable.
-                Les marchandises restent la propriété du vendeur jusqu'au paiement intégral du prix.
+                <?= $e($bl_str) ?>
             </div>
+            <?php endif; ?>
         </td>
 
         <td style="width: 50%;">

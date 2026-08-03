@@ -76,8 +76,8 @@ function lpc_document_header_css(string $brand): string
     .lpc-pad       { padding: 0 14mm; }
     .lpc-hd        { width: 100%; border-collapse: collapse; }
     .lpc-hd td     { vertical-align: top; padding: 0; }
-    .lpc-hd-logo   { width: 52%; }
-    .lpc-hd-meta   { width: 48%; text-align: right; }
+    .lpc-hd-logo   { width: 55%; padding-right: 8mm; }
+    .lpc-hd-meta   { width: 45%; text-align: right; }
     .lpc-doctitle  { font-size: 24pt; font-weight: bold; margin: 0; letter-spacing: -0.8pt;
                      color: #111827; text-transform: uppercase; }
     .lpc-meta      { width: 100%; border-collapse: collapse; text-align: left;
@@ -101,6 +101,14 @@ function lpc_document_header_css(string $brand): string
     .lpc-identity-c { margin-top: 3.5mm; padding-top: 2mm; border-top: 0.5pt solid #E5E7EB;
                       font-size: 6.5pt; color: #4B5563; line-height: 1.35; }
     .lpc-identity-c .nm { font-weight: bold; color: #111827; font-size: 7.5pt; }
+    /* 'identity' => 'inline': the statutory mentions sit UNDER THE LOGO in the
+       left header cell instead of spanning the full width below the row. This
+       is the classic invoice layout (issuer top-left, doc metadata top-right)
+       and is what the facture uses. The devis keeps the default stacked mode
+       because its one-pager layout expects a full-width strip. */
+    .lpc-identity-i { margin-top: 3mm; font-size: 7pt; color: #4B5563; line-height: 1.5; }
+    .lpc-identity-i .nm { font-weight: bold; color: #111827; font-size: 9pt;
+                          display: block; margin-bottom: 1mm; }
 CSS;
 }
 
@@ -123,6 +131,7 @@ function lpc_document_header(array $opts): string
         return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
     };
 
+    $identityMode = (string) ($opts['identity'] ?? '');
     ob_start(); ?>
 <table class="lpc-hd">
     <tr>
@@ -134,6 +143,18 @@ function lpc_document_header(array $opts): string
             <?php else: ?>
                 <div style="font-size: 18pt; font-weight: bold; color: <?= $e($lh['color']) ?>;">
                     <?= $e($lh['name']) ?>
+                </div>
+            <?php endif; ?>
+            <?php if ($identityMode === 'inline'): ?>
+                <?php // Classic invoice layout: issuer identity sits directly
+                      // below the logo, in the same cell as it, so the doc
+                      // title + meta card on the right shares a single row
+                      // instead of hanging above a full-width identity strip. ?>
+                <div class="lpc-identity-i">
+                    <span class="nm"><?= $e($lh['name']) ?></span>
+                    <?= nl2br($e($lh['address'])) ?><br>
+                    <?php if ($lh['mentions'] !== ''): ?><?= $e($lh['mentions']) ?><br><?php endif; ?>
+                    <?= $e($lh['contact']) ?>
                 </div>
             <?php endif; ?>
         </td>
@@ -174,7 +195,9 @@ function lpc_document_header(array $opts): string
     </tr>
 </table>
 
-<?php if (($opts['identity'] ?? '') === 'compact'): ?>
+<?php if ($identityMode === 'inline'): ?>
+    <?php // Already rendered inside the left header cell above — no strip. ?>
+<?php elseif ($identityMode === 'compact'): ?>
     <?php // Same mentions, joined rather than stacked. See .lpc-identity-c. ?>
     <div class="lpc-identity-c">
         <span class="nm"><?= $e($lh['name']) ?></span> ·
