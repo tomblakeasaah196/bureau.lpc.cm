@@ -516,12 +516,20 @@ $user_role = $_SESSION['user_role'];
                         </div>
                         <div>
                             <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.methode')) ?> <span class="text-emerald-500">*</span></label>
-                            <select id="pay_method" required class="w-full bg-white border border-gray-200 rounded-xl p-3.5 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm cursor-pointer appearance-none transition-all">
+                            <select id="pay_method" required onchange="filterPayAccounts()" class="w-full bg-white border border-gray-200 rounded-xl p-3.5 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm cursor-pointer appearance-none transition-all">
                                 <option value="cash"><?= htmlspecialchars(__t('ui.x.especes_cash')) ?></option>
                                 <option value="bank"><?= htmlspecialchars(__t('ui.x.virement_bancaire')) ?></option>
                                 <option value="momo">Mobile Money</option>
                             </select>
                         </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Compte de destination <span class="text-emerald-500">*</span></label>
+                        <select id="pay_account_id" required class="w-full bg-white border border-gray-200 rounded-xl p-3.5 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm cursor-pointer appearance-none transition-all">
+                            <option value="">— Chargement des comptes… —</option>
+                        </select>
+                        <p class="text-[10px] font-bold text-gray-400 mt-2 flex items-center gap-1.5 bg-gray-100 p-2 rounded-lg"><i class="fas fa-info-circle text-gray-400"></i> Le solde de ce compte sera crédité du montant reçu.</p>
                     </div>
                 </form>
             </div>

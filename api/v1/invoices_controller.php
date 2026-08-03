@@ -228,6 +228,50 @@ try {
             break;
 
         // ==========================================
+        // ACTION: ACTIVE TREASURY ACCOUNTS (payment-receipt picker)
+        // ==========================================
+        // The full list of active wallets the accountant can credit when
+        // recording an incoming payment. Distinct from `payment_accounts`,
+        // which is scoped to `show_on_invoice = 1` for the customer-facing
+        // block. A cash receipt might land in a petty caisse that is not
+        // advertised on invoices, so we drop that filter here.
+        //
+        // Response includes `type` so the frontend can filter by the method
+        // dropdown (cash → caisse, bank → banque, momo → momo).
+        case 'active_treasury_accounts':
+            $has_table = (int) $db->query("
+                SELECT COUNT(*) FROM information_schema.tables
+                 WHERE table_schema = DATABASE() AND table_name = 'treasury_accounts'
+            ")->fetchColumn() > 0;
+
+            if (!$has_table) {
+                echo json_encode(['status' => 'success', 'accounts' => []]);
+                break;
+            }
+
+            $rows = $db->query("
+                SELECT id, name, type, COALESCE(bank_name, '') AS bank_name,
+                       COALESCE(account_number, '') AS account_number
+                  FROM treasury_accounts
+                 WHERE status = 'active'
+                 ORDER BY type ASC, COALESCE(sort_order, 0) ASC, name ASC
+            ")->fetchAll(PDO::FETCH_ASSOC);
+
+            echo json_encode([
+                'status'   => 'success',
+                'accounts' => array_map(static function ($a) {
+                    return [
+                        'id'             => (int) $a['id'],
+                        'name'           => $a['name'],
+                        'type'           => $a['type'],
+                        'bank_name'      => $a['bank_name'] ?: null,
+                        'account_number' => $a['account_number'] ?: null,
+                    ];
+                }, $rows),
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+
+        // ==========================================
         // ACTION: READ TABS (Dynamic AR Dashboard)
         // ==========================================
         case 'read':
@@ -249,40 +293,69 @@ try {
             $responseData['badges'] = $badges;
 
             if ($tab === 'dashboard') {
+                // Same fix as get_unpaid_invoices: SUM(amount) alone under-clears
+                // any invoice with an AIR withholding, so the dashboard was
+                // over-reporting unpaid AR (and every aging bucket) whenever a
+                // withholding-agent client paid. Uniform (amount + AIR)
+                // everywhere means the AR total on the dashboard matches the 411
+                // balance on the trial balance to the franc.
                 $arData = safeQueryRow($db, "
-                    SELECT SUM(total_amount) as total, 
-                           SUM(total_amount - COALESCE((SELECT SUM(amount) FROM payments WHERE invoice_id = invoices.id AND status = 'validated'), 0)) as unpaid 
-                    FROM invoices WHERE status != 'paid'
+                    SELECT SUM(total_amount) AS total,
+                           SUM(total_amount - COALESCE((
+                               SELECT SUM(amount + COALESCE(air_withheld_amount, 0))
+                                 FROM payments
+                                WHERE invoice_id = invoices.id AND status = 'validated'
+                           ), 0)) AS unpaid
+                      FROM invoices WHERE status != 'paid'
                 ");
-                
+
+                // safeCount casts to int, but SUM(open_balance) is a decimal.
+                // Kept as-is upstream so the KPI cards stay integer FCFA — the
+                // rounding step is safe because FCFA has no subunit.
                 $overdue = safeCount($db, "
-                    SELECT SUM(total_amount - COALESCE((SELECT SUM(amount) FROM payments WHERE invoice_id = invoices.id AND status = 'validated'), 0)) 
-                    FROM invoices 
-                    WHERE status != 'paid' AND due_date < CURRENT_DATE()
+                    SELECT SUM(total_amount - COALESCE((
+                               SELECT SUM(amount + COALESCE(air_withheld_amount, 0))
+                                 FROM payments
+                                WHERE invoice_id = invoices.id AND status = 'validated'
+                           ), 0))
+                      FROM invoices
+                     WHERE status != 'paid' AND due_date < CURRENT_DATE()
                 ");
-                
+
                 $wallets = safeCount($db, "SELECT SUM(balance) FROM client_wallets");
-                
+
                 $pendingCash = safeCount($db, "SELECT SUM(reported_cash) FROM cash_reconciliations WHERE status = 'pending_accountant'");
 
                 $aging = safeQueryRow($db, "
-                    SELECT 
-                        SUM(CASE WHEN due_date >= CURRENT_DATE() THEN (total_amount - COALESCE((SELECT SUM(amount) FROM payments WHERE invoice_id = invoices.id AND status='validated'), 0)) ELSE 0 END) as current,
-                        SUM(CASE WHEN due_date < CURRENT_DATE() AND due_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) THEN (total_amount - COALESCE((SELECT SUM(amount) FROM payments WHERE invoice_id = invoices.id AND status='validated'), 0)) ELSE 0 END) as d30,
-                        SUM(CASE WHEN due_date < DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND due_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY) THEN (total_amount - COALESCE((SELECT SUM(amount) FROM payments WHERE invoice_id = invoices.id AND status='validated'), 0)) ELSE 0 END) as d60,
-                        SUM(CASE WHEN due_date < DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY) THEN (total_amount - COALESCE((SELECT SUM(amount) FROM payments WHERE invoice_id = invoices.id AND status='validated'), 0)) ELSE 0 END) as d90
-                    FROM invoices WHERE status != 'paid'
+                    SELECT
+                        SUM(CASE WHEN due_date >= CURRENT_DATE()
+                                 THEN (total_amount - COALESCE((SELECT SUM(amount + COALESCE(air_withheld_amount,0)) FROM payments WHERE invoice_id = invoices.id AND status='validated'), 0))
+                                 ELSE 0 END) AS current,
+                        SUM(CASE WHEN due_date <  CURRENT_DATE() AND due_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+                                 THEN (total_amount - COALESCE((SELECT SUM(amount + COALESCE(air_withheld_amount,0)) FROM payments WHERE invoice_id = invoices.id AND status='validated'), 0))
+                                 ELSE 0 END) AS d30,
+                        SUM(CASE WHEN due_date <  DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND due_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY)
+                                 THEN (total_amount - COALESCE((SELECT SUM(amount + COALESCE(air_withheld_amount,0)) FROM payments WHERE invoice_id = invoices.id AND status='validated'), 0))
+                                 ELSE 0 END) AS d60,
+                        SUM(CASE WHEN due_date <  DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY)
+                                 THEN (total_amount - COALESCE((SELECT SUM(amount + COALESCE(air_withheld_amount,0)) FROM payments WHERE invoice_id = invoices.id AND status='validated'), 0))
+                                 ELSE 0 END) AS d90
+                      FROM invoices WHERE status != 'paid'
                 ");
 
                 $topDebtors = safeQueryAll($db, "
-                    SELECT c.name as client_name, 
-                           SUM(i.total_amount - COALESCE((SELECT SUM(amount) FROM payments WHERE invoice_id = i.id AND status='validated'), 0)) as total_debt
-                    FROM invoices i
-                    JOIN clients c ON i.client_id = c.id
-                    WHERE i.status != 'paid'
-                    GROUP BY c.id
-                    ORDER BY total_debt DESC
-                    LIMIT 5
+                    SELECT c.name AS client_name,
+                           SUM(i.total_amount - COALESCE((
+                               SELECT SUM(amount + COALESCE(air_withheld_amount, 0))
+                                 FROM payments
+                                WHERE invoice_id = i.id AND status='validated'
+                           ), 0)) AS total_debt
+                      FROM invoices i
+                      JOIN clients c ON i.client_id = c.id
+                     WHERE i.status != 'paid'
+                     GROUP BY c.id
+                     ORDER BY total_debt DESC
+                     LIMIT 5
                 ");
 
                 $responseData['kpis'] = [
@@ -495,12 +568,23 @@ try {
             break;
 
         case 'get_unpaid_invoices':
-            $client_id = (int)$_GET['client_id'];
+            // The balance HAS to count air_withheld_amount in the SUM, otherwise
+            // an invoice partly settled by a withholding client (whose AIR the
+            // ledger has already applied against 411) shows a phantom "Reste Dû"
+            // in the payment picker. register_payment sums both fields (line
+            // 855) and the ledger clears the receivable at (amount + AIR) — this
+            // picker was the only place still summing amount alone.
+            $client_id = (int)($_GET['client_id'] ?? 0);
             $stmt = $db->prepare("
-                SELECT id, reference, total_amount, 
-                       (total_amount - COALESCE((SELECT SUM(amount) FROM payments WHERE invoice_id = invoices.id AND status='validated'), 0)) as balance
-                FROM invoices 
-                WHERE client_id = ? AND status != 'paid'
+                SELECT id, reference, total_amount,
+                       (total_amount - COALESCE((
+                           SELECT SUM(amount + COALESCE(air_withheld_amount, 0))
+                             FROM payments
+                            WHERE invoice_id = invoices.id AND status = 'validated'
+                       ), 0)) AS balance
+                  FROM invoices
+                 WHERE client_id = ? AND status != 'paid'
+                 ORDER BY date ASC, id ASC
             ");
             $stmt->execute([$client_id]);
             echo json_encode(['status' => 'success', 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
@@ -521,15 +605,40 @@ try {
 
             $db->beginTransaction();
 
-            $client_id    = (int)$jsonData['client_id'];
+            $client_id    = (int)($jsonData['client_id'] ?? 0);
             $delivery_ids = $jsonData['deliveries'] ?? [];
-            $date         = $jsonData['date'];
-            $due_date     = $jsonData['due_date'];
-            $tva_rate     = (float)$jsonData['tva_rate'];
-            $notes        = trim($jsonData['notes'] ?? '');
+            $date         = trim((string)($jsonData['date'] ?? ''));
+            $due_date     = trim((string)($jsonData['due_date'] ?? ''));
+            $tva_rate     = (float)($jsonData['tva_rate'] ?? 0);
+            $notes        = trim((string)($jsonData['notes'] ?? ''));
 
             if (empty($delivery_ids) || empty($client_id)) {
-                throw new Exception("Données invalides pour la facturation.");
+                throw new UserFacingException("Données invalides pour la facturation : client ou livraisons manquants.");
+            }
+            // Normalise the client-supplied dates. Anything not matching Y-m-d is
+            // refused rather than passed to the INSERT, where MySQL would either
+            // reject it (strict mode) or coerce it to '0000-00-00' (lax mode);
+            // both outcomes leave a broken invoice halfway through the
+            // transaction. A missing due_date defaults to +30 days.
+            $isDate = static fn($s) => (bool) preg_match('/^\d{4}-\d{2}-\d{2}$/', $s);
+            if (!$isDate($date)) {
+                throw new UserFacingException("Date de facture invalide.");
+            }
+            if ($due_date === '') {
+                $due_date = date('Y-m-d', strtotime($date . ' +30 days'));
+            } elseif (!$isDate($due_date)) {
+                throw new UserFacingException("Date d'échéance invalide.");
+            } elseif ($due_date < $date) {
+                throw new UserFacingException("La date d'échéance ne peut pas être antérieure à la date de facture.");
+            }
+            if ($tva_rate < 0 || $tva_rate > 100) {
+                throw new UserFacingException("Taux de TVA hors plage (0–100).");
+            }
+            // De-duplicate delivery ids so the same BL passed twice cannot lock
+            // two rows and double-count the value.
+            $delivery_ids = array_values(array_unique(array_map('intval', $delivery_ids)));
+            if (in_array(0, $delivery_ids, true)) {
+                throw new UserFacingException("Livraisons invalides.");
             }
 
             $placeholders = implode(',', array_fill(0, count($delivery_ids), '?'));

@@ -692,21 +692,30 @@
                 const response = await fetch('/api/v1/invoices_controller.php', {
                     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
                 });
-                const result = await response.json();
-                
+                // Read as text first so a PHP notice/HTML error surfaces
+                // verbatim in the toast instead of "Unexpected token '<'".
+                const raw = await response.text();
+                let result;
+                try {
+                    result = JSON.parse(raw);
+                } catch (e) {
+                    console.error("submitInvoice — non-JSON response:", raw);
+                    throw new Error("Le serveur a renvoyé une erreur HTML. Consultez la console (F12).");
+                }
+
                 if (result.status === 'success') {
                     closeModal('modal-generate-invoice');
                     resetBatching();
                     showToast("Facture générée avec succès.");
                     switchTab('invoices_payments');
-                    
+
                     // Open PDF in new tab
                     setTimeout(() => window.open(`/facture.php?token=${result.token}`, '_blank'), 500);
                 } else {
-                    showToast(result.message, "error");
+                    showToast(result.message || "Erreur inconnue lors de la facturation.", "error");
                 }
-            } catch(e) { 
-                showToast("Erreur serveur interne lors de la facturation.", "error"); 
+            } catch(e) {
+                showToast(e.message || "Erreur serveur interne lors de la facturation.", "error");
             } finally {
                 btn.disabled = false; txt.classList.remove('hidden'); spinner.classList.add('hidden');
             }
@@ -714,29 +723,97 @@
 
         /** Payment Management Flow */
         async function fetchClientsList() {
+            const sel = document.getElementById('pay_client_id');
             try {
-                const res = await fetch('/api/v1/invoices_controller.php?action=get_clients');
-                const data = await res.json();
-                const sel = document.getElementById('pay_client_id');
+                const data = await fetchJsonSafely('/api/v1/invoices_controller.php?action=get_clients');
+                if (data.status !== 'success' || !Array.isArray(data.data)) {
+                    showToast(data.message || "Impossible de charger la liste des clients.", "error");
+                    return;
+                }
                 data.data.forEach(c => sel.innerHTML += LPC.html`<option value="${c.id}">${c.name}</option>`);
-            } catch(e){}
+            } catch (e) {
+                // Silent-catch bit us before: the picker just stayed empty and the
+                // operator had no clue why "Enregistrer" refused their client.
+                showToast("Erreur au chargement des clients (" + e.message + ")", "error");
+            }
         }
 
         async function fetchClientUnpaidInvoices(clientId) {
             if(!clientId) return;
             const div = document.getElementById('pay_invoice_selector_div');
             const sel = document.getElementById('pay_invoice_select');
-            
+
             div.classList.remove('hidden');
             sel.innerHTML = '<option value="">-- Verser en Avance / Avoir (Portefeuille) --</option>';
-            
+
             try {
-                const res = await fetch(`/api/v1/invoices_controller.php?action=get_unpaid_invoices&client_id=${clientId}`);
-                const data = await res.json();
+                const data = await fetchJsonSafely(`/api/v1/invoices_controller.php?action=get_unpaid_invoices&client_id=${encodeURIComponent(clientId)}`);
+                if (data.status !== 'success' || !Array.isArray(data.data)) {
+                    showToast(data.message || "Impossible de charger les factures ouvertes.", "error");
+                    return;
+                }
                 data.data.forEach(i => {
                     sel.innerHTML += LPC.html`<option value="${i.id}">Facture ${i.reference} (Reste Dû: ${LPC.fmt.int(i.balance)} F)</option>`;
                 });
-            } catch(e){}
+            } catch (e) {
+                showToast("Erreur au chargement des factures (" + e.message + ")", "error");
+            }
+        }
+
+        // Cache of active treasury accounts for the receipt picker.
+        // Refreshed on every openPaymentModal() call so newly created wallets
+        // appear without a hard reload.
+        let payAccountsCache = [];
+
+        async function loadPayAccounts() {
+            const sel = document.getElementById('pay_account_id');
+            try {
+                const res = await fetch('/api/v1/invoices_controller.php?action=active_treasury_accounts');
+                const data = await res.json();
+                if (data.status !== 'success' || !Array.isArray(data.accounts)) {
+                    sel.innerHTML = '<option value="">— Aucun compte configuré —</option>';
+                    payAccountsCache = [];
+                    return;
+                }
+                payAccountsCache = data.accounts;
+                filterPayAccounts();
+            } catch (e) {
+                sel.innerHTML = '<option value="">— Erreur de chargement —</option>';
+                payAccountsCache = [];
+            }
+        }
+
+        // Restrict the destination-account dropdown to wallets whose type
+        // matches the selected method (cash → caisse, bank → banque, momo → momo).
+        // Falls back to showing every active wallet if no match — better a
+        // usable picker than an empty one that dead-ends the operator.
+        function filterPayAccounts() {
+            const sel = document.getElementById('pay_account_id');
+            if (!sel) return;
+            const method = document.getElementById('pay_method').value;
+            const typeMap = { cash: 'caisse', bank: 'bank', momo: 'momo' };
+            const wantedType = typeMap[method] || null;
+            const previous = sel.value;
+
+            let list = wantedType
+                ? payAccountsCache.filter(a => a.type === wantedType)
+                : payAccountsCache.slice();
+            if (list.length === 0) list = payAccountsCache.slice();
+
+            if (list.length === 0) {
+                sel.innerHTML = '<option value="">— Aucun compte configuré —</option>';
+                return;
+            }
+
+            sel.innerHTML = list.map(a => {
+                const suffix = a.bank_name ? ` (${a.bank_name})` : '';
+                return LPC.html`<option value="${a.id}">${a.name}${suffix}</option>`;
+            }).join('');
+
+            // Preserve the operator's choice if it's still valid for the new method.
+            if (previous && list.some(a => String(a.id) === String(previous))) {
+                sel.value = previous;
+            }
         }
 
         function openPaymentModal(invoiceId = null, clientId = null) {
@@ -744,7 +821,7 @@
             document.getElementById('pay_action_type').value = 'new';
             document.getElementById('pay_validation_banner').classList.add('hidden');
             document.getElementById('pay_client_selector_div').classList.remove('hidden');
-            
+
             document.getElementById('pay-modal-title').innerText = 'Nouvel Encaissement';
             document.getElementById('pay-modal-header').classList.replace('bg-amber-500', 'bg-gray-900');
             document.getElementById('btn-submit-payment-text').innerHTML = '<i class="fas fa-check"></i> Enregistrer & Imputer';
@@ -763,6 +840,10 @@
             document.getElementById('pay_amount').readOnly = false;
             document.getElementById('pay_method').disabled = false;
 
+            // Load / refresh the destination-account picker every time — a
+            // wallet the operator just created should show up without F5.
+            loadPayAccounts();
+
             openModal('modal-payment');
         }
 
@@ -770,11 +851,11 @@
             document.getElementById('form-payment').reset();
             document.getElementById('pay_action_type').value = 'validate';
             document.getElementById('pay_payment_id').value = paymentId;
-            
+
             // UI Tweaks for validation mode
             document.getElementById('pay_client_selector_div').classList.add('hidden');
             document.getElementById('pay_invoice_selector_div').classList.add('hidden');
-            
+
             document.getElementById('pay_amount').value = amount;
             document.getElementById('pay_amount').readOnly = true;
             document.getElementById('pay_method').value = 'cash';
@@ -783,9 +864,15 @@
             document.getElementById('pay_validation_banner').classList.remove('hidden');
             document.getElementById('pay-modal-title').innerText = 'Validation de Caisse';
             document.getElementById('pay-modal-header').classList.replace('bg-gray-900', 'bg-amber-500');
-            
+
             document.getElementById('btn-submit-payment-text').innerHTML = '<i class="fas fa-lock"></i> Valider Entrée Caisse';
             document.getElementById('btn-submit-payment').classList.replace('bg-gray-900', 'bg-amber-600');
+
+            // Validation path uses the payment's existing account (or the
+            // JournalPoster fallback), so the picker is not shown. Load it
+            // anyway so the field is populated if the operator flips
+            // pay_action_type back to 'new' via devtools — cheap safety net.
+            loadPayAccounts();
 
             openModal('modal-payment');
         }
@@ -806,13 +893,44 @@
             const actionType = document.getElementById('pay_action_type').value;
             let payload = {};
 
+            // Small helper — before this every failure path had to duplicate
+            // three lines of button-state reset, which is exactly the shape of
+            // bug that leaves the operator staring at a spinning button.
+            const resetBtn = () => {
+                btn.disabled = false;
+                txt.classList.remove('hidden');
+                spinner.classList.add('hidden');
+            };
+
             if (actionType === 'new') {
+                const acctVal = document.getElementById('pay_account_id').value;
+                const clientVal = document.getElementById('pay_client_id').value;
+                const amountVal = parseFloat(document.getElementById('pay_amount').value);
+                if (!clientVal) {
+                    resetBtn();
+                    showToast("Sélectionnez un client.", "error");
+                    return;
+                }
+                if (!(amountVal > 0)) {
+                    resetBtn();
+                    showToast("Montant invalide.", "error");
+                    return;
+                }
+                if (!acctVal) {
+                    resetBtn();
+                    showToast("Sélectionnez un compte de destination.", "error");
+                    return;
+                }
                 payload = {
                     action: 'register_payment',
-                    client_id: document.getElementById('pay_client_id').value,
+                    client_id: clientVal,
                     invoice_id: document.getElementById('pay_invoice_select').value,
-                    amount: document.getElementById('pay_amount').value,
-                    method: document.getElementById('pay_method').value
+                    // FCFA has no subunit — round to the franc so the JE totals
+                    // never drift because a decimal snuck through the number
+                    // input on a copy-paste.
+                    amount: Math.round(amountVal),
+                    method: document.getElementById('pay_method').value,
+                    treasury_account_id: parseInt(acctVal, 10),
                 };
             } else {
                 payload = {
@@ -825,19 +943,26 @@
                 const response = await fetch('/api/v1/invoices_controller.php', {
                     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
                 });
-                const result = await response.json();
-                
+                const raw = await response.text();
+                let result;
+                try {
+                    result = JSON.parse(raw);
+                } catch (e) {
+                    console.error("submitPayment — non-JSON response:", raw);
+                    throw new Error("Le serveur a renvoyé une erreur HTML. Consultez la console (F12).");
+                }
+
                 if (result.status === 'success') {
                     closeModal('modal-payment');
                     showToast(actionType === 'new' ? "Paiement enregistré et imputé." : "Caisse validée avec succès.");
                     fetchTabData(currentTab); // Refresh view dynamically
                 } else {
-                    showToast(result.message, "error");
+                    showToast(result.message || "Erreur inconnue lors du paiement.", "error");
                 }
-            } catch(e) { 
-                showToast("Erreur serveur lors de la transaction.", "error"); 
+            } catch(e) {
+                showToast(e.message || "Erreur serveur lors de la transaction.", "error");
             } finally {
-                btn.disabled = false; txt.classList.remove('hidden'); spinner.classList.add('hidden');
+                resetBtn();
             }
         }
 
