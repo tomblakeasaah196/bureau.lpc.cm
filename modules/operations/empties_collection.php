@@ -78,6 +78,12 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                  it. */ ?>
         <div class="lpc-toolbar">
 
+            <?php /* Toolbar déclutter (Sprint 9) — quatre onglets seulement :
+                     HISTORIQUE a été fusionné dans DUS en sous-vue (bascule
+                     « En cours / Historique » dans le panneau DUS).
+                     Le bouton d'action primaire a migré vers un FAB en bas à
+                     droite ; le sélecteur de période vit désormais dans
+                     l'onglet Revenus. */ ?>
             <button onclick="switchTab('owed')" id="tab-owed"
                     class="tab-link py-4 border-b-2 border-lpc-dark text-lpc-dark font-black text-sm uppercase tracking-wider transition-all">
                 <i class="fas fa-balance-scale mr-2"></i> <?= htmlspecialchars(__t('ui.x.dus')) ?>
@@ -90,10 +96,6 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                     class="tab-link py-4 border-b-2 border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider transition-all">
                 <i class="fas fa-recycle mr-2"></i> <?= htmlspecialchars(__t('ui.x.vente_recyclage')) ?>
             </button>
-            <button onclick="switchTab('history')" id="tab-history"
-                    class="tab-link py-4 border-b-2 border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider transition-all">
-                <i class="fas fa-history mr-2"></i> <?= htmlspecialchars(__t('ui.x.historique')) ?>
-            </button>
             <?php if ($canViewRevenue): ?>
             <button onclick="switchTab('revenue')" id="tab-revenue"
                     class="tab-link py-4 border-b-2 border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider transition-all">
@@ -102,16 +104,6 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
             <?php endif; ?>
 
             <div class="lpc-toolbar-sep"></div>
-
-            <?php /* Primary action is per-tab. #btn-primary-action is one node,
-                     re-labelled and re-wired in switchTab(). Keeps the visual
-                     anchor stable across tabs — the button is always in the
-                     same place. */ ?>
-            <button id="btn-primary-action" onclick="onPrimaryAction()" type="button"
-                    class="bg-gray-900 hover:bg-black text-white px-4 md:px-5 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2 shrink-0 lpc-focusable">
-                <i class="fas fa-plus" id="btn-primary-icon"></i>
-                <span id="btn-primary-text"><?= htmlspecialchars(__t('ui.x.nouvelle_collecte')) ?></span>
-            </button>
 
             <a href="/modules/crm/clients.php"
                data-perm="crm.clients.view"
@@ -129,28 +121,6 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                 <i class="fas fa-warehouse"></i>
             </a>
 
-            <div class="lpc-toolbar-sep"></div>
-
-            <?php /* Period picker for the Revenus Recyclage tab. Hidden by
-                     default; handleTabUI() reveals it only for that tab. Same
-                     four options and default as Ventes / Achats — a single
-                     mental model across the app. */ ?>
-            <div id="period_wrapper" class="lpc-field hidden">
-                <label for="rev_period_type"><?= htmlspecialchars(__t('ui.x.periode_2')) ?></label>
-                <select id="rev_period_type" onchange="handlePeriodUI()">
-                    <option value="ytd" selected><?= htmlspecialchars(__t('ui.x.annee_en_cours_ytd')) ?></option>
-                    <option value="current_month"><?= htmlspecialchars(__t('ui.ce_mois')) ?></option>
-                    <option value="all"><?= htmlspecialchars(__t('ui.x.tout_l_historique')) ?></option>
-                    <option value="custom"><?= htmlspecialchars(__t('ui.x.plage_personnalisee')) ?></option>
-                </select>
-            </div>
-
-            <div id="custom_period_wrapper" class="hidden items-center gap-2 shrink-0">
-                <input type="month" id="rev_start_month" onchange="loadRevenueData()" class="lpc-control" aria-label="<?= htmlspecialchars(__t('ui.x.mois_de_debut')) ?>">
-                <span class="text-gray-500 font-bold text-sm">à</span>
-                <input type="month" id="rev_end_month" onchange="loadRevenueData()" class="lpc-control" aria-label="<?= htmlspecialchars(__t('ui.x.mois_de_fin')) ?>">
-            </div>
-
             <?php
             // Help for THIS page. Renders nothing until an article is anchored
             // to 'operations.empties_collection' (migration 069) or the reader
@@ -165,10 +135,29 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-6" id="kpi-ribbon"></div>
 
             <!-- ==============================================================
-                 TAB: DUS — outstanding empties balances per client
+                 TAB: DUS — outstanding empties balances + intégré Historique
+                 --------------------------------------------------------------
+                 Sprint 9 déclutter : la sous-bascule « En cours / Historique »
+                 remplace l'ancien onglet HISTORIQUE. Le tbody-owed et le
+                 tbody-history restent des nœuds distincts (le paginator et le
+                 filtre client-side attachent leurs listeners par ID) ; on ne
+                 fait que masquer/afficher la vue englobante via
+                 switchOwedView() côté JS.
                  ============================================================== -->
             <div id="content-owed" class="tab-content active">
-                <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[400px]">
+                <div class="flex items-center gap-1 mb-4 bg-gray-100 p-1 rounded-xl w-fit">
+                    <button type="button" onclick="switchOwedView('current')" id="owed-sub-current"
+                            class="px-4 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider bg-white text-lpc-dark shadow-sm transition-all">
+                        <i class="fas fa-balance-scale mr-1"></i> <?= htmlspecialchars(__t('ui.x.dus')) ?>
+                    </button>
+                    <button type="button" onclick="switchOwedView('history')" id="owed-sub-history"
+                            class="px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider text-gray-500 hover:text-lpc-dark transition-all">
+                        <i class="fas fa-history mr-1"></i> <?= htmlspecialchars(__t('ui.x.historique')) ?>
+                    </button>
+                </div>
+
+                <!-- Sous-vue : soldes en cours -->
+                <div id="owed-view-current" class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[400px]">
                     <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 shrink-0">
                         <h3 class="text-sm font-black text-gray-800 uppercase tracking-widest shrink-0">
                             <?= htmlspecialchars(__t('ui.x.soldes_clients_a_recuperer')) ?>
@@ -199,6 +188,39 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                             </tbody>
                         </table>
                     </div>
+                </div>
+
+                <!-- Sous-vue : historique (ancien onglet HISTORIQUE) -->
+                <div id="owed-view-history" class="hidden bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[400px]">
+                    <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 shrink-0">
+                        <h3 class="text-sm font-black text-gray-800 uppercase tracking-widest shrink-0">
+                            <?= htmlspecialchars(__t('ui.x.vos_collectes_recentes')) ?>
+                        </h3>
+                        <div class="relative w-full max-w-sm">
+                            <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                            <label for="history-search" class="sr-only"><?= htmlspecialchars(__t('ui.x.rechercher_reference_ou_client')) ?></label>
+                            <input type="text" id="history-search"
+                                   placeholder="<?= htmlspecialchars(__t('ui.x.rechercher_reference_ou_client')) ?>"
+                                   class="w-full pl-11 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-dark focus:bg-white transition-all">
+                        </div>
+                    </div>
+                    <div class="overflow-auto flex-1">
+                        <table class="min-w-full text-left border-collapse">
+                            <thead class="bg-gray-50 border-b border-gray-200 sticky top-0 z-10 text-[10px] uppercase text-gray-500 font-black tracking-widest">
+                                <tr>
+                                    <th class="py-3 px-4"><?= htmlspecialchars(__t('ui.x.date_reference')) ?></th>
+                                    <th class="py-3 px-4"><?= htmlspecialchars(__t('ui.x.client_4')) ?></th>
+                                    <th class="py-3 px-4 text-center"><?= htmlspecialchars(__t('ui.x.details_2')) ?></th>
+                                    <th class="py-3 px-4 text-center"><?= htmlspecialchars(__t('ui.x.statut')) ?></th>
+                                    <th class="py-3 px-4 text-right"><?= htmlspecialchars(__t('ui.x.actions')) ?></th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-history" class="divide-y divide-gray-100 text-sm">
+                                <tr><td colspan="5" class="text-center py-8 text-gray-400 font-bold"><i class="fas fa-spinner fa-spin"></i> <?= htmlspecialchars(__t('ui.x.chargement')) ?></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="history-pager" class="border-t border-gray-100"></div>
                 </div>
             </div>
 
@@ -297,48 +319,37 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                 </form>
             </div>
 
-            <!-- ==============================================================
-                 TAB: HISTORIQUE — this operator's recent CREs, paginated
-                 ============================================================== -->
-            <div id="content-history" class="tab-content">
-                <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[400px]">
-                    <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 shrink-0">
-                        <h3 class="text-sm font-black text-gray-800 uppercase tracking-widest shrink-0">
-                            <?= htmlspecialchars(__t('ui.x.vos_collectes_recentes')) ?>
-                        </h3>
-                        <div class="relative w-full max-w-sm">
-                            <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
-                            <label for="history-search" class="sr-only"><?= htmlspecialchars(__t('ui.x.rechercher_reference_ou_client')) ?></label>
-                            <input type="text" id="history-search"
-                                   placeholder="<?= htmlspecialchars(__t('ui.x.rechercher_reference_ou_client')) ?>"
-                                   class="w-full pl-11 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-dark focus:bg-white transition-all">
-                        </div>
-                    </div>
-                    <div class="overflow-auto flex-1">
-                        <table class="min-w-full text-left border-collapse">
-                            <thead class="bg-gray-50 border-b border-gray-200 sticky top-0 z-10 text-[10px] uppercase text-gray-500 font-black tracking-widest">
-                                <tr>
-                                    <th class="py-3 px-4"><?= htmlspecialchars(__t('ui.x.date_reference')) ?></th>
-                                    <th class="py-3 px-4"><?= htmlspecialchars(__t('ui.x.client_4')) ?></th>
-                                    <th class="py-3 px-4 text-center"><?= htmlspecialchars(__t('ui.x.details_2')) ?></th>
-                                    <th class="py-3 px-4 text-center"><?= htmlspecialchars(__t('ui.x.statut')) ?></th>
-                                    <th class="py-3 px-4 text-right"><?= htmlspecialchars(__t('ui.x.actions')) ?></th>
-                                </tr>
-                            </thead>
-                            <tbody id="tbody-history" class="divide-y divide-gray-100 text-sm">
-                                <tr><td colspan="5" class="text-center py-8 text-gray-400 font-bold"><i class="fas fa-spinner fa-spin"></i> <?= htmlspecialchars(__t('ui.x.chargement')) ?></td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div id="history-pager" class="border-t border-gray-100"></div>
-                </div>
-            </div>
+            <!-- Note: l'ancien <div id="content-history"> a été fusionné dans
+                 le panneau DUS ci-dessus (sous-vue "Historique"). Tous les
+                 identifiants (tbody-history, history-search, history-pager)
+                 restent inchangés pour préserver le paginator existant. -->
 
             <!-- ==============================================================
                  TAB: REVENUS RECYCLAGE — KPIs + sales log + overrides register
                  ============================================================== -->
             <?php if ($canViewRevenue): ?>
             <div id="content-revenue" class="tab-content">
+                <!-- Période picker (déplacé depuis la toolbar principale, Sprint 9).
+                     Ces IDs sont ceux référencés par currentPeriodParams() et
+                     handlePeriodUI() dans le JS — on ne change que l'emplacement,
+                     pas les noms. -->
+                <div class="bg-white border border-gray-200 rounded-2xl shadow-sm p-4 mb-6 flex flex-wrap items-center gap-3">
+                    <label for="rev_period_type" class="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                        <?= htmlspecialchars(__t('ui.x.periode_2')) ?>
+                    </label>
+                    <select id="rev_period_type" onchange="handlePeriodUI()" class="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-lpc-dark">
+                        <option value="ytd" selected><?= htmlspecialchars(__t('ui.x.annee_en_cours_ytd')) ?></option>
+                        <option value="current_month"><?= htmlspecialchars(__t('ui.ce_mois')) ?></option>
+                        <option value="all"><?= htmlspecialchars(__t('ui.x.tout_l_historique')) ?></option>
+                        <option value="custom"><?= htmlspecialchars(__t('ui.x.plage_personnalisee')) ?></option>
+                    </select>
+                    <div id="custom_period_wrapper" class="hidden items-center gap-2 shrink-0">
+                        <input type="month" id="rev_start_month" onchange="loadRevenueData()" class="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold" aria-label="<?= htmlspecialchars(__t('ui.x.mois_de_debut')) ?>">
+                        <span class="text-gray-500 font-bold text-sm">à</span>
+                        <input type="month" id="rev_end_month" onchange="loadRevenueData()" class="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold" aria-label="<?= htmlspecialchars(__t('ui.x.mois_de_fin')) ?>">
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     <div class="bg-emerald-600 p-5 rounded-2xl shadow-lg text-white">
                         <p class="text-[10px] font-black uppercase tracking-widest opacity-80"><?= htmlspecialchars(__t('ui.x.revenu_total')) ?></p>
@@ -519,6 +530,45 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
         </div>
     </div>
     <?php endif; ?>
+
+    <!-- ==================================================================
+         FAB — Sprint 9. Remplace #btn-primary-action de la toolbar.
+         Le label + l'icône sont recalculés par switchTab() dans le JS.
+         ================================================================== -->
+    <button id="fab-primary-action" onclick="onPrimaryAction()" type="button"
+            class="fixed bottom-6 right-6 z-40 group flex items-center gap-3 bg-lpc-dark hover:bg-black text-white rounded-full shadow-2xl transition-all pl-4 pr-6 py-4 lpc-focusable"
+            aria-label="<?= htmlspecialchars(__t('ui.x.nouvelle_collecte')) ?>">
+        <i class="fas fa-plus text-xl leading-none" id="fab-primary-icon"></i>
+        <span id="fab-primary-text" class="font-black text-sm uppercase tracking-wider whitespace-nowrap">
+            <?= htmlspecialchars(__t('ui.x.nouvelle_collecte')) ?>
+        </span>
+    </button>
+
+    <!-- ==================================================================
+         MODAL: KPI drill-down (Sprint 9). Une seule modale, remplie
+         dynamiquement par openKpiModal(type) dans le JS. Le titre, le
+         libellé du bouton "Voir tout" et le tableau viennent des données.
+         ================================================================== -->
+    <div id="modal-kpi-detail" class="hidden fixed inset-0 z-50 flex items-end md:items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col animate-slide-up max-h-[85vh]">
+            <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between shrink-0">
+                <div class="min-w-0">
+                    <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest" id="kpi-modal-eyebrow">—</p>
+                    <h3 class="font-black text-lg text-gray-900 tracking-tight truncate" id="kpi-modal-title">—</h3>
+                </div>
+                <button type="button" onclick="closeModal('modal-kpi-detail')" class="text-gray-400 hover:text-gray-800 text-2xl shrink-0 ml-3" aria-label="<?= htmlspecialchars(__t('ui.common.close')) ?>"><i class="fas fa-times-circle"></i></button>
+            </div>
+            <div class="p-4 md:p-6 overflow-y-auto flex-1" id="kpi-modal-body">
+                <p class="text-center py-8 text-gray-400 font-bold text-sm"><i class="fas fa-spinner fa-spin mr-2"></i> <?= htmlspecialchars(__t('ui.x.chargement')) ?></p>
+            </div>
+            <div class="bg-gray-50 px-6 py-4 border-t border-gray-200 flex justify-end gap-3 shrink-0">
+                <button type="button" onclick="closeModal('modal-kpi-detail')" class="px-5 py-2 text-sm font-bold text-gray-500 hover:text-gray-900"><?= htmlspecialchars(__t('ui.x.retour')) ?></button>
+                <a id="kpi-modal-cta" href="#" class="px-5 py-2 bg-lpc-dark hover:bg-black text-white rounded-xl font-black text-xs uppercase tracking-widest">
+                    <i class="fas fa-arrow-right mr-1"></i> Voir tout
+                </a>
+            </div>
+        </div>
+    </div>
 
     <script>
         window.LPC_CAN_OVERRIDE_PRICE = <?= $canOverridePrice ? 'true' : 'false' ?>;

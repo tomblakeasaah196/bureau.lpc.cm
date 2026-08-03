@@ -73,7 +73,9 @@
         loadOwedEmpties();
         loadEmptiesKPIs();
         setupHistoryPager();
-        handleTabUI();   // hides the period picker on the default tab
+        // Toolbar déclutter (Sprint 9) — le sélecteur de période vit
+        // maintenant dans l'onglet Revenus, donc plus rien à masquer/afficher
+        // côté toolbar au chargement.
 
         if (window.LPC && LPC.deeplink && LPC.deeplink.hasFilter()) {
             arriveFromDeeplink();
@@ -81,19 +83,22 @@
     });
 
     // ---------------------------------------------------------------------
-    // TAB SWITCHING + PRIMARY ACTION + PERIOD PICKER
+    // TAB SWITCHING + PRIMARY ACTION (FAB)
     //
-    // The primary-action button and the period picker are the two toolbar
-    // elements that change per tab. Keeping the DOM node stable and rewriting
-    // its label / handler keeps the visual anchor put — the button doesn't
-    // move around the row as you switch tabs.
+    // Sprint 9 déclutter :
+    //   • Bouton primaire déplacé de la toolbar vers un FAB bottom-right
+    //     (#fab-primary-action). Même logique per-tab, seul le DOM cible
+    //     change.
+    //   • L'onglet "history" a disparu — il est devenu une sous-vue de DUS
+    //     via switchOwedView(). PRIMARY_ACTION.history est retiré.
+    //   • Le sélecteur de période vit dans le contenu de l'onglet Revenus,
+    //     donc handleTabUI() n'a plus rien à cacher/montrer.
     // ---------------------------------------------------------------------
     const PRIMARY_ACTION = {
         owed:      { label: 'ui.x.nouvelle_collecte',       icon: 'fa-plus',              fn: () => switchTab('new') },
         new:       { label: 'ui.x.generer_le_cre_code_qr',  icon: 'fa-qrcode',            fn: generateCRE },
         recycling: { label: 'ui.x.valider_la_vente_au_recycleur', icon: 'fa-hand-holding-usd', fn: submitRecycling },
-        history:   { label: 'ui.x.nouvelle_collecte',       icon: 'fa-plus',              fn: () => switchTab('new') },
-        revenue:   { label: 'ui.actualiser',                icon: 'fa-sync-alt',          fn: loadRevenueData },
+        revenue:   { label: 'ui.x.nouvelle_collecte',       icon: 'fa-plus',              fn: () => switchTab('new') },
     };
 
     function switchTab(tab) {
@@ -111,17 +116,16 @@
         const pane = document.getElementById('content-' + tab);
         if (pane) pane.classList.add('active');
 
-        // Primary action label + icon + handler.
+        // FAB label + icon + handler.
         const cfg = PRIMARY_ACTION[tab] || PRIMARY_ACTION.owed;
-        const txt = document.getElementById('btn-primary-text');
-        const ico = document.getElementById('btn-primary-icon');
-        if (txt) txt.textContent = LPC.t ? LPC.t(cfg.label) : cfg.label;
-        if (ico) ico.className = 'fas ' + cfg.icon;
-
-        handleTabUI();
+        const fabTxt = document.getElementById('fab-primary-text');
+        const fabIco = document.getElementById('fab-primary-icon');
+        const fabBtn = document.getElementById('fab-primary-action');
+        if (fabTxt) fabTxt.textContent = LPC.t ? LPC.t(cfg.label) : cfg.label;
+        if (fabIco) fabIco.className   = 'fas ' + cfg.icon + ' text-xl leading-none';
+        if (fabBtn) fabBtn.setAttribute('aria-label', LPC.t ? LPC.t(cfg.label) : cfg.label);
 
         if (tab === 'revenue' && canViewRevenue) loadRevenueData();
-        if (tab === 'history') loadHistory();
     }
     window.switchTab = switchTab;
 
@@ -131,24 +135,39 @@
     }
     window.onPrimaryAction = onPrimaryAction;
 
-    /**
-     * Toggle the period picker per tab. Only the Revenus Recyclage tab uses it,
-     * so on any other tab it is hidden entirely — including its "custom range"
-     * inputs which are hidden regardless.
-     */
-    function handleTabUI() {
-        const periodWrap = document.getElementById('period_wrapper');
-        const customWrap = document.getElementById('custom_period_wrapper');
-        if (!periodWrap) return;
-        if (currentTab === 'revenue' && canViewRevenue) {
-            periodWrap.classList.remove('hidden');
-            handlePeriodUI();
+    // ---------------------------------------------------------------------
+    // DUS sub-view toggle — "En cours" vs "Historique" (Sprint 9).
+    // L'ancien onglet HISTORIQUE de la toolbar a été fusionné ici. Le
+    // paginator et les IDs de champs (tbody-history, history-search,
+    // history-pager) restent inchangés — on ne fait que basculer la
+    // visibilité des deux sous-panneaux.
+    // ---------------------------------------------------------------------
+    let owedSubView = 'current';
+    function switchOwedView(view) {
+        owedSubView = view === 'history' ? 'history' : 'current';
+        const cur  = document.getElementById('owed-view-current');
+        const hist = document.getElementById('owed-view-history');
+        const btnCur  = document.getElementById('owed-sub-current');
+        const btnHist = document.getElementById('owed-sub-history');
+        if (!cur || !hist) return;
+
+        const activeCls   = ['bg-white', 'text-lpc-dark', 'shadow-sm', 'font-black'];
+        const inactiveCls = ['text-gray-500', 'font-bold'];
+
+        if (owedSubView === 'history') {
+            cur.classList.add('hidden');
+            hist.classList.remove('hidden');
+            btnHist.classList.add(...activeCls);   btnHist.classList.remove(...inactiveCls);
+            btnCur .classList.remove(...activeCls); btnCur .classList.add(...inactiveCls);
+            loadHistory();
         } else {
-            periodWrap.classList.add('hidden');
-            if (customWrap) { customWrap.classList.add('hidden'); customWrap.classList.remove('flex'); }
+            hist.classList.add('hidden');
+            cur.classList.remove('hidden');
+            btnCur .classList.add(...activeCls);   btnCur .classList.remove(...inactiveCls);
+            btnHist.classList.remove(...activeCls); btnHist.classList.add(...inactiveCls);
         }
     }
-    window.handleTabUI = handleTabUI;
+    window.switchOwedView = switchOwedView;
 
     function handlePeriodUI() {
         const sel = document.getElementById('rev_period_type');
@@ -190,8 +209,12 @@
             const r = await res.json();
             if (r.status !== 'success') return renderKpiError(box);
             const k = r.data || {};
+            // Sprint 9 : chaque carte est cliquable et ouvre une modale de
+             // drill-down (openKpiModal). Le type identifie le jeu de données
+             // à charger côté client (voir openKpiModal ci-dessous).
             box.innerHTML = '';
             box.appendChild(kpiCard({
+                type: 'owed',
                 icon: 'fas fa-balance-scale',
                 accent: 'rose',
                 label: LPC.t ? LPC.t('ui.x.solde_du_total') : 'Solde dû total',
@@ -199,6 +222,7 @@
                 sub:   (k.clients_with_debt || 0) + ' ' + (LPC.t ? LPC.t('ui.x.clients_avec_dette') : 'clients avec dette'),
             }));
             box.appendChild(kpiCard({
+                type: 'pending',
                 icon: 'fas fa-clock',
                 accent: 'amber',
                 label: LPC.t ? LPC.t('ui.x.cre_en_attente_signature') : 'CRE en attente de signature',
@@ -206,6 +230,7 @@
                 sub:   LPC.t ? LPC.t('ui.x.a_relancer_si_bloque') : 'À relancer si bloqué',
             }));
             box.appendChild(kpiCard({
+                type: 'signed30',
                 icon: 'fas fa-check-double',
                 accent: 'emerald',
                 label: LPC.t ? LPC.t('ui.x.cre_signes_30j') : 'CRE signés (30 j)',
@@ -213,6 +238,7 @@
                 sub:   LPC.t ? LPC.t('ui.x.retours_confirmes') : 'Retours confirmés',
             }));
             box.appendChild(kpiCard({
+                type: 'revenue30',
                 icon: 'fas fa-recycle',
                 accent: 'blue',
                 label: LPC.t ? LPC.t('ui.x.revenu_recyclage_30j') : 'Revenu recyclage (30 j)',
@@ -234,8 +260,15 @@
                       + (LPC.t ? LPC.t('ui.x.kpis_indisponibles') : 'KPIs indisponibles.') + '</div>';
     }
     function kpiCard(spec) {
-        const el = document.createElement('div');
-        el.className = 'bg-white border border-gray-200 rounded-2xl p-5 shadow-sm';
+        // Bouton natif (pas <div>) pour la sémantique clavier + a11y.
+        // spec.type sélectionne le drill-down (voir openKpiModal).
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'text-left bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-lpc-dark hover:-translate-y-0.5 transition-all cursor-pointer lpc-focusable';
+        if (spec.type) {
+            el.dataset.kpiType = spec.type;
+            el.setAttribute('aria-label', 'Détails — ' + spec.label);
+        }
         el.innerHTML = ''
             + '<div class="flex items-start justify-between mb-2">'
             + '  <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">' + LPC.escapeHtml(spec.label) + '</p>'
@@ -243,8 +276,172 @@
             + '    <i class="' + spec.icon + '"></i></span>'
             + '</div>'
             + '<p class="text-2xl font-black text-gray-900">' + LPC.escapeHtml(String(spec.value)) + '</p>'
-            + '<p class="text-[10px] font-bold text-gray-400 mt-1">' + LPC.escapeHtml(String(spec.sub || '')) + '</p>';
+            + '<div class="flex items-center justify-between mt-1">'
+            + '  <p class="text-[10px] font-bold text-gray-400">' + LPC.escapeHtml(String(spec.sub || '')) + '</p>'
+            + (spec.type ? '  <span class="text-[10px] font-black text-lpc-dark opacity-0 group-hover:opacity-100 transition-opacity">Détails →</span>' : '')
+            + '</div>';
+        if (spec.type) {
+            el.addEventListener('click', function () { openKpiModal(spec.type, spec.label); });
+        }
         return el;
+    }
+
+    // ---------------------------------------------------------------------
+    // KPI DRILL-DOWN MODAL (Sprint 9)
+    // Un seul <div id="modal-kpi-detail"> dans le PHP ; ici on choisit
+    // quoi charger selon le type de KPI cliqué. Chaque type sait :
+    //   • quel endpoint interroger
+    //   • comment rendre les lignes (tableau)
+    //   • où mène le bouton "Voir tout" (deep-link vers l'onglet concerné)
+    // ---------------------------------------------------------------------
+    async function openKpiModal(type, labelHint) {
+        const modal   = document.getElementById('modal-kpi-detail');
+        const eyebrow = document.getElementById('kpi-modal-eyebrow');
+        const title   = document.getElementById('kpi-modal-title');
+        const body    = document.getElementById('kpi-modal-body');
+        const cta     = document.getElementById('kpi-modal-cta');
+        if (!modal || !body) return;
+
+        eyebrow.textContent = 'KPI';
+        title.textContent   = labelHint || '';
+        body.innerHTML      = '<p class="text-center py-8 text-gray-400 font-bold text-sm"><i class="fas fa-spinner fa-spin mr-2"></i> Chargement…</p>';
+        cta.textContent     = 'Voir tout';
+        cta.href            = '#';
+        openModal('modal-kpi-detail');
+
+        try {
+            if (type === 'owed')      return renderOwedDrillDown(body, cta);
+            if (type === 'pending')   return renderCreDrillDown(body, cta, 'en_transit', 'CRE en attente de signature');
+            if (type === 'signed30') return renderCreDrillDown(body, cta, 'signed', 'CRE signés (30 j)');
+            if (type === 'revenue30') return renderRevenueDrillDown(body, cta);
+            body.innerHTML = '<p class="text-center py-6 text-gray-400 font-bold text-xs">Vue de détail non disponible.</p>';
+        } catch (e) {
+            console.error('KPI drill-down failed:', e);
+            body.innerHTML = '<p class="text-center py-6 text-rose-600 font-bold text-xs">Impossible de charger les détails.</p>';
+        }
+    }
+    window.openKpiModal = openKpiModal;
+
+    async function renderOwedDrillDown(body, cta) {
+        // Réutilise le cache si dispo, sinon fetch. Groupé par client
+        // pour donner le "qui doit combien" en un coup d'œil.
+        let rows = owedRowsCache;
+        if (!rows || !rows.length) {
+            const res = await fetch('/api/v1/cre_controller.php?action=get_owed_empties');
+            const r = await res.json();
+            rows = r.data || [];
+        }
+        const byClient = {};
+        rows.forEach(function (r) {
+            const key = r.client_name + (r.site_name ? ' · ' + r.site_name : '');
+            if (!byClient[key]) byClient[key] = { client_id: r.client_id, site_id: r.site_id, name: key, total: 0, lines: [] };
+            byClient[key].total += Number(r.quantity_owed) || 0;
+            byClient[key].lines.push(r);
+        });
+        const groups = Object.values(byClient).sort(function (a, b) { return b.total - a.total; });
+        if (!groups.length) {
+            body.innerHTML = '<p class="text-center py-8 text-gray-400 font-bold text-sm">Aucun solde dû. 🎉</p>';
+            cta.href = '#'; cta.classList.add('pointer-events-none', 'opacity-50');
+            return;
+        }
+        let html = '<table class="w-full text-sm">'
+                 + '<thead class="text-[10px] font-black text-gray-500 uppercase tracking-wider">'
+                 + '  <tr><th class="text-left py-2">Client / Site</th><th class="text-right py-2">Solde dû (u.)</th><th class="text-right py-2">Action</th></tr>'
+                 + '</thead><tbody class="divide-y divide-gray-100">';
+        groups.forEach(function (g) {
+            html += '<tr>'
+                  + '  <td class="py-2 font-black text-gray-900">' + LPC.escapeHtml(g.name) + '</td>'
+                  + '  <td class="py-2 text-right font-black text-rose-600">' + fmt(g.total) + '</td>'
+                  + '  <td class="py-2 text-right"><button type="button" class="text-xs font-bold text-lpc-dark hover:text-black" data-kpi-collect="' + g.client_id + '" data-kpi-site="' + (g.site_id || '') + '"><i class="fas fa-hand-holding-water mr-1"></i>Collecter</button></td>'
+                  + '</tr>';
+        });
+        html += '</tbody></table>';
+        body.innerHTML = html;
+        cta.textContent = 'Voir tout dans DUS';
+        cta.href = '#';
+        cta.classList.remove('pointer-events-none', 'opacity-50');
+        cta.onclick = function (ev) { ev.preventDefault(); closeModal('modal-kpi-detail'); switchTab('owed'); switchOwedView('current'); };
+        body.querySelectorAll('[data-kpi-collect]').forEach(function (b) {
+            b.addEventListener('click', function () {
+                closeModal('modal-kpi-detail');
+                prefillCollection(b.dataset.kpiCollect, b.dataset.kpiSite || null);
+            });
+        });
+    }
+
+    async function renderCreDrillDown(body, cta, statusFilter, label) {
+        // get_history n'a pas de filtre `status` dédié : on utilise `q=` que
+        // le Paginator applique en OR sur (reference, client_name, phone,
+        // status). 'en_transit' / 'signed' ne collent que sur la colonne
+        // status, donc c'est safe en pratique. Ensuite on filtre côté client
+        // pour être strict (au cas où un client s'appellerait "Signed SARL").
+        const res = await fetch('/api/v1/cre_controller.php?action=get_history&q=' + encodeURIComponent(statusFilter));
+        const r = await res.json();
+        const rows = ((r && r.data) || []).filter(function (x) { return x.status === statusFilter; }).slice(0, 10);
+        if (!rows.length) {
+            body.innerHTML = '<p class="text-center py-8 text-gray-400 font-bold text-sm">Aucun CRE ' + LPC.escapeHtml(label.toLowerCase()) + '.</p>';
+            cta.href = '#'; cta.classList.add('pointer-events-none', 'opacity-50');
+            return;
+        }
+        let html = '<table class="w-full text-sm">'
+                 + '<thead class="text-[10px] font-black text-gray-500 uppercase tracking-wider">'
+                 + '  <tr><th class="text-left py-2">Date · Réf.</th><th class="text-left py-2">Client</th><th class="text-center py-2">Statut</th></tr>'
+                 + '</thead><tbody class="divide-y divide-gray-100">';
+        rows.forEach(function (cre) {
+            const d = new Date(cre.created_at || cre.date);
+            const dateStr = isNaN(d.getTime()) ? '' : d.toLocaleDateString('fr-FR');
+            const badge = statusFilter === 'en_transit'
+                ? '<span class="bg-amber-100 text-amber-700 px-2 py-1 rounded text-[9px] font-black uppercase">En attente</span>'
+                : '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-[9px] font-black uppercase">Signé</span>';
+            html += '<tr>'
+                  + '  <td class="py-2 text-xs">' + dateStr + '<br><span class="text-[10px] font-black text-lpc-dark">' + LPC.escapeHtml(cre.reference || '') + '</span></td>'
+                  + '  <td class="py-2 font-black text-gray-900">' + LPC.escapeHtml(cre.client_name || '') + '</td>'
+                  + '  <td class="py-2 text-center">' + badge + '</td>'
+                  + '</tr>';
+        });
+        html += '</tbody></table>';
+        body.innerHTML = html;
+        cta.textContent = 'Voir tout l\'historique';
+        cta.href = '#';
+        cta.classList.remove('pointer-events-none', 'opacity-50');
+        cta.onclick = function (ev) { ev.preventDefault(); closeModal('modal-kpi-detail'); switchTab('owed'); switchOwedView('history'); };
+    }
+
+    async function renderRevenueDrillDown(body, cta) {
+        if (!canViewRevenue) {
+            body.innerHTML = '<p class="text-center py-8 text-gray-400 font-bold text-sm">Vous n\'avez pas la permission de voir le revenu recyclage.</p>';
+            cta.href = '#'; cta.classList.add('pointer-events-none', 'opacity-50');
+            return;
+        }
+        const res = await fetch('/api/v1/cre_controller.php?action=get_recycling_revenue&period=current_month');
+        const r = await res.json();
+        const rows = (r && r.data && r.data.table) || [];
+        const s = (r && r.data && r.data.stats) || {};
+        if (!rows.length) {
+            body.innerHTML = '<p class="text-center py-8 text-gray-400 font-bold text-sm">Aucune vente recyclage ce mois-ci.</p>';
+            cta.href = '#'; cta.classList.add('pointer-events-none', 'opacity-50');
+            return;
+        }
+        let html = '<div class="mb-3 text-xs font-bold text-gray-600">Ce mois-ci : <span class="text-emerald-700 font-black">' + LPC.fmt.fcfa(Number(s.total_revenue) || 0) + '</span></div>'
+                 + '<table class="w-full text-sm">'
+                 + '<thead class="text-[10px] font-black text-gray-500 uppercase tracking-wider">'
+                 + '  <tr><th class="text-left py-2">Date · Réf.</th><th class="text-left py-2">Chauffeur</th><th class="text-right py-2">Montant</th></tr>'
+                 + '</thead><tbody class="divide-y divide-gray-100">';
+        rows.slice(0, 10).forEach(function (row) {
+            const d = new Date(row.created_at);
+            const dateStr = d.toLocaleDateString('fr-FR');
+            html += '<tr>'
+                  + '  <td class="py-2 text-xs">' + dateStr + '<br><span class="text-[10px] font-black text-amber-600">' + LPC.escapeHtml(row.reference || '') + '</span></td>'
+                  + '  <td class="py-2 font-black text-gray-900">' + LPC.escapeHtml(row.driver_name || '') + '</td>'
+                  + '  <td class="py-2 text-right font-black text-emerald-600">' + fmt(row.total_amount) + ' F</td>'
+                  + '</tr>';
+        });
+        html += '</tbody></table>';
+        body.innerHTML = html;
+        cta.textContent = 'Voir tout dans Revenus';
+        cta.href = '#';
+        cta.classList.remove('pointer-events-none', 'opacity-50');
+        cta.onclick = function (ev) { ev.preventDefault(); closeModal('modal-kpi-detail'); switchTab('revenue'); };
     }
 
     // ---------------------------------------------------------------------
