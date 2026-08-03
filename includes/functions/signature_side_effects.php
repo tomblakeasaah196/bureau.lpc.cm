@@ -72,6 +72,95 @@ function lpc_signature_notify_admin(PDO $db, string $title, string $message): vo
     }
 }
 
+/**
+ * Recompute sales_orders.payment_status for every sales order linked to the
+ * given invoice, then write the new status back to the sales_orders row.
+ *
+ * WHY THIS EXISTS
+ *   The order-level payment_status was originally set once, at BL signature
+ *   time, from the driver-collected cash. Any payment recorded LATER against
+ *   the invoice (register_payment, validate_cash, apply_client_wallet) updated
+ *   invoices.status = 'paid' but never touched the sales order — so an order
+ *   whose invoice was paid via bank transfer or wallet stayed "Non payé" on
+ *   the order-detail page forever. This helper closes that loop.
+ *
+ * CORRECTNESS
+ *   An invoice can span multiple deliveries and thus multiple sales orders;
+ *   a sales order can carry multiple invoices. We therefore recompute each
+ *   affected order's status from the FULL set of its invoices, not just the
+ *   one that was touched.
+ *
+ *   Rule: status = 'paid' when every linked invoice is 'paid' and the paid
+ *   total covers the order total; 'partial' when any money (or AIR) has
+ *   cleared but not enough to close it; 'unpaid' otherwise.
+ *
+ *   AIR (avance sur impôts sur revenus) counts as cleared receivable — the
+ *   client already remitted it to the DGI on our behalf. Same rule the
+ *   invoice-status logic uses.
+ *
+ * CONTRACT
+ *   Caller owns the transaction. This function does not begin/commit/roll
+ *   back — errors bubble up and let the caller decide.
+ */
+function lpc_recompute_sales_order_payment_status(PDO $db, int $invoiceId): void
+{
+    if ($invoiceId <= 0) return;
+
+    // Find every sales order touched by this invoice via
+    // invoice_deliveries → deliveries → sales_order_id.
+    $orderStmt = $db->prepare(
+        "SELECT DISTINCT d.sales_order_id
+           FROM invoice_deliveries idl
+           JOIN deliveries d ON d.id = idl.delivery_id
+          WHERE idl.invoice_id = ?
+            AND d.sales_order_id IS NOT NULL"
+    );
+    $orderStmt->execute([$invoiceId]);
+    $orderIds = $orderStmt->fetchAll(PDO::FETCH_COLUMN);
+    if (!$orderIds) return;
+
+    // For each order, sum totals + paid across ALL its invoices, then set the
+    // order-level status accordingly.
+    $sumStmt = $db->prepare(
+        "SELECT COALESCE(SUM(i.total_amount), 0) AS invoiced_total,
+                COALESCE(SUM((
+                    SELECT SUM(p.amount + COALESCE(p.air_withheld_amount, 0))
+                      FROM payments p
+                     WHERE p.invoice_id = i.id AND p.status = 'validated'
+                )), 0) AS paid_total
+           FROM invoices i
+           JOIN invoice_deliveries idl ON idl.invoice_id = i.id
+           JOIN deliveries d           ON d.id = idl.delivery_id
+          WHERE d.sales_order_id = ?"
+    );
+    $soStmt = $db->prepare("SELECT total_amount FROM sales_orders WHERE id = ?");
+    $upStmt = $db->prepare("UPDATE sales_orders SET payment_status = ? WHERE id = ?");
+
+    foreach ($orderIds as $soId) {
+        $soId = (int) $soId;
+        $sumStmt->execute([$soId]);
+        $row = $sumStmt->fetch(PDO::FETCH_ASSOC) ?: ['invoiced_total' => 0, 'paid_total' => 0];
+        $invoiced = (float) $row['invoiced_total'];
+        $paid     = (float) $row['paid_total'];
+
+        // If the order hasn't been fully invoiced yet, "paid in full" means
+        // paid against the SO total — otherwise a partially-invoiced order
+        // whose one invoice is settled would flip to 'paid' too early.
+        $soStmt->execute([$soId]);
+        $soTotal = (float) ($soStmt->fetchColumn() ?: 0);
+        $benchmark = max($soTotal, $invoiced);
+
+        $status = 'unpaid';
+        if ($benchmark > 0 && $paid + 0.01 >= $benchmark) {
+            $status = 'paid';
+        } elseif ($paid > 0) {
+            $status = 'partial';
+        }
+
+        $upStmt->execute([$status, $soId]);
+    }
+}
+
 // ============================================================================
 // CRE — Certificat de Restitution d'Emballages
 // ============================================================================

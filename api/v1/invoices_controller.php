@@ -1,6 +1,11 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/Paginator.php';   // Sprint 5
+require_once __DIR__ . '/../../includes/functions/signature_side_effects.php';
+// ^ pulls in lpc_recompute_sales_order_payment_status(): every payment path
+//   below updates invoices.status but must also refresh the linked sales
+//   orders — before this, an invoice paid via bank transfer or wallet left
+//   the order page reading "Non payé" indefinitely.
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 Rbac::requirePermission('accounting.invoices.view');
@@ -984,6 +989,11 @@ try {
                 $db->prepare("UPDATE invoices SET status = ? WHERE id = ?")
                    ->execute([$status, $invoice_id]);
 
+                // Push the new payment total back onto every sales order this
+                // invoice touches, so the order-detail page stops reading
+                // "Non payé" after the invoice is settled.
+                lpc_recompute_sales_order_payment_status($db, (int) $invoice_id);
+
                 if ($overpayment > 0) {
                     $db->prepare("
                         INSERT INTO client_wallets (client_id, balance) VALUES (?, ?)
@@ -1122,6 +1132,11 @@ try {
 
                     $db->prepare("UPDATE invoices SET status = ? WHERE id = ?")
                        ->execute([$status, $invoice_id]);
+
+                    // Mirror the invoice-status change onto the sales orders
+                    // this delivery belongs to — same reason as register_payment
+                    // above (order page must not linger on "Non payé").
+                    lpc_recompute_sales_order_payment_status($db, (int) $invoice_id);
 
                     if ($overpayment > 0) {
                         $db->prepare("
@@ -1271,6 +1286,12 @@ try {
             $status = ($new_paid >= (float) $inv['total_amount']) ? 'paid' : 'partial';
             $db->prepare("UPDATE invoices SET status = ? WHERE id = ?")
                ->execute([$status, $invoice_id]);
+
+            // Sync the sales-order side too — the wallet-apply path is
+            // exactly the case that first surfaced the bug (invoice paid,
+            // order still "Non payé"). Same helper as the other payment
+            // paths above.
+            lpc_recompute_sales_order_payment_status($db, (int) $invoice_id);
 
             // 4. Journal entry (Dr 419 / Cr 411)
             try {
