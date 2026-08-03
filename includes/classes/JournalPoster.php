@@ -109,6 +109,52 @@ final class JournalPoster
             throw new RuntimeException("JournalPoster: OHADA credit account (411/419) not mapped.");
         }
 
+        // 2b. OVERPAYMENT SPLIT — SYSCOHADA audit fix.
+        //
+        // Both callers push anything paid above the invoice total into
+        // client_wallets, which is the operational face of 419 (Clients,
+        // avances et acomptes reçus). The ledger did not follow: the whole
+        // receipt was credited to 411, so an overpaid client ended up carrying
+        // a DEBIT balance on their receivable account — an asset account
+        // reading negative — while 419 stayed empty and the wallet table showed
+        // a credit that appeared nowhere in the books. The balance sheet
+        // understated liabilities by every wallet balance in the system.
+        //
+        // The receipt is now split at the invoice's open balance: what clears
+        // the debt goes to 411, the excess goes to 419 where the wallet says it
+        // is. Payments already validated are excluded by id so a re-run values
+        // the same open balance, and the entry balances either way.
+        $settled = $amount + $withheld;
+        $advance = 0.0;
+        $advance_coa = null;
+
+        if ($pay['invoice_id']) {
+            $bal = $db->prepare("
+                SELECT i.total_amount,
+                       COALESCE((SELECT SUM(p2.amount + COALESCE(p2.air_withheld_amount, 0))
+                                   FROM payments p2
+                                  WHERE p2.invoice_id = i.id
+                                    AND p2.status = 'validated'
+                                    AND p2.id <> ?), 0) AS already_paid
+                  FROM invoices i WHERE i.id = ?
+            ");
+            $bal->execute([$payment_id, (int) $pay['invoice_id']]);
+            if ($row = $bal->fetch(PDO::FETCH_ASSOC)) {
+                $open = self::roundFcfa(max(0.0, (float) $row['total_amount'] - (float) $row['already_paid']));
+                if ($settled > $open) {
+                    $advance = self::roundFcfa($settled - $open);
+                    $settled = $open;
+                    $advance_coa = self::coaByOhada($db, '419');
+                    if (!$advance_coa) {
+                        throw new RuntimeException(
+                            "JournalPoster: OHADA 419 (avances clients) not mapped — cannot book the "
+                            . "overpayment on payment #{$payment_id}. Run migration 020."
+                        );
+                    }
+                }
+            }
+        }
+
         // 3. AIR-withheld debit account (only used if withheld > 0).
         $air_coa = null;
         if ($withheld > 0) {
@@ -127,7 +173,10 @@ final class JournalPoster
         $je_id = self::createDraftJe($db, $ref, 'BQ', (string)$pay['payment_date'], $desc, $user_id);
         if ($amount > 0)   self::addLine($db, $je_id, $treasury_coa, $amount,   0.0);
         if ($withheld > 0) self::addLine($db, $je_id, $air_coa,      $withheld, 0.0);
-        self::addLine($db, $je_id, $credit_coa,   0.0,     $amount + $withheld);
+        // $settled + $advance == $amount + $withheld by construction, so the
+        // entry balances whether or not the payment overshot the invoice.
+        if ($settled > 0) self::addLine($db, $je_id, $credit_coa,  0.0, $settled);
+        if ($advance > 0) self::addLine($db, $je_id, $advance_coa, 0.0, $advance);
         self::post($db, $je_id, $user_id);
 
         // 5. Treasury transaction — maintain balance + audit trail.
@@ -150,11 +199,44 @@ final class JournalPoster
      * been inserted so we know the final subtotal / tva_amount /
      * air_amount / net_payable.
      *
-     * Lines (SYSCOHADA revised):
-     *   Debit  411 Clients                   net_payable  (what will be received in cash)
-     *   Debit  4424 AIR retenu (à récup.)    air_amount   (what client will withhold)
-     *   Credit 701 Ventes (or 706 Services)  subtotal
-     *   Credit 4432 TVA collectée            tva_amount
+     * Lines (SYSCOHADA révisé):
+     *   Debit  411  Clients                    net_payable   (to be received in cash)
+     *   Debit  4424 AIR retenu (à récup.)      air_amount    (client withholds)
+     *   Debit  4473 Précompte subi             precompte_amount
+     *   Debit  673  Escomptes accordés         escompte_amount
+     *   Credit 701  Ventes (or 706 Services)   subtotal      (NET of any remise)
+     *   Credit 4461 Droits d'accises           excise_amount
+     *   Credit 4431 TVA facturée sur ventes    tva_amount
+     *
+     * WHAT CHANGED AND WHY (SYSCOHADA compliance audit):
+     *
+     *   · OUTPUT VAT MOVED 4432 → 4431. SYSCOHADA révisé numbers 443 as
+     *     4431 TVA facturée sur ventes / 4432 TVA facturée sur prestations de
+     *     services. Everything LPC invoices is a sale of goods, so 4431 is the
+     *     account; 4432 as migration 020 labelled it ("TVA collectée à
+     *     décaisser") is not a SYSCOHADA account at all. TVA due is
+     *     (4431+4432) − (4451+4452+4453+4454); collecting sales VAT in 4432
+     *     did not break that arithmetic, but it does break the DSF and any
+     *     e-bilan filing built off the account numbers, and it silently
+     *     merged goods and services revenue into one VAT line.
+     *
+     *   · DROITS D'ACCISES ARE POSTED. Migration 040 added excise_rate /
+     *     excise_amount and stated the TVA base is HT + accises, but nothing
+     *     ever booked the accise. It was collected from the client inside
+     *     total_amount and never appeared as a liability to the State.
+     *
+     *   · ESCOMPTE IS FINANCIAL, NOT COMMERCIAL. A settlement discount goes to
+     *     673, never netted into 701 — that is the whole point of separating
+     *     the trading margin from the financial result. A commercial reduction
+     *     granted ON the invoice is the opposite case: SYSCOHADA nets it into
+     *     the 701 credit and it never appears as its own line, which is why
+     *     invoices.discount_amount is subtracted into `subtotal` upstream and
+     *     is not booked here. Only a reduction granted AFTER the invoice, by
+     *     credit note, hits 7019.
+     *
+     *   · PRÉCOMPTE SUFFERED IS AN ASSET. Same treatment as the AIR: the
+     *     client keeps it and remits it for us, so it clears 411 and sits in
+     *     4473 until it is imputed against the income tax.
      *
      * This is the missing half — until this exists the ledger only sees
      * revenue when cash is received, which under-reports the AIR base
@@ -169,13 +251,20 @@ final class JournalPoster
         $db = Database::getInstance()->getConnection();
         $user_id = (int) ($_SESSION['user_id'] ?? 0);
 
-        $stmt = $db->prepare("
-            SELECT id, reference, client_id, date, subtotal, tva_amount,
-                   COALESCE(air_amount, 0)  AS air_amount,
-                   COALESCE(net_payable, total_amount) AS net_payable,
-                   total_amount
-              FROM invoices WHERE id = ? FOR UPDATE
-        ");
+        // Migration-optional columns are probed rather than assumed: this class
+        // is loaded on installs that may not have run 040 / 065 yet, and naming
+        // a missing column here would take down every invoice, not just the
+        // ones carrying an accise.
+        $sel = ['id', 'reference', 'client_id', 'date', 'subtotal', 'tva_amount',
+                'total_amount',
+                'COALESCE(air_amount, 0)  AS air_amount',
+                'COALESCE(net_payable, total_amount) AS net_payable'];
+        foreach (['excise_amount', 'precompte_amount', 'escompte_amount'] as $opt) {
+            $sel[] = self::hasColumn($db, 'invoices', $opt)
+                ? "COALESCE({$opt}, 0) AS {$opt}"
+                : "0 AS {$opt}";
+        }
+        $stmt = $db->prepare('SELECT ' . implode(', ', $sel) . ' FROM invoices WHERE id = ? FOR UPDATE');
         $stmt->execute([$invoice_id]);
         $inv = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$inv) throw new RuntimeException("JournalPoster: invoice #{$invoice_id} not found.");
@@ -183,23 +272,40 @@ final class JournalPoster
         $subtotal    = self::roundFcfa((float) $inv['subtotal']);
         $tva         = self::roundFcfa((float) $inv['tva_amount']);
         $air         = self::roundFcfa((float) $inv['air_amount']);
+        $excise      = self::roundFcfa((float) $inv['excise_amount']);
+        $precompte   = self::roundFcfa((float) $inv['precompte_amount']);
+        $escompte    = self::roundFcfa((float) $inv['escompte_amount']);
         $net_payable = self::roundFcfa((float) $inv['net_payable']);
 
-        // Sanity: net_payable + air must equal total (subtotal + tva).
-        $expected = self::roundFcfa($subtotal + $tva);
-        if (self::roundFcfa($net_payable + $air) !== $expected) {
-            throw new RuntimeException("JournalPoster: invoice #{$invoice_id} — net_payable+air ({$net_payable}+{$air}) ≠ total ({$expected}).");
+        // Sanity: everything the client owes us, however it is settled, must
+        // equal everything we recognised. Debits = net cash + what third
+        // parties keep on our behalf + what we gave away for early payment;
+        // credits = revenue + the taxes we collected for the State.
+        $debits  = self::roundFcfa($net_payable + $air + $precompte + $escompte);
+        $credits = self::roundFcfa($subtotal + $excise + $tva);
+        if ($debits !== $credits) {
+            throw new RuntimeException(
+                "JournalPoster: invoice #{$invoice_id} does not reconcile — "
+                . "net_payable({$net_payable}) + AIR({$air}) + précompte({$precompte}) + escompte({$escompte}) "
+                . "= {$debits}, but HT({$subtotal}) + accises({$excise}) + TVA({$tva}) = {$credits}."
+            );
         }
 
-        $client_coa  = self::coaByOhada($db, '411');
-        $revenue_coa = self::coaByOhada($db, $revenue_ohada) ?: self::coaByOhada($db, '701');
-        $tva_coa     = ($tva > 0) ? self::coaByOhada($db, '4432') : null;
-        $air_coa     = ($air > 0) ? self::coaByOhada($db, '4424') : null;
+        $client_coa    = self::coaByOhada($db, '411');
+        $revenue_coa   = self::coaByOhada($db, $revenue_ohada) ?: self::coaByOhada($db, '701');
+        $tva_coa       = ($tva > 0)       ? self::coaByOhada($db, '4431') : null;
+        $air_coa       = ($air > 0)       ? self::coaByOhada($db, '4424') : null;
+        $excise_coa    = ($excise > 0)    ? self::coaByOhada($db, '4461') : null;
+        $precompte_coa = ($precompte > 0) ? self::coaByOhada($db, '4473') : null;
+        $escompte_coa  = ($escompte > 0)  ? self::coaByOhada($db, '673')  : null;
 
         if (!$client_coa)  throw new RuntimeException("JournalPoster: 411 (Clients) not mapped.");
         if (!$revenue_coa) throw new RuntimeException("JournalPoster: {$revenue_ohada} (Ventes) not mapped.");
-        if ($tva > 0 && !$tva_coa) throw new RuntimeException("JournalPoster: 4432 (TVA collectée) not mapped — run migration 020.");
+        if ($tva > 0 && !$tva_coa) throw new RuntimeException("JournalPoster: 4431 (TVA facturée sur ventes) not mapped — apply migration 065.");
         if ($air > 0 && !$air_coa) throw new RuntimeException("JournalPoster: 4424 (AIR à récupérer) not mapped — run migration 020.");
+        if ($excise > 0 && !$excise_coa) throw new RuntimeException("JournalPoster: 4461 (droits d'accises) not mapped — apply migration 065.");
+        if ($precompte > 0 && !$precompte_coa) throw new RuntimeException("JournalPoster: 4473 (précompte subi) not mapped — apply migration 065.");
+        if ($escompte > 0 && !$escompte_coa) throw new RuntimeException("JournalPoster: 673 (escomptes accordés) not mapped — apply migration 065.");
 
         // Sprint 9 · migration 041: split the revenue credit across the accounts
         // the products themselves point at, instead of dumping the whole
@@ -209,13 +315,93 @@ final class JournalPoster
 
         $ref  = 'INV-' . $inv['reference'];
         $desc = "Émission facture #{$inv['reference']} (client #{$inv['client_id']})";
-        $je_id = self::createDraftJe($db, $ref, 'VT', (string)$inv['date'], $desc, $user_id);
-        if ($net_payable > 0) self::addLine($db, $je_id, $client_coa,  $net_payable, 0.0);
-        if ($air > 0)         self::addLine($db, $je_id, $air_coa,     $air,          0.0);
+        // source_type/source_id so the entry is traceable back to the invoice
+        // and can be extourned with reverseSource('invoice', $id) — the sale
+        // was the only document type still posting untraceably.
+        $je_id = self::createDraftJe($db, $ref, 'VT', (string)$inv['date'], $desc, $user_id,
+                                     'invoice', (int) $invoice_id);
+        if ($net_payable > 0) self::addLine($db, $je_id, $client_coa,    $net_payable, 0.0);
+        if ($air > 0)         self::addLine($db, $je_id, $air_coa,       $air,         0.0);
+        if ($precompte > 0)   self::addLine($db, $je_id, $precompte_coa, $precompte,   0.0);
+        if ($escompte > 0)    self::addLine($db, $je_id, $escompte_coa,  $escompte,    0.0);
         foreach ($revenue_split as $coa_id => $amount) {
             if ($amount > 0) self::addLine($db, $je_id, (int) $coa_id, 0.0, $amount);
         }
+        if ($excise > 0)      self::addLine($db, $je_id, $excise_coa,  0.0, $excise);
         if ($tva > 0)         self::addLine($db, $je_id, $tva_coa,     0.0, $tva);
+        self::post($db, $je_id, $user_id);
+
+        return $je_id;
+    }
+
+    /**
+     * Reduction granted to a client AFTER the invoice — an avoir / credit note.
+     *
+     *   Debit  7019 RRR accordés par l'entreprise   the reduction, HT
+     *   Debit  4431 TVA facturée sur ventes         the VAT given back
+     *   Credit 411  Clients                         what the client no longer owes
+     *
+     * WHY THIS IS SEPARATE FROM invoices.discount_amount. SYSCOHADA draws a
+     * hard line between the two, and it is not a stylistic one:
+     *
+     *   · A reduction granted ON the invoice never appears in the books. The
+     *     invoice is issued for the net, 701 is credited with the net, and the
+     *     VAT base is the net. There is nothing to book because nothing was
+     *     ever recognised at the gross.
+     *   · A reduction granted AFTER the invoice reverses revenue that HAS been
+     *     recognised, so it must be visible as such — 7019 is a contra-revenue
+     *     account precisely so the reduction shows against turnover instead of
+     *     quietly shrinking it.
+     *
+     * Netting a post-invoice avoir into 701 would understate turnover for the
+     * period, which is the figure the patente and the CA thresholds are
+     * assessed on.
+     *
+     * @param int    $invoice_id  the invoice being credited
+     * @param float  $amount_ht   reduction excluding tax
+     * @param float  $vat_amount  VAT reversed with it (0 on an exonerated sale)
+     * @param string $date        Y-m-d
+     * @param string $reference   the credit note's own reference
+     * @param string $reason      shown in the entry description
+     * @return int                journal_entries.id
+     */
+    public static function postSalesCreditNote(
+        int $invoice_id,
+        float $amount_ht,
+        float $vat_amount,
+        string $date,
+        string $reference,
+        string $reason = ''
+    ): int {
+        $db      = Database::getInstance()->getConnection();
+        $user_id = (int) ($_SESSION['user_id'] ?? 0);
+
+        $amount_ht  = self::roundFcfa($amount_ht);
+        $vat_amount = self::roundFcfa($vat_amount);
+        if ($amount_ht <= 0) {
+            throw new RuntimeException("JournalPoster: credit note for invoice #{$invoice_id} is non-positive.");
+        }
+
+        $rrr_coa    = self::coaByOhada($db, '7019');
+        $client_coa = self::coaByOhada($db, '411');
+        $tva_coa    = ($vat_amount > 0) ? self::coaByOhada($db, '4431') : null;
+
+        if (!$rrr_coa) {
+            throw new RuntimeException(
+                "JournalPoster: OHADA 7019 (RRR accordés) not mapped in chart_of_accounts. Apply migration 065."
+            );
+        }
+        if (!$client_coa) throw new RuntimeException("JournalPoster: 411 (Clients) not mapped.");
+        if ($vat_amount > 0 && !$tva_coa) {
+            throw new RuntimeException("JournalPoster: 4431 (TVA facturée sur ventes) not mapped — apply migration 065.");
+        }
+
+        $desc = "Avoir sur facture #{$invoice_id}" . ($reason !== '' ? " ({$reason})" : '');
+        $je_id = self::createDraftJe($db, 'AV-' . $reference, 'VT', $date, $desc, $user_id,
+                                     'invoice_credit_note', $invoice_id);
+        self::addLine($db, $je_id, $rrr_coa, $amount_ht, 0.0);
+        if ($vat_amount > 0) self::addLine($db, $je_id, $tva_coa, $vat_amount, 0.0);
+        self::addLine($db, $je_id, $client_coa, 0.0, $amount_ht + $vat_amount);
         self::post($db, $je_id, $user_id);
 
         return $je_id;
@@ -275,10 +461,21 @@ final class JournalPoster
         }
 
         // Force the buckets to sum to the subtotal exactly.
+        //
+        // array_search with $strict = true, not array_keys($buckets, max(...)).
+        // The loose form compares with ==, and PHP's == on a float and a
+        // numeric string — which is what the bucket keys and any string-ish
+        // value coming back through PDO can be — is not the comparison anyone
+        // intends here. max() returns an element of the array, so a strict
+        // search always finds it; the loose one could match a different bucket
+        // that merely compares equal and push the residual onto the wrong
+        // revenue account. Small money, wrong account, silently.
         $drift = $subtotal - array_sum($buckets);
         if (abs($drift) >= 0.5) {
-            $largest = array_keys($buckets, max($buckets))[0];
-            $buckets[$largest] = self::roundFcfa($buckets[$largest] + $drift);
+            $largest = array_search(max($buckets), $buckets, true);
+            if ($largest !== false) {
+                $buckets[$largest] = self::roundFcfa($buckets[$largest] + $drift);
+            }
         }
 
         return $buckets;
@@ -546,14 +743,40 @@ final class JournalPoster
     /**
      * Goods received against a purchase order.
      *
-     *   Debit  601  Achats de marchandises      — the value received
-     *   Credit 401x the supplier's own account  — what we now owe them
+     *   Debit  601  Achats de marchandises        — the value received, HT
+     *   Debit  4452 TVA récupérable sur achats    — the deductible input VAT
+     *   Credit 401x the supplier's own account    — what we now owe them, TTC
+     *
+     * THE VAT SPLIT IS THE FIX. $goods_value is TTC — purchase order prices are
+     * entered TTC and always have been, which save_po and receive_po both state
+     * outright and both rely on when they back the ristourne base out with
+     * `$ttc / (1 + vat_rate)`. This method used to debit that TTC figure to 601
+     * and credit the same number to 401. Three things followed, all of them
+     * live in the books today:
+     *
+     *   1. 601 Achats carried 19,25 % of VAT that is not a cost at all.
+     *   2. 445x TVA récupérable was never debited by anything, anywhere. The
+     *      input credit simply did not exist in the ledger, so TVA due
+     *      computed from the accounts overstated the liability by the entire
+     *      deductible amount, every single month.
+     *   3. products.cump was fed the same TTC unit price, so 6031 (COGS) and
+     *      31x (stock) inherited the VAT — inventory overstated on the balance
+     *      sheet, gross margin understated on the résultat.
+     *
+     * $vat_amount defaults to 0, which reproduces the old single-line
+     * behaviour exactly. A caller that has not been updated, or a purchase
+     * with no recoverable VAT (exonerated goods — half the catalogue is water,
+     * art. 128 CGI — or a supplier outside the régime réel), posts the whole
+     * TTC to 601 and that is the correct treatment: non-deductible VAT IS part
+     * of the cost of the goods.
      *
      * $goods_value must be computed from purchase_order_items, never from the
      * request body. The reception endpoint used to take unit prices straight
      * off the client payload, which let a caller book any purchase value it
      * liked and mint rebate to match.
      *
+     * @param float $goods_value  TTC value received (HT + recoverable VAT)
+     * @param float $vat_amount   the recoverable portion; 0 when not deductible
      * @return int journal_entries.id
      */
     public static function postGoodsReceipt(
@@ -561,21 +784,43 @@ final class JournalPoster
         int $supplier_id,
         float $goods_value,
         string $date,
-        string $po_reference
+        string $po_reference,
+        float $vat_amount = 0.0
     ): int {
         $db      = Database::getInstance()->getConnection();
         $user_id = (int) ($_SESSION['user_id'] ?? 0);
 
         $goods_value = self::roundFcfa($goods_value);
+        $vat_amount  = self::roundFcfa($vat_amount);
         if ($goods_value <= 0) {
             throw new RuntimeException("JournalPoster: goods receipt for PO #{$po_id} has non-positive value.");
         }
+        if ($vat_amount < 0 || $vat_amount >= $goods_value) {
+            // VAT at or above the gross means the caller passed HT as TTC, or
+            // an absurd rate. Refuse rather than post a zero/negative 601 line.
+            throw new RuntimeException(
+                "JournalPoster: PO #{$po_id} — recoverable VAT ({$vat_amount}) is not a valid "
+                . "fraction of the TTC value ({$goods_value})."
+            );
+        }
+        $goods_ht = self::roundFcfa($goods_value - $vat_amount);
 
         $purchases_coa = self::coaByOhada($db, '601');
         if (!$purchases_coa) {
             throw new RuntimeException(
                 "JournalPoster: OHADA 601 (Achats de marchandises) is not mapped in chart_of_accounts. Apply migration 038."
             );
+        }
+        $vat_coa = null;
+        if ($vat_amount > 0) {
+            $vat_coa = self::coaByOhada($db, '4452');
+            if (!$vat_coa) {
+                throw new RuntimeException(
+                    "JournalPoster: OHADA 4452 (TVA récupérable sur achats) is not mapped in "
+                    . "chart_of_accounts. Apply migration 065 — note that migration 020 seeded "
+                    . "4451/4452 inverted against SYSCOHADA révisé and 065 corrects them."
+                );
+            }
         }
         $supplier_coa = self::coaForSupplier($db, $supplier_id);
 
@@ -584,7 +829,8 @@ final class JournalPoster
             "Réception achat réf: {$po_reference}", $user_id,
             'purchase_order', $po_id
         );
-        self::addLine($db, $je_id, $purchases_coa, $goods_value, 0.0);
+        self::addLine($db, $je_id, $purchases_coa, $goods_ht, 0.0);
+        if ($vat_amount > 0) self::addLine($db, $je_id, $vat_coa, $vat_amount, 0.0);
         self::addLine($db, $je_id, $supplier_coa,  0.0, $goods_value);
         self::post($db, $je_id, $user_id);
 
@@ -620,14 +866,21 @@ final class JournalPoster
         float $amount,
         string $date,
         string $po_reference,
-        ?string $narration = null
+        ?string $narration = null,
+        float $vat_withheld = 0.0,
+        float $precompte_withheld = 0.0
     ): int {
         $db      = Database::getInstance()->getConnection();
         $user_id = (int) ($_SESSION['user_id'] ?? 0);
 
-        $amount = self::roundFcfa($amount);
+        $amount             = self::roundFcfa($amount);
+        $vat_withheld       = self::roundFcfa($vat_withheld);
+        $precompte_withheld = self::roundFcfa($precompte_withheld);
         if ($amount <= 0) {
             throw new RuntimeException("JournalPoster: rebate accrual for PO #{$po_id} is non-positive.");
+        }
+        if ($vat_withheld < 0 || $precompte_withheld < 0) {
+            throw new RuntimeException("JournalPoster: PO #{$po_id} — withheld amounts cannot be negative.");
         }
 
         $receivable_coa = self::coaByOhada($db, '4098');
@@ -638,13 +891,62 @@ final class JournalPoster
             );
         }
 
+        // WHAT THE WITHHOLDINGS ARE AND WHY THEY NOW HAVE LINES.
+        //
+        // receive_po computes the rebate as
+        //     gross = HT × tier_rate
+        //     net   = gross × (1 − vat_rate − precompte_rate)
+        // and used to post only `net`, to both 4098 and 6019. The difference —
+        // the VAT and the précompte the supplier keeps back — was booked
+        // nowhere at all. Two things were therefore wrong at once:
+        //
+        //   · 6019 recognised only the net, so the reduction in cost of goods
+        //     was understated by the withheld tax, which is a real reduction
+        //     of what the purchase cost us.
+        //   · The précompte and the VAT withheld are amounts the company can
+        //     impute against its own tax. Never recording them means never
+        //     claiming them.
+        //
+        // The gross is now credited to 6019 and the withheld portions are
+        // debited to the accounts that carry them, so the entry balances at
+        //     net + VAT + précompte = gross
+        // and — this is the part that matters operationally — 4098 still
+        // carries exactly `net`, unchanged. The Ristournes SDP panel reads the
+        // same number it always did, so the panel and the ledger stay in
+        // agreement and no historical balance is restated.
+        //
+        // Both parameters default to 0, which reproduces the old two-line
+        // entry byte for byte for any caller not yet passing them.
+        $gross = self::roundFcfa($amount + $vat_withheld + $precompte_withheld);
+
+        $vat_coa = null;
+        if ($vat_withheld > 0) {
+            $vat_coa = self::coaByOhada($db, '4452');
+            if (!$vat_coa) {
+                throw new RuntimeException(
+                    "JournalPoster: OHADA 4452 (TVA récupérable sur achats) not mapped. Apply migration 065."
+                );
+            }
+        }
+        $precompte_coa = null;
+        if ($precompte_withheld > 0) {
+            $precompte_coa = self::coaByOhada($db, '4473');
+            if (!$precompte_coa) {
+                throw new RuntimeException(
+                    "JournalPoster: OHADA 4473 (précompte subi) not mapped. Apply migration 065."
+                );
+            }
+        }
+
         $je_id = self::createDraftJe(
             $db, 'JRN-AC-' . date('ym'), 'AC', $date,
             ($narration ?? "Ristourne 2,47% acquise") . " — réf: {$po_reference}", $user_id,
             'rebate_accrual', $po_id
         );
         self::addLine($db, $je_id, $receivable_coa, $amount, 0.0);
-        self::addLine($db, $je_id, $income_coa,     0.0, $amount);
+        if ($vat_withheld > 0)       self::addLine($db, $je_id, $vat_coa,       $vat_withheld,       0.0);
+        if ($precompte_withheld > 0) self::addLine($db, $je_id, $precompte_coa, $precompte_withheld, 0.0);
+        self::addLine($db, $je_id, $income_coa, 0.0, $gross);
         self::post($db, $je_id, $user_id);
 
         return $je_id;
@@ -827,7 +1129,17 @@ final class JournalPoster
     ): int {
         // Append a random suffix so re-runs in the same second still get a
         // unique reference (matches the existing pattern in inventory_controller).
-        $ref .= '-' . strtoupper(bin2hex(random_bytes(2)));
+        //
+        // FOUR BYTES, NOT TWO. journal_entries.reference is UNIQUE, and the
+        // purchasing entries share a constant stem for a whole month —
+        // 'JRN-AC-2608'. With a 2-byte suffix that is 65 536 slots, and the
+        // collision is a birthday problem, not a sequential one: at ~300
+        // purchase entries in a month the probability that some pair collides
+        // is already about 50 %. The failure mode is a duplicate-key exception
+        // that rolls back a goods reception the operator has no way to
+        // interpret, and it gets worse as the business grows. 4 bytes takes the
+        // same figure to roughly 0,0005 %.
+        $ref .= '-' . strtoupper(bin2hex(random_bytes(4)));
 
         // source_type / source_id arrived in migration 038 and let an entry be
         // traced back to the document that produced it. Detected rather than

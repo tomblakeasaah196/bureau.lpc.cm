@@ -438,6 +438,23 @@ try {
                 $po_product_category[(int) $r['product_id']] = $r['category_id'] !== null ? (int) $r['category_id'] : null;
             }
 
+            // ---------------------------------------------------------------
+            // VAT context — SYSCOHADA audit fix.
+            //
+            // The prices above are TTC. That is not new; what is new is that
+            // anything downstream is allowed to know it. Until now the TTC
+            // figure went straight into products.cump AND straight into the
+            // 601 debit, so the VAT sat inside cost of goods, inside stock
+            // value, and inside every margin the system reported — while
+            // 445x TVA récupérable, the account that should have carried it,
+            // was never debited by any code path in the application.
+            //
+            // The rate is read from the order (frozen at placement) so a
+            // reception months later splits at the rate that was agreed, not
+            // the rate that happens to be configured today.
+            // ---------------------------------------------------------------
+            $vat_ctx = lpc_po_vat_context($db, $po_id);
+
             $stmtMove = $db->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, reference_id, logged_by) VALUES (?, 'in_supplier', ?, ?, ?)");
             $stmtGetProd = $db->prepare("SELECT name, cump, COALESCE((SELECT SUM(CASE WHEN movement_type LIKE 'in_%' THEN quantity ELSE -quantity END) FROM inventory_movements WHERE product_id = ?), 0) as current_qty FROM products WHERE id = ? FOR UPDATE");
             $stmtUpdateCUMP = $db->prepare("UPDATE products SET cump = ? WHERE id = ?");
@@ -511,15 +528,25 @@ try {
                 $stmtMove->execute([$pid, $received_qty, $po_id, $user_id]);
 
                 // 3. CUMP Recalculation — weighted average over pre-receipt stock.
+                //
+                //    Valued at the COST of the goods, which excludes recoverable
+                //    VAT: that VAT is a receivable against the State, never a
+                //    cost, and leaving it in inflated stock on the balance sheet
+                //    and COGS on every subsequent sale. lpc_po_unit_cost returns
+                //    the TTC price unchanged when the VAT is not deductible,
+                //    because then it genuinely IS part of the cost.
+                $unit_cost = lpc_po_unit_cost($unit_price, $vat_ctx);
                 if ($qty_before <= 0) {
-                    $new_cump = $unit_price;
+                    $new_cump = $unit_cost;
                 } else {
                     $total_value_old = $qty_before * $old_cump;
-                    $total_value_new = $received_qty * $unit_price;
+                    $total_value_new = $received_qty * $unit_cost;
                     $new_cump = ($total_value_old + $total_value_new) / ($qty_before + $received_qty);
                 }
                 $stmtUpdateCUMP->execute([$new_cump, $pid]);
 
+                // Kept TTC: it is what the supplier will invoice and what 401
+                // must be credited with. The split happens once, below.
                 $received_value += $received_qty * $unit_price;
 
                 // Accumulate this reception's TTC value by category; the
@@ -568,18 +595,45 @@ try {
                 $precompte_rate = (float) $cat_row['precompte_rate_applied'];
 
                 $ht_this_reception   = $ttc_this_reception / (1 + $vat_rate);
-                $gross_rebate        = $ht_this_reception * $tier_rate;
-                $net_rebate          = round($gross_rebate * (1 - ($vat_rate + $precompte_rate)), 0, PHP_ROUND_HALF_UP);
+
+                // ROUNDING ORDER MATTERS HERE.
+                //
+                // This used to be one expression:
+                //     net = round(gross × (1 − vat_rate − precompte_rate))
+                // which produced the net and threw the two withheld components
+                // away — they were never computed, never stored and never
+                // posted, so the tax the supplier keeps back on our behalf
+                // existed nowhere in the books.
+                //
+                // Each component is now rounded to the whole franc (FCFA has no
+                // subunit) and the net is taken as the REMAINDER rather than
+                // being rounded independently. That is what guarantees
+                //     net + VAT + précompte == gross
+                // exactly, with no residual franc. Rounding all three
+                // separately can drift by up to 1 FCFA, and a drifting
+                // three-line entry is refused by post_journal_entry's SIGNAL
+                // 45000 — which would roll back the entire goods reception over
+                // a rounding artefact.
+                $gross_rebate       = round($ht_this_reception * $tier_rate, 0, PHP_ROUND_HALF_UP);
+                $vat_withheld       = round($gross_rebate * $vat_rate,       0, PHP_ROUND_HALF_UP);
+                $precompte_withheld = round($gross_rebate * $precompte_rate, 0, PHP_ROUND_HALF_UP);
+                $net_rebate         = $gross_rebate - $vat_withheld - $precompte_withheld;
 
                 if ($net_rebate > 0) {
                     $total_rebate_earned += $net_rebate;
+                    // The operational ledger keeps tracking the NET, unchanged:
+                    // it is what the supplier will actually settle, and it is
+                    // what the Ristournes SDP panel has always shown. No
+                    // historical balance is restated by this fix.
                     $stmtBumpCatRebate->execute([$net_rebate, $po_id, $cat_id]);
 
                     $stmtCatName->execute([$cat_id]);
                     $category_rebate_details[] = [
-                        'category_name' => (string) ($stmtCatName->fetchColumn() ?: 'Catégorie #' . $cat_id),
-                        'tier_rate'     => $tier_rate,
-                        'net_rebate'    => $net_rebate,
+                        'category_name'      => (string) ($stmtCatName->fetchColumn() ?: 'Catégorie #' . $cat_id),
+                        'tier_rate'          => $tier_rate,
+                        'net_rebate'         => $net_rebate,
+                        'vat_withheld'       => $vat_withheld,
+                        'precompte_withheld' => $precompte_withheld,
                     ];
                 }
             }
@@ -609,12 +663,27 @@ try {
             // lookups that landed on an arbitrary supplier — see migration 038
             // for the full history.
             // ==========================================
+            //
+            // SYSCOHADA audit fix — the TTC value is now split before posting:
+            //   Dr 601  Achats de marchandises     HT
+            //   Dr 4452 TVA récupérable sur achats  the deductible VAT
+            //   Cr 401x supplier                    TTC — unchanged, it is
+            //                                       exactly what we owe them
+            // The credit to the supplier does not move, so no payable balance
+            // is restated; what changes is that the debit stops pretending the
+            // VAT was a cost. $received_vat is 0 for an exonerated purchase and
+            // the entry falls back to the single 601 line it always was.
+            $received_vat = ($vat_ctx['recoverable'] && $vat_ctx['vat_rate'] > 0)
+                ? $received_value - ($received_value / (1 + $vat_ctx['vat_rate']))
+                : 0.0;
+
             JournalPoster::postGoodsReceipt(
                 $po_id,
                 (int) $po['supplier_id'],
                 $received_value,
                 date('Y-m-d'),
-                $po['reference']
+                $po['reference'],
+                $received_vat
             );
 
             // ==========================================
@@ -659,7 +728,17 @@ try {
                     $detail['net_rebate'],
                     date('Y-m-d'),
                     $po['reference'],
-                    $narration
+                    $narration,
+                    // The withheld tax now gets lines of its own:
+                    //   Dr 4098 net · Dr 4452 TVA · Dr 4473 précompte
+                    //   Cr 6019 gross
+                    // 4098 still carries the net, so the panel and the ledger
+                    // agree exactly as before — but 6019 now shows the full
+                    // reduction in cost of goods, and the withheld tax is
+                    // recorded as the imputable asset it is instead of
+                    // evaporating.
+                    (float) ($detail['vat_withheld'] ?? 0),
+                    (float) ($detail['precompte_withheld'] ?? 0)
                 );
             }
 

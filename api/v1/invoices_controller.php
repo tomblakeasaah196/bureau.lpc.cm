@@ -510,6 +510,15 @@ try {
         // ACTION: GENERATE BATCH INVOICE
         // ==========================================
         case 'generate_invoice':
+            // Issuing an invoice recognises revenue, creates a receivable and
+            // posts to the general ledger. The gate at the top of this file is
+            // 'accounting.invoices.view' — reading the AR dashboard is not
+            // authority to do any of that, and every other controller in the
+            // app (procurement, inventory) already re-checks per write action.
+            // The permission exists and is already granted to the roles that
+            // should have it; nothing was calling it.
+            Rbac::requirePermission('accounting.invoices.create');
+
             $db->beginTransaction();
 
             $client_id    = (int)$jsonData['client_id'];
@@ -568,6 +577,92 @@ try {
                 $subtotal += ((int)$item['delivered_quantity'] * (float)$item['unit_price']);
             }
 
+            // -----------------------------------------------------------------
+            // COMMERCIAL REDUCTION — SYSCOHADA audit fix.
+            //
+            // THE DEFECT. sales_orders carries discount_amount (migration 062)
+            // and sales_order_items carries the line-level part of it. But
+            // generate_dispatch copies only sales_order_items.unit_price into
+            // delivery_items, and this action re-prices the invoice from
+            // delivery_items — so the ORDER-HEADER remise never crossed from the
+            // order to the invoice. The client was billed more than the order
+            // said, and 411, 701 and the TVA base were all overstated by exactly
+            // that remise. invoices had no column to put it in either, which is
+            // why migration 065 adds one.
+            //
+            // WHY IT IS NETTED INTO subtotal RATHER THAN GIVEN ITS OWN ENTRY.
+            // SYSCOHADA books a reduction granted ON the invoice nowhere at all:
+            // revenue is recognised at the net, and the TVA base is the net.
+            // Only a reduction granted AFTER the invoice — by avoir — hits 7019.
+            // So the correct treatment is to reduce the base here, before any
+            // tax is computed, and postInvoiceIssued credits 701 with the net.
+            //
+            // ALLOCATION. The remise is spread across the deliveries being
+            // invoiced in proportion to their value, so invoicing 2 of an
+            // order's 3 delivery notes carries 2/3 of the remise rather than
+            // all of it or none of it. Each order contributes at most its own
+            // remise, and never more than the value actually being billed.
+            // -----------------------------------------------------------------
+            $gross_subtotal  = $subtotal;
+            $discount_amount = 0.0;
+            $discount_parts  = [];
+
+            $stmtOrderDisc = $db->prepare("
+                SELECT so.id, so.reference, so.discount_amount, so.discount_note,
+                       so.subtotal AS order_subtotal,
+                       COALESCE(SUM(di.delivered_quantity * di.unit_price), 0) AS billed_value,
+                       COALESCE((
+                           SELECT SUM(di2.delivered_quantity * di2.unit_price)
+                             FROM deliveries d2
+                             JOIN delivery_items di2 ON di2.delivery_id = d2.id
+                            WHERE d2.sales_order_id = so.id
+                       ), 0) AS order_delivered_value
+                  FROM deliveries d
+                  JOIN sales_orders so ON so.id = d.sales_order_id
+                  JOIN delivery_items di ON di.delivery_id = d.id
+                 WHERE d.id IN ($placeholders)
+                   AND so.discount_amount > 0
+                 GROUP BY so.id, so.reference, so.discount_amount, so.discount_note, so.subtotal
+            ");
+            $stmtOrderDisc->execute($delivery_ids);
+
+            foreach ($stmtOrderDisc->fetchAll(PDO::FETCH_ASSOC) as $od) {
+                $order_disc  = (float) $od['discount_amount'];
+                $billed      = (float) $od['billed_value'];
+                $delivered   = (float) $od['order_delivered_value'];
+
+                // Pro-rata on delivered value. If nothing has been delivered
+                // there is nothing to prorate against and nothing to invoice
+                // either, so the row simply contributes zero.
+                $share = ($delivered > 0) ? round($order_disc * ($billed / $delivered), 0) : 0.0;
+
+                // Never give away more than the lines being billed are worth.
+                $share = min($share, $billed, $order_disc);
+                if ($share <= 0) continue;
+
+                $discount_amount += $share;
+                $discount_parts[] = $od['reference']
+                    . ' : ' . number_format($share, 0, ',', ' ') . ' FCFA'
+                    . (!empty($od['discount_note']) ? ' (' . $od['discount_note'] . ')' : '');
+            }
+
+            $discount_amount = round($discount_amount, 0);
+            if ($discount_amount > $gross_subtotal) {
+                // Defensive: the per-order clamps above make this unreachable,
+                // but a negative taxable base would post a reversed sale and
+                // that must never be possible from a rounding path.
+                throw new UserFacingException(
+                    "Remise reportée (" . number_format($discount_amount, 0, ',', ' ') . " FCFA) "
+                    . "supérieure au montant facturable. Vérifiez les remises des commandes liées."
+                );
+            }
+
+            $subtotal      = $gross_subtotal - $discount_amount;
+            $discount_note = $discount_parts ? implode(' · ', $discount_parts) : null;
+
+            // TVA is computed on the NET commercial base — after the reduction,
+            // as art. 128 CGI and SYSCOHADA both require. Computing it on the
+            // gross would over-collect VAT the client does not owe.
             $tva_amount   = round($subtotal * ($tva_rate / 100), 0);
             $total_amount = $subtotal + $tva_amount;
 
@@ -595,17 +690,54 @@ try {
             $reference = Prefs::docNumber('invoice', $hash);
             $token     = bin2hex(random_bytes(16));
 
-            $stmtInv = $db->prepare("
-                INSERT INTO invoices (reference, client_id, date, due_date,
-                                      subtotal, tva_rate, tva_amount,
-                                      air_rate, air_amount, net_payable,
-                                      total_amount, status, token, created_by, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', ?, ?, ?)
-            ");
-            $stmtInv->execute([$reference, $client_id, $date, $due_date,
-                               $subtotal, $tva_rate, $tva_amount,
-                               $air_rate, $air_amount, $net_payable,
-                               $total_amount, $token, $user_id, $notes]);
+            // gross_subtotal / discount_amount / discount_note arrive with
+            // migration 065. Probed rather than assumed, in the same style as
+            // lpc_attach_invoice_payment_accounts above: this controller is
+            // deployed before the migration is applied as a matter of routine,
+            // and naming a missing column would take down invoicing entirely.
+            $has_disc_cols = (int) $db->query("
+                SELECT COUNT(*) FROM information_schema.columns
+                 WHERE table_schema = DATABASE() AND table_name = 'invoices'
+                   AND column_name IN ('gross_subtotal','discount_amount','discount_note')
+            ")->fetchColumn() === 3;
+
+            if ($has_disc_cols) {
+                $stmtInv = $db->prepare("
+                    INSERT INTO invoices (reference, client_id, date, due_date,
+                                          gross_subtotal, discount_amount, discount_note,
+                                          subtotal, tva_rate, tva_amount,
+                                          air_rate, air_amount, net_payable,
+                                          total_amount, status, token, created_by, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', ?, ?, ?)
+                ");
+                $stmtInv->execute([$reference, $client_id, $date, $due_date,
+                                   $gross_subtotal, $discount_amount, $discount_note,
+                                   $subtotal, $tva_rate, $tva_amount,
+                                   $air_rate, $air_amount, $net_payable,
+                                   $total_amount, $token, $user_id, $notes]);
+            } else {
+                if ($discount_amount > 0) {
+                    // Refuse rather than silently bill the gross. Dropping the
+                    // remise here is the exact defect this fix exists to close,
+                    // and doing it quietly is worse than refusing loudly.
+                    throw new UserFacingException(
+                        "Cette facture porte une remise de " . number_format($discount_amount, 0, ',', ' ')
+                        . " FCFA reportée depuis la commande, mais la base de données n'a pas encore "
+                        . "les colonnes pour l'enregistrer. Appliquez la migration 065 avant de facturer."
+                    );
+                }
+                $stmtInv = $db->prepare("
+                    INSERT INTO invoices (reference, client_id, date, due_date,
+                                          subtotal, tva_rate, tva_amount,
+                                          air_rate, air_amount, net_payable,
+                                          total_amount, status, token, created_by, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', ?, ?, ?)
+                ");
+                $stmtInv->execute([$reference, $client_id, $date, $due_date,
+                                   $subtotal, $tva_rate, $tva_amount,
+                                   $air_rate, $air_amount, $net_payable,
+                                   $total_amount, $token, $user_id, $notes]);
+            }
             $invoice_id = $db->lastInsertId();
 
             $stmtLink = $db->prepare("INSERT INTO invoice_deliveries (invoice_id, delivery_id) VALUES (?, ?)");
@@ -666,6 +798,9 @@ try {
         //   3. Updates invoice status atomically
         // ==========================================
         case 'register_payment':
+            // Moves money, clears a receivable and posts to the ledger.
+            Rbac::requirePermission('accounting.invoices.record_payment');
+
             require_once __DIR__ . '/../../includes/classes/JournalPoster.php';
             $db->beginTransaction();
 
@@ -777,6 +912,10 @@ try {
         // land atomically with the payments insert.
         // ==========================================
         case 'validate_cash':
+            // Turns a driver's declared cash into validated payments and ledger
+            // entries. Its own permission already exists and was unused.
+            Rbac::requirePermission('accounting.invoices.validate_cash');
+
             require_once __DIR__ . '/../../includes/classes/JournalPoster.php';
             $db->beginTransaction();
 
@@ -840,13 +979,28 @@ try {
 
                 // Financial Imputation Logic
                 if ($invoice_id) {
-                    $stmtInvData = $db->prepare("SELECT total_amount, COALESCE((SELECT SUM(amount) FROM payments WHERE invoice_id = ? AND status='validated'), 0) as paid_amount FROM invoices WHERE id = ? FOR UPDATE");
+                    // SUM(amount + air_withheld_amount), matching
+                    // register_payment above. This path summed `amount` alone
+                    // while register_payment summed both, so the two disagreed
+                    // about what "paid in full" means: an invoice settled partly
+                    // by a withholding client and partly by driver cash could
+                    // never reach 'paid' through this branch, because the AIR
+                    // the client had already remitted to the DGI on our behalf
+                    // was not counted as clearing the receivable — even though
+                    // JournalPoster credits 411 with it. The ledger showed the
+                    // receivable cleared; the invoice list showed it open.
+                    $stmtInvData = $db->prepare("
+                        SELECT total_amount,
+                               COALESCE((SELECT SUM(amount + COALESCE(air_withheld_amount, 0))
+                                           FROM payments WHERE invoice_id = ? AND status = 'validated'), 0) AS paid_amount
+                          FROM invoices WHERE id = ? FOR UPDATE
+                    ");
                     $stmtInvData->execute([$invoice_id, $invoice_id]);
                     $invData = $stmtInvData->fetch(PDO::FETCH_ASSOC);
 
-                    $new_paid = $invData['paid_amount'];
+                    $new_paid = (float)$invData['paid_amount'];
                     $total    = (float)$invData['total_amount'];
-                    
+
                     $status = 'partial';
                     $overpayment = 0;
 

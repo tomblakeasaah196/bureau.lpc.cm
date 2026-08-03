@@ -563,6 +563,23 @@ try {
                 throw new UserFacingException("Statut de paiement invalide.");
             }
 
+            // The TVA rate in force right now, resolved once and frozen onto the
+            // order below. Also used by the ristourne ladder further down, which
+            // reads the same settings row — resolving it here keeps the order's
+            // stored HT and the ladder's HT base derived from one identical rate
+            // rather than two lookups that could straddle a settings change.
+            $tax_now = lpc_rebate_tax_settings($db);
+
+            // Exonerated / non-deductible purchase. Defaults to deductible,
+            // which is the ordinary case; a caller that knows better (water is
+            // exonerated under art. 128 CGI, and a supplier outside the régime
+            // réel invoices no reclaimable VAT) says so and the whole TTC stays
+            // in 601, which is the correct SYSCOHADA treatment for VAT that
+            // cannot be recovered — it genuinely is part of the cost.
+            $vat_recoverable = array_key_exists('vat_recoverable', $jsonData)
+                ? (!empty($jsonData['vat_recoverable']) ? 1 : 0)
+                : 1;
+
             $clean_items = [];
             foreach ($items as $item) {
                 $pid        = (int)   ($item['product_id'] ?? 0);
@@ -690,7 +707,38 @@ try {
             // The typed "Remise (FCFA)" field plus whatever was declared line by
             // line. discount_amount keeps its existing meaning — everything
             // obtained as a reduction on this order — and gains a breakdown.
+            $rebate_spent    = round($discount_amount, 2);   // the typed field ONLY
             $discount_amount = round($discount_amount + $line_discount_total, 2);
+
+            // ---------------------------------------------------------------
+            // WHY $rebate_spent IS NOT $discount_amount — SYSCOHADA audit fix.
+            //
+            // These two numbers were the same variable, and conflating them
+            // double-counted every line-level reduction:
+            //
+            //   · $subtotal is summed at LIST price, and $line_discount_total
+            //     is the gap between list and what is actually being paid. So
+            //     the line reduction is already inside $subtotal − $discount.
+            //   · But reception books 601/401 at purchase_order_items
+            //     .unit_price, which is the TYPED price — already net of that
+            //     same line reduction.
+            //   · Deducting it AGAIN through postRebateUsage (Dr 401 / Cr 4098)
+            //     left the supplier's account under-credited by exactly
+            //     $line_discount_total. The books said we owed the supplier
+            //     less than the order did.
+            //
+            // Worse operationally: a line reduction is a negotiated price cut,
+            // not ristourne credit. Charging it to supplier_rebate_ledger drained
+            // a pool the supplier had actually granted for volume, and the
+            // sufficiency check below then refused ordinary orders with
+            // "Ristourne insuffisante" because a price negotiation had eaten the
+            // balance.
+            //
+            // Only the typed "Remise (FCFA)" field is a draw on the rebate pool.
+            // Line reductions stay in discount_amount for reporting — the KPI and
+            // the PO document both read that column and their meaning is
+            // unchanged — but they no longer touch the ledger or the pool.
+            // ---------------------------------------------------------------
 
             if ($discount_amount > 0 && $discount_note === '') {
                 throw new UserFacingException("Motif de la remise obligatoire.");
@@ -729,14 +777,45 @@ try {
             $token = bin2hex(random_bytes(16));
 
             // 1. CREATE PO AS PENDING (No stock, no accounting yet)
-            $stmtPO = $db->prepare("
-                INSERT INTO purchase_orders
-                (reference, supplier_id, delivery_place_id, date, status, subtotal, discount_amount, discount_note, total_amount, payment_status, token, created_by)
-                VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
-            ");
-            $stmtPO->execute([
-                $reference, $supplier_id, $delivery_place_id, $date, $subtotal, $discount_amount, $discount_note, $total_amount, $payment_status, $token, $user_id
-            ]);
+            //
+            // FREEZE THE VAT RATE ON THE ORDER — SYSCOHADA audit fix.
+            //
+            // Prices on this order are TTC. Reception has to split that into
+            // the 601 debit (HT) and the 4452 debit (deductible VAT), and it
+            // may happen weeks later. Reading the rate live at reception time
+            // would mean a change to purchase_rebate_tax_settings silently
+            // re-splits orders already placed at the old rate — the exact
+            // problem migration 040 solved for invoices and
+            // purchase_order_category_rebates.vat_rate_applied solved for the
+            // ristourne base. Stored here, once, at the rate agreed.
+            $po_vat_rate = (float) $tax_now['vat_rate'];
+            $po_subtotal_ht = ($po_vat_rate > 0) ? round($subtotal / (1 + $po_vat_rate), 2) : $subtotal;
+            $po_vat_amount  = round($subtotal - $po_subtotal_ht, 2);
+
+            if (lpc_po_has_vat_columns($db)) {
+                $stmtPO = $db->prepare("
+                    INSERT INTO purchase_orders
+                    (reference, supplier_id, delivery_place_id, date, status, subtotal, discount_amount, discount_note, total_amount, payment_status, token, created_by,
+                     vat_rate, subtotal_ht, vat_amount, vat_recoverable)
+                    VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmtPO->execute([
+                    $reference, $supplier_id, $delivery_place_id, $date, $subtotal, $discount_amount, $discount_note, $total_amount, $payment_status, $token, $user_id,
+                    $po_vat_rate, $po_subtotal_ht, $po_vat_amount, $vat_recoverable,
+                ]);
+            } else {
+                // Migration 065 not applied yet. Post exactly as before —
+                // reception falls back to the current setting and the entry
+                // degrades to the single 601 line it has always been.
+                $stmtPO = $db->prepare("
+                    INSERT INTO purchase_orders
+                    (reference, supplier_id, delivery_place_id, date, status, subtotal, discount_amount, discount_note, total_amount, payment_status, token, created_by)
+                    VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmtPO->execute([
+                    $reference, $supplier_id, $delivery_place_id, $date, $subtotal, $discount_amount, $discount_note, $total_amount, $payment_status, $token, $user_id
+                ]);
+            }
             $po_id = $db->lastInsertId();
 
             $stmtLine = $db->prepare("
@@ -772,7 +851,7 @@ try {
             //     quoted price already includes TVA), so the HT base the
             //     ladder is evaluated against is backed out of the entered
             //     price here, not read directly from it.
-            $tax = lpc_rebate_tax_settings($db);
+            $tax = $tax_now;   // resolved once at the top of this action
             $stmtProdCat = $db->prepare("SELECT category_id FROM products WHERE id = ?");
             $category_ttc_totals = []; // category_id => TTC subtotal for this PO
             // Iterates $priced_lines, not the raw $items payload, and values at
@@ -811,7 +890,7 @@ try {
             //    Sprint-4-Batch-B: lock the supplier's rebate ledger before
             //    reading the running balance so two concurrent POs against
             //    the same rebate pool can't double-spend.
-            if ($discount_amount > 0) {
+            if ($rebate_spent > 0) {
                 // Whether a supplier can spend rebate credit now comes from
                 // having at least one active category ladder (migration 052)
                 // — see includes/functions/procurement.php.
@@ -825,17 +904,17 @@ try {
                 // cannot both pass the sufficiency check and double-spend.
                 $rebate = lpc_rebate_balance($db, $supplier_id, true);
 
-                if ($discount_amount > $rebate['balance']) {
+                if ($rebate_spent > $rebate['balance']) {
                     throw new UserFacingException(sprintf(
                         "Ristourne insuffisante : solde %s FCFA, demandé %s FCFA.",
                         number_format($rebate['balance'], 0, ',', ' '),
-                        number_format($discount_amount, 0, ',', ' ')
+                        number_format($rebate_spent, 0, ',', ' ')
                     ));
                 }
 
                 lpc_rebate_ledger_add(
                     $db, $supplier_id, (int) $po_id, $date, $reference,
-                    'deduction', $discount_amount, "Utilisation Ristourne (Remise)", $user_id
+                    'deduction', $rebate_spent, "Utilisation Ristourne (Remise)", $user_id
                 );
 
                 // And the matching general-ledger entry, in this same
@@ -847,7 +926,7 @@ try {
                 JournalPoster::postRebateUsage(
                     (int) $po_id,
                     $supplier_id,
-                    $discount_amount,
+                    $rebate_spent,
                     $date,
                     $reference
                 );
@@ -919,6 +998,15 @@ try {
             $stmtMoves->execute([$po_id]);
             $received_moves = $stmtMoves->fetchAll(PDO::FETCH_ASSOC);
 
+            // Same cost basis reception used. Reception now values stock at HT
+            // when the VAT is recoverable, so the inversion below MUST use the
+            // identical figure — unwinding a TTC value out of a CUMP built from
+            // HT would leave every affected product permanently mis-valued, and
+            // silently, since nothing downstream re-derives CUMP from source.
+            // lpc_po_vat_context reads the rate frozen on the order, so an order
+            // cancelled after a rate change still unwinds at what it booked.
+            $cancel_vat_ctx = lpc_po_vat_context($db, $po_id);
+
             $stmtItemPrice = $db->prepare("
                 SELECT unit_price FROM purchase_order_items
                  WHERE purchase_order_id = ? AND product_id = ?
@@ -952,7 +1040,7 @@ try {
                         . "sur les lignes de la commande. Corrigez la commande ou passez par un ajustement d'inventaire."
                     );
                 }
-                $unit_price = (float) $price_row;
+                $unit_price = lpc_po_unit_cost((float) $price_row, $cancel_vat_ctx);
 
                 $stmtProdState->execute([$pid, $pid]);
                 $state = $stmtProdState->fetch(PDO::FETCH_ASSOC);

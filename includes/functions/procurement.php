@@ -90,6 +90,94 @@ function lpc_rebate_tax_settings(PDO $db): array
 }
 
 /**
+ * -----------------------------------------------------------------------------
+ * VAT CONTEXT FOR ONE PURCHASE ORDER
+ * -----------------------------------------------------------------------------
+ * Purchase order prices are entered TTC. That has always been true — save_po
+ * and receive_po both back the ristourne base out with `$ttc / (1 + vat_rate)`
+ * — but until migration 065 nothing recorded the split, and
+ * JournalPoster::postGoodsReceipt debited the whole TTC figure to 601 while
+ * 445x TVA récupérable stayed empty forever. Reception and cancellation both
+ * need the same answer to "what part of this price is VAT, and is it
+ * deductible", and they need it to be the same answer months apart.
+ *
+ * RESOLUTION ORDER, most authoritative first:
+ *   1. purchase_orders.vat_rate — frozen when the order was placed. A rate
+ *      change must never retroactively move an already-placed order's HT, for
+ *      the same reason migration 040 froze the rates onto the invoice and
+ *      purchase_order_category_rebates froze vat_rate_applied onto the rebate.
+ *   2. purchase_rebate_tax_settings — the current setting, for orders placed
+ *      before 065 added the column.
+ *
+ * `recoverable` false means the VAT is NOT deductible (exonerated goods — half
+ * the catalogue is water, art. 128 CGI — or a supplier outside the régime
+ * réel). Non-deductible VAT is part of the cost of the goods and stays in 601,
+ * which is the correct SYSCOHADA treatment, not a fallback.
+ *
+ * @return array{vat_rate: float, recoverable: bool}
+ */
+function lpc_po_vat_context(PDO $db, int $po_id): array
+{
+    $tax      = lpc_rebate_tax_settings($db);
+    $vat_rate = (float) $tax['vat_rate'];
+    $recover  = true;
+
+    if (lpc_po_has_vat_columns($db)) {
+        $stmt = $db->prepare("SELECT vat_rate, vat_recoverable FROM purchase_orders WHERE id = ?");
+        $stmt->execute([$po_id]);
+        if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            // A stored 0 on a pre-065 order is "never set", not "exonerated" —
+            // those orders were written before the column existed and default
+            // to 0. Only a positive stored rate overrides the setting.
+            if ((float) $row['vat_rate'] > 0) $vat_rate = (float) $row['vat_rate'];
+            $recover = ((int) $row['vat_recoverable'] === 1);
+        }
+    }
+
+    if ($vat_rate < 0 || $vat_rate >= 1) {
+        // A rate at or above 100% would make the HT zero or negative and every
+        // downstream valuation meaningless. Refuse the rate, not the reception.
+        $vat_rate = 0.0;
+    }
+
+    return ['vat_rate' => $vat_rate, 'recoverable' => $recover];
+}
+
+/** True once migration 065 has added the HT/VAT split columns. Cached per request. */
+function lpc_po_has_vat_columns(PDO $db): bool
+{
+    static $has = null;
+    if ($has !== null) return $has;
+
+    return $has = ((int) $db->query("
+        SELECT COUNT(*) FROM information_schema.columns
+         WHERE table_schema = DATABASE()
+           AND table_name   = 'purchase_orders'
+           AND column_name IN ('vat_rate','subtotal_ht','vat_amount','vat_recoverable')
+    ")->fetchColumn() === 4);
+}
+
+/**
+ * The unit cost a received item should carry into stock, from its TTC price.
+ *
+ * Recoverable VAT is not a cost — it is a receivable against the State, and
+ * carrying it in products.cump inflates 6031 (COGS) and 31x (stock) on every
+ * subsequent sale. Non-recoverable VAT IS a cost and stays in.
+ *
+ * Reception and cancellation MUST both call this. They used to both use the
+ * raw TTC price, which at least agreed with itself; if only one side moved to
+ * HT, cancelling an order would unwind a different value than the one it
+ * booked and leave CUMP permanently wrong.
+ */
+function lpc_po_unit_cost(float $unit_price_ttc, array $vat_ctx): float
+{
+    if (!$vat_ctx['recoverable'] || $vat_ctx['vat_rate'] <= 0) {
+        return $unit_price_ttc;
+    }
+    return $unit_price_ttc / (1 + $vat_ctx['vat_rate']);
+}
+
+/**
  * The ladder rate for one (supplier, category) pair at a given HT amount.
  * Returns 0.0 if no active ladder is configured for that pair, or the amount
  * doesn't fall inside any configured tier (a gap in the ladder is treated as
