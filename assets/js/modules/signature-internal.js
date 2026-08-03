@@ -45,6 +45,17 @@
 
     var ENDPOINT = '/api/v1/signatures_controller.php';
 
+    // Set once confirmSign() succeeds. The host page's signature block and
+    // sign-button colour are both server-rendered (signature_block.php +
+    // signature_sign_button.php read document_signatures at request time), so
+    // the freshly attested stamp only appears after a reload. We defer that
+    // reload to modal-close instead of firing it inside confirmSign() so the
+    // user still gets to see the hash prefix and verification link in the
+    // "Signé en interne" panel before the page repaints. All three close
+    // paths (Fermer button, backdrop click, Esc) funnel through
+    // closeSignModal(), so this one flag covers them.
+    var justSigned = false;
+
     // ---------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------
@@ -101,6 +112,14 @@
         if (!m) return;
         m.classList.add('hidden');
         m.classList.remove('flex');
+        // If the user just signed, reload so the server-rendered signature
+        // block on the document itself picks up the new attestation. Without
+        // this, the toolbar button flips to green but the document body still
+        // shows the pre-signature state until manual refresh.
+        if (justSigned) {
+            justSigned = false;
+            window.location.reload();
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -220,6 +239,7 @@
         postJson(ENDPOINT + '?action=sign_internal', { type: DOC_TYPE, token: TOKEN })
             .then(function (r) {
                 if (r.ok && r.json && r.json.status === 'success') {
+                    justSigned = true;        // triggers reload on modal-close
                     renderModal();            // re-render into the signed state
                     markButtonSigned();
                 } else {
