@@ -10,8 +10,15 @@
  */
         // 1. GLOBAL STATE & DICTIONARY
         let apiData = null;
-        let currentLang = 'fr'; 
-        const currentUrl = window.location.href; 
+        let currentLang = 'fr';
+        const currentUrl = window.location.href;
+        // Client-facing signing URL. Built early so updateModals() (called from
+        // window.onload) can reference it — the WhatsApp/Email share templates
+        // must point recipients at the interactive sign_bl.php portal, NOT at
+        // this read-only document view. Redeclaring the same value later would
+        // shadow-throw under `const`, so the historical assignment below is
+        // gone; the QR modal reads this same constant.
+        const signUrl = window.location.origin + '/sign_bl.php?token=' + (new URLSearchParams(window.location.search)).get('token');
 
         const dictionary = {
             en: {
@@ -215,12 +222,16 @@
             if(phone && !phone.startsWith('237') && phone.length <= 9) phone = '237' + phone; 
             document.getElementById('input_wa_phone').value = phone;
             
-            const waText = `Bonjour,\n\nVotre commande (Réf: ${bl.sales_order_ref}) est en route !\n\nLien de suivi / BL : ${currentUrl}\n\nMerci de préparer la réception.\nLPC Logistique`;
+            // Shared links must land recipients on sign_bl.php, not on this
+            // read-only document. The doc view's "Faire Signer" dropdown is a
+            // staff-side control; a client opening it has no way to actually
+            // sign. See docs/SIGNATURES.md and bon_livraison.php nav gating.
+            const waText = `Bonjour,\n\nVotre commande (Réf: ${bl.sales_order_ref}) est arrivée.\n\nMerci de vérifier les quantités et de signer la livraison ici :\n${signUrl}\n\nLPC Logistique`;
             document.getElementById('input_wa_body').value = waText;
 
             document.getElementById('input_email_to').value = client.email || '';
-            document.getElementById('input_email_subject').value = `Expédition Commande LPC : ${bl.sales_order_ref}`;
-            document.getElementById('input_email_body').value = `Bonjour,\n\nVotre commande a été expédiée.\nVeuillez consulter votre Bordereau de Livraison via le lien sécurisé ci-dessous:\n\n📄 Consulter le BL : ${currentUrl}\n\nCordialement,\nLogistique LPC`;
+            document.getElementById('input_email_subject').value = `Signature Bon de Livraison LPC : ${bl.sales_order_ref}`;
+            document.getElementById('input_email_body').value = `Bonjour,\n\nVotre commande a été livrée.\nVeuillez vérifier les quantités reçues et signer votre Bon de Livraison via le lien sécurisé ci-dessous :\n\n✍️  Signer le BL : ${signUrl}\n\nCordialement,\nLogistique LPC`;
         }
 
         function openModal(id) { document.getElementById(id).classList.add('active'); }
@@ -299,8 +310,9 @@
             }
         }
         
-        const signUrl = window.location.origin + '/sign_bl.php?token=' + blToken;
-        
+        // signUrl is declared once at the top of the module (see block above);
+        // this is just the click handler both the toolbar button and the
+        // recipient-mode "Signer" button call into.
         function openDirectSignature() {
             window.location.href = signUrl;
         }

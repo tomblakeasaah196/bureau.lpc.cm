@@ -128,11 +128,27 @@ if (($_GET['pdf'] ?? '') === '1') {
                         <i class="fas fa-print text-lg"></i> <span class="hidden md:inline md:ml-2" data-i18n="btn_pdf">Imprimer BL</span>
                     </button>
                     
+                    <?php
+                    // "Faire Signer" is a staff-side control: its four options
+                    // (Sur cet appareil / QR / WhatsApp / Email) are ways for
+                    // LPC to hand the signature off to the client. A client
+                    // opening this page from a shared token link has no use for
+                    // any of them — they should just be able to sign. So the
+                    // dropdown is only emitted for authenticated internal
+                    // users; external viewers get a single primary "Signer"
+                    // button that jumps straight to sign_bl.php (same target
+                    // as "Sur cet appareil"). documents-bon_livraison.js still
+                    // hides #signature-dropdown-container once the BL is
+                    // completed — that continues to work for both branches
+                    // because they share the id.
+                    $lpc_is_internal_viewer = !empty($_SESSION['user_id']);
+                    ?>
+                    <?php if ($lpc_is_internal_viewer): ?>
                     <div class="relative inline-block text-left group" id="signature-dropdown-container">
                         <button class="flex justify-center items-center w-10 h-10 md:w-auto md:h-auto md:px-6 md:py-2 bg-lpc-dark hover:bg-green-800 text-white rounded-lg font-bold text-sm shadow-md transition-all group-hover:ring-2 ring-green-300">
                             <i class="fas fa-signature text-lg"></i> <span class="hidden md:inline md:ml-2">Faire Signer</span>
                         </button>
-                        
+
                         <div class="absolute right-0 mt-2 w-56 origin-top-right bg-white border border-gray-200 divide-y divide-gray-100 rounded-xl shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
                             <div class="p-2">
                                 <a href="javascript:void(0)" onclick="openDirectSignature()" class="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 rounded-lg font-bold">
@@ -152,6 +168,15 @@ if (($_GET['pdf'] ?? '') === '1') {
                             </div>
                         </div>
                     </div>
+                    <?php else: ?>
+                    <div id="signature-dropdown-container">
+                        <button type="button" onclick="openDirectSignature()"
+                                class="flex justify-center items-center w-10 h-10 md:w-auto md:h-auto md:px-6 md:py-2 bg-lpc-dark hover:bg-green-800 text-white rounded-lg font-bold text-sm shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-green-300">
+                            <i class="fas fa-signature text-lg"></i>
+                            <span class="hidden md:inline md:ml-2">Signer</span>
+                        </button>
+                    </div>
+                    <?php endif; ?>
 
                     <?php
                     // Universal internal signature. Distinct from "Faire Signer"
