@@ -196,6 +196,27 @@ try {
             }
             $ids = array_values(array_unique($ids));
 
+            // Lockout guard: the admin role must always keep the permissions
+            // needed to reach this very screen, otherwise a stray save can
+            // permanently disable RBAC administration for everyone.
+            $roleNameStmt = $db->prepare("SELECT name FROM roles WHERE id = ?");
+            $roleNameStmt->execute([$role_id]);
+            $targetRoleName = $roleNameStmt->fetchColumn();
+            if ($targetRoleName === 'admin') {
+                $required = ['admin.settings.view', 'admin.roles.view', 'admin.roles.edit'];
+                $q = str_repeat('?,', count($required) - 1) . '?';
+                $reqStmt = $db->prepare("SELECT id, name FROM permissions WHERE name IN ($q)");
+                $reqStmt->execute($required);
+                $missing = [];
+                foreach ($reqStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                    if (!in_array((int) $row['id'], $ids, true)) $missing[] = $row['name'];
+                }
+                if ($missing) {
+                    throw_bad("Le rôle admin doit conserver : " . implode(', ', $missing)
+                        . ". Ces permissions sont requises pour continuer à administrer les rôles.");
+                }
+            }
+
             $db->beginTransaction();
             $db->prepare("DELETE FROM role_permissions WHERE role_id = ?")->execute([$role_id]);
             if ($ids) {

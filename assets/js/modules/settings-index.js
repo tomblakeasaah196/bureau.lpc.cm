@@ -907,21 +907,25 @@
             return;
         }
 
-        // The admin role is intentionally immutable: migration 001 grants it
-        // every permission, and letting the UI strip permissions from it is the
-        // classic way to lock yourself out of your own ERP.
+        // The admin role IS editable — new permissions added by later
+        // migrations aren't auto-granted to admin, so users need to be able to
+        // toggle them on. To avoid permanent lockout, the server refuses any
+        // save that would strip admin.roles.edit / admin.roles.view / admin
+        // .settings.view from the admin role (see rbac_controller.php's
+        // set_role_permissions).
         const isAdminRole = String(data.role.name || '').toLowerCase() === 'admin';
-        const canEdit = !!CAN.editRoles && !isAdminRole;
+        const canEdit = !!CAN.editRoles;
         const modules = Object.keys(data.permissions).sort();
         const totalPerms = Object.keys(data.permissions)
             .reduce((n, k) => n + data.permissions[k].length, 0);
 
         let html = '';
 
-        if (isAdminRole) {
-            html += banner('info', 'fa-lock',
-                'Le rôle <strong>admin</strong> détient toutes les permissions par conception et n\'est pas modifiable ici. '
-                + 'Créez un rôle dédié si vous devez restreindre un utilisateur.');
+        if (isAdminRole && canEdit) {
+            html += banner('warn', 'fa-triangle-exclamation',
+                'Vous modifiez le rôle <strong>admin</strong>. Par conception, il devrait détenir toutes les permissions. '
+                + 'Les permissions <code>admin.roles.edit</code>, <code>admin.roles.view</code> et <code>admin.settings.view</code> '
+                + 'sont protégées côté serveur pour éviter tout verrouillage.');
         } else if (!CAN.editRoles) {
             html += banner('info', 'fa-eye', 'Lecture seule — permission <code>admin.roles.edit</code> requise.');
         }

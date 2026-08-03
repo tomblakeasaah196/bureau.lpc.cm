@@ -57,7 +57,23 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
 
     <div id="lpc-shell-main">
 
-        <nav class="lpc-tabs">
+        <?php /* Tabs live IN the toolbar now (was a separate <nav class="lpc-tabs">
+                 above). The two tab buttons keep their existing tab-link class
+                 so lpc-shell.css draws them as lemon-green pills (forest green
+                 on hover). A .lpc-toolbar-sep divider follows to visually
+                 group the tab cluster (left) apart from the primary action +
+                 nav shortcuts + period picker + help (rest of the row).
+
+                 README §5.5: page controls belong in .lpc-toolbar. This page
+                 had a hand-rolled `flex justify-between` bar holding the search
+                 box and the add button, which is why it looked unlike Achats
+                 even before any of the functional gaps.
+
+                 Order: tabs · primary action · module hand-off shortcuts ·
+                 period · help. The invoicing shortcut is the sell-side
+                 counterpart of the warehouse icon on Achats. */ ?>
+        <div class="lpc-toolbar">
+
             <button onclick="switchTab('orders')" class="tab-link py-4 border-b-2 border-lpc-dark text-lpc-dark font-black text-sm uppercase tracking-wider transition-all" id="tab-orders">
                 <i class="fas fa-list-ul mr-2"></i> Commandes Clients
             </button>
@@ -65,20 +81,8 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
                 <i class="fas fa-truck-loading mr-2"></i> Dispatch &amp; BL
                 <span id="badge-pending-dispatch" class="absolute top-2 right-[-15px] bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full hidden">0</span>
             </button>
-        </nav>
 
-        <?php /* README §5.5: page controls belong in .lpc-toolbar, the floating
-                 branded card every other module uses. This page had a
-                 hand-rolled `flex justify-between` bar holding the search box
-                 and the add button, which is why it looked unlike Achats even
-                 before any of the functional gaps.
-
-                 Order: primary action, then the module this page hands off to,
-                 then the period, then help. The invoicing shortcut is the
-                 sell-side counterpart of the warehouse icon on Achats — Achats
-                 flows into Stock, Ventes flows into Facturation, and neither
-                 link existed here. */ ?>
-        <div class="lpc-toolbar">
+            <div class="lpc-toolbar-sep"></div>
 
             <?php /* data-perm rather than a server-side `if`: switchTab() hides
                      this for the dispatch tab and shows it again for orders, so
