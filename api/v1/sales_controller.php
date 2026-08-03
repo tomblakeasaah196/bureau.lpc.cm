@@ -321,7 +321,7 @@ try {
                 // been billed — you had to go and look in Facturation.
                 $page = Paginator::paginate($db, $body, $params,
                     "so.id, so.reference, so.date, so.status, so.payment_status,
-                     so.subtotal, so.discount_amount, so.discount_note, so.total_amount,
+                     so.subtotal, so.discount_amount, so.discount_note, so.surcharge_amount, so.total_amount,
                      so.cancelled_at, so.cancellation_reason,
                      c.name as client_name, c.id as client_id,
                      (SELECT COUNT(*) FROM deliveries d WHERE d.sales_order_id = so.id)
@@ -363,6 +363,7 @@ try {
                         COUNT(CASE WHEN status = 'pending' THEN 1 END) as kpi_so_pending,
                         COALESCE(SUM(CASE WHEN payment_status != 'paid' THEN total_amount ELSE 0 END), 0) as kpi_so_debt,
                         COALESCE(SUM(discount_amount), 0) as kpi_so_discount,
+                        COALESCE(SUM(surcharge_amount), 0) as kpi_so_surcharge,
                         COUNT(id) as kpi_so_count
                     FROM sales_orders
                     WHERE date BETWEEN ? AND ?
@@ -380,6 +381,11 @@ try {
                     // save_order since this module was built and read back by
                     // nothing at all until now.
                     'kpi_so_discount' => number_format($kpis['kpi_so_discount'], 0, ',', ' ') . ' FCFA',
+                    // Majorations Perçues (migration 070) — the opposite-sign
+                    // sibling of Remises Accordées. Reported SEPARATELY on
+                    // purpose: netting the two would collapse two independent
+                    // quantities into a fiction (see pricing.php header).
+                    'kpi_so_surcharge' => number_format($kpis['kpi_so_surcharge'], 0, ',', ' ') . ' FCFA',
                     'kpi_so_count'    => $kpis['kpi_so_count'] . ' Cmd(s)'
                 ];
             } elseif ($tab === 'dispatch') {
@@ -482,6 +488,7 @@ try {
         // ACTION: SAVE SALES ORDER
         // ---------------------------------------------------------------------
         // Migration 062 · a price change is a price change, never a discount.
+        // Migration 070 · a markup on one order is a surcharge, never a price.
         //
         // The old body multiplied whatever price was typed by the quantity and
         // wrote it. A seller could quote 850 and charge 700 and the 150 existed
@@ -491,14 +498,18 @@ try {
         // tariff and calling the gap a discount produces a fiction: prices move
         // for a dozen ordinary reasons and every one of them would surface as
         // money given away. So nothing is inferred here. The disparity is put
-        // back to the operator, who declares which of the two things it is, and
+        // back to the operator, who declares which of THREE things it is, and
         // this endpoint records the declaration:
         //
         //   confirmed  → the client's new price. client_prices moves,
         //                client_price_history logs it, the line carries no
-        //                discount (list_price = unit_price).
-        //   declined   → a one-off remise. The tariff is untouched, and the gap
-        //                is stored on the line as a DECLARED discount.
+        //                discount and no surcharge (list_price = unit_price).
+        //   declined, typed < tariff → a one-off remise. Tariff untouched, gap
+        //                stored on the line as a DECLARED discount.
+        //   declined, typed > tariff → a one-off surcharge (new in 070). Tariff
+        //                untouched, gap stored on the line as a DECLARED
+        //                surcharge in its own column. Never blended with the
+        //                discount total, never netted against it.
         //
         // Two round trips: the first returns `needs_price_confirmation` and
         // writes nothing; the browser opens the reconciliation modal and posts
@@ -583,12 +594,28 @@ try {
             }
 
             // ---- Round 2: every disparity carries a decision. Write. --------
+            // Three branches per line, in the order they can be resolved:
+            //   1. no change            → sold at tariff.
+            //   2. change + confirmed   → new client price. Tariff moves. No
+            //                             discount, no surcharge (there is
+            //                             nothing to deviate from once the
+            //                             tariff IS the typed price).
+            //   3. change + declined    → one-off. Tariff stands, and the gap
+            //                             lands in EITHER discount_amount
+            //                             (typed below tariff) OR surcharge_
+            //                             amount (typed above tariff). Not
+            //                             both — see migration 070 header on
+            //                             the mutual-exclusion invariant.
+            //
+            // Silence is not a fourth option: a changed line without a decision
+            // was already caught in Round 1 and bounced back to the modal.
             $db->beginTransaction();
 
-            $subtotal           = 0.0;   // at tariff
+            $subtotal            = 0.0;   // at tariff
             $line_discount_total = 0.0;
-            $priced             = [];
-            $repriced           = [];
+            $line_surcharge_total = 0.0;
+            $priced              = [];
+            $repriced            = [];
 
             foreach ($clean as $l) {
                 $pid     = $l['product_id'];
@@ -602,48 +629,63 @@ try {
 
                 if (!$changed) {
                     // Sold at tariff. The ordinary case.
-                    $list = $current; $unit = $current; $lineDisc = 0.0;
+                    $list = $current; $unit = $current;
+                    $lineDisc = 0.0; $lineSurch = 0.0;
 
                 } elseif ($confirm) {
-                    // Declared: this is the client's new price. No discount —
-                    // there is nothing to discount against once the tariff has
-                    // moved, which is exactly why list_price = unit_price here.
-                    $list = $typed; $unit = $typed; $lineDisc = 0.0;
+                    // Declared: this is the client's new price. Neither a
+                    // discount nor a surcharge — there is nothing to deviate
+                    // against once the tariff has moved, which is exactly why
+                    // list_price = unit_price here.
+                    $list = $typed; $unit = $typed;
+                    $lineDisc = 0.0; $lineSurch = 0.0;
                     $repriced[$pid] = $typed;
 
-                } else {
+                } elseif ($typed < $current) {
                     // Declared: a one-off reduction. Tariff stands.
-                    if ($typed > $current) {
-                        // Charging ABOVE tariff while refusing to call it the
-                        // new price would have to be stored as a negative
-                        // remise — a surcharge dressed as a discount, which is
-                        // meaningless and would corrupt every discount total
-                        // that sums this column. There is no third option here
-                        // and guessing one would be worse than refusing.
-                        throw new UserFacingException(
-                            "Prix supérieur au tarif sur une ligne sans confirmation. "
-                            . "Confirmez le nouveau prix, ou ramenez la ligne au tarif."
-                        );
-                    }
                     $list = $current; $unit = $typed;
-                    $lineDisc = round(($current - $typed) * $qty, 2);
+                    $lineDisc  = round(($current - $typed) * $qty, 2);
+                    $lineSurch = 0.0;
+
+                } else {
+                    // Declared: a one-off surcharge. Tariff stands.
+                    //
+                    // Symmetric to the remise branch above — same shape,
+                    // opposite sign, own column. Migration 062 refused this
+                    // outcome for want of a place to put it; 070 gave it one
+                    // (sales_order_items.surcharge_amount). Stored positive:
+                    // the sign lives in the column name, not the number.
+                    $list = $current; $unit = $typed;
+                    $lineDisc  = 0.0;
+                    $lineSurch = round(($typed - $current) * $qty, 2);
                 }
 
-                $subtotal            += $list * $qty;
-                $line_discount_total += $lineDisc;
+                $subtotal             += $list * $qty;
+                $line_discount_total  += $lineDisc;
+                $line_surcharge_total += $lineSurch;
                 $priced[] = [
                     'product_id' => $pid, 'quantity' => $qty,
                     'unit_price' => $unit, 'list_price' => $list,
                     'discount'   => $lineDisc,
+                    'surcharge'  => $lineSurch,
                 ];
             }
 
-            $subtotal        = round($subtotal, 2);
-            $total_discount  = round($line_discount_total + $order_discount, 2);
+            $subtotal              = round($subtotal, 2);
+            $line_surcharge_total  = round($line_surcharge_total, 2);
+            $total_discount        = round($line_discount_total + $order_discount, 2);
 
             if ($order_discount < 0) throw new UserFacingException("Remise négative interdite.");
             if ($order_discount > 0 && $discount_note === '') {
                 throw new UserFacingException("Motif de la remise obligatoire.");
+            }
+            // A one-off surcharge is a declared deviation too, and demands the
+            // same accountability as a one-off remise. Same field
+            // (discount_note) rather than a parallel surcharge_note: the
+            // motif answers "why does this order deviate from tariff", and
+            // there is one answer per order regardless of direction.
+            if ($line_surcharge_total > 0 && $discount_note === '') {
+                throw new UserFacingException("Motif de la majoration obligatoire.");
             }
             if ($total_discount > $subtotal) {
                 throw new UserFacingException(sprintf(
@@ -667,7 +709,10 @@ try {
                 }
             }
 
-            $total_amount = round($subtotal - $total_discount, 2);
+            // Surcharges ADD to what the client pays; discounts SUBTRACT. They
+            // are two independent quantities, never netted into a single
+            // "adjustment" — see pricing.php header and 070's rationale.
+            $total_amount = round($subtotal - $total_discount + $line_surcharge_total, 2);
 
             $hash = strtoupper(substr(md5(uniqid(rand(), true)), 0, 4));
             // Was 'CMD-' . date('ym') hardcoded, which ignored the configured
@@ -677,25 +722,26 @@ try {
 
             $stmtSO = $db->prepare("
                 INSERT INTO sales_orders
-                    (reference, client_id, date, subtotal, discount_amount, discount_note, total_amount, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (reference, client_id, date, subtotal, discount_amount, discount_note, surcharge_amount, total_amount, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $stmtSO->execute([
                 $reference, $client_id, $date, $subtotal, $total_discount,
                 $discount_note !== '' ? $discount_note : null,
+                $line_surcharge_total,
                 $total_amount, $user_id,
             ]);
             $so_id = (int) $db->lastInsertId();
 
             $stmtLine = $db->prepare("
                 INSERT INTO sales_order_items
-                    (sales_order_id, product_id, quantity, unit_price, list_price, discount_amount)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (sales_order_id, product_id, quantity, unit_price, list_price, discount_amount, surcharge_amount)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ");
             foreach ($priced as $p) {
                 $stmtLine->execute([
                     $so_id, $p['product_id'], $p['quantity'],
-                    $p['unit_price'], $p['list_price'], $p['discount'],
+                    $p['unit_price'], $p['list_price'], $p['discount'], $p['surcharge'],
                 ]);
             }
 
@@ -718,6 +764,7 @@ try {
                 'id'        => $so_id,
                 'repriced'  => count($repriced),
                 'discount'  => $total_discount,
+                'surcharge' => $line_surcharge_total,
             ]);
             break;
 
@@ -952,7 +999,8 @@ try {
             $stmtLines = $db->prepare("
                 SELECT soi.id, soi.product_id, p.name AS product_name, p.format,
                        soi.quantity AS qty_ordered, soi.unit_price, soi.list_price,
-                       soi.discount_amount AS line_discount,
+                       soi.discount_amount  AS line_discount,
+                       soi.surcharge_amount AS line_surcharge,
                        COALESCE((
                            SELECT SUM(di.quantity) FROM delivery_items di
                              JOIN deliveries d ON d.id = di.delivery_id
@@ -976,7 +1024,8 @@ try {
             $stmtLines->execute([$so_id]);
             $lines = $stmtLines->fetchAll(PDO::FETCH_ASSOC);
 
-            $tot_ordered = 0; $tot_dispatched = 0; $tot_accepted = 0; $tot_line_disc = 0.0;
+            $tot_ordered = 0; $tot_dispatched = 0; $tot_accepted = 0;
+            $tot_line_disc = 0.0; $tot_line_surch = 0.0;
             foreach ($lines as &$l) {
                 $l['qty_ordered']    = (int) $l['qty_ordered'];
                 $l['qty_dispatched'] = (int) $l['qty_dispatched'];
@@ -984,14 +1033,18 @@ try {
                 $l['qty_remaining']  = max(0, $l['qty_ordered'] - $l['qty_dispatched']);
                 $l['line_total']     = round($l['qty_ordered'] * (float) $l['list_price'], 2);
                 // Present so the detail page can label the line honestly:
-                // a line where unit < list is a DECLARED remise (the operator
-                // was asked and said no, this is not a new price). It is never
-                // computed from the prices — line_discount is what was stored.
+                // a line where unit < list is a DECLARED remise, a line where
+                // unit > list is a DECLARED surcharge (both cases: the
+                // operator was asked, and said no, this is not a new price).
+                // Never computed from the prices — the stored figures are the
+                // declaration.
                 $l['is_discounted']  = ((float) $l['line_discount']) > 0;
+                $l['is_surcharged']  = ((float) $l['line_surcharge']) > 0;
                 $tot_ordered    += $l['qty_ordered'];
                 $tot_dispatched += $l['qty_dispatched'];
                 $tot_accepted   += $l['qty_accepted'];
                 $tot_line_disc  += (float) $l['line_discount'];
+                $tot_line_surch += (float) $l['line_surcharge'];
             }
             unset($l);
 
@@ -1067,6 +1120,11 @@ try {
                         // The order-level exceptional remise, i.e. everything
                         // given away that was not attributable to a line.
                         'order_discount' => round((float) $order['discount_amount'] - $tot_line_disc, 2),
+                        // Migration 070 · line-level surcharges. Never netted
+                        // against line_discount / order_discount in this
+                        // response; the front end shows them as an opposing
+                        // row in the totals card.
+                        'line_surcharge' => round($tot_line_surch, 2),
                     ],
                     'fulfilment_state' => $fulfilment,
                 ],
@@ -1213,7 +1271,9 @@ try {
                     // Only DECLARED remises appear here. A repriced line is not
                     // a discount and is deliberately absent — it belongs to
                     // client_price_history, which the order detail page shows
-                    // in its own section.
+                    // in its own section. Surcharges are also absent — they
+                    // have their own KPI (kpi_so_surcharge), never netted
+                    // against discounts. See pricing.php header.
                     $title = 'Remises accordées';
                     $q = $db->prepare("
                         SELECT so.date, so.reference, c.name AS label,
@@ -1224,6 +1284,25 @@ try {
                          WHERE so.date BETWEEN ? AND ? AND so.status <> 'cancelled'
                            AND so.discount_amount > 0
                          ORDER BY so.discount_amount DESC LIMIT 500");
+                    $q->execute([$kstart, $kend]);
+                    $rows = $q->fetchAll(PDO::FETCH_ASSOC);
+                    break;
+
+                case 'kpi_so_surcharge':
+                    // Migration 070's KPI. Only DECLARED surcharges appear
+                    // here — every one motivated by discount_note (the field
+                    // holds either kind of one-off's motif; see save_order).
+                    // Never blended with kpi_so_discount.
+                    $title = 'Majorations perçues';
+                    $q = $db->prepare("
+                        SELECT so.date, so.reference, c.name AS label,
+                               so.surcharge_amount AS amount, so.id, so.status,
+                               so.discount_note, so.subtotal,
+                               ROUND(so.surcharge_amount / NULLIF(so.subtotal,0) * 100, 1) AS pct
+                          FROM sales_orders so JOIN clients c ON c.id = so.client_id
+                         WHERE so.date BETWEEN ? AND ? AND so.status <> 'cancelled'
+                           AND so.surcharge_amount > 0
+                         ORDER BY so.surcharge_amount DESC LIMIT 500");
                     $q->execute([$kstart, $kend]);
                     $rows = $q->fetchAll(PDO::FETCH_ASSOC);
                     break;
@@ -1424,7 +1503,11 @@ try {
 
             $db->beginTransaction();
 
-            $subtotal = 0.0; $line_discount_total = 0.0; $priced = []; $repriced = [];
+            // Mirrors the three-branch logic in save_order — see the long
+            // comment there. Kept in step deliberately: the reconciliation
+            // rules are the same on edit as on create.
+            $subtotal = 0.0; $line_discount_total = 0.0; $line_surcharge_total = 0.0;
+            $priced = []; $repriced = [];
             foreach ($clean as $l) {
                 $pid = $l['product_id']; $qty = $l['quantity']; $typed = $l['unit_price'];
                 $current = round(lpc_effective_price($tariff, $pid, $catalogue[$pid]), 2);
@@ -1432,29 +1515,39 @@ try {
                 $confirm = $changed
                     && (($price_decisions[$pid] ?? $price_decisions[(string) $pid] ?? false) ? true : false);
 
-                if (!$changed)      { $list = $current; $unit = $current; $lineDisc = 0.0; }
-                elseif ($confirm)   { $list = $typed;   $unit = $typed;   $lineDisc = 0.0; $repriced[$pid] = $typed; }
-                else {
-                    if ($typed > $current) {
-                        throw new UserFacingException(
-                            "Prix supérieur au tarif sur une ligne sans confirmation. "
-                            . "Confirmez le nouveau prix, ou ramenez la ligne au tarif."
-                        );
-                    }
-                    $list = $current; $unit = $typed; $lineDisc = round(($current - $typed) * $qty, 2);
+                if (!$changed) {
+                    $list = $current; $unit = $current; $lineDisc = 0.0; $lineSurch = 0.0;
+                } elseif ($confirm) {
+                    $list = $typed;   $unit = $typed;   $lineDisc = 0.0; $lineSurch = 0.0;
+                    $repriced[$pid] = $typed;
+                } elseif ($typed < $current) {
+                    $list = $current; $unit = $typed;
+                    $lineDisc  = round(($current - $typed) * $qty, 2);
+                    $lineSurch = 0.0;
+                } else {
+                    // Declared one-off surcharge — see 070.
+                    $list = $current; $unit = $typed;
+                    $lineDisc  = 0.0;
+                    $lineSurch = round(($typed - $current) * $qty, 2);
                 }
 
-                $subtotal            += $list * $qty;
-                $line_discount_total += $lineDisc;
+                $subtotal             += $list * $qty;
+                $line_discount_total  += $lineDisc;
+                $line_surcharge_total += $lineSurch;
                 $priced[] = ['product_id' => $pid, 'quantity' => $qty,
-                             'unit_price' => $unit, 'list_price' => $list, 'discount' => $lineDisc];
+                             'unit_price' => $unit, 'list_price' => $list,
+                             'discount' => $lineDisc, 'surcharge' => $lineSurch];
             }
 
-            $subtotal       = round($subtotal, 2);
-            $total_discount = round($line_discount_total + $order_discount, 2);
+            $subtotal              = round($subtotal, 2);
+            $line_surcharge_total  = round($line_surcharge_total, 2);
+            $total_discount        = round($line_discount_total + $order_discount, 2);
 
             if ($order_discount < 0) throw new UserFacingException("Remise négative interdite.");
             if ($order_discount > 0 && $discount_note === '') throw new UserFacingException("Motif de la remise obligatoire.");
+            if ($line_surcharge_total > 0 && $discount_note === '') {
+                throw new UserFacingException("Motif de la majoration obligatoire.");
+            }
             if ($total_discount > $subtotal) throw new UserFacingException("Remise totale supérieure au sous-total.");
 
             $max_pct = Prefs::float('sales_discount_max_pct', 15);
@@ -1466,16 +1559,17 @@ try {
                 }
             }
 
-            $total_amount = round($subtotal - $total_discount, 2);
+            $total_amount = round($subtotal - $total_discount + $line_surcharge_total, 2);
 
             $db->prepare("
                 UPDATE sales_orders
-                   SET date = ?, subtotal = ?, discount_amount = ?, discount_note = ?, total_amount = ?
+                   SET date = ?, subtotal = ?, discount_amount = ?, discount_note = ?,
+                       surcharge_amount = ?, total_amount = ?
                  WHERE id = ?
             ")->execute([
                 $date, $subtotal, $total_discount,
                 $discount_note !== '' ? $discount_note : null,
-                $total_amount, $so_id,
+                $line_surcharge_total, $total_amount, $so_id,
             ]);
 
             // Replace the lines wholesale. sales_order_items has no dependants
@@ -1484,12 +1578,13 @@ try {
             $db->prepare("DELETE FROM sales_order_items WHERE sales_order_id = ?")->execute([$so_id]);
             $stmtLine = $db->prepare("
                 INSERT INTO sales_order_items
-                    (sales_order_id, product_id, quantity, unit_price, list_price, discount_amount)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (sales_order_id, product_id, quantity, unit_price, list_price, discount_amount, surcharge_amount)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ");
             foreach ($priced as $p) {
                 $stmtLine->execute([$so_id, $p['product_id'], $p['quantity'],
-                                    $p['unit_price'], $p['list_price'], $p['discount']]);
+                                    $p['unit_price'], $p['list_price'],
+                                    $p['discount'], $p['surcharge']]);
             }
 
             foreach ($repriced as $pid => $newPrice) {

@@ -14,6 +14,12 @@
  * "Changements de prix" section, which is a different thing and is presented as
  * one. Nothing on this page subtracts two prices and calls the result a
  * discount.
+ *
+ * Migration 070 · the same rule, mirrored. A "Majoration" column carries only
+ * what an operator DECLARED as a one-off markup. A line whose price moved to a
+ * higher tariff for the client shows no majoration either — again, that is a
+ * price change, still in the "Changements de prix" section. Nothing subtracts
+ * two prices and calls the result a surcharge either.
  * -----------------------------------------------------------------------------
  */
 (function () {
@@ -98,6 +104,23 @@
             discEl.innerHTML = '<span class="text-gray-300">—</span>';
         }
 
+        // Majoration (migration 070). Sibling of the remise tile above, kept
+        // in its own tile rather than netted — see pricing.php. Same motif
+        // field on the order (discount_note is direction-neutral in effect),
+        // so the caption reuses it when a surcharge exists but no remise.
+        const lineSurch = Number(d.totals.line_surcharge) || 0;
+        const surchEl = document.getElementById('so-surcharge');
+        if (surchEl) {
+            if (lineSurch > 0) {
+                surchEl.innerHTML = LPC.html`${LPC.fmt.fcfa(lineSurch)}`
+                    + LPC.raw(o.discount_note
+                        ? LPC.html`<span class="block text-[10px] font-medium text-gray-600 normal-case mt-0.5">${o.discount_note}</span>`
+                        : '<span class="block text-[10px] italic text-red-500 normal-case mt-0.5">Sans motif</span>');
+            } else {
+                surchEl.innerHTML = '<span class="text-gray-300">—</span>';
+            }
+        }
+
         renderInvoiceStatus(d);
         renderCancelBanner(o);
         renderFulfilment(d);
@@ -162,11 +185,17 @@
         const body = document.getElementById('so-lines-body');
         body.innerHTML = '';
         if (!lines.length) {
-            body.innerHTML = '<tr><td colspan="8" class="py-6 text-center text-gray-400 italic">Aucune ligne.</td></tr>';
+            body.innerHTML = '<tr><td colspan="9" class="py-6 text-center text-gray-400 italic">Aucune ligne.</td></tr>';
             return;
         }
+        // Remise and Majoration stay side by side rather than a single signed
+        // column — the two are different quantities and are never netted (see
+        // migration 070 and pricing.php). A given line will show a value in
+        // at most one of them; the mutually-exclusive invariant is enforced
+        // server-side.
         lines.forEach(l => {
-            const disc = Number(l.line_discount) || 0;
+            const disc  = Number(l.line_discount)  || 0;
+            const surch = Number(l.line_surcharge) || 0;
             body.innerHTML += LPC.html`
                 <tr class="hover:bg-gray-50">
                     <td class="py-3 px-6">
@@ -180,6 +209,9 @@
                     <td class="py-3 px-4 text-right font-black text-gray-900">${LPC.fmt.int(l.unit_price)} F</td>
                     <td class="py-3 px-4 text-right">${LPC.raw(disc > 0
                         ? `<span class="font-black text-blue-700">${LPC.fmt.int(disc)} F</span>`
+                        : '<span class="text-gray-300">—</span>')}</td>
+                    <td class="py-3 px-4 text-right">${LPC.raw(surch > 0
+                        ? `<span class="font-black text-emerald-700">${LPC.fmt.int(surch)} F</span>`
                         : '<span class="text-gray-300">—</span>')}</td>
                     <td class="py-3 px-6 text-right font-black text-lpc-dark">${LPC.fmt.int(l.line_total)} F</td>
                 </tr>`;

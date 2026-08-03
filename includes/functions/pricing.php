@@ -17,18 +17,35 @@
  * report that reads like fraud detection.
  *
  * So the difference is never interpreted. It is put to the operator, who
- * declares which of the two things it is:
+ * declares which of THREE things it is:
  *
  *   "this is the new price"  → lpc_apply_client_price_change() below. The
  *                              tariff moves, the move is logged, and the line
- *                              carries no discount at all.
+ *                              carries no discount and no surcharge at all.
  *
- *   "this is a one-off"      → the caller records a DECLARED remise on the
+ *   "this is a one-off, down" → the caller records a DECLARED remise on the
  *                              line (sales_order_items.discount_amount). The
  *                              tariff is left exactly where it was.
  *
- * Both are explicit human statements. See migration 062 for the full rationale
- * and the totals arithmetic that follows from it.
+ *   "this is a one-off, up"  → the caller records a DECLARED surcharge on the
+ *                              line (sales_order_items.surcharge_amount, added
+ *                              in migration 070). Same shape as the remise,
+ *                              opposite sign, own column. The tariff is left
+ *                              exactly where it was.
+ *
+ * discount_amount and surcharge_amount are stored in SEPARATE columns on
+ * purpose. A signed "net adjustment" column would collapse them into a single
+ * number that could not be summed honestly — a positive-net-of-negative that
+ * hides both quantities behind their difference. Reports that quote "Remises
+ * accordées" or "Majorations perçues" MUST read exactly one of the two, and
+ * never both blended.
+ *
+ * All three outcomes are explicit human statements. What is NOT allowed and
+ * remains rejected is silence: every deviation from tariff is one of these
+ * three, chosen by a named human, or the order does not save.
+ *
+ * See migration 062 for the original two-branch design and 070 for the
+ * surcharge extension, including the totals arithmetic that follows from it.
  *
  * WHY THIS IS A SHARED FILE
  * -------------------------

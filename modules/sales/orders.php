@@ -262,8 +262,9 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
                             <p class="text-[10px] font-bold text-gray-500">
                                 <i class="fas fa-circle-info mr-1"></i>
                                 « Tarif » est le prix actuel de ce client. Si vous saisissez un prix différent,
-                                il vous sera demandé à l'enregistrement s'il s'agit de son <strong>nouveau prix</strong>
-                                ou d'une <strong>remise ponctuelle</strong>.
+                                il vous sera demandé à l'enregistrement s'il s'agit de son <strong>nouveau prix</strong>,
+                                d'une <strong>remise ponctuelle</strong> (prix inférieur) ou d'une
+                                <strong>majoration ponctuelle</strong> (prix supérieur).
                             </p>
                         </div>
                     </div>
@@ -283,6 +284,17 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
                                 <span id="calc_so_line_discount">0 FCFA</span>
                             </div>
 
+                            <?php /* Line surcharges (migration 070). Same
+                                     mechanism as line remises but opposite
+                                     sign — declared line-by-line in the
+                                     reconciliation modal, never blended with
+                                     the remises above. Emerald to sit
+                                     visually opposite the blue remises row. */ ?>
+                            <div id="calc_so_line_surcharge_row" class="hidden flex justify-between items-center text-sm font-bold text-emerald-700">
+                                <span>Majorations sur lignes <i class="fas fa-circle-info text-gray-400" title="Majorations déclarées ligne par ligne lors de la confirmation des prix."></i></span>
+                                <span id="calc_so_line_surcharge">0 FCFA</span>
+                            </div>
+
                             <div class="border-t border-gray-100 pt-3">
                                 <label for="so_discount" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.remise_exceptionnelle_fcfa')) ?></label>
                                 <input type="number" id="so_discount" value="0" min="0" oninput="calculateOrderTotals()" class="w-full bg-blue-50 text-blue-900 border border-blue-200 rounded-lg p-2 text-right font-black outline-none focus:ring-2 focus:ring-blue-500">
@@ -292,10 +304,13 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
                                      051; Ventes never did, so the 550 FCFA
                                      remise sitting on CMD-2602-F33A has no
                                      recorded reason. The server now rejects a
-                                     non-zero remise without one. */ ?>
+                                     non-zero remise or a line surcharge without
+                                     one — same field, two triggers. Neutral
+                                     placeholder because either can surface
+                                     it. */ ?>
                             <div id="so_discount_note_wrap" class="hidden">
                                 <input type="text" id="so_discount_note" maxlength="255"
-                                       placeholder="Motif de la remise (obligatoire)"
+                                       placeholder="Motif de l'ajustement (obligatoire)"
                                        class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2 text-xs text-gray-600 outline-none focus:border-gray-400">
                             </div>
 
@@ -327,8 +342,10 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
          -------------------------------------------------------------------
          The mechanism. A line priced differently from the client's standing
          tariff is NOT interpreted — it is put back to the operator, who says
-         which of the two things it is. Ticked: the client's new price, and the
-         tariff moves. Unticked: a one-off remise, and the tariff stands.
+         which of THREE things it is. Ticked: the client's new price, and the
+         tariff moves. Unticked + below tariff: a one-off remise. Unticked +
+         above tariff: a one-off majoration (migration 070). Tariff stands in
+         both unticked cases.
 
          Nothing here is pre-ticked. A default would decide on the operator's
          behalf, which is the entire thing being avoided.
@@ -339,7 +356,8 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
                 <h3 class="font-black text-xl tracking-wide flex items-center"><i class="fas fa-tags mr-3"></i> Prix différents du tarif</h3>
                 <p class="text-xs text-blue-100 font-bold mt-1">
                     Cochez les lignes dont le prix saisi devient le <strong>nouveau prix du client</strong>.
-                    Les lignes non cochées seront enregistrées comme <strong>remise ponctuelle</strong>.
+                    Non cochée : la ligne sera enregistrée comme <strong>remise ponctuelle</strong>
+                    (prix sous le tarif) ou <strong>majoration ponctuelle</strong> (prix au-dessus).
                 </p>
             </div>
 
@@ -369,7 +387,7 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
             <div class="bg-gray-50 px-8 py-5 border-t border-gray-200 flex justify-between items-center gap-4 shrink-0">
                 <p class="text-[11px] font-bold text-gray-500">
                     <i class="fas fa-shield-halved mr-1"></i>
-                    Un changement de prix est enregistré dans l'historique du client — ce n'est pas une remise.
+                    Un changement de prix est enregistré dans l'historique du client — ce n'est ni une remise, ni une majoration.
                 </p>
                 <div class="flex gap-3">
                     <button type="button" onclick="closeModal('priceConfirmModal')" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors">Retour</button>

@@ -61,7 +61,9 @@ const DISCOUNT_MAX_PCT = Number(window.LPC_DISCOUNT_MAX_PCT ?? 15);
 const config = {
     orders: {
         caption: 'Commandes Clients',
-        gridClass: 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6 mb-8',
+        // Migration 070 added a sixth card (Majorations Perçues). Was
+        // xl:grid-cols-5 for the 062 layout; 6 fits the 12-col grid evenly.
+        gridClass: 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-6 mb-8',
         columns: [
             { key: 'date', label: 'Date', render: v => `<span class="text-xs font-bold text-gray-500">${LPC.fmt.date(v)}</span>` },
             { key: 'reference', label: 'Réf. Commande', render: v => LPC.html`<span class="font-black text-gray-900 tracking-wide">${v}</span>` },
@@ -117,6 +119,13 @@ const config = {
             { id: 'kpi_so_discount', label: 'Remises Accordées',  icon: 'fa-tags',             color: 'text-blue-700',    bg: 'bg-blue-50',
               hint: "Réductions explicitement accordées et motivées, ligne par ligne ou sur la commande entière. " +
                     "Un changement de prix client N'EST PAS une remise et n'apparaît jamais ici — il est tracé dans l'historique des prix du client." },
+            // Migration 070 · symmetric to Remises Accordées, opposite sign,
+            // never blended. A one-off markup (supplier cost pass-through,
+            // urgency premium, small-qty uplift) that the operator declined
+            // to fold into the negotiated tariff.
+            { id: 'kpi_so_surcharge', label: 'Majorations Perçues', icon: 'fa-arrow-trend-up', color: 'text-emerald-700', bg: 'bg-emerald-50',
+              hint: "Majorations ponctuelles motivées, ligne par ligne. Un changement de prix client n'apparaît jamais ici non plus — " +
+                    "seuls les écarts déclarés comme exceptionnels par l'opérateur au moment de la saisie sont totalisés ici." },
             { id: 'kpi_so_count',    label: 'Volume Commandes',   icon: 'fa-shopping-cart',    color: 'text-blue-600',    bg: 'bg-blue-50' }
         ]
     },
@@ -528,6 +537,19 @@ const KPI_COLUMNS = {
         { label: '%',         get: r => (r.pct !== null && r.pct !== undefined) ? r.pct + ' %' : '—', align: 'text-right' },
         { label: 'Remise',    get: r => LPC.fmt.int(r.amount) + ' F', align: 'text-right', cls: 'font-black text-blue-700' },
     ],
+    // Same shape as kpi_so_discount, opposite tone. Reused as-is on purpose:
+    // the drill-down question is identical ("which orders, from whom, for
+    // which reason") and giving surcharges a subtly different layout would
+    // suggest they mean something different in kind, which they do not.
+    kpi_so_surcharge: [
+        { label: 'Date',      get: r => LPC.fmt.date(r.date) },
+        { label: 'Référence', get: r => r.reference, cls: 'font-mono text-xs' },
+        { label: 'Client',    get: r => r.label, cls: 'font-bold text-gray-800' },
+        { label: 'Motif',     get: r => r.discount_note || '— sans motif —',
+          cls: r => r.discount_note ? 'text-xs text-gray-600' : 'text-xs italic text-red-500' },
+        { label: '%',         get: r => (r.pct !== null && r.pct !== undefined) ? r.pct + ' %' : '—', align: 'text-right' },
+        { label: 'Majoration', get: r => LPC.fmt.int(r.amount) + ' F', align: 'text-right', cls: 'font-black text-emerald-700' },
+    ],
     kpi_so_debt: [
         { label: 'Date',      get: r => LPC.fmt.date(r.date) },
         { label: 'Référence', get: r => r.reference, cls: 'font-mono text-xs' },
@@ -731,21 +753,56 @@ function refreshRowTariff(tr, resetPrice = false) {
 }
 
 /**
- * Colour the price input when it departs from the tariff. Purely informational —
- * it states that a question will be asked at submit, it does not answer it.
+ * Colour the price input when it departs from the tariff, and surface the
+ * signed delta as a chip beside it. Purely informational — states that a
+ * question will be asked at submit, does not answer it.
+ *
+ * Direction matters: amber for a markdown (a remise coming), emerald for a
+ * markup (a majoration coming). Migration 070 splits those into two different
+ * quantities on the server; making them visually distinct on the row keeps
+ * the operator's mental model in step with what will actually be recorded.
  */
 function markRowPriceState(tr) {
     const sel = tr.querySelector('.so-prod-select');
     const priceInput = tr.querySelector('.so-price');
+    const chip = tr.querySelector('.so-delta-chip');
     if (!sel || !priceInput) return;
+
+    // Reset both directions before deciding — the operator might have flipped
+    // from below-tariff to above-tariff without an intermediate equal state.
+    priceInput.classList.remove(
+        'bg-amber-50', 'text-amber-900', 'ring-1', 'ring-amber-300',
+        'bg-emerald-50', 'text-emerald-900', 'ring-emerald-300'
+    );
+    if (chip) chip.className = 'so-delta-chip hidden';
+
     const t = clientTariff[sel.value];
-    priceInput.classList.remove('bg-amber-50', 'text-amber-900');
-    if (!t) return;
-    if (Math.abs(Number(priceInput.value) - Number(t.price)) >= 0.005) {
-        priceInput.classList.add('bg-amber-50', 'text-amber-900');
-        priceInput.title = `Différent du tarif (${LPC.fmt.int(t.price)} F). Une confirmation sera demandée à l'enregistrement.`;
-    } else {
+    if (!t) { priceInput.title = ''; return; }
+
+    const typed = Number(priceInput.value);
+    const list  = Number(t.price);
+    const delta = typed - list;
+
+    if (Math.abs(delta) < 0.005) {
         priceInput.title = '';
+        return;
+    }
+
+    const up = delta > 0;
+    priceInput.classList.add(
+        up ? 'bg-emerald-50' : 'bg-amber-50',
+        up ? 'text-emerald-900' : 'text-amber-900',
+        'ring-1',
+        up ? 'ring-emerald-300' : 'ring-amber-300'
+    );
+    priceInput.title = up
+        ? `Au-dessus du tarif (${LPC.fmt.int(list)} F). Nouveau prix ou majoration ponctuelle — confirmation à l'enregistrement.`
+        : `Sous le tarif (${LPC.fmt.int(list)} F). Nouveau prix ou remise ponctuelle — confirmation à l'enregistrement.`;
+
+    if (chip) {
+        chip.className = 'so-delta-chip inline-block ml-1 px-1.5 py-0.5 rounded text-[10px] font-black tracking-wide '
+            + (up ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800');
+        chip.textContent = (up ? '+' : '−') + LPC.fmt.int(Math.abs(delta)) + ' F';
     }
 }
 
@@ -762,7 +819,12 @@ function addOrderLine() {
         <td class="p-1 border-r border-gray-100 align-top"><select class="so-prod-select" data-lpc-product-picker="sell" aria-label="Produit" required></select></td>
         <td class="p-1 border-r border-gray-100 align-top"><input type="number" class="so-qty seamless-input p-2 text-center font-bold text-gray-900" value="1" min="1" oninput="calcRow(${rowId})" id="qty_${rowId}" aria-label="Quantité" required></td>
         <td class="p-1 border-r border-gray-100 text-right pr-3 align-middle text-xs so-tariff"><span class="text-gray-300">—</span></td>
-        <td class="p-1 border-r border-gray-100 align-top"><input type="number" class="so-price seamless-input p-2 text-right font-bold text-gray-900" value="0" min="0" oninput="calcRow(${rowId})" id="price_${rowId}" aria-label="Prix unitaire" required></td>
+        <td class="p-1 border-r border-gray-100 align-top">
+            <div class="flex items-center justify-end gap-1">
+                <input type="number" class="so-price seamless-input p-2 text-right font-bold text-gray-900" value="0" min="0" oninput="calcRow(${rowId})" id="price_${rowId}" aria-label="Prix unitaire" required>
+                <span class="so-delta-chip hidden"></span>
+            </div>
+        </td>
         <td class="p-1 border-r border-gray-100 text-right pr-4 font-black text-gray-900 align-top" id="total_${rowId}">0</td>
         <td class="p-1 text-center align-top"><button type="button" onclick="removeOrderLine(this)" class="text-red-300 hover:text-red-500 p-1" aria-label="Supprimer la ligne"><i class="fas fa-times"></i></button></td>
     `;
@@ -826,13 +888,19 @@ function calcRow(rowId) {
  *
  * The subtotal shown here is at the TARIFF, matching what the server computes,
  * so the arithmetic on screen and the arithmetic in the database agree. Lines
- * priced below tariff show up in "Remises sur lignes" — provisionally, because
- * whether they are actually remises is the operator's decision at submit. Once
- * they confirm a line as a new price, that line stops contributing.
+ * priced below tariff show up in "Remises sur lignes", lines priced above
+ * tariff in "Majorations sur lignes" — both provisionally, because whether
+ * they are actually one-offs is the operator's decision at submit. Once the
+ * operator confirms a line as a new price, that line stops contributing to
+ * either row (its list becomes its unit).
+ *
+ * Discounts SUBTRACT, surcharges ADD, and the two are shown side by side —
+ * never blended into a single "net adjustment". Migration 070's rationale.
  */
 function calculateOrderTotals() {
     let subtotal = 0;
     let lineDiscount = 0;
+    let lineSurcharge = 0;
 
     document.querySelectorAll('#so-lines-container .item-row').forEach(row => {
         const sel = row.querySelector('.so-prod-select');
@@ -842,25 +910,28 @@ function calculateOrderTotals() {
         const list = t ? Number(t.price) : price;
 
         // A confirmed reprice is priced AT the new tariff, so it contributes
-        // nothing to the discount line — which is the point.
+        // to neither the discount nor the surcharge row — which is the point.
         const decided = sel && pendingDecisionFor(sel.value);
         if (decided === true) {
             subtotal += price * qty;
         } else {
             subtotal += list * qty;
-            if (price < list) lineDiscount += (list - price) * qty;
+            if (price < list) lineDiscount  += (list - price) * qty;
+            if (price > list) lineSurcharge += (price - list) * qty;
         }
     });
 
     const orderDiscount = parseFloat(document.getElementById('so_discount').value) || 0;
     const totalDiscount = lineDiscount + orderDiscount;
-    const grandTotal = subtotal - totalDiscount;
+    const grandTotal    = subtotal - totalDiscount + lineSurcharge;
 
     const subEl   = document.getElementById('calc_so_subtotal');
     const grandEl = document.getElementById('calc_so_grandtotal');
     const warnEl  = document.getElementById('calc_so_discount_warning');
     const lineRow = document.getElementById('calc_so_line_discount_row');
     const lineEl  = document.getElementById('calc_so_line_discount');
+    const surchRow = document.getElementById('calc_so_line_surcharge_row');
+    const surchEl  = document.getElementById('calc_so_line_surcharge');
     const noteWrap = document.getElementById('so_discount_note_wrap');
     const submitBtn = document.getElementById('btn-submit-order');
 
@@ -876,9 +947,25 @@ function calculateOrderTotals() {
         lineRow.classList.remove('flex');
     }
 
-    // The motif is required by the server whenever an order-level remise is
-    // entered, so the field appears exactly when it becomes mandatory.
-    noteWrap.classList.toggle('hidden', orderDiscount <= 0);
+    if (surchRow) {
+        if (lineSurcharge > 0) {
+            surchRow.classList.remove('hidden');
+            surchRow.classList.add('flex');
+            surchEl.innerText = LPC.fmt.fcfa(lineSurcharge);
+        } else {
+            surchRow.classList.add('hidden');
+            surchRow.classList.remove('flex');
+        }
+    }
+
+    // The motif is required by the server whenever ANY one-off exists — an
+    // order-level remise, a line-level surcharge, or a line-level remise. The
+    // field appears exactly when it becomes mandatory. Line-level remises
+    // route through the priceConfirmModal, which enforces the motif in its own
+    // submit path (submitPriceDecisions); this toggle is for the two cases
+    // that are decidable from the main form alone.
+    const needsMotif = orderDiscount > 0 || lineSurcharge > 0;
+    noteWrap.classList.toggle('hidden', !needsMotif);
 
     let msg = '', tone = '', block = false;
     if (orderDiscount < 0) {
@@ -886,8 +973,13 @@ function calculateOrderTotals() {
     } else if (totalDiscount > subtotal) {
         msg = `Remise (${LPC.fmt.int(totalDiscount)} FCFA) supérieure au sous-total de ${LPC.fmt.int(totalDiscount - subtotal)} FCFA.`;
         tone = 'text-rose-600'; block = true;
-    } else if (orderDiscount > 0 && !document.getElementById('so_discount_note').value.trim()) {
-        msg = 'Motif de la remise obligatoire.'; tone = 'text-rose-600'; block = true;
+    } else if (needsMotif && !document.getElementById('so_discount_note').value.trim()) {
+        // Same field, two possible triggers — the message names whichever
+        // is in play so the operator knows what they are being asked about.
+        msg = lineSurcharge > 0 && orderDiscount <= 0
+              ? 'Motif de la majoration obligatoire.'
+              : 'Motif obligatoire.';
+        tone = 'text-rose-600'; block = true;
     } else if (DISCOUNT_MAX_PCT > 0 && subtotal > 0 && (totalDiscount / subtotal * 100) > DISCOUNT_MAX_PCT) {
         msg = `Remise de ${(totalDiscount / subtotal * 100).toFixed(1)} % au-delà du plafond de ${DISCOUNT_MAX_PCT} % — approbation requise.`;
         tone = 'text-amber-600';
@@ -976,11 +1068,16 @@ async function postOrder(payload) {
             pendingSubmitPayload = null;
             pendingDisparities = [];
             editingOrderId = null;
-            if (result.repriced > 0) {
-                LPC.toast(`Commande ${result.reference || ''} enregistrée · ${result.repriced} prix client mis à jour.`, 'success');
-            } else {
-                LPC.toast('Commande enregistrée.', 'success');
-            }
+            // Name what actually happened, in the order it will matter to the
+            // operator: price moves first (they affect the next order), then a
+            // one-off surcharge on this order. Discount is silent — the
+            // "Remises Accordées" KPI already surfaces it.
+            const parts = [];
+            if (result.repriced > 0)         parts.push(`${result.repriced} prix client mis à jour`);
+            if (Number(result.surcharge) > 0) parts.push(`${LPC.fmt.int(result.surcharge)} F de majoration`);
+            LPC.toast(parts.length
+                ? `Commande ${result.reference || ''} enregistrée · ${parts.join(' · ')}.`
+                : 'Commande enregistrée.', 'success');
             loadTabData();
         } else {
             LPC.modal.alert(result.message || 'Erreur.');
@@ -1011,7 +1108,8 @@ function openPriceConfirmModal() {
                 <td class="py-3 px-4 text-center font-bold text-gray-600">${d.quantity}</td>
                 <td class="py-3 px-6 text-center">
                     <input type="checkbox" class="price-confirm-box w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                           data-product-id="${d.product_id}" onchange="updatePriceConfirmSummary()">
+                           data-product-id="${d.product_id}" data-delta-up="${up ? '1' : '0'}"
+                           onchange="updatePriceConfirmSummary()">
                 </td>
             </tr>`;
     });
@@ -1032,13 +1130,24 @@ function togglePriceConfirmAll(checked) {
 function updatePriceConfirmSummary() {
     const boxes = Array.from(document.querySelectorAll('.price-confirm-box'));
     const confirmed = boxes.filter(b => b.checked).length;
-    const remise = boxes.length - confirmed;
+    // Declined lines split into remises (typed < tariff) and surcharges (typed
+    // > tariff). The row itself carries the direction — data-delta-up = '1' for
+    // markups — so the summary can name each count honestly rather than lumping
+    // both under "remise(s) ponctuelle(s)". Same shape, opposite sign.
+    let remises = 0, surcharges = 0;
+    boxes.forEach(b => {
+        if (b.checked) return;
+        if (b.getAttribute('data-delta-up') === '1') surcharges++;
+        else                                         remises++;
+    });
 
     const all = document.getElementById('price_confirm_all');
     if (all) all.checked = boxes.length > 0 && confirmed === boxes.length;
 
-    document.getElementById('price_confirm_summary').textContent =
-        `${confirmed} nouveau(x) prix · ${remise} remise(s) ponctuelle(s)`;
+    const parts = [`${confirmed} nouveau(x) prix`];
+    if (remises)    parts.push(`${remises} remise(s) ponctuelle(s)`);
+    if (surcharges) parts.push(`${surcharges} majoration(s) ponctuelle(s)`);
+    document.getElementById('price_confirm_summary').textContent = parts.join(' · ');
 }
 
 async function submitPriceDecisions() {
@@ -1050,16 +1159,25 @@ async function submitPriceDecisions() {
     });
     pendingSubmitPayload.price_decisions = decisions;
 
-    // A declined line becomes a remise, so the motif rule applies to it too.
+    // A declined line — up OR down — is a declared one-off and needs a motif.
     // Checked here rather than only server-side so the operator is not bounced
-    // back and forth between two modals.
-    const anyRemise = Object.values(decisions).some(v => v === false);
+    // back and forth between two modals. The message names the direction that
+    // triggered it so "motif de la majoration" doesn't surprise a user who was
+    // thinking about a discount.
+    const anyDeclined = Object.values(decisions).some(v => v === false);
     const note = document.getElementById('so_discount_note').value.trim();
-    if (anyRemise && !note) {
+    if (anyDeclined && !note) {
+        const declinedUp = Array.from(document.querySelectorAll('.price-confirm-box'))
+            .some(b => !b.checked && b.getAttribute('data-delta-up') === '1');
+        const declinedDown = Array.from(document.querySelectorAll('.price-confirm-box'))
+            .some(b => !b.checked && b.getAttribute('data-delta-up') !== '1');
         closeModal('priceConfirmModal');
         document.getElementById('so_discount_note_wrap').classList.remove('hidden');
         document.getElementById('so_discount_note').focus();
-        LPC.toast('Indiquez le motif de la remise avant de valider.', 'warning');
+        const msg = declinedUp && !declinedDown ? 'Indiquez le motif de la majoration avant de valider.'
+                  : declinedDown && !declinedUp ? 'Indiquez le motif de la remise avant de valider.'
+                  : 'Indiquez le motif de l’ajustement avant de valider.';
+        LPC.toast(msg, 'warning');
         return;
     }
     pendingSubmitPayload.discount_note = note;

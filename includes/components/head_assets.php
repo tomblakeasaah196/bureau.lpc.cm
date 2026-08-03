@@ -202,6 +202,12 @@ if ($__force_light) {
      handler never ran). See the header of lpc-toast.js. -->
 <script src="<?= lpc_asset('/assets/js/lpc-toast.js') ?>" defer></script>
 <script src="<?= lpc_asset('/assets/js/lpc-a11y.js') ?>" defer></script>
+<!-- Session lock. Blurs the current view and demands a password the instant a
+     session dies — either the idle timer here fires, or any /api/ fetch comes
+     back 401 with a session_expired code (which is exactly what bootstrap.php
+     and Rbac::redirectToLogin emit). Owns the idle timer that lpc-sidebar.js
+     used to run; the sidebar's copy is now a no-op stub. -->
+<script src="<?= lpc_asset('/assets/js/lpc-session-lock.js') ?>" defer></script>
 <!-- Product picker. Shipped app-wide rather than per-page on purpose: it
      upgrades any [data-lpc-product-picker] element it finds, and watches for
      ones added later, so adopting it on a new screen is one attribute and no

@@ -159,6 +159,12 @@ async function switchTab(key) {
     initTabs();
     document.getElementById('btn-add-text').innerText = mdmConfig[currentModule].addBtn;
 
+    // Hide any per-tab panel left over from the previous module. renderModulePanel()
+    // only runs inside the fetchData() try block, so if the read fails (e.g. 401),
+    // the old panel — most visibly the pricing ladder — used to bleed across tabs.
+    const panel = document.getElementById('mdm-panel');
+    if (panel) { panel.classList.add('hidden'); panel.innerHTML = ''; }
+
     const thead = document.getElementById('table-head');
     let thHTML = '<tr>';
     mdmConfig[currentModule].columns.forEach(col => {
@@ -181,6 +187,22 @@ async function fetchData() {
                   + `&page=${pageState.page}&per_page=50`
                   + (q ? `&q=${encodeURIComponent(q)}` : '');
         const response = await fetch(url);
+
+        // Session died between page load and this fetch (idle timeout, or
+        // php-fpm restart wiping session state). Both bootstrap.php and
+        // Rbac::redirectToLogin return 401 JSON. The global session-lock
+        // interceptor (assets/js/lpc-session-lock.js) will already have
+        // peeked the response and started blurring the page — we just need
+        // to bail out silently so the empty rows never render. Hard redirect
+        // is kept as a fallback for the rare case session-lock failed to
+        // load (offline cache, script error, etc.).
+        if (response.status === 401) {
+            if (!(window.LPC && LPC.sessionLock && LPC.sessionLock.__loaded)) {
+                window.location.href = '/index.php?error=session_expired';
+            }
+            return;
+        }
+
         const result = await response.json();
 
         if (result.status !== 'success') throw new Error(result.message);

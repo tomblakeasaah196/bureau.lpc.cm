@@ -447,6 +447,69 @@ try {
             // The fallback rung of the price ladder. See ACTION: SAVE_FALLBACK.
             $response['meta']['fallback_price'] = mdm_fallback_price($db);
         }
+        elseif ($module === 'suppliers') {
+            // -----------------------------------------------------------------
+            // Same latent bug as pricing had before it got its own branch: the
+            // tab called action=read&module=suppliers, no `if` matched, and the
+            // endpoint returned the initialiser (data:[], status:'success').
+            // The table rendered "Aucun enregistrement trouvé" while the DB
+            // held two active suppliers. Fixed here for suppliers; fleet has
+            // the same shape below.
+            // -----------------------------------------------------------------
+            $body = "FROM suppliers s";
+            $params = [];
+            if ($lpc_q !== '') {
+                [$body, $params] = Paginator::addWhere(
+                    $body, $params, $lpc_q,
+                    ['s.lpc_code', 's.name', 's.phone', 's.email', 's.contact_name']
+                );
+            }
+            $body .= " ORDER BY s.is_active DESC, s.name ASC";
+
+            $page = Paginator::paginate($db, $body, $params,
+                "s.id, s.lpc_code, s.name, s.contact_name, s.phone, s.email,
+                 s.address, s.is_active",
+                null, null, "mdm.read.suppliers");
+            $response['data'] = $page['data'];
+            $response['pagination'] = [
+                'page'        => $page['page'],
+                'per_page'    => $page['per_page'],
+                'total'       => $page['total'],
+                'total_pages' => $page['total_pages'],
+                'has_prev'    => $page['has_prev'],
+                'has_next'    => $page['has_next'],
+            ];
+        }
+        elseif ($module === 'fleet') {
+            // See suppliers branch above for the fall-through this fixes.
+            $body = "FROM vehicles v";
+            $params = [];
+            if ($lpc_q !== '') {
+                [$body, $params] = Paginator::addWhere(
+                    $body, $params, $lpc_q,
+                    ['v.plate_number', 'v.make_model', 'v.type']
+                );
+            }
+            // Operational first, then in-repair, retired last — matches the
+            // ordering fleet_controller uses for the dashboard list.
+            $body .= " ORDER BY CASE WHEN v.status='active' THEN 1
+                                     WHEN v.status='repair' THEN 2
+                                     ELSE 3 END,
+                                v.plate_number ASC";
+
+            $page = Paginator::paginate($db, $body, $params,
+                "v.id, v.plate_number, v.make_model, v.type, v.status",
+                null, null, "mdm.read.fleet");
+            $response['data'] = $page['data'];
+            $response['pagination'] = [
+                'page'        => $page['page'],
+                'per_page'    => $page['per_page'],
+                'total'       => $page['total'],
+                'total_pages' => $page['total_pages'],
+                'has_prev'    => $page['has_prev'],
+                'has_next'    => $page['has_next'],
+            ];
+        }
 
         echo json_encode($response); exit;
     }

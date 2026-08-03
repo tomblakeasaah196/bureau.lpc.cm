@@ -65,7 +65,7 @@ $so_id = (int) ($_GET['id'] ?? 0);
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6 pt-6 border-t border-gray-100">
+                    <div class="grid grid-cols-2 md:grid-cols-6 gap-4 mt-6 pt-6 border-t border-gray-100">
                         <div>
                             <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Date</p>
                             <p class="text-sm font-bold text-gray-800 mt-1" id="so-date">—</p>
@@ -81,6 +81,15 @@ $so_id = (int) ($_GET['id'] ?? 0);
                         <div>
                             <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Remise accordée</p>
                             <p class="text-sm font-black text-blue-700 mt-1" id="so-discount">—</p>
+                        </div>
+                        <?php /* Migration 070 · sibling tile of Remise
+                                 accordée. Kept separate: netting the two
+                                 into a signed "Ajustement" would collapse
+                                 two independent quantities into a fiction
+                                 (see pricing.php). */ ?>
+                        <div>
+                            <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Majoration perçue</p>
+                            <p class="text-sm font-black text-emerald-700 mt-1" id="so-surcharge">—</p>
                         </div>
                         <div>
                             <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Facturation</p>
@@ -128,7 +137,8 @@ $so_id = (int) ($_GET['id'] ?? 0);
                                     <th class="py-3 px-4 text-center text-emerald-700 bg-emerald-50/50">Accepté</th>
                                     <th class="py-3 px-4 text-right">Tarif</th>
                                     <th class="py-3 px-4 text-right">Prix Vendu</th>
-                                    <th class="py-3 px-4 text-right">Remise</th>
+                                    <th class="py-3 px-4 text-right text-blue-700">Remise</th>
+                                    <th class="py-3 px-4 text-right text-emerald-700">Majoration</th>
                                     <th class="py-3 px-6 text-right">Total Ligne</th>
                                 </tr>
                             </thead>
@@ -138,9 +148,9 @@ $so_id = (int) ($_GET['id'] ?? 0);
                     <div class="px-6 py-3 bg-gray-50 border-t border-gray-100">
                         <p class="text-[10px] font-bold text-gray-500">
                             <i class="fas fa-circle-info mr-1"></i>
-                            « Remise » = réduction <strong>déclarée</strong> par l'opérateur sur cette ligne.
-                            Un prix vendu égal au tarif signifie qu'il n'y a eu aucune remise —
-                            y compris lorsque le tarif lui-même a été modifié à la saisie
+                            « Remise » et « Majoration » = écart <strong>déclaré</strong> par l'opérateur sur cette ligne
+                            (respectivement à la baisse et à la hausse). Un prix vendu égal au tarif signifie qu'il n'y a
+                            eu ni remise ni majoration — y compris lorsque le tarif lui-même a été modifié à la saisie
                             (voir « Changements de prix » ci-dessous).
                         </p>
                     </div>
@@ -191,7 +201,7 @@ $so_id = (int) ($_GET['id'] ?? 0);
                     <div class="px-6 py-3 bg-blue-50 border-t border-blue-100">
                         <p class="text-[10px] font-bold text-blue-800">
                             <i class="fas fa-shield-halved mr-1"></i>
-                            Ce n'est pas une remise. Le prix du client a changé et s'applique désormais à ses prochaines commandes.
+                            Ce n'est ni une remise, ni une majoration. Le prix du client a changé et s'applique désormais à ses prochaines commandes.
                         </p>
                     </div>
                 </div>
