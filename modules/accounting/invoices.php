@@ -547,6 +547,30 @@ $user_role = $_SESSION['user_role'];
                         </select>
                         <p class="text-[10px] font-bold text-gray-400 mt-2 flex items-center gap-1.5 bg-gray-100 p-2 rounded-lg"><i class="fas fa-info-circle text-gray-400"></i> Le solde de ce compte sera crédité du montant reçu.</p>
                     </div>
+
+                    <!-- ============================================================
+                         Retenue AIR à la source — visible et pré-remplie
+                         automatiquement quand la facture sélectionnée provient
+                         d'un client marqué "retient à la source" (fiche CRM →
+                         is_withholding_agent). La JS lit invoices.air_amount
+                         via get_unpaid_invoices et pré-remplit ce champ.
+                         Éditable : si le client verse un montant différent
+                         de ce qui était prévu (ex. partiel), le comptable
+                         ajuste. invoices_controller.php:945 loggera l'écart
+                         mais ne bloque pas.
+                         ============================================================ -->
+                    <div id="pay_air_wrapper" class="hidden bg-amber-50 border border-amber-200 rounded-xl p-4">
+                        <label class="block text-[10px] font-black text-amber-800 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                            <i class="fas fa-receipt"></i> AIR retenu à la source par le client
+                        </label>
+                        <div class="relative">
+                            <span class="absolute left-4 top-1/2 -translate-y-1/2 font-black text-amber-500">F</span>
+                            <input type="number" id="pay_air_withheld" min="0" value="0" class="w-full bg-white border border-amber-300 text-gray-900 rounded-xl pl-10 pr-4 py-3 font-black text-lg outline-none focus:ring-2 focus:ring-amber-500 shadow-sm transition-all" placeholder="0">
+                        </div>
+                        <p class="text-[10px] font-bold text-amber-900 mt-2 leading-snug">
+                            <span id="pay_air_hint">Ce client retient l'AIR à la source. Le montant attendu selon la facture est pré-rempli — ajustez si le versement diffère du prévu (paiement partiel, etc.). Pensez à téléverser l'attestation mensuelle dans <em>Déclarations Fiscales → Retenues à la source</em>.</span>
+                        </p>
+                    </div>
                 </form>
             </div>
             

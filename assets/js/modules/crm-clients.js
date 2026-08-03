@@ -112,6 +112,13 @@
     const editId = document.getElementById('edit_client_id').value;
     const endpoint = editId ? '/api/v1/update_client.php' : '/api/v1/create_client.php';
 
+    // Retenue AIR à la source — cf. modules/crm/clients.php form.
+    // Si la case n'est pas cochée on force le taux à 0 côté serveur aussi,
+    // mais on l'envoie tel quel pour que create_client.php voie la valeur
+    // sélectionnée (utile si l'utilisateur clique/dé-clique par erreur).
+    const isWa   = document.getElementById('new_client_is_wa').checked ? 1 : 0;
+    const waRate = isWa ? parseFloat(document.getElementById('new_client_wa_rate').value) : 0;
+
     const payload = {
         id: editId,
         name: nameInput.value,
@@ -123,7 +130,9 @@
         niu: document.getElementById('new_client_niu').value,
         rc: document.getElementById('new_client_rc').value,
         credit_limit: document.getElementById('new_client_credit').value,
-        status: document.getElementById('new_client_status').value // Will be captured during updates
+        status: document.getElementById('new_client_status').value, // Will be captured during updates
+        is_withholding_agent: isWa,
+        withholding_air_rate: waRate,
     };
 
             try {
@@ -378,6 +387,19 @@
     document.getElementById('new_client_rc').value = client.rc || '';
     document.getElementById('new_client_credit').value = client.credit_limit;
 
+    // Retenue AIR à la source — pré-remplissage depuis fetch_clients.php.
+    // Snap le taux à la valeur légale la plus proche pour que le <select>
+    // ait toujours un match (évite un état "vide" trompeur si la BDD a un
+    // taux hors liste hérité d'un import).
+    const isWa   = Number(client.is_withholding_agent || 0) === 1;
+    const rawRate = parseFloat(client.withholding_air_rate || 0);
+    const legalRates = [0.022, 0.055, 0.10, 0.15];
+    const snapped = legalRates.reduce((best, r) =>
+        Math.abs(r - rawRate) < Math.abs(best - rawRate) ? r : best, legalRates[0]);
+    document.getElementById('new_client_is_wa').checked = isWa;
+    document.getElementById('new_client_wa_rate').value = snapped.toString();
+    document.getElementById('wa_rate_wrapper').classList.toggle('hidden', !isWa);
+
     // SHOW the status dropdown and set the value
     document.getElementById('status-field-wrapper').classList.remove('hidden');
     document.getElementById('new_client_status').value = client.status;
@@ -386,12 +408,17 @@
 }
         
         function openNewClientModal() {
-                document.getElementById('edit_client_id').value = ""; 
+                document.getElementById('edit_client_id').value = "";
                 document.getElementById('form-add-client').reset();
-                
+
                 // HIDE the status dropdown (new clients are always prospects)
                 document.getElementById('status-field-wrapper').classList.add('hidden');
-                
+
+                // form.reset() unchecks the withholding checkbox but the change
+                // event doesn't fire — hide the rate wrapper explicitly so the
+                // modal reopens in a clean state after an edit session.
+                document.getElementById('wa_rate_wrapper').classList.add('hidden');
+
                 openModal('clientModal');
             }
 

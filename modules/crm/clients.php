@@ -559,6 +559,36 @@ $lang = lpc_i18n_current_lang();
             <label class="block text-xs font-bold text-gray-500 uppercase mb-1"><?= htmlspecialchars(__t('ui.x.plafond_de_credit_fcfa')) ?></label>
             <input type="number" id="new_client_credit" value="0" class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-lpc-light outline-none font-bold text-gray-900">
         </div>
+
+        <!-- ============================================================
+             Retenue AIR à la source (Cameroun — art. 149 CGI, LF 2026).
+             Cochez si le client (Prometal, SONARA, PMUC, entités
+             habilitées par l'Arrêté DGI n°00001) prélève l'AIR sur nos
+             factures. Le taux dépend de leur régime fiscal.
+             Une fois activé, invoices_controller.php:793 lit ces champs
+             à l'émission et scinde automatiquement la facture en
+             (net_payable + air_amount) — plus rien à saisir au paiement.
+             ============================================================ -->
+        <div class="md:col-span-2 border-t border-gray-200 pt-4 mt-2">
+            <label class="flex items-start gap-3 cursor-pointer group">
+                <input type="checkbox" id="new_client_is_wa" onchange="document.getElementById('wa_rate_wrapper').classList.toggle('hidden', !this.checked)" class="mt-0.5 w-4 h-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500 cursor-pointer">
+                <span>
+                    <span class="block text-sm font-bold text-gray-900">Client retient l'AIR à la source</span>
+                    <span class="block text-xs text-gray-500 mt-0.5">Le client prélève l'acompte d'impôt sur revenu directement sur nos factures et le reverse à la DGI. Une attestation mensuelle est requise pour créditer la retenue.</span>
+                </span>
+            </label>
+        </div>
+
+        <div id="wa_rate_wrapper" class="md:col-span-2 hidden">
+            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Taux de retenue AIR</label>
+            <select id="new_client_wa_rate" class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-lpc-light outline-none bg-white font-bold">
+                <option value="0.022">2,2 % (régime réel)</option>
+                <option value="0.055">5,5 % (régime simplifié)</option>
+                <option value="0.10">10 % (agents commerciaux non-salariés)</option>
+                <option value="0.15">15 % (secteur informel / non-immatriculés)</option>
+            </select>
+            <p class="text-[10px] text-gray-500 mt-1 italic">Taux légaux selon la Loi de Finances 2026 (en vigueur depuis le 17 déc. 2025).</p>
+        </div>
     </div>
 </form>
             </div>

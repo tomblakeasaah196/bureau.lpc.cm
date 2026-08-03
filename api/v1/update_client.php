@@ -53,21 +53,34 @@ try {
         $message = 'Client converti et compte OHADA (' . $new_account_code . ') généré.';
     }
     
+    // Withholding agent metadata — cf. migration 020_cameroon_tax_module.sql.
+    // Off box → rate forced to 0 so invoices_controller never books a stray
+    // AIR split on a client that is not actually a withholding agent.
+    $is_wa   = !empty($data['is_withholding_agent']) ? 1 : 0;
+    $wa_rate = $is_wa ? (float)($data['withholding_air_rate'] ?? 0) : 0.0;
+    // Guard: only the four legal AIR rates per LF 2026 (2.2 %, 5.5 %, 10 %, 15 %).
+    $legal   = [0.0, 0.022, 0.055, 0.10, 0.15];
+    if (!in_array(round($wa_rate, 4), $legal, true)) {
+        throw new Exception("Taux de retenue AIR invalide. Valeurs autorisées : 2.2 %, 5.5 %, 10 %, 15 %.");
+    }
+
     // Ensure we safely map data
     $stmt = $db->prepare("
-        UPDATE clients SET 
-            name = :name, 
-            type = :type, 
-            contact_person = :contact_person, 
+        UPDATE clients SET
+            name = :name,
+            type = :type,
+            contact_person = :contact_person,
             email = :email,
             niu = :niu,
             rc = :rc,
-            phone = :phone, 
-            address = :address, 
-            tax_id = :tax_id, 
+            phone = :phone,
+            address = :address,
+            tax_id = :tax_id,
             credit_limit = :credit_limit,
             account_id = :account_id,
-            status = :status
+            status = :status,
+            is_withholding_agent = :is_wa,
+            withholding_air_rate = :wa_rate
         WHERE id = :id
     ");
 
@@ -84,7 +97,9 @@ try {
         'tax_id'         => trim($data['tax_id'] ?? ''),
         'credit_limit'   => (float)($data['credit_limit'] ?? 0),
         'account_id'     => $account_id,
-        'status'         => $new_status
+        'status'         => $new_status,
+        'is_wa'          => $is_wa,
+        'wa_rate'        => $wa_rate,
     ]);
 
     $db->commit();

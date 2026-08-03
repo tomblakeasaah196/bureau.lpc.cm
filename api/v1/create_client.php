@@ -48,12 +48,25 @@ try {
     $hash = strtoupper(substr(md5(uniqid(rand(), true)), 0, 4));
     $lpc_code = 'CLI-' . date('ym') . '-' . $hash;
     
-    // 3. Insert Client with new account_id (Now including email, niu, rc)
+    // 3. Insert Client with new account_id (Now including email, niu, rc,
+    //    is_withholding_agent + withholding_air_rate — cf. migration 020).
+    //    If the checkbox is off, force the rate to 0.0 so the invoice
+    //    controller never applies a stray rate to an ordinary client.
+    $is_wa    = !empty($data['is_withholding_agent']) ? 1 : 0;
+    $wa_rate  = $is_wa ? (float)($data['withholding_air_rate'] ?? 0) : 0.0;
+    // Guard: only the four legal AIR rates per LF 2026.
+    $legal    = [0.0, 0.022, 0.055, 0.10, 0.15];
+    if (!in_array(round($wa_rate, 4), $legal, true)) {
+        throw new Exception("Taux de retenue AIR invalide. Valeurs autorisées : 2.2 %, 5.5 %, 10 %, 15 %.");
+    }
+
     $stmt = $db->prepare("
         INSERT INTO clients (
-            lpc_code, name, type, contact_person, email, niu, rc, phone, address, tax_id, credit_limit, account_id, status
+            lpc_code, name, type, contact_person, email, niu, rc, phone, address, tax_id, credit_limit, account_id, status,
+            is_withholding_agent, withholding_air_rate
         ) VALUES (
-            :lpc_code, :name, :type, :contact_person, :email, :niu, :rc, :phone, :address, :tax_id, :credit_limit, :account_id, :status
+            :lpc_code, :name, :type, :contact_person, :email, :niu, :rc, :phone, :address, :tax_id, :credit_limit, :account_id, :status,
+            :is_wa, :wa_rate
         )
     ");
 
@@ -70,7 +83,9 @@ try {
         'tax_id'         => trim($data['tax_id'] ?? ''),
         'credit_limit'   => (float)($data['credit_limit'] ?? 0),
         'account_id'     => $account_id,
-        'status'         => $data['status'] ?? 'active' 
+        'status'         => $data['status'] ?? 'active',
+        'is_wa'          => $is_wa,
+        'wa_rate'        => $wa_rate,
     ]);
 
     $new_client_id = $db->lastInsertId();

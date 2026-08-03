@@ -581,9 +581,14 @@ try {
             // in the payment picker. register_payment sums both fields (line
             // 855) and the ledger clears the receivable at (amount + AIR) — this
             // picker was the only place still summing amount alone.
+            // air_amount + net_payable exposed so the payment modal (JS)
+            // can pre-fill air_withheld when the invoice was issued to a
+            // withholding-agent client. Cf. Batch A of the AIR workflow.
             $client_id = (int)($_GET['client_id'] ?? 0);
             $stmt = $db->prepare("
                 SELECT id, reference, total_amount,
+                       COALESCE(air_amount, 0)   AS air_amount,
+                       COALESCE(net_payable, total_amount) AS net_payable,
                        (total_amount - COALESCE((
                            SELECT SUM(amount + COALESCE(air_withheld_amount, 0))
                              FROM payments

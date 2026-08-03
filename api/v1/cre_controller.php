@@ -96,6 +96,42 @@ const LPC_OVERRIDE_ABS_CEILING    = 1000000; // and never above 1 000 000 FCFA/u
 const LPC_OVERRIDE_MIN_REASON_LEN = 5;
 
 /**
+ * Translate the toolbar period picker (ytd / current_month / all / custom) into
+ * a [start, end, label] tuple. Same four options and defaults as Ventes / Achats
+ * — a single mental model across the app, so a supervisor doesn't have to think
+ * about which module means what by "période".
+ *
+ * Returns ['','',''] for the "all" case; callers add no WHERE clause for that.
+ */
+function lpcResolvePeriod(?string $type, ?string $start = null, ?string $end = null): array
+{
+    $type = $type ?: 'ytd';
+    $today = new DateTimeImmutable('today');
+    switch ($type) {
+        case 'all':
+            return ['', '', 'Tout l\'historique'];
+        case 'current_month':
+            $s = $today->modify('first day of this month')->format('Y-m-d');
+            $e = $today->modify('last day of this month')->format('Y-m-d');
+            return [$s, $e, 'Mois en cours (' . $today->format('m/Y') . ')'];
+        case 'custom':
+            $s = (string) ($start ?? '');
+            $e = (string) ($end   ?? '');
+            // Guard against garbage: return empty range so the query yields
+            // zero rows rather than throwing the whole page.
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $s) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $e)) {
+                return ['1970-01-01', '1970-01-01', 'Plage invalide'];
+            }
+            return [$s, $e, "Du $s au $e"];
+        case 'ytd':
+        default:
+            $s = $today->format('Y-01-01');
+            $e = $today->format('Y-m-d');
+            return [$s, $e, 'Année en cours (' . $today->format('Y') . ')'];
+    }
+}
+
+/**
  * Has migration 060 run on this database?
  *
  * Probed, not assumed. Deploys and migrations are separate steps here, so
@@ -192,10 +228,12 @@ $ACTION_PERMS = [
     'get_clients'           => 'operations.empties.view',
     'get_history'           => 'operations.empties.view',
     'get_empty_products'    => 'operations.empties.view',
+    'get_empties_kpis'      => 'operations.empties.view',
     'get_recycling_prices'  => 'operations.recycling.view',
     'get_recycling_revenue' => 'operations.recycling.view',
     'get_price_overrides'   => 'operations.recycling.view',
     'create_cre'            => 'operations.empties.create_cre',
+    'cancel_cre'            => 'operations.empties.create_cre',
     'sell_to_recycler'      => 'operations.recycling.sell',
 ];
 if (!isset($ACTION_PERMS[$action])) {
@@ -269,11 +307,11 @@ if ($method === 'GET') {
     if ($action === 'get_owed_empties') {
         try {
             $stmt = $pdo->query("
-                SELECT 
-                    c.id as client_id, c.name as client_name, 
-                    s.id as site_id, s.name as site_name, 
-                    p.name as product_name, 
-                    cel.total_out, cel.total_in, cel.quantity_owed 
+                SELECT
+                    c.id as client_id, c.name as client_name,
+                    s.id as site_id, s.name as site_name,
+                    p.name as product_name,
+                    cel.total_out, cel.total_in, cel.quantity_owed
                 FROM client_empties_ledger cel
                 JOIN clients c ON cel.client_id = c.id
                 LEFT JOIN client_sites s ON cel.site_id = s.id
@@ -283,6 +321,52 @@ if ($method === 'GET') {
             ");
             sendResponse('success', 'OK', $stmt->fetchAll(PDO::FETCH_ASSOC));
         } catch (Exception $e) { sendResponse('error', 'Erreur DB: ' . $e->getMessage()); }
+    }
+
+    /* -------------------------------------------------------------------------
+     * KPI ribbon feed. Powers the four cards at the top of the page: total
+     * outstanding empties, CREs waiting on a client signature, CREs signed in
+     * the last 30 days, and 30-day recycling revenue. Kept in ONE roundtrip so
+     * the top of the page paints in a single tick.
+     *
+     * Every count is scoped by the same RBAC row that gates the module —
+     * ACTION_PERMS above rejects the call for anyone without operations
+     * .empties.view, so no permission check is needed inside.
+     * ----------------------------------------------------------------------- */
+    if ($action === 'get_empties_kpis') {
+        try {
+            $totalOwed = (int) $pdo->query(
+                "SELECT COALESCE(SUM(quantity_owed), 0) FROM client_empties_ledger WHERE quantity_owed > 0"
+            )->fetchColumn();
+            $clientsWithDebt = (int) $pdo->query(
+                "SELECT COUNT(DISTINCT client_id) FROM client_empties_ledger WHERE quantity_owed > 0"
+            )->fetchColumn();
+            $crePending = (int) $pdo->query(
+                "SELECT COUNT(*) FROM cre_documents WHERE status = 'en_transit'"
+            )->fetchColumn();
+            $creSigned30 = (int) $pdo->query(
+                "SELECT COUNT(*) FROM cre_documents
+                  WHERE status = 'signed' AND signed_at >= (CURRENT_DATE() - INTERVAL 30 DAY)"
+            )->fetchColumn();
+            $recRev30 = (float) $pdo->query(
+                "SELECT COALESCE(SUM(total_amount), 0) FROM recycling_sales
+                  WHERE created_at >= (CURRENT_DATE() - INTERVAL 30 DAY)"
+            )->fetchColumn();
+            $recSales30 = (int) $pdo->query(
+                "SELECT COUNT(*) FROM recycling_sales
+                  WHERE created_at >= (CURRENT_DATE() - INTERVAL 30 DAY)"
+            )->fetchColumn();
+            sendResponse('success', 'OK', [
+                'total_owed'            => $totalOwed,
+                'clients_with_debt'     => $clientsWithDebt,
+                'cre_pending'           => $crePending,
+                'cre_signed_30d'        => $creSigned30,
+                'recycling_revenue_30d' => $recRev30,
+                'recycling_sales_30d'   => $recSales30,
+            ]);
+        } catch (Exception $e) {
+            sendResponse('error', 'Erreur DB: ' . $e->getMessage());
+        }
     }
 
     if ($action === 'get_clients') {
@@ -389,6 +473,16 @@ if ($method === 'GET') {
         }
 
         try {
+            // Period picker → date range. Empty $start/$end means "all history".
+            [$startDate, $endDate, $periodLabel] = lpcResolvePeriod(
+                $_GET['period'] ?? null, $_GET['start'] ?? null, $_GET['end'] ?? null);
+            $periodWhere  = '';
+            $periodParams = [];
+            if ($startDate !== '' && $endDate !== '') {
+                $periodWhere    = ' WHERE r.created_at >= :ps AND r.created_at < DATE_ADD(:pe, INTERVAL 1 DAY)';
+                $periodParams   = [':ps' => $startDate, ':pe' => $endDate];
+            }
+
             // Migration 060 may not be applied on every environment yet, so the
             // override columns are probed rather than assumed. A revenue tab
             // that 500s because a migration is pending is a worse failure than
@@ -405,8 +499,8 @@ if ($method === 'GET') {
                        WHERE ri2.sale_id = r.id AND ri2.is_price_overridden = 1) AS override_count"
                 : ", 0 AS override_count";
 
-            // 1. Fetch Sales History
-            $stmt = $pdo->query("
+            // 1. Sales history within the chosen period.
+            $sql = "
                 SELECT r.id, r.reference, r.recycler_location, r.total_amount, r.created_at,
                        CONCAT(u.first_name, ' ', u.last_name) as driver_name,
                        (SELECT GROUP_CONCAT(CONCAT(ri.quantity, 'x ', p.name) SEPARATOR ', ')
@@ -416,31 +510,44 @@ if ($method === 'GET') {
                        $overrideSelect
                 FROM recycling_sales r
                 JOIN users u ON r.driver_id = u.id
+                $periodWhere
                 ORDER BY r.created_at DESC
-            ");
+            ";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($periodParams);
             $sales = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // 2. Fetch Top-level KPIs and AGGREGATED QUANTITIES
-            $stats = $pdo->query("
-                SELECT 
-                    COALESCE(SUM(total_amount), 0) as total_revenue,
-                    COUNT(id) as total_sales
-                FROM recycling_sales
-            ")->fetch(PDO::FETCH_ASSOC);
+            // 2. Period KPI: revenue + count.
+            $sqlKpi = "SELECT COALESCE(SUM(r.total_amount), 0) AS total_revenue,
+                              COUNT(r.id) AS total_sales
+                         FROM recycling_sales r
+                         $periodWhere";
+            $stmt = $pdo->prepare($sqlKpi);
+            $stmt->execute($periodParams);
+            $stats = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['total_revenue' => 0, 'total_sales' => 0];
+            $stats['period_label']  = $periodLabel;
+            $stats['period_start']  = $startDate;
+            $stats['period_end']    = $endDate;
 
-            // 3. Sprint-4-Batch-B: aggregate by bottle_size + has_cork instead
-            //    of the hardcoded IDs 901-904. Groups by the same 4 buckets
-            //    the UI expects (20c / 20n / 10c / 10n).
-            $qty_stmt = $pdo->query("
+            // 3. Bottle counts by size + cork, scoped to the same period.
+            //    The four fixed columns (20c/20n/10c/10n) are for the KPI grid
+            //    up top; the raw breakdown is returned separately so the UI
+            //    can extend it to Verre 1L / 5L when needed.
+            $sqlQty = "
                 SELECT p.bottle_size, p.has_cork, SUM(ri.quantity) AS total_qty
                   FROM recycling_sale_items ri
-                  JOIN products p ON p.id = ri.product_id
-                 WHERE p.is_empty = 1
-                 GROUP BY p.bottle_size, p.has_cork
-            ");
+                  JOIN products p         ON p.id = ri.product_id
+                  JOIN recycling_sales r  ON r.id = ri.sale_id
+                 WHERE p.is_empty = 1"
+                . ($periodWhere ? str_replace('WHERE', 'AND', $periodWhere) : '') . "
+                 GROUP BY p.bottle_size, p.has_cork";
+            $stmt = $pdo->prepare($sqlQty);
+            $stmt->execute($periodParams);
             $stats['qty_20c'] = 0; $stats['qty_20n'] = 0;
             $stats['qty_10c'] = 0; $stats['qty_10n'] = 0;
-            foreach ($qty_stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $stats['qty_breakdown'] = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $stats['qty_breakdown'][] = $row;
                 if ($row['bottle_size'] === '20L' && $row['has_cork']) $stats['qty_20c'] = (int) $row['total_qty'];
                 elseif ($row['bottle_size'] === '20L')                 $stats['qty_20n'] = (int) $row['total_qty'];
                 elseif ($row['bottle_size'] === '10L' && $row['has_cork']) $stats['qty_10c'] = (int) $row['total_qty'];
@@ -455,12 +562,23 @@ if ($method === 'GET') {
 
     // Migration 060: the negotiated-price register. Answers "who changed a
     // price, on what, by how much, and why" without making a supervisor read
-    // sale lines one by one.
+    // sale lines one by one. Honours the same period picker as the revenue
+    // table so a supervisor comparing "cash reçu" against "prix négociés" over
+    // Q1 sees consistent scoping in both panes.
     if ($action === 'get_price_overrides') {
         if (!in_array($_SESSION['user_role'], ['admin', 'finance', 'accountant'])) {
             sendResponse('error', 'Accès refusé.');
         }
         try {
+            [$startDate, $endDate] = lpcResolvePeriod(
+                $_GET['period'] ?? null, $_GET['start'] ?? null, $_GET['end'] ?? null);
+            $periodWhere  = '';
+            $periodParams = [];
+            if ($startDate !== '' && $endDate !== '') {
+                $periodWhere  = ' AND o.created_at >= :ps AND o.created_at < DATE_ADD(:pe, INTERVAL 1 DAY)';
+                $periodParams = [':ps' => $startDate, ':pe' => $endDate];
+            }
+
             $limit = max(1, min(200, (int) ($_GET['limit'] ?? 100)));
             $stmt = $pdo->prepare("
                 SELECT o.id, o.base_price, o.override_price, o.delta_amount, o.delta_pct,
@@ -469,13 +587,15 @@ if ($method === 'GET') {
                        s.reference AS sale_reference, s.recycler_location,
                        CONCAT(u.first_name, ' ', u.last_name) AS user_name
                   FROM recycling_price_overrides o
-                  JOIN products p        ON p.id = o.product_id
+                  JOIN products p             ON p.id = o.product_id
                   LEFT JOIN recycling_sales s ON s.id = o.sale_id
-                  LEFT JOIN users u      ON u.id = o.created_by
+                  LEFT JOIN users u           ON u.id = o.created_by
+                 WHERE 1=1
+                 $periodWhere
                  ORDER BY o.created_at DESC
                  LIMIT $limit
             ");
-            $stmt->execute();
+            $stmt->execute($periodParams);
             sendResponse('success', 'OK', $stmt->fetchAll(PDO::FETCH_ASSOC));
         } catch (Exception $e) {
             // Table absent = migration 060 not applied yet. Degrade to an empty
@@ -489,33 +609,143 @@ if ($method === 'POST') {
     if ($action === 'create_cre') {
         try {
             $pdo->beginTransaction();
-            $client_id = $payload['client_id'];
-            $site_id = !empty($payload['site_id']) ? $payload['site_id'] : null;
-            $quantities = $payload['quantities']; 
-            
-            $datePrefix = date('Ymd');
-            $stmtRef = $pdo->query("SELECT count(id) FROM cre_documents WHERE DATE(created_at) = CURRENT_DATE()");
-            $count = $stmtRef->fetchColumn() + 1;
-            $reference = "CRE-{$datePrefix}-" . str_pad($count, 3, '0', STR_PAD_LEFT);
-            $token = bin2hex(random_bytes(32));
+            $client_id = (int) ($payload['client_id'] ?? 0);
+            $site_id   = !empty($payload['site_id']) ? (int) $payload['site_id'] : null;
+            if ($client_id <= 0) throw new Exception('Client requis.');
 
-            $stmtIns = $pdo->prepare("INSERT INTO cre_documents (reference, client_id, site_id, operator_id, token, status) VALUES (?, ?, ?, ?, ?, 'en_transit')");
-            $stmtIns->execute([$reference, $client_id, $site_id, $user_id, $token]);
-            $cre_id = $pdo->lastInsertId();
-
-            $stmtItem = $pdo->prepare("INSERT INTO cre_items (cre_document_id, product_id, quantity) VALUES (?, ?, ?)");
-            foreach ($quantities as $type => $qty) {
-                if ($qty > 0) {
+            // Payload shape.
+            //
+            //   NEW (Sprint 8, data-driven UI):
+            //     items: [ { product_id: 92, quantity: 3 }, ... ]
+            //     — supports any empty product (Verre 1L, 5L…), not just the
+            //       four legacy 20L/10L slots.
+            //
+            //   OLD (kept for backwards compatibility with any offline queue
+            //   that still ships the four buckets):
+            //     quantities: { "20L_cork": 3, "10L_nocork": 2, ... }
+            //
+            // Every incoming item is re-validated against the products table
+            // and clamped to is_empty=1, so a caller cannot smuggle a full
+            // product into the empties ledger by forging a product_id.
+            $items = [];
+            if (isset($payload['items']) && is_array($payload['items'])) {
+                foreach ($payload['items'] as $it) {
+                    $pid = (int) ($it['product_id'] ?? 0);
+                    $qty = (int) ($it['quantity']   ?? 0);
+                    if ($pid > 0 && $qty > 0) $items[] = ['product_id' => $pid, 'quantity' => $qty];
+                }
+            } elseif (isset($payload['quantities']) && is_array($payload['quantities'])) {
+                foreach ($payload['quantities'] as $type => $qty) {
+                    $qty = (int) $qty;
+                    if ($qty <= 0) continue;
                     $pid = getProductIdForBottleType($pdo, $type);
-                    if ($pid) { $stmtItem->execute([$cre_id, $pid, $qty]); }
+                    if ($pid) $items[] = ['product_id' => (int) $pid, 'quantity' => $qty];
                 }
             }
+
+            if (!$items) throw new Exception('Aucune quantité renseignée.');
+
+            $datePrefix = date('Ymd');
+            $stmtRef = $pdo->query("SELECT count(id) FROM cre_documents WHERE DATE(created_at) = CURRENT_DATE()");
+            $count   = (int) $stmtRef->fetchColumn() + 1;
+            $reference = "CRE-{$datePrefix}-" . str_pad((string) $count, 3, '0', STR_PAD_LEFT);
+            $token     = bin2hex(random_bytes(32));
+
+            $stmtIns = $pdo->prepare(
+                "INSERT INTO cre_documents (reference, client_id, site_id, operator_id, token, status)
+                 VALUES (?, ?, ?, ?, ?, 'en_transit')"
+            );
+            $stmtIns->execute([$reference, $client_id, $site_id, $user_id, $token]);
+            $cre_id = (int) $pdo->lastInsertId();
+
+            // Re-check each product is actually an empty. Silently drop
+            // anything that isn't — safer than throwing, which would give a
+            // half-typed CRE a confusing error message; the client still gets
+            // the CRE with the valid lines.
+            $stmtValid = $pdo->prepare("SELECT id FROM products WHERE id = ? AND is_empty = 1 LIMIT 1");
+            $stmtItem  = $pdo->prepare("INSERT INTO cre_items (cre_document_id, product_id, quantity) VALUES (?, ?, ?)");
+            $inserted  = 0;
+            foreach ($items as $it) {
+                $stmtValid->execute([$it['product_id']]);
+                if (!$stmtValid->fetchColumn()) continue;
+                $stmtItem->execute([$cre_id, $it['product_id'], $it['quantity']]);
+                $inserted++;
+            }
+            if ($inserted === 0) throw new Exception('Aucun produit valide (attendu: emballages vides).');
 
             $pdo->commit();
             sendResponse('success', 'CRE Généré', ['reference' => $reference, 'token' => $token]);
         } catch (Exception $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             sendResponse('error', 'Erreur de création: ' . $e->getMessage());
+        }
+    }
+
+    /* -------------------------------------------------------------------------
+     * cancel_cre — pull an in-flight CRE out of en_transit.
+     *
+     * WHY THIS EXISTS
+     *   Previously the only way a CRE left en_transit was the client refusing
+     *   (reject_cre) or signing (sign_cre). A CRE typed against the wrong
+     *   client, or one where the client walked away without either signing or
+     *   refusing, sat there forever — and the balance drifted because the ops
+     *   staff carried on with a paper receipt while the ledger kept the empties
+     *   as still owed.
+     *
+     *   Operator (any user with create_cre) may cancel their own CRE OR any
+     *   CRE in en_transit — see the enforcement below. Admin/finance can
+     *   cancel any. A signed / rejected / already-cancelled CRE cannot be
+     *   cancelled: the audit trail must stay linear.
+     * ----------------------------------------------------------------------- */
+    if ($action === 'cancel_cre') {
+        try {
+            $cre_id = (int) ($payload['cre_id'] ?? 0);
+            $reason = trim((string) ($payload['reason'] ?? ''));
+            if ($cre_id <= 0) throw new Exception('CRE requis.');
+            if ($reason === '') throw new Exception('Motif requis.');
+            if (mb_strlen($reason) > 255) $reason = mb_substr($reason, 0, 255);
+
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare(
+                "SELECT id, reference, operator_id, status
+                   FROM cre_documents WHERE id = ? FOR UPDATE"
+            );
+            $stmt->execute([$cre_id]);
+            $cre = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$cre) throw new Exception('CRE introuvable.');
+            if ($cre['status'] !== 'en_transit') {
+                throw new Exception('Ce CRE n\'est plus en attente et ne peut plus être annulé.');
+            }
+
+            // Operator gate: an ops user can only kill their own CRE. Admin /
+            // finance / accountant can kill anyone's — needed when the
+            // original operator is off site and the client is on the phone.
+            $role = $_SESSION['user_role'] ?? '';
+            $isElevated = in_array($role, ['admin', 'finance', 'accountant'], true);
+            if (!$isElevated && (int) $cre['operator_id'] !== (int) $user_id) {
+                throw new Exception('Vous ne pouvez annuler que vos propres CRE.');
+            }
+
+            // We store the reason in rejection_reason to reuse the existing
+            // column (added by the CRE schema). The status enum already
+            // supports 'cancelled' (see migration 041).
+            $pdo->prepare(
+                "UPDATE cre_documents
+                    SET status = 'cancelled', rejection_reason = ?
+                  WHERE id = ?"
+            )->execute([$reason, $cre_id]);
+
+            notifyAdmin(
+                $pdo,
+                'CRE Annulé',
+                "Le CRE {$cre['reference']} a été annulé par " . ($_SESSION['user_name'] ?? 'un opérateur')
+                    . ".\nMotif : " . $reason
+            );
+            $pdo->commit();
+            sendResponse('success', 'CRE annulé.');
+        } catch (Exception $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            sendResponse('error', $e->getMessage());
         }
     }
 

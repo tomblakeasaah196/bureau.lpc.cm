@@ -831,6 +831,11 @@
             }
         }
 
+        // Cache the invoice list keyed by id so the invoice-select change
+        // handler can look up air_amount without a second server round-trip.
+        // Reset whenever the client selector loads a new list.
+        let unpaidInvoiceCache = {};
+
         async function fetchClientUnpaidInvoices(clientId) {
             if(!clientId) return;
             const div = document.getElementById('pay_invoice_selector_div');
@@ -838,6 +843,10 @@
 
             div.classList.remove('hidden');
             sel.innerHTML = '<option value="">-- Verser en Avance / Avoir (Portefeuille) --</option>';
+            unpaidInvoiceCache = {};
+            // Also reset the AIR field state — a fresh client picker means
+            // stale pre-fill from the previous invoice must go.
+            resetAirField();
 
             try {
                 const data = await fetchJsonSafely(`/api/v1/invoices_controller.php?action=get_unpaid_invoices&client_id=${encodeURIComponent(clientId)}`);
@@ -846,12 +855,61 @@
                     return;
                 }
                 data.data.forEach(i => {
+                    unpaidInvoiceCache[String(i.id)] = i;
                     sel.innerHTML += LPC.html`<option value="${i.id}">Facture ${i.reference} (Reste Dû: ${LPC.fmt.int(i.balance)} F)</option>`;
                 });
             } catch (e) {
                 showToast("Erreur au chargement des factures (" + e.message + ")", "error");
             }
         }
+
+        // ============================================================
+        // AIR pre-fill helpers (Batch A) — when the selected invoice has
+        // air_amount > 0, the client is a withholding agent and we
+        // already know how much they'll keep. Pre-fill and expose the
+        // amber panel so the accountant just confirms.
+        // ============================================================
+        function resetAirField() {
+            const w = document.getElementById('pay_air_wrapper');
+            const f = document.getElementById('pay_air_withheld');
+            if (w) w.classList.add('hidden');
+            if (f) f.value = 0;
+        }
+
+        function applyAirPrefillForInvoice(invoiceId) {
+            const inv = unpaidInvoiceCache[String(invoiceId)];
+            const wrapper = document.getElementById('pay_air_wrapper');
+            const field   = document.getElementById('pay_air_withheld');
+            const hint    = document.getElementById('pay_air_hint');
+            const amtEl   = document.getElementById('pay_amount');
+            if (!wrapper || !field) return;
+            if (!inv || !(Number(inv.air_amount) > 0)) {
+                resetAirField();
+                return;
+            }
+            wrapper.classList.remove('hidden');
+            field.value = Math.round(Number(inv.air_amount));
+            // Pre-fill the cash amount too if it hasn't been set — the
+            // accountant almost always receives exactly net_payable, so
+            // default to that and let them override.
+            if (amtEl && (!amtEl.value || Number(amtEl.value) === 0) && Number(inv.net_payable) > 0) {
+                amtEl.value = Math.round(Number(inv.net_payable));
+            }
+            if (hint) {
+                hint.innerHTML = `Ce client retient l'AIR à la source. Montant attendu selon facture <strong>${inv.reference}</strong> : <strong>${LPC.fmt.int(inv.air_amount)} F</strong> — ajustez si le versement diffère (paiement partiel, etc.). Pensez à téléverser l'attestation mensuelle dans <em>Déclarations Fiscales → Retenues à la source</em>.`;
+            }
+        }
+
+        // Wire the invoice-select change once — the element is in a
+        // static template so a one-shot listener is safe. Guard with a
+        // dataset flag so hot-reload / re-init doesn't stack listeners.
+        document.addEventListener('DOMContentLoaded', () => {
+            const sel = document.getElementById('pay_invoice_select');
+            if (sel && !sel.dataset.airWired) {
+                sel.addEventListener('change', e => applyAirPrefillForInvoice(e.target.value));
+                sel.dataset.airWired = '1';
+            }
+        });
 
         // Cache of active treasury accounts for the receipt picker.
         // Refreshed on every openPaymentModal() call so newly created wallets
@@ -914,6 +972,9 @@
             document.getElementById('pay_action_type').value = 'new';
             document.getElementById('pay_validation_banner').classList.add('hidden');
             document.getElementById('pay_client_selector_div').classList.remove('hidden');
+            // form.reset() clears the number but doesn't hide the amber
+            // panel — force it collapsed so a fresh modal starts clean.
+            resetAirField();
 
             document.getElementById('pay-modal-title').innerText = 'Nouvel Encaissement';
             document.getElementById('pay-modal-header').classList.replace('bg-amber-500', 'bg-gray-900');
@@ -923,7 +984,13 @@
             if(clientId && invoiceId) {
                 document.getElementById('pay_client_id').value = clientId;
                 fetchClientUnpaidInvoices(clientId).then(() => {
-                    setTimeout(() => document.getElementById('pay_invoice_select').value = invoiceId, 200);
+                    setTimeout(() => {
+                        const sel = document.getElementById('pay_invoice_select');
+                        sel.value = invoiceId;
+                        // Fire the pre-fill manually — programmatic .value = …
+                        // doesn't emit a change event.
+                        applyAirPrefillForInvoice(invoiceId);
+                    }, 200);
                 });
             } else {
                 document.getElementById('pay_invoice_selector_div').classList.add('hidden');
@@ -1014,6 +1081,15 @@
                     showToast("Sélectionnez un compte de destination.", "error");
                     return;
                 }
+                // AIR retenu à la source — envoyé au serveur uniquement si
+                // le panneau est visible (client agent de retenue). Le
+                // wrapper est masqué dans tous les autres cas donc la
+                // valeur reste 0, ce qui matche le comportement d'avant.
+                const airWrapperVisible = !document.getElementById('pay_air_wrapper').classList.contains('hidden');
+                const airWithheldVal = airWrapperVisible
+                    ? Math.max(0, Math.round(parseFloat(document.getElementById('pay_air_withheld').value) || 0))
+                    : 0;
+
                 payload = {
                     action: 'register_payment',
                     client_id: clientVal,
@@ -1022,6 +1098,7 @@
                     // never drift because a decimal snuck through the number
                     // input on a copy-paste.
                     amount: Math.round(amountVal),
+                    air_withheld: airWithheldVal,
                     method: document.getElementById('pay_method').value,
                     treasury_account_id: parseInt(acctVal, 10),
                 };

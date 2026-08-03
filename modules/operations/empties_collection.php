@@ -4,7 +4,23 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 Rbac::requirePermission('operations.empties.view');
 /**
  * MODULE: Gestion des Consignes & Recyclage (Empties Collection & Recycling Sales)
- * DESCRIPTION: Mobile-first interface for operators to see owed empties, log collections, and sell empties.
+ *
+ * SHELL COHERENCE (Sprint 8) — this page now follows the Ventes / Achats
+ * template documented in README §5.5:
+ *   · Tabs live INSIDE .lpc-toolbar (not in a separate <nav>);
+ *   · Primary action + hand-off shortcuts + period picker + help button all
+ *     ride the toolbar;
+ *   · The Aide button uses lpc_help_link('operations.empties_collection'), so
+ *     the drawer is populated by migration 069;
+ *   · KPI ribbon at the top of the page, so a supervisor sees the shape of
+ *     the workload before scrolling into a list.
+ *
+ * DATA-DRIVEN BOTTLE TYPES. The old page hardcoded four inputs (20L cork /
+ * nocork, 10L cork / nocork). Products with any other bottle_size — Verre 1L,
+ * 5L, 1.5L — were invisible to the CRE form, so a client returned bottles the
+ * ERP could not book. The inputs are now rendered by JS from
+ * cre_controller::get_empty_products, so a new empty product in Master Data
+ * shows up here without a code change.
  */
 $lang = lpc_i18n_current_lang();
 
@@ -13,92 +29,168 @@ $lang = lpc_i18n_current_lang();
 // price, so an operator without the permission never sees an affordance that
 // would fail server-side.
 $canOverridePrice = Rbac::hasPermission('operations.recycling.override_price');
+$canCreateCre     = Rbac::hasPermission('operations.empties.create_cre');
+$canSellRecycler  = Rbac::hasPermission('operations.recycling.sell');
+$canViewRevenue   = Rbac::hasPermission('operations.recycling.view');
 $editPriceLabel   = __t('ui.x.modifier_le_prix');
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo $lang; ?>">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= htmlspecialchars(__t('ui.x.collecte_recyclage_lpc_erp')) ?></title>
-    
+
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
     <script src="/assets/vendor/qrcodejs/qrcode.min.js" integrity="sha384-3zSEDfvllQohrq0PHL1fOXJuC/jSOO34H46t6UQfobFOmxE5BpjjaIJY5F2/bMnU" crossorigin="anonymous"></script>
+    <script src="<?= lpc_asset('/assets/js/lpc-dom.js') ?>"></script>
+    <script src="<?= lpc_asset('/assets/js/lpc-paginator.js') ?>"></script>
 
-    
     <style>
-        input[type="number"] { font-size: 1.25rem; text-align: center; font-weight: 900; }
-        ::-webkit-scrollbar { width: 4px; height: 4px; background: transparent; } 
+        input[type="number"] { font-size: 1.05rem; text-align: center; font-weight: 900; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; animation: slideUp 0.3s ease-out forwards; }
+        .tab-content { display: none; animation: slideUp 0.3s ease-out; }
+        .tab-content.active { display: block; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
 <body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
-
     <?php
     $pageTitle    = __t('ui.x.consignes_vides');
     $pageSubtitle = __t('ui.x.suivi_cre_vente_recyclage');
+    require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
+    require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     ?>
-    <div class="hidden md:block">
-        <?php require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php'; ?>
-    </div>
-    <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php'; ?>
 
     <div id="lpc-shell-main">
 
-        <!-- Deliberately empty. `.lpc-toolbar:empty` collapses to nothing
-             (lpc-shell.css), so this costs no space — it exists so
-             lpc-deeplink.js has somewhere to render the "Retour à …" and
-             client-filter chips when this page is reached from a deep link.
-             Order is fixed by §5.5: toolbar, then tabs, then main. -->
-        <div class="lpc-toolbar"></div>
+        <?php /* Toolbar — mirrors sales/orders.php (README §5.5).
+                 Order: tabs · primary action · module hand-offs · period · help.
+                 The period picker is hidden for every tab except Revenus
+                 Recyclage — a period filter that is meaningless on the current
+                 tab is worse than none, because it makes the page look
+                 mis-filtered when the numbers don't move. handleTabUI() toggles
+                 it. */ ?>
+        <div class="lpc-toolbar">
 
-        <nav class="lpc-tabs lpc-tabs-fill">
-            <button onclick="switchTab('owed')" id="tab-owed" class="tab-btn flex-1 py-3 text-sm font-black text-lpc-dark border-b-[3px] border-lpc-dark text-center uppercase tracking-wider whitespace-nowrap px-4">
-                <i class="fas fa-balance-scale mr-1"></i> Dus
+            <button onclick="switchTab('owed')" id="tab-owed"
+                    class="tab-link py-4 border-b-2 border-lpc-dark text-lpc-dark font-black text-sm uppercase tracking-wider transition-all">
+                <i class="fas fa-balance-scale mr-2"></i> <?= htmlspecialchars(__t('ui.x.dus')) ?>
             </button>
-            <button onclick="switchTab('new')" id="tab-new" class="tab-btn flex-1 py-3 text-sm font-bold text-gray-400 border-b-[3px] border-transparent text-center uppercase tracking-wider whitespace-nowrap px-4">
-                <i class="fas fa-plus-circle mr-1"></i> Collecter
+            <button onclick="switchTab('new')" id="tab-new"
+                    class="tab-link py-4 border-b-2 border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider transition-all">
+                <i class="fas fa-plus-circle mr-2"></i> <?= htmlspecialchars(__t('ui.x.collecter')) ?>
             </button>
-            <button onclick="switchTab('recycling')" id="tab-recycling" class="tab-btn flex-1 py-3 text-sm font-bold text-gray-400 border-b-[3px] border-transparent text-center uppercase tracking-wider whitespace-nowrap px-4">
-                <i class="fas fa-recycle mr-1"></i> Vente Recyclage
+            <button onclick="switchTab('recycling')" id="tab-recycling"
+                    class="tab-link py-4 border-b-2 border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider transition-all">
+                <i class="fas fa-recycle mr-2"></i> <?= htmlspecialchars(__t('ui.x.vente_recyclage')) ?>
             </button>
-            <button onclick="switchTab('history')" id="tab-history" class="tab-btn flex-1 py-3 text-sm font-bold text-gray-400 border-b-[3px] border-transparent text-center uppercase tracking-wider whitespace-nowrap px-4">
-                <i class="fas fa-history mr-1"></i> Historique
+            <button onclick="switchTab('history')" id="tab-history"
+                    class="tab-link py-4 border-b-2 border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider transition-all">
+                <i class="fas fa-history mr-2"></i> <?= htmlspecialchars(__t('ui.x.historique')) ?>
             </button>
-            <?php if(in_array($_SESSION['user_role'], ['admin', 'finance', 'accountant'])): ?>
-            <button onclick="switchTab('revenue')" id="tab-revenue" class="tab-btn flex-1 py-3 text-sm font-bold text-gray-400 border-b-[3px] border-transparent text-center uppercase tracking-wider whitespace-nowrap px-4">
-                <i class="fas fa-chart-line mr-1"></i> Revenus Recyclage
+            <?php if ($canViewRevenue): ?>
+            <button onclick="switchTab('revenue')" id="tab-revenue"
+                    class="tab-link py-4 border-b-2 border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider transition-all">
+                <i class="fas fa-chart-line mr-2"></i> <?= htmlspecialchars(__t('ui.x.revenus_recyclage')) ?>
             </button>
             <?php endif; ?>
-        </nav>
 
-        <main role="main" id="main" class="lpc-page relative">
+            <div class="lpc-toolbar-sep"></div>
 
-            <div id="content-owed" class="tab-content active max-w-4xl mx-auto pb-20">
-                <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-3">
-                    <h2 class="text-sm font-black text-gray-800 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.soldes_clients_a_recuperer')) ?></h2>
-                    <div class="relative w-full md:w-64">
-                        <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                        <input type="text" onkeyup="filterTable('tbody-owed', this.value)" placeholder="Filtrer client..." class="w-full pl-9 pr-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold outline-none focus:ring-1 focus:ring-lpc-dark shadow-sm">
+            <?php /* Primary action is per-tab. #btn-primary-action is one node,
+                     re-labelled and re-wired in switchTab(). Keeps the visual
+                     anchor stable across tabs — the button is always in the
+                     same place. */ ?>
+            <button id="btn-primary-action" onclick="onPrimaryAction()" type="button"
+                    class="bg-gray-900 hover:bg-black text-white px-4 md:px-5 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2 shrink-0 lpc-focusable">
+                <i class="fas fa-plus" id="btn-primary-icon"></i>
+                <span id="btn-primary-text"><?= htmlspecialchars(__t('ui.x.nouvelle_collecte')) ?></span>
+            </button>
+
+            <a href="/modules/crm/clients.php"
+               data-perm="crm.clients.view"
+               class="w-11 h-11 rounded-xl border border-lpc-border bg-white text-gray-500 hover:text-lpc-dark hover:border-lpc-dark flex items-center justify-center shrink-0 transition-all lpc-focusable"
+               title="<?= htmlspecialchars(__t('ui.x.base_clients_qui_doit_quoi')) ?>"
+               aria-label="<?= htmlspecialchars(__t('ui.x.base_clients_qui_doit_quoi')) ?>">
+                <i class="fas fa-users"></i>
+            </a>
+
+            <a href="/modules/inventory/stock.php#emballages"
+               data-perm="inventory.stock.view"
+               class="w-11 h-11 rounded-xl border border-lpc-border bg-white text-gray-500 hover:text-lpc-dark hover:border-lpc-dark flex items-center justify-center shrink-0 transition-all lpc-focusable"
+               title="<?= htmlspecialchars(__t('ui.x.stock_emballages_disponibles')) ?>"
+               aria-label="<?= htmlspecialchars(__t('ui.x.stock_emballages_disponibles')) ?>">
+                <i class="fas fa-warehouse"></i>
+            </a>
+
+            <div class="lpc-toolbar-sep"></div>
+
+            <?php /* Period picker for the Revenus Recyclage tab. Hidden by
+                     default; handleTabUI() reveals it only for that tab. Same
+                     four options and default as Ventes / Achats — a single
+                     mental model across the app. */ ?>
+            <div id="period_wrapper" class="lpc-field hidden">
+                <label for="rev_period_type"><?= htmlspecialchars(__t('ui.x.periode_2')) ?></label>
+                <select id="rev_period_type" onchange="handlePeriodUI()">
+                    <option value="ytd" selected><?= htmlspecialchars(__t('ui.x.annee_en_cours_ytd')) ?></option>
+                    <option value="current_month"><?= htmlspecialchars(__t('ui.ce_mois')) ?></option>
+                    <option value="all"><?= htmlspecialchars(__t('ui.x.tout_l_historique')) ?></option>
+                    <option value="custom"><?= htmlspecialchars(__t('ui.x.plage_personnalisee')) ?></option>
+                </select>
+            </div>
+
+            <div id="custom_period_wrapper" class="hidden items-center gap-2 shrink-0">
+                <input type="month" id="rev_start_month" onchange="loadRevenueData()" class="lpc-control" aria-label="<?= htmlspecialchars(__t('ui.x.mois_de_debut')) ?>">
+                <span class="text-gray-500 font-bold text-sm">à</span>
+                <input type="month" id="rev_end_month" onchange="loadRevenueData()" class="lpc-control" aria-label="<?= htmlspecialchars(__t('ui.x.mois_de_fin')) ?>">
+            </div>
+
+            <?php
+            // Help for THIS page. Renders nothing until an article is anchored
+            // to 'operations.empties_collection' (migration 069) or the reader
+            // lacks the gating permission, so it is safe either way.
+            echo lpc_help_link('operations.empties_collection', $lang, ['class' => 'ml-auto']);
+            ?>
+        </div>
+
+        <main role="main" id="main" class="lpc-page lpc-page-col">
+
+            <h2 class="text-lg font-black text-gray-800 mb-4"><?= htmlspecialchars(__t('ui.x.indicateurs_cles_kpis')) ?></h2>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-6" id="kpi-ribbon"></div>
+
+            <!-- ==============================================================
+                 TAB: DUS — outstanding empties balances per client
+                 ============================================================== -->
+            <div id="content-owed" class="tab-content active">
+                <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[400px]">
+                    <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 shrink-0">
+                        <h3 class="text-sm font-black text-gray-800 uppercase tracking-widest shrink-0">
+                            <?= htmlspecialchars(__t('ui.x.soldes_clients_a_recuperer')) ?>
+                        </h3>
+                        <div class="relative w-full max-w-sm">
+                            <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                            <label for="owed-search" class="sr-only"><?= htmlspecialchars(__t('ui.x.filtrer_client_ou_produit')) ?></label>
+                            <input type="text" id="owed-search"
+                                   placeholder="<?= htmlspecialchars(__t('ui.x.filtrer_client_ou_produit')) ?>"
+                                   oninput="filterOwedTable(this.value)"
+                                   class="w-full pl-11 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-dark focus:bg-white transition-all">
+                        </div>
                     </div>
-                </div>
-                
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left border-collapse min-w-[600px]">
-                            <thead class="bg-gray-50 text-[10px] uppercase text-gray-400 font-black tracking-widest border-b border-gray-200">
+                    <div class="overflow-auto flex-1">
+                        <table class="min-w-full text-left border-collapse">
+                            <thead class="bg-gray-50 border-b border-gray-200 sticky top-0 z-10 text-[10px] uppercase text-gray-500 font-black tracking-widest">
                                 <tr>
                                     <th class="py-3 px-4"><?= htmlspecialchars(__t('ui.x.client_site')) ?></th>
                                     <th class="py-3 px-4"><?= htmlspecialchars(__t('ui.x.type_bouteille')) ?></th>
-                                    <th class="py-3 px-4 text-center text-blue-500" title="Total Livré"><?= htmlspecialchars(__t('ui.x.livres_out')) ?></th>
-                                    <th class="py-3 px-4 text-center text-green-500" title="Total Rendu"><?= htmlspecialchars(__t('ui.x.rendus_in')) ?></th>
-                                    <th class="py-3 px-4 text-center text-rose-500 bg-rose-50" title="Actuellement Dû"><?= htmlspecialchars(__t('ui.x.solde_du')) ?></th>
+                                    <th class="py-3 px-4 text-center text-blue-500" title="<?= htmlspecialchars(__t('ui.x.total_livre')) ?>"><?= htmlspecialchars(__t('ui.x.livres_out')) ?></th>
+                                    <th class="py-3 px-4 text-center text-green-500" title="<?= htmlspecialchars(__t('ui.x.total_rendu')) ?>"><?= htmlspecialchars(__t('ui.x.rendus_in')) ?></th>
+                                    <th class="py-3 px-4 text-center text-rose-500 bg-rose-50" title="<?= htmlspecialchars(__t('ui.x.actuellement_du')) ?>"><?= htmlspecialchars(__t('ui.x.solde_du')) ?></th>
                                     <th class="py-3 px-4 text-right"><?= htmlspecialchars(__t('ui.x.action')) ?></th>
                                 </tr>
                             </thead>
@@ -110,19 +202,22 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                 </div>
             </div>
 
-            <div id="content-new" class="tab-content max-w-2xl mx-auto pb-20">
+            <!-- ==============================================================
+                 TAB: COLLECTER — build a CRE the client will sign
+                 ============================================================== -->
+            <div id="content-new" class="tab-content max-w-3xl mx-auto">
                 <form id="form-cre" class="space-y-6">
                     <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                         <h3 class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3"><i class="fas fa-building mr-1"></i> <?= htmlspecialchars(__t('ui.x.1_identification_du_client')) ?></h3>
                         <div class="space-y-4">
                             <div>
-                                <label class="block text-xs font-bold text-gray-700 mb-1"><?= htmlspecialchars(__t('ui.x.client_principal')) ?></label>
+                                <label for="client_id" class="block text-xs font-bold text-gray-700 mb-1"><?= htmlspecialchars(__t('ui.x.client_principal')) ?></label>
                                 <select id="client_id" required onchange="loadSites()" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-black text-gray-900 outline-none focus:ring-2 focus:ring-lpc-dark">
                                     <option value=""><?= htmlspecialchars(__t('ui.x.selectionner')) ?></option>
                                 </select>
                             </div>
                             <div id="site_container" class="hidden">
-                                <label class="block text-xs font-bold text-gray-700 mb-1"><?= htmlspecialchars(__t('ui.x.site_succursale_optionnel')) ?></label>
+                                <label for="site_id" class="block text-xs font-bold text-gray-700 mb-1"><?= htmlspecialchars(__t('ui.x.site_succursale_optionnel')) ?></label>
                                 <select id="site_id" class="w-full bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm font-bold text-blue-900 outline-none focus:ring-2 focus:ring-blue-500">
                                     <option value=""><?= htmlspecialchars(__t('ui.x.siege_principal')) ?></option>
                                 </select>
@@ -132,45 +227,29 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
 
                     <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                         <h3 class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3"><i class="fas fa-wine-bottle mr-1"></i> <?= htmlspecialchars(__t('ui.x.2_quantites_recuperees')) ?></h3>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div class="bg-gray-50 p-3 rounded-xl border border-gray-200 text-center">
-                                <p class="text-xs font-black text-gray-800 mb-2"><?= htmlspecialchars(__t('ui.x.bouteilles_20l')) ?></p>
-                                <div class="space-y-3">
-                                    <div>
-                                        <label class="text-[10px] font-bold text-gray-500 uppercase"><?= htmlspecialchars(__t('ui.x.avec_bouchon')) ?></label>
-                                        <input type="number" id="qty_20l_cork" min="0" value="0" class="w-full mt-1 border border-gray-300 rounded-lg p-2 outline-none focus:border-lpc-dark focus:ring-1 focus:ring-lpc-dark">
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-bold text-rose-500 uppercase"><?= htmlspecialchars(__t('ui.x.sans_bouchon')) ?></label>
-                                        <input type="number" id="qty_20l_nocork" min="0" value="0" class="w-full mt-1 border border-rose-300 bg-rose-50 text-rose-900 rounded-lg p-2 outline-none focus:border-rose-500">
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="bg-gray-50 p-3 rounded-xl border border-gray-200 text-center">
-                                <p class="text-xs font-black text-gray-800 mb-2"><?= htmlspecialchars(__t('ui.x.bouteilles_10l')) ?></p>
-                                <div class="space-y-3">
-                                    <div>
-                                        <label class="text-[10px] font-bold text-gray-500 uppercase"><?= htmlspecialchars(__t('ui.x.avec_bouchon')) ?></label>
-                                        <input type="number" id="qty_10l_cork" min="0" value="0" class="w-full mt-1 border border-gray-300 rounded-lg p-2 outline-none focus:border-lpc-dark focus:ring-1 focus:ring-lpc-dark">
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-bold text-rose-500 uppercase"><?= htmlspecialchars(__t('ui.x.sans_bouchon')) ?></label>
-                                        <input type="number" id="qty_10l_nocork" min="0" value="0" class="w-full mt-1 border border-rose-300 bg-rose-50 text-rose-900 rounded-lg p-2 outline-none focus:border-rose-500">
-                                    </div>
-                                </div>
-                            </div>
+                        <?php /* Cards are rendered by JS from the empties
+                                 catalogue so 1L / 5L / 1.5L / new sizes show
+                                 up automatically without touching this file.
+                                 Was hardcoded 20L+10L only until Sprint 8. */ ?>
+                        <div id="cre_qty_grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <p class="col-span-full text-center py-8 text-gray-400 font-bold text-xs"><i class="fas fa-spinner fa-spin"></i> <?= htmlspecialchars(__t('ui.x.chargement_du_catalogue_emballages')) ?></p>
                         </div>
                     </div>
 
-                    <button type="button" onclick="generateCRE()" class="w-full bg-lpc-dark hover:bg-green-800 text-white p-4 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-transform">
-                        <i class="fas fa-qrcode text-lg"></i> Générer le CRE & Code QR
+                    <button type="button" onclick="generateCRE()"
+                            <?= $canCreateCre ? '' : 'disabled title="' . htmlspecialchars(__t('ui.x.non_autorise')) . '"' ?>
+                            data-perm="operations.empties.create_cre"
+                            class="w-full bg-lpc-dark hover:bg-green-800 disabled:bg-gray-300 disabled:cursor-not-allowed text-white p-4 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-transform">
+                        <i class="fas fa-qrcode text-lg"></i> <?= htmlspecialchars(__t('ui.x.generer_le_cre_code_qr')) ?>
                     </button>
                 </form>
             </div>
 
-            <div id="content-recycling" class="tab-content max-w-2xl mx-auto pb-20">
+            <!-- ==============================================================
+                 TAB: VENTE RECYCLAGE — sell empties for cash to a recycler
+                 ============================================================== -->
+            <div id="content-recycling" class="tab-content max-w-3xl mx-auto">
                 <form id="form-recycle" class="space-y-6">
-                    
                     <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                         <h3 class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3"><i class="fas fa-map-marker-alt mr-1"></i> <?= htmlspecialchars(__t('ui.x.1_lieu_de_recyclage')) ?></h3>
                         <input type="text" id="recycler_location" placeholder="Ex: Usine de Recyclage Yassa..." required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-amber-500">
@@ -182,73 +261,17 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                             <span class="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200"><?= htmlspecialchars(__t('ui.x.paiement_cash')) ?></span>
                         </div>
 
-                        <div class="grid grid-cols-2 gap-4 mb-4">
-                            <div class="bg-gray-50 p-3 rounded-xl border border-gray-200 text-center">
-                                <p class="text-xs font-black text-gray-800 mb-1"><?= htmlspecialchars(__t('ui.x.bouteilles_20l')) ?></p>
-                                <div class="space-y-3">
-                                    <div>
-                                        <div class="flex justify-between items-center mb-1">
-                                            <label class="text-[10px] font-bold text-gray-500 uppercase"><?= htmlspecialchars(__t('ui.x.avec_bouchon')) ?></label>
-                                            <span class="flex items-center gap-1">
-                                                <span id="price_901" class="text-[10px] font-black text-amber-600">... F</span>
-                                                <?php if ($canOverridePrice): ?>
-                                                <button type="button" class="js-edit-price text-gray-400 hover:text-amber-600 transition-colors p-0.5" data-legacy="901" title="<?= htmlspecialchars($editPriceLabel) ?>" aria-label="<?= htmlspecialchars($editPriceLabel) ?>"><i class="fas fa-pen text-[9px]"></i></button>
-                                                <?php endif; ?>
-                                            </span>
-                                        </div>
-                                        <input type="number" id="rec_901" min="0" value="0" oninput="calcRecycleTotal()" class="w-full border border-gray-300 rounded-lg p-2 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
-                                    </div>
-                                    <div>
-                                        <div class="flex justify-between items-center mb-1">
-                                            <label class="text-[10px] font-bold text-rose-500 uppercase"><?= htmlspecialchars(__t('ui.x.sans_bouchon')) ?></label>
-                                            <span class="flex items-center gap-1">
-                                                <span id="price_902" class="text-[10px] font-black text-amber-600">... F</span>
-                                                <?php if ($canOverridePrice): ?>
-                                                <button type="button" class="js-edit-price text-gray-400 hover:text-amber-600 transition-colors p-0.5" data-legacy="902" title="<?= htmlspecialchars($editPriceLabel) ?>" aria-label="<?= htmlspecialchars($editPriceLabel) ?>"><i class="fas fa-pen text-[9px]"></i></button>
-                                                <?php endif; ?>
-                                            </span>
-                                        </div>
-                                        <input type="number" id="rec_902" min="0" value="0" oninput="calcRecycleTotal()" class="w-full border border-rose-300 bg-rose-50 text-rose-900 rounded-lg p-2 outline-none focus:border-rose-500">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="bg-gray-50 p-3 rounded-xl border border-gray-200 text-center">
-                                <p class="text-xs font-black text-gray-800 mb-1"><?= htmlspecialchars(__t('ui.x.bouteilles_10l')) ?></p>
-                                <div class="space-y-3">
-                                    <div>
-                                        <div class="flex justify-between items-center mb-1">
-                                            <label class="text-[10px] font-bold text-gray-500 uppercase"><?= htmlspecialchars(__t('ui.x.avec_bouchon')) ?></label>
-                                            <span class="flex items-center gap-1">
-                                                <span id="price_903" class="text-[10px] font-black text-amber-600">... F</span>
-                                                <?php if ($canOverridePrice): ?>
-                                                <button type="button" class="js-edit-price text-gray-400 hover:text-amber-600 transition-colors p-0.5" data-legacy="903" title="<?= htmlspecialchars($editPriceLabel) ?>" aria-label="<?= htmlspecialchars($editPriceLabel) ?>"><i class="fas fa-pen text-[9px]"></i></button>
-                                                <?php endif; ?>
-                                            </span>
-                                        </div>
-                                        <input type="number" id="rec_903" min="0" value="0" oninput="calcRecycleTotal()" class="w-full border border-gray-300 rounded-lg p-2 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
-                                    </div>
-                                    <div>
-                                        <div class="flex justify-between items-center mb-1">
-                                            <label class="text-[10px] font-bold text-rose-500 uppercase"><?= htmlspecialchars(__t('ui.x.sans_bouchon')) ?></label>
-                                            <span class="flex items-center gap-1">
-                                                <span id="price_904" class="text-[10px] font-black text-amber-600">... F</span>
-                                                <?php if ($canOverridePrice): ?>
-                                                <button type="button" class="js-edit-price text-gray-400 hover:text-amber-600 transition-colors p-0.5" data-legacy="904" title="<?= htmlspecialchars($editPriceLabel) ?>" aria-label="<?= htmlspecialchars($editPriceLabel) ?>"><i class="fas fa-pen text-[9px]"></i></button>
-                                                <?php endif; ?>
-                                            </span>
-                                        </div>
-                                        <input type="number" id="rec_904" min="0" value="0" oninput="calcRecycleTotal()" class="w-full border border-rose-300 bg-rose-50 text-rose-900 rounded-lg p-2 outline-none focus:border-rose-500">
-                                    </div>
-                                </div>
-                            </div>
+                        <?php /* Also rendered by JS from the empties catalogue,
+                                 so a new empty product priced in Master Data
+                                 appears here on the next page load. */ ?>
+                        <div id="rec_qty_grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                            <p class="col-span-full text-center py-8 text-gray-400 font-bold text-xs"><i class="fas fa-spinner fa-spin"></i> <?= htmlspecialchars(__t('ui.x.chargement_du_catalogue_emballages')) ?></p>
                         </div>
-                        
-                        <!-- Migration 060: standing reminder that this sale is
-                             priced off-catalogue. Hidden until an override
-                             exists, and lists each one so the driver sees the
-                             negotiated figures next to the cash he is about to
-                             count. -->
+
+                        <!-- Standing reminder that this sale is priced off-catalogue.
+                             Hidden until an override exists, and lists each one
+                             so the driver sees the negotiated figures next to
+                             the cash he is about to count. -->
                         <div id="override_banner" class="hidden bg-orange-50 border border-orange-200 rounded-xl p-3 mb-3">
                             <div class="flex items-start gap-2">
                                 <i class="fas fa-tag text-orange-500 mt-0.5"></i>
@@ -265,33 +288,64 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                         </div>
                     </div>
 
-                    <button type="button" onclick="submitRecycling()" id="btn-submit-recycling" class="w-full bg-amber-500 hover:bg-amber-600 text-white p-4 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-transform">
-                        <i class="fas fa-hand-holding-usd text-lg"></i> Valider la Vente au Recycleur
+                    <button type="button" onclick="submitRecycling()" id="btn-submit-recycling"
+                            <?= $canSellRecycler ? '' : 'disabled title="' . htmlspecialchars(__t('ui.x.non_autorise')) . '"' ?>
+                            data-perm="operations.recycling.sell"
+                            class="w-full bg-amber-500 hover:bg-amber-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white p-4 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-transform">
+                        <i class="fas fa-hand-holding-usd text-lg"></i> <?= htmlspecialchars(__t('ui.x.valider_la_vente_au_recycleur')) ?>
                     </button>
                 </form>
             </div>
 
-            <div id="content-history" class="tab-content max-w-2xl mx-auto pb-20">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-sm font-black text-gray-800 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.vos_collectes_recentes')) ?></h2>
-                    <button onclick="loadHistory()" class="text-lpc-dark"><i class="fas fa-sync-alt"></i></button>
+            <!-- ==============================================================
+                 TAB: HISTORIQUE — this operator's recent CREs, paginated
+                 ============================================================== -->
+            <div id="content-history" class="tab-content">
+                <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[400px]">
+                    <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 shrink-0">
+                        <h3 class="text-sm font-black text-gray-800 uppercase tracking-widest shrink-0">
+                            <?= htmlspecialchars(__t('ui.x.vos_collectes_recentes')) ?>
+                        </h3>
+                        <div class="relative w-full max-w-sm">
+                            <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                            <label for="history-search" class="sr-only"><?= htmlspecialchars(__t('ui.x.rechercher_reference_ou_client')) ?></label>
+                            <input type="text" id="history-search"
+                                   placeholder="<?= htmlspecialchars(__t('ui.x.rechercher_reference_ou_client')) ?>"
+                                   class="w-full pl-11 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-dark focus:bg-white transition-all">
+                        </div>
+                    </div>
+                    <div class="overflow-auto flex-1">
+                        <table class="min-w-full text-left border-collapse">
+                            <thead class="bg-gray-50 border-b border-gray-200 sticky top-0 z-10 text-[10px] uppercase text-gray-500 font-black tracking-widest">
+                                <tr>
+                                    <th class="py-3 px-4"><?= htmlspecialchars(__t('ui.x.date_reference')) ?></th>
+                                    <th class="py-3 px-4"><?= htmlspecialchars(__t('ui.x.client_4')) ?></th>
+                                    <th class="py-3 px-4 text-center"><?= htmlspecialchars(__t('ui.x.details_2')) ?></th>
+                                    <th class="py-3 px-4 text-center"><?= htmlspecialchars(__t('ui.x.statut')) ?></th>
+                                    <th class="py-3 px-4 text-right"><?= htmlspecialchars(__t('ui.x.actions')) ?></th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-history" class="divide-y divide-gray-100 text-sm">
+                                <tr><td colspan="5" class="text-center py-8 text-gray-400 font-bold"><i class="fas fa-spinner fa-spin"></i> <?= htmlspecialchars(__t('ui.x.chargement')) ?></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="history-pager" class="border-t border-gray-100"></div>
                 </div>
-                <div id="history_container" class="space-y-3"></div>
             </div>
-            
-            <?php if(in_array($_SESSION['user_role'], ['admin', 'finance', 'accountant'])): ?>
-            <div id="content-revenue" class="tab-content max-w-4xl mx-auto pb-20">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-sm font-black text-gray-800 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.tableau_de_bord_financier_vides')) ?></h2>
-                    <button onclick="loadRevenueData()" class="text-lpc-dark hover:text-green-700 transition-colors"><i class="fas fa-sync-alt"></i> <?= htmlspecialchars(__t('ui.actualiser')) ?></button>
-                </div>
 
+            <!-- ==============================================================
+                 TAB: REVENUS RECYCLAGE — KPIs + sales log + overrides register
+                 ============================================================== -->
+            <?php if ($canViewRevenue): ?>
+            <div id="content-revenue" class="tab-content">
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     <div class="bg-emerald-600 p-5 rounded-2xl shadow-lg text-white">
                         <p class="text-[10px] font-black uppercase tracking-widest opacity-80"><?= htmlspecialchars(__t('ui.x.revenu_total')) ?></p>
                         <h3 class="text-3xl font-black" id="kpi_rev_total">0 FCFA</h3>
+                        <p class="text-[10px] font-bold opacity-70 mt-1" id="kpi_rev_period_label">—</p>
                     </div>
-                    
+
                     <div class="md:col-span-2 bg-white border border-gray-200 p-4 rounded-2xl shadow-sm grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div class="text-center border-r border-gray-100">
                             <p class="text-[9px] font-black text-gray-400 uppercase"><?= htmlspecialchars(__t('ui.x.20l_bouchon')) ?></p>
@@ -313,8 +367,16 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                 </div>
 
                 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left border-collapse min-w-[600px]">
+                    <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
+                        <h3 class="text-sm font-black text-gray-800 uppercase tracking-widest">
+                            <?= htmlspecialchars(__t('ui.x.journal_des_ventes_recyclage')) ?>
+                        </h3>
+                        <button type="button" onclick="loadRevenueData()" class="text-lpc-dark hover:text-green-700 transition-colors text-xs font-black" aria-label="<?= htmlspecialchars(__t('ui.actualiser')) ?>">
+                            <i class="fas fa-sync-alt"></i> <?= htmlspecialchars(__t('ui.actualiser')) ?>
+                        </button>
+                    </div>
+                    <div class="overflow-auto">
+                        <table class="min-w-full text-left border-collapse">
                             <thead class="bg-gray-50 text-[10px] uppercase text-gray-400 font-black tracking-widest border-b border-gray-200">
                                 <tr>
                                     <th class="py-3 px-4"><?= htmlspecialchars(__t('ui.x.date_reference')) ?></th>
@@ -330,13 +392,10 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                     </div>
                 </div>
 
-                <!-- Migration 060 — the negotiated-price register. Placed under
-                     the revenue table on purpose: "why doesn't the cash match
-                     the catalogue?" and its answer belong on one screen. -->
                 <div class="mt-6">
-                    <h2 class="text-sm font-black text-gray-800 uppercase tracking-widest mb-3">
+                    <h3 class="text-sm font-black text-gray-800 uppercase tracking-widest mb-3">
                         <i class="fas fa-tag text-orange-500 mr-1"></i> <?= htmlspecialchars(__t('ui.x.registre_des_prix_negocies')) ?>
-                    </h2>
+                    </h3>
                     <div id="override_log" class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                         <p class="text-center py-6 text-gray-400 font-bold text-xs"><i class="fas fa-spinner fa-spin"></i> <?= htmlspecialchars(__t('ui.x.chargement')) ?></p>
                     </div>
@@ -347,10 +406,13 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
         </main>
     </div>
 
+    <!-- ==================================================================
+         MODAL: share CRE for client signature (WhatsApp / QR)
+         ================================================================== -->
     <div id="modal-share" class="hidden fixed inset-0 z-50 flex items-end md:items-center justify-center bg-gray-900/90 backdrop-blur-sm transition-opacity">
         <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
             <div class="bg-gray-50 p-6 text-center border-b border-gray-200 relative">
-                <button onclick="closeModal('modal-share')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800 text-2xl"><i class="fas fa-times-circle"></i></button>
+                <button onclick="closeModal('modal-share')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800 text-2xl" aria-label="<?= htmlspecialchars(__t('ui.common.close')) ?>"><i class="fas fa-times-circle"></i></button>
                 <h3 class="font-black text-xl text-gray-900 tracking-tight"><?= htmlspecialchars(__t('ui.x.faire_signer_le_client')) ?></h3>
                 <p class="text-xs font-bold text-gray-500 mt-1"><?= htmlspecialchars(__t('ui.x.ref_2')) ?> <span id="share_ref" class="text-lpc-dark font-black">CRE-...</span></p>
             </div>
@@ -362,25 +424,55 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                             <i class="fas fa-phone absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
                             <input type="tel" id="client_phone" placeholder="Ex: 6XXXXXXXX" class="w-full pl-9 pr-3 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold outline-none">
                         </div>
-                        <button onclick="shareWhatsApp()" class="bg-[#25D366] hover:bg-[#1ebe57] text-white px-5 rounded-xl font-black text-xl shadow-md"><i class="fab fa-whatsapp"></i></button>
+                        <button onclick="shareWhatsApp()" class="bg-[#25D366] hover:bg-[#1ebe57] text-white px-5 rounded-xl font-black text-xl shadow-md" aria-label="WhatsApp"><i class="fab fa-whatsapp"></i></button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- ==================================================================
+         MODAL: cancel a CRE that is stuck in en_transit
+         Introduced Sprint 8. Was previously impossible: the client had to
+         refuse for the row to leave 'en_transit', and until they did the
+         balance drifted (the empties they had already returned in person
+         stayed booked as owed).
+         ================================================================== -->
+    <div id="modal-cancel-cre" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+            <div class="bg-red-600 px-8 py-5 flex justify-between items-center text-white shrink-0">
+                <h3 class="font-black text-lg tracking-wide flex items-center"><i class="fas fa-ban mr-3"></i> <?= htmlspecialchars(__t('ui.x.annuler_le_cre')) ?></h3>
+                <button type="button" onclick="closeModal('modal-cancel-cre')" class="text-red-200 hover:text-white" aria-label="<?= htmlspecialchars(__t('ui.common.close')) ?>"><i class="fas fa-times text-xl"></i></button>
+            </div>
+            <div class="p-8 space-y-4">
+                <input type="hidden" id="cancel_cre_id" value="">
+                <p class="text-sm font-bold text-gray-700">
+                    <?= htmlspecialchars(__t('ui.x.cre_2')) ?> <span id="cancel_cre_ref" class="font-black text-gray-900">—</span>
+                </p>
+                <p class="text-xs text-gray-500 font-medium">
+                    <?= htmlspecialchars(__t('ui.x.annulation_cre_explication')) ?>
+                </p>
+                <div>
+                    <label for="cancel_cre_reason" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.motif')) ?> <span class="text-red-500">*</span></label>
+                    <textarea id="cancel_cre_reason" rows="3" maxlength="255" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-medium outline-none focus:ring-2 focus:ring-red-500" placeholder="<?= htmlspecialchars(__t('ui.x.ex_saisie_erronee')) ?>"></textarea>
+                </div>
+            </div>
+            <div class="bg-gray-50 px-8 py-5 border-t border-gray-200 flex justify-end gap-3 shrink-0">
+                <button type="button" onclick="closeModal('modal-cancel-cre')" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900"><?= htmlspecialchars(__t('ui.x.retour')) ?></button>
+                <button type="button" onclick="submitCancelCRE()" class="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm shadow-md flex items-center gap-2"><i class="fas fa-ban"></i> <?= htmlspecialchars(__t('ui.x.confirmer_l_annulation')) ?></button>
+            </div>
+        </div>
+    </div>
+
     <?php if ($canOverridePrice): ?>
-    <!-- =====================================================================
-         Migration 060 — negotiated price modal.
-         Static markup rather than a LPC.modal.custom() string: the reason is a
-         multi-line textarea with its own validation, and the live "impact"
-         preview needs stable element IDs to write into. Rendered once and
-         reused for whichever bottle type the operator taps.
+    <!-- ==================================================================
+         MODAL: negotiated price (migration 060). Static markup so the live
+         "impact" preview has stable IDs to write into.
          ================================================================== -->
     <div id="modal-price" class="hidden fixed inset-0 z-50 flex items-end md:items-center justify-center bg-gray-900/90 backdrop-blur-sm">
         <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
             <div class="bg-amber-50 p-5 border-b border-amber-200 relative">
-                <button type="button" onclick="closeModal('modal-price')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800 text-2xl" aria-label="<?= htmlspecialchars(__t('ui.fermer')) ?>"><i class="fas fa-times-circle"></i></button>
+                <button type="button" onclick="closeModal('modal-price')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800 text-2xl" aria-label="<?= htmlspecialchars(__t('ui.common.close')) ?>"><i class="fas fa-times-circle"></i></button>
                 <h3 class="font-black text-lg text-gray-900 tracking-tight"><?= htmlspecialchars(__t('ui.x.prix_negocie')) ?></h3>
                 <p class="text-xs font-bold text-gray-500 mt-0.5" id="price_modal_product">—</p>
             </div>
@@ -428,7 +520,12 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
     </div>
     <?php endif; ?>
 
-    <script>window.LPC_CAN_OVERRIDE_PRICE = <?= $canOverridePrice ? 'true' : 'false' ?>;</script>
+    <script>
+        window.LPC_CAN_OVERRIDE_PRICE = <?= $canOverridePrice ? 'true' : 'false' ?>;
+        window.LPC_CAN_CREATE_CRE     = <?= $canCreateCre ? 'true' : 'false' ?>;
+        window.LPC_CAN_SELL_RECYCLER  = <?= $canSellRecycler ? 'true' : 'false' ?>;
+        window.LPC_CAN_VIEW_REVENUE   = <?= $canViewRevenue ? 'true' : 'false' ?>;
+    </script>
     <script src="<?= lpc_asset('/assets/js/modules/operations-empties_collection.js') ?>" defer></script>
 </body>
 </html>
