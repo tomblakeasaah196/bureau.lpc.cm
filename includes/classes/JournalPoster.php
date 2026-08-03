@@ -1117,6 +1117,68 @@ final class JournalPoster
         return (int) $row['coa_id'];
     }
 
+    /**
+     * Apply a customer's wallet balance (OHADA 419 Clients, avances et acomptes
+     * reçus) to an invoice. Called from apply_client_wallet AFTER:
+     *   · client_wallets.balance has been decremented
+     *   · a payments row with payment_method = 'wallet' has been inserted
+     *
+     * OHADA lines:
+     *   Debit  419  Clients, avances et acomptes reçus   (the wallet drops)
+     *   Credit 411  Clients                              (the receivable drops)
+     *
+     * No treasury_transactions row: no cash actually moves. The wallet is
+     * already sitting on the balance sheet as a liability to the client — this
+     * entry simply nets it against the receivable.
+     *
+     * Rounding, source_type/source_id, and error semantics mirror
+     * postInvoicePayment. Called inside the caller's transaction.
+     *
+     * @param int $payment_id  payments.id (payment_method = 'wallet')
+     * @return int             journal_entries.id
+     */
+    public static function postWalletApplication(int $payment_id): int
+    {
+        $db = Database::getInstance()->getConnection();
+        $user_id = (int) ($_SESSION['user_id'] ?? 0);
+
+        $stmt = $db->prepare("
+            SELECT p.id, p.reference, p.invoice_id, p.client_id, p.amount, p.payment_date
+              FROM payments p
+             WHERE p.id = ? AND p.payment_method = 'wallet' FOR UPDATE
+        ");
+        $stmt->execute([$payment_id]);
+        $pay = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$pay) {
+            throw new RuntimeException("JournalPoster: wallet payment #{$payment_id} not found.");
+        }
+        $amount = self::roundFcfa((float) $pay['amount']);
+        if ($amount <= 0) {
+            throw new RuntimeException("JournalPoster: wallet payment #{$payment_id} has non-positive amount.");
+        }
+        if (empty($pay['invoice_id'])) {
+            // Applying a wallet with no invoice would post 419→411 with nothing
+            // to clear — that's the operational bug this method exists to
+            // prevent. Manual credit-note flows post 411→419 the other way.
+            throw new RuntimeException("JournalPoster: wallet payment #{$payment_id} has no invoice to clear.");
+        }
+
+        $client_419 = self::coaByOhada($db, '419');
+        $client_411 = self::coaByOhada($db, '411');
+        if (!$client_419) throw new RuntimeException("JournalPoster: 419 (avances clients) not mapped — run migration 020.");
+        if (!$client_411) throw new RuntimeException("JournalPoster: 411 (Clients) not mapped.");
+
+        $ref  = 'WLT-' . $pay['reference'];
+        $desc = "Imputation avoir client sur facture #{$pay['invoice_id']}";
+        $je_id = self::createDraftJe($db, $ref, 'OD', (string) $pay['payment_date'], $desc, $user_id,
+                                     'wallet_apply', (int) $payment_id);
+        self::addLine($db, $je_id, $client_419, $amount, 0.0);
+        self::addLine($db, $je_id, $client_411, 0.0,     $amount);
+        self::post($db, $je_id, $user_id);
+
+        return $je_id;
+    }
+
     private static function createDraftJe(
         PDO $db,
         string $ref,

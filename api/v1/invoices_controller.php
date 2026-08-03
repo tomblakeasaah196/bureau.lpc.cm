@@ -547,8 +547,10 @@ try {
                 $responseData['payments'] = array_merge($recons, $payments);
 
             } elseif ($tab === 'wallets') {
+                // client_id was missing from the SELECT — the frontend needs it
+                // to open the "apply wallet" modal against the right client.
                 $responseData['wallets'] = safeQueryAll($db, "
-                    SELECT cw.balance, cw.last_updated, c.name as client_name
+                    SELECT cw.client_id, cw.balance, cw.last_updated, c.name as client_name
                     FROM client_wallets cw
                     JOIN clients c ON cw.client_id = c.id
                     WHERE cw.balance > 0
@@ -1138,6 +1140,156 @@ try {
 
             $db->commit();
             echo json_encode(['status' => 'success']);
+            break;
+
+        // ==========================================
+        // ACTION: WALLET INVOICES (picker feed)
+        //
+        // Same shape as get_unpaid_invoices, but scoped to a client and always
+        // uses the AIR-aware balance formula. Kept separate so the wallet
+        // apply modal can be tightened later (e.g. exclude litigated invoices)
+        // without disturbing the payment modal's dropdown.
+        // ==========================================
+        case 'get_wallet_targets':
+            $client_id = (int) ($_GET['client_id'] ?? 0);
+            if ($client_id <= 0) {
+                echo json_encode(['status' => 'error', 'message' => 'Client requis.']);
+                break;
+            }
+
+            $walStmt = $db->prepare("SELECT COALESCE(balance, 0) AS balance FROM client_wallets WHERE client_id = ?");
+            $walStmt->execute([$client_id]);
+            $wallet = (float) ($walStmt->fetchColumn() ?: 0);
+
+            $stmt = $db->prepare("
+                SELECT id, reference, date, due_date, total_amount,
+                       (total_amount - COALESCE((
+                           SELECT SUM(amount + COALESCE(air_withheld_amount, 0))
+                             FROM payments
+                            WHERE invoice_id = invoices.id AND status = 'validated'
+                       ), 0)) AS balance
+                  FROM invoices
+                 WHERE client_id = ? AND status != 'paid'
+                 ORDER BY date ASC, id ASC
+            ");
+            $stmt->execute([$client_id]);
+            $rows = array_values(array_filter(
+                $stmt->fetchAll(PDO::FETCH_ASSOC),
+                static fn($r) => (float) $r['balance'] > 0
+            ));
+
+            echo json_encode([
+                'status'         => 'success',
+                'wallet_balance' => $wallet,
+                'invoices'       => $rows,
+            ]);
+            break;
+
+        // ==========================================
+        // ACTION: APPLY WALLET
+        //
+        // Consumes a chunk of client_wallets.balance against an open invoice.
+        // Steps (all inside one transaction):
+        //   1. Lock the wallet row and the target invoice row.
+        //   2. Clamp the requested amount to min(wallet, invoice_open_balance).
+        //   3. Insert a 'wallet' payment row (validated, logged_by = operator).
+        //   4. Decrement client_wallets.balance.
+        //   5. Recompute invoice.status (paid / partial) from the AIR-aware SUM.
+        //   6. JournalPoster::postWalletApplication → Dr 419 / Cr 411.
+        // ==========================================
+        case 'apply_client_wallet':
+            Rbac::requirePermission('accounting.invoices.record_payment');
+            require_once __DIR__ . '/../../includes/classes/JournalPoster.php';
+
+            $client_id  = (int)   ($jsonData['client_id']  ?? 0);
+            $invoice_id = (int)   ($jsonData['invoice_id'] ?? 0);
+            $amount_req = (float) ($jsonData['amount']     ?? 0);
+
+            if ($client_id <= 0 || $invoice_id <= 0 || $amount_req <= 0) {
+                throw new UserFacingException("Paramètres incomplets pour l'imputation d'avoir.");
+            }
+
+            $db->beginTransaction();
+
+            // Lock the wallet
+            $stmtW = $db->prepare("SELECT balance FROM client_wallets WHERE client_id = ? FOR UPDATE");
+            $stmtW->execute([$client_id]);
+            $wallet_bal = (float) ($stmtW->fetchColumn() ?: 0);
+            if ($wallet_bal <= 0) {
+                throw new UserFacingException("Aucun avoir disponible pour ce client.");
+            }
+
+            // Lock the invoice and check it belongs to the same client
+            $stmtInv = $db->prepare("
+                SELECT id, client_id, total_amount, status,
+                       COALESCE((SELECT SUM(amount + COALESCE(air_withheld_amount, 0))
+                                   FROM payments WHERE invoice_id = ? AND status = 'validated'), 0) AS paid_amount
+                  FROM invoices WHERE id = ? FOR UPDATE
+            ");
+            $stmtInv->execute([$invoice_id, $invoice_id]);
+            $inv = $stmtInv->fetch(PDO::FETCH_ASSOC);
+            if (!$inv) {
+                throw new UserFacingException("Facture introuvable.");
+            }
+            if ((int) $inv['client_id'] !== $client_id) {
+                throw new UserFacingException("Facture et client ne correspondent pas.");
+            }
+            if ($inv['status'] === 'paid') {
+                throw new UserFacingException("Cette facture est déjà soldée.");
+            }
+
+            $open = max(0.0, (float) $inv['total_amount'] - (float) $inv['paid_amount']);
+            if ($open <= 0) {
+                throw new UserFacingException("Cette facture n'a plus de solde ouvert.");
+            }
+
+            // Clamp — the caller can request more than the smaller of the two,
+            // but we never consume beyond wallet OR beyond invoice open balance.
+            $amount = min($amount_req, $wallet_bal, $open);
+            $amount = round($amount, 0);
+            if ($amount <= 0) {
+                throw new UserFacingException("Montant à imputer nul après ajustement.");
+            }
+
+            // 1. Payments row (wallet method)
+            $payRef = 'WLT-' . strtoupper(substr(md5(uniqid()), 0, 6));
+            $stmtPay = $db->prepare("
+                INSERT INTO payments (reference, invoice_id, client_id, amount,
+                                      payment_method, payment_date, status,
+                                      logged_by, validated_by)
+                VALUES (?, ?, ?, ?, 'wallet', CURRENT_DATE(), 'validated', ?, ?)
+            ");
+            $stmtPay->execute([$payRef, $invoice_id, $client_id, $amount, $user_id, $user_id]);
+            $payment_id = (int) $db->lastInsertId();
+
+            // 2. Decrement wallet
+            $db->prepare("UPDATE client_wallets SET balance = balance - ? WHERE client_id = ?")
+               ->execute([$amount, $client_id]);
+
+            // 3. Recompute invoice status
+            $new_paid = (float) $inv['paid_amount'] + $amount;
+            $status = ($new_paid >= (float) $inv['total_amount']) ? 'paid' : 'partial';
+            $db->prepare("UPDATE invoices SET status = ? WHERE id = ?")
+               ->execute([$status, $invoice_id]);
+
+            // 4. Journal entry (Dr 419 / Cr 411)
+            try {
+                JournalPoster::postWalletApplication($payment_id);
+            } catch (RuntimeException $e) {
+                throw new UserFacingException(
+                    "L'imputation n'a pas pu être comptabilisée. Détail : " . $e->getMessage()
+                    . " — vérifiez le plan comptable OHADA (411 / 419)."
+                );
+            }
+
+            $db->commit();
+            echo json_encode([
+                'status'          => 'success',
+                'payment_id'      => $payment_id,
+                'amount_applied'  => $amount,
+                'invoice_status'  => $status,
+                'wallet_balance'  => $wallet_bal - $amount,
+            ]);
             break;
 
         default:

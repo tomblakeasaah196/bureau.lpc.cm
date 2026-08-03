@@ -84,7 +84,7 @@ if ($method === 'GET') {
         $q_accounts = $pdo->query("SELECT * FROM treasury_accounts WHERE status = 'active' ORDER BY type, name")->fetchAll();
         $q_transactions = $pdo->query("
             SELECT t.*, a.name as account_name, a.type as account_type, DATE_FORMAT(t.created_at, '%d/%m/%Y %H:%i') as date,
-            CASE WHEN t.transaction_type IN ('in_tournee', 'in_other', 'transfer_in') THEN 'in' ELSE 'out' END as type_direction
+            CASE WHEN t.transaction_type IN ('in_tournee', 'in_other', 'in_client_payment', 'transfer_in') THEN 'in' ELSE 'out' END as type_direction
             FROM treasury_transactions t
             JOIN treasury_accounts a ON t.account_id = a.id
             ORDER BY t.created_at DESC LIMIT 100
@@ -160,6 +160,78 @@ else if ($method === 'POST') {
 
             $pdo->commit();
             sendResponse('success', 'Compte créé avec succès.');
+        }
+
+        // 1b. UPDATE ACCOUNT METADATA (name, account_number, bank_name, iban…)
+        //
+        // Deliberately narrow: type, balance, status are NOT editable here.
+        //   · type is baked into the OHADA sub-account (5211 Afriland vs 5521 MoMo…).
+        //     Changing it would silently invalidate every past JE.
+        //   · balance is the sum of treasury_transactions — editing it here
+        //     would break the audit trail.
+        //   · status has its own archive workflow (out of scope for a typo fix).
+        // Fields that ARE editable are the "printed on the invoice" columns
+        // (bank_name, iban, swift, holder_name, show_on_invoice, sort_order)
+        // plus display name and account number. All optional and probed so the
+        // controller stays deployable on installs that haven't run 044.
+        if ($action === 'update_account') {
+            $acc_id = (int) ($payload['id'] ?? 0);
+            if ($acc_id <= 0) {
+                $pdo->rollBack();
+                sendResponse('error', 'Identifiant compte manquant.');
+            }
+
+            $stmt = $pdo->prepare("SELECT id FROM treasury_accounts WHERE id = ? AND status = 'active' FOR UPDATE");
+            $stmt->execute([$acc_id]);
+            if (!$stmt->fetchColumn()) {
+                $pdo->rollBack();
+                sendResponse('error', 'Compte introuvable ou archivé.');
+            }
+
+            $name = trim((string) ($payload['name'] ?? ''));
+            if ($name === '') {
+                $pdo->rollBack();
+                sendResponse('error', 'Le nom d\'affichage est obligatoire.');
+            }
+
+            // Column-by-column probe so the SET clause only names columns that
+            // actually exist. Same pattern as
+            // lpc_attach_invoice_payment_accounts in invoices_controller.
+            $has_col = function (string $col) use ($pdo): bool {
+                $s = $pdo->prepare("
+                    SELECT COUNT(*) FROM information_schema.columns
+                     WHERE table_schema = DATABASE()
+                       AND table_name = 'treasury_accounts'
+                       AND column_name = ?
+                ");
+                $s->execute([$col]);
+                return ((int) $s->fetchColumn() > 0);
+            };
+
+            $sets   = ['name = ?', 'account_number = ?'];
+            $params = [$name, trim((string) ($payload['account_number'] ?? '')) ?: null];
+
+            foreach (['bank_name', 'iban', 'swift', 'holder_name'] as $col) {
+                if ($has_col($col)) {
+                    $sets[]   = "$col = ?";
+                    $params[] = trim((string) ($payload[$col] ?? '')) ?: null;
+                }
+            }
+            if ($has_col('show_on_invoice') && array_key_exists('show_on_invoice', $payload)) {
+                $sets[]   = "show_on_invoice = ?";
+                $params[] = !empty($payload['show_on_invoice']) ? 1 : 0;
+            }
+            if ($has_col('sort_order') && array_key_exists('sort_order', $payload)) {
+                $sets[]   = "sort_order = ?";
+                $params[] = (int) $payload['sort_order'];
+            }
+
+            $params[] = $acc_id;
+            $sql = "UPDATE treasury_accounts SET " . implode(', ', $sets) . " WHERE id = ?";
+            $pdo->prepare($sql)->execute($params);
+
+            $pdo->commit();
+            sendResponse('success', 'Compte mis à jour.');
         }
 
         // 2. PROCESS DRIVER CASH (Retour de Tournée)

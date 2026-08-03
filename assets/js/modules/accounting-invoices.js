@@ -531,25 +531,118 @@
         function renderWallets(wallets) {
             const tbody = document.getElementById('table-body-wallets');
             tbody.innerHTML = '';
-            
+
             let totalAvoirs = 0;
 
             if(wallets.length === 0) {
-                tbody.innerHTML = LPC.html`<tr><td colspan="3" class="py-12 text-center text-gray-400 font-bold italic">Aucun avoir client actif enregistré.</td></tr>`;
+                tbody.innerHTML = LPC.html`<tr><td colspan="4" class="py-12 text-center text-gray-400 font-bold italic">Aucun avoir client actif enregistré.</td></tr>`;
             } else {
                 wallets.forEach(w => {
                     totalAvoirs += parseFloat(w.balance);
+                    // JSON.stringify(name) escapes any quote in the client name
+                    // so we can inline it in the onclick without breaking out of
+                    // the attribute — LPC.html above escapes for text nodes but
+                    // this is an attribute string built by hand.
+                    const nameArg = JSON.stringify(w.client_name || '');
                     tbody.innerHTML += LPC.html`
                         <tr class="hover:bg-purple-50/30 transition-colors">
                             <td class="py-5 px-8 font-black text-gray-900">${w.client_name}</td>
                             <td class="py-5 px-8 text-right font-black text-purple-700 bg-purple-50/10">${LPC.fmt.int(w.balance)} F</td>
                             <td class="py-5 px-8 text-right text-xs font-bold text-gray-400">${new Date(w.last_updated).toLocaleDateString('fr-FR')}</td>
+                            <td class="py-5 px-8 text-right">
+                                ${LPC.raw(`<button onclick="openWalletApplyModal(${parseInt(w.client_id,10)}, ${nameArg}, ${parseFloat(w.balance)})" class="bg-purple-700 hover:bg-purple-800 text-white px-4 py-2 rounded-lg text-[11px] font-black uppercase tracking-wider shadow transition-colors"><i class="fas fa-hand-holding-usd mr-1"></i> Utiliser</button>`)}
+                            </td>
                         </tr>`;
                 });
             }
-            
+
             // Update Summary Header
             document.getElementById('wallet-total-summary').innerText = LPC.fmt.fcfa(totalAvoirs);
+        }
+
+        /** ================= WALLET APPLICATION FLOW ================= */
+        async function openWalletApplyModal(clientId, clientName, balance) {
+            document.getElementById('wallet_apply_client_id').value = clientId;
+            document.getElementById('wallet_apply_client_name').innerText = clientName || '—';
+            document.getElementById('wallet_apply_balance').innerText = LPC.fmt.fcfa(balance);
+            document.getElementById('wallet_apply_amount').value = '';
+            document.getElementById('wallet_apply_amount').max = Math.floor(balance);
+
+            const sel = document.getElementById('wallet_apply_invoice_id');
+            sel.innerHTML = '<option value="">— Chargement… —</option>';
+
+            openModal('modal-wallet-apply');
+
+            try {
+                const data = await fetchJsonSafely(`/api/v1/invoices_controller.php?action=get_wallet_targets&client_id=${clientId}`);
+                if (data.status !== 'success') {
+                    sel.innerHTML = '<option value="">— Erreur —</option>';
+                    showToast(data.message || "Impossible de charger les factures.", "error");
+                    return;
+                }
+                if (!Array.isArray(data.invoices) || data.invoices.length === 0) {
+                    sel.innerHTML = '<option value="">— Aucune facture ouverte pour ce client —</option>';
+                    return;
+                }
+                sel.innerHTML = data.invoices.map(i =>
+                    LPC.html`<option value="${i.id}" data-balance="${i.balance}">Facture ${i.reference} (Reste Dû: ${LPC.fmt.int(i.balance)} F)</option>`
+                ).join('');
+                // Pre-fill the amount at the smaller of (wallet balance, first-invoice balance).
+                const firstBal = parseFloat(data.invoices[0].balance) || 0;
+                document.getElementById('wallet_apply_amount').value = Math.floor(Math.min(balance, firstBal));
+            } catch (e) {
+                sel.innerHTML = '<option value="">— Erreur réseau —</option>';
+                showToast(e.message, "error");
+            }
+        }
+
+        async function submitWalletApply() {
+            const btn = document.getElementById('btn-submit-wallet-apply');
+            const txt = document.getElementById('btn-submit-wallet-apply-text');
+            const spinner = document.getElementById('btn-submit-wallet-apply-spinner');
+            const reset = () => { btn.disabled = false; txt.classList.remove('hidden'); spinner.classList.add('hidden'); };
+
+            const clientId  = parseInt(document.getElementById('wallet_apply_client_id').value, 10);
+            const invoiceId = parseInt(document.getElementById('wallet_apply_invoice_id').value, 10);
+            const amount    = parseFloat(document.getElementById('wallet_apply_amount').value);
+
+            if (!clientId || !invoiceId) return showToast("Sélectionnez une facture cible.", "error");
+            if (!(amount > 0)) return showToast("Montant invalide.", "error");
+
+            btn.disabled = true; txt.classList.add('hidden'); spinner.classList.remove('hidden');
+
+            try {
+                const response = await fetch('/api/v1/invoices_controller.php', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        action: 'apply_client_wallet',
+                        client_id: clientId,
+                        invoice_id: invoiceId,
+                        amount: Math.round(amount),
+                    })
+                });
+                const raw = await response.text();
+                let result;
+                try {
+                    result = JSON.parse(raw);
+                } catch (e) {
+                    console.error("submitWalletApply — non-JSON response:", raw);
+                    throw new Error("Le serveur a renvoyé une erreur HTML. Consultez la console (F12).");
+                }
+
+                if (result.status === 'success') {
+                    closeModal('modal-wallet-apply');
+                    showToast(`Avoir imputé : ${LPC.fmt.fcfa(result.amount_applied)}. Facture ${result.invoice_status === 'paid' ? 'soldée' : 'partiellement réglée'}.`);
+                    fetchTabData(currentTab);
+                } else {
+                    showToast(result.message || "Erreur inconnue.", "error");
+                }
+            } catch (e) {
+                showToast(e.message || "Erreur réseau.", "error");
+            } finally {
+                reset();
+            }
         }
 
 

@@ -79,15 +79,20 @@
         function renderWallets() {
             const grid = document.getElementById('wallets-grid');
             grid.innerHTML = '';
-            
+
             globalData.accounts.forEach(a => {
                 let icon = a.type === 'caisse' ? 'fa-cash-register' : (a.type === 'momo' ? 'fa-mobile-alt' : 'fa-building');
                 let color = a.type === 'caisse' ? 'text-emerald-600' : 'text-blue-600';
-                
+
+                // Whole card is clickable. A tiny pencil icon in the corner
+                // signals "editable" — without it the click affordance is
+                // invisible and the operator will assume the card is a static
+                // KPI. The button and the card share the same handler.
                 grid.innerHTML += LPC.html`
-                    <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm relative overflow-hidden group">
+                    <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm relative overflow-hidden group cursor-pointer hover:border-lpc-dark hover:shadow-md transition-all" onclick="openEditAccountModal(${parseInt(a.id,10)})" title="Cliquer pour modifier les détails">
                         <div class="absolute -right-4 -bottom-4 opacity-5 text-6xl group-hover:scale-110 transition-transform"><i class="fas ${icon} ${color}"></i></div>
-                        <div class="flex items-center gap-2 mb-4">
+                        <button type="button" onclick="event.stopPropagation(); openEditAccountModal(${parseInt(a.id,10)})" class="absolute top-3 right-3 w-7 h-7 rounded-lg bg-gray-50 hover:bg-lpc-dark hover:text-white text-gray-400 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100" title="Modifier"><i class="fas fa-pen text-xs"></i></button>
+                        <div class="flex items-center gap-2 mb-4 pr-8">
                             <div class="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center border border-gray-200"><i class="fas ${icon} ${color}"></i></div>
                             <div>
                                 <h4 class="font-black text-gray-800 text-xs uppercase tracking-widest">${a.name}</h4>
@@ -416,6 +421,55 @@
             if (r) {
                 LPC.modal.alert("Requête envoyée à l'Administrateur pour approbation.");
                 closeModal('modal-edit-request');
+            }
+        }
+
+        // ================= EDIT ACCOUNT (typo fixes) ================= //
+        //
+        // Click any wallet card → this opens modal-edit-account prefilled from
+        // globalData.accounts. Type / balance / status stay read-only:
+        //   · Type is baked into the OHADA sub-account.
+        //   · Balance is derived from treasury_transactions — never edited.
+        //   · Status has its own archive workflow.
+        // The endpoint (update_account in treasury_controller) enforces the same.
+        function openEditAccountModal(accountId) {
+            const a = (globalData.accounts || []).find(x => parseInt(x.id, 10) === parseInt(accountId, 10));
+            if (!a) return LPC.modal.alert("Compte introuvable.");
+            document.getElementById('ea_id').value              = a.id;
+            document.getElementById('ea_type_display').innerText = a.type;
+            document.getElementById('ea_balance_display').innerText = LPC.fmt.fcfa(a.balance) + ' F';
+            document.getElementById('ea_name').value            = a.name || '';
+            document.getElementById('ea_number').value          = a.account_number || '';
+            // These four are migration-044 columns. Fall back to '' if the
+            // backend doesn't return them (older installs).
+            document.getElementById('ea_bank_name').value       = a.bank_name    || '';
+            document.getElementById('ea_iban').value            = a.iban         || '';
+            document.getElementById('ea_swift').value           = a.swift        || '';
+            document.getElementById('ea_holder_name').value     = a.holder_name  || '';
+            document.getElementById('ea_show_on_invoice').checked = !!parseInt(a.show_on_invoice || 0, 10);
+            openModal('modal-edit-account');
+        }
+
+        async function submitAccountUpdate() {
+            const id = parseInt(document.getElementById('ea_id').value, 10);
+            const name = document.getElementById('ea_name').value.trim();
+            if (!id)         return LPC.modal.alert("Identifiant compte manquant.");
+            if (!name)       return LPC.modal.alert("Le nom d'affichage est obligatoire.");
+            const payload = {
+                action:           'update_account',
+                id:               id,
+                name:             name,
+                account_number:   document.getElementById('ea_number').value.trim(),
+                bank_name:        document.getElementById('ea_bank_name').value.trim(),
+                iban:             document.getElementById('ea_iban').value.trim(),
+                swift:            document.getElementById('ea_swift').value.trim(),
+                holder_name:      document.getElementById('ea_holder_name').value.trim(),
+                show_on_invoice:  document.getElementById('ea_show_on_invoice').checked ? 1 : 0,
+            };
+            const r = await treasuryPost(payload, 'wallets');
+            if (r) {
+                LPC.modal.alert("Compte mis à jour.");
+                closeModal('modal-edit-account');
             }
         }
 

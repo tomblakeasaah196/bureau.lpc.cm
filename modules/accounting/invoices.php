@@ -69,6 +69,13 @@ $user_role = $_SESSION['user_role'];
                 <button onclick="switchTab('invoices_payments')" id="global-cash-alert" class="hidden items-center gap-2 bg-amber-100 text-amber-800 px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider pulse-alert border border-amber-300 transition-all hover:bg-amber-200 shadow-sm">
                     <i class="fas fa-money-bill-wave"></i> <span id="cash-alert-count">0</span> Caisse en Attente
                 </button>
+
+                <?php
+                // Help for THIS page. Renders nothing until migration 068 anchors
+                // articles to 'accounting.invoices', or if the reader lacks the
+                // gating permission — safe either way.
+                echo lpc_help_link('accounting.invoices', $lang, ['class' => 'ml-auto']);
+                ?>
         </div>
 
         <nav class="lpc-tabs">
@@ -331,6 +338,7 @@ $user_role = $_SESSION['user_role'];
                                     <th class="py-4 px-8 text-[10px] uppercase text-gray-400 font-black tracking-widest"><?= htmlspecialchars(__t('ui.x.identite_client')) ?></th>
                                     <th class="py-4 px-8 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right"><?= htmlspecialchars(__t('ui.x.solde_avoir_disponible_fcfa')) ?></th>
                                     <th class="py-4 px-8 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right"><?= htmlspecialchars(__t('ui.x.dernier_mouvement')) ?></th>
+                                    <th class="py-4 px-8 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right">Action</th>
                                 </tr>
                             </thead>
                             <tbody id="table-body-wallets" class="divide-y divide-gray-50 text-sm">
@@ -539,6 +547,55 @@ $user_role = $_SESSION['user_role'];
                 <button type="button" onclick="submitPayment()" id="btn-submit-payment" class="px-8 py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl font-bold text-sm shadow-xl transition-all flex items-center gap-2 transform hover:-translate-y-0.5">
                     <span id="btn-submit-payment-text"><i class="fas fa-check"></i> <?= htmlspecialchars(__t('ui.account.pin_confirm')) ?></span>
                     <i id="btn-submit-payment-spinner" class="fas fa-circle-notch fa-spin hidden"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Wallet Application Modal — "Utiliser l'avoir" -->
+    <div id="modal-wallet-apply" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
+            <div class="bg-purple-700 px-6 py-5 flex justify-between items-center text-white">
+                <h3 class="font-black text-lg tracking-wide flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-lg bg-purple-800 flex items-center justify-center border border-purple-600"><i class="fas fa-hand-holding-usd"></i></div>
+                    Imputer un avoir
+                </h3>
+                <button type="button" onclick="closeModal('modal-wallet-apply')" class="text-purple-200 hover:text-white transition-colors w-8 h-8 flex items-center justify-center rounded-full hover:bg-purple-800"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="p-8 bg-slate-50 space-y-5">
+                <div class="bg-purple-50 border border-purple-200 p-4 rounded-xl">
+                    <p class="text-[10px] font-black text-purple-500 uppercase tracking-widest mb-1">Client</p>
+                    <p class="text-base font-black text-purple-900" id="wallet_apply_client_name">—</p>
+                    <p class="text-[10px] font-black text-purple-500 uppercase tracking-widest mt-3">Avoir disponible</p>
+                    <p class="text-xl font-black text-purple-800" id="wallet_apply_balance">0 F</p>
+                </div>
+
+                <input type="hidden" id="wallet_apply_client_id" value="">
+
+                <div>
+                    <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Facture cible <span class="text-purple-500">*</span></label>
+                    <select id="wallet_apply_invoice_id" required class="w-full bg-white border border-gray-200 rounded-xl p-3.5 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-purple-500 shadow-sm cursor-pointer appearance-none transition-all">
+                        <option value="">— Chargement des factures ouvertes… —</option>
+                    </select>
+                    <p class="text-[10px] font-bold text-gray-400 mt-2 flex items-center gap-1.5 bg-gray-100 p-2 rounded-lg"><i class="fas fa-info-circle text-gray-400"></i> Seules les factures non soldées de ce client sont proposées.</p>
+                </div>
+
+                <div>
+                    <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Montant à imputer (FCFA) <span class="text-purple-500">*</span></label>
+                    <div class="relative">
+                        <span class="absolute left-4 top-1/2 -translate-y-1/2 font-black text-gray-400">F</span>
+                        <input type="number" id="wallet_apply_amount" min="1" required class="w-full bg-white border border-gray-200 text-gray-900 rounded-xl pl-10 pr-4 py-3 font-black text-lg outline-none focus:ring-2 focus:ring-purple-500 shadow-sm transition-all" placeholder="0">
+                    </div>
+                    <p class="text-[10px] font-bold text-gray-400 mt-2">Sera plafonné automatiquement au minimum de (avoir disponible ; reste dû de la facture).</p>
+                </div>
+            </div>
+
+            <div class="bg-white px-8 py-5 border-t border-gray-200 flex justify-end gap-3 rounded-b-2xl">
+                <button type="button" onclick="closeModal('modal-wallet-apply')" class="px-5 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
+                <button type="button" onclick="submitWalletApply()" id="btn-submit-wallet-apply" class="px-8 py-2.5 bg-purple-700 hover:bg-purple-800 text-white rounded-xl font-bold text-sm shadow-xl transition-all flex items-center gap-2 transform hover:-translate-y-0.5">
+                    <span id="btn-submit-wallet-apply-text"><i class="fas fa-check"></i> Imputer</span>
+                    <i id="btn-submit-wallet-apply-spinner" class="fas fa-circle-notch fa-spin hidden"></i>
                 </button>
             </div>
         </div>

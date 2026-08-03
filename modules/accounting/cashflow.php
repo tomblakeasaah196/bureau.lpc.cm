@@ -312,6 +312,72 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
+    <!-- Edit account modal — opens on card click. Corrects typos only:
+         type / balance / status are shown read-only for the reasons documented
+         in treasury_controller::update_account. -->
+    <div id="modal-edit-account" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col animate-slide-up">
+            <div class="bg-treasury-dark px-6 py-5 flex justify-between items-center text-white border-b border-green-800">
+                <h3 class="font-black text-lg tracking-wide flex items-center gap-3"><i class="fas fa-pen"></i> Modifier le compte</h3>
+                <button type="button" onclick="closeModal('modal-edit-account')" class="text-green-200 hover:text-white transition-colors"><i class="fas fa-times text-xl"></i></button>
+            </div>
+            <div class="p-8 bg-slate-50 max-h-[70vh] overflow-y-auto">
+                <input type="hidden" id="ea_id" value="">
+
+                <div class="grid grid-cols-2 gap-4 mb-5 bg-gray-100 rounded-xl p-4">
+                    <div>
+                        <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Type</p>
+                        <p class="text-sm font-black text-gray-800 uppercase mt-1" id="ea_type_display">—</p>
+                    </div>
+                    <div>
+                        <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Solde actuel</p>
+                        <p class="text-sm font-black text-gray-800 mt-1" id="ea_balance_display">—</p>
+                    </div>
+                    <p class="col-span-2 text-[10px] font-bold text-gray-500 italic">Type et solde ne sont pas modifiables ici. Le solde évolue via les mouvements ; le type est lié au plan comptable OHADA.</p>
+                </div>
+
+                <form id="form-edit-account" class="space-y-4" onsubmit="event.preventDefault(); submitAccountUpdate();">
+                    <div>
+                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Nom d'affichage *</label>
+                        <input type="text" id="ea_name" required class="w-full bg-white border border-gray-200 rounded-lg p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-treasury-light">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Numéro de compte / téléphone</label>
+                        <input type="text" id="ea_number" class="w-full bg-white border border-gray-200 rounded-lg p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-treasury-light">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Banque (nom)</label>
+                            <input type="text" id="ea_bank_name" placeholder="Ex: Afriland First Bank" class="w-full bg-white border border-gray-200 rounded-lg p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-treasury-light">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Intitulé du titulaire</label>
+                            <input type="text" id="ea_holder_name" class="w-full bg-white border border-gray-200 rounded-lg p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-treasury-light">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">IBAN</label>
+                            <input type="text" id="ea_iban" class="w-full bg-white border border-gray-200 rounded-lg p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-treasury-light">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">SWIFT / BIC</label>
+                            <input type="text" id="ea_swift" class="w-full bg-white border border-gray-200 rounded-lg p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-treasury-light">
+                        </div>
+                    </div>
+                    <label class="flex items-center gap-2 bg-treasury-light/10 border border-treasury-light/30 p-3 rounded-lg cursor-pointer">
+                        <input type="checkbox" id="ea_show_on_invoice" class="w-4 h-4">
+                        <span class="text-xs font-bold text-treasury-dark">Proposer ce compte sur les factures</span>
+                    </label>
+                </form>
+            </div>
+            <div class="bg-white px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+                <button type="button" onclick="closeModal('modal-edit-account')" class="px-5 py-2.5 text-sm font-bold text-gray-500"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
+                <button type="button" onclick="submitAccountUpdate()" class="px-6 py-2.5 bg-gray-900 text-white rounded-lg font-bold text-sm shadow-md"><i class="fas fa-save mr-1"></i> Enregistrer</button>
+            </div>
+        </div>
+    </div>
+
     <script type="application/json" id="lpc-page-data"><?= json_encode(['v1' => $_SESSION['user_name'] ?? 'Admin'], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
 <script src="<?= lpc_asset('/assets/js/modules/accounting-cashflow.js') ?>" defer></script>
 </body>
