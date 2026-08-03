@@ -65,7 +65,34 @@ $user_role = $_SESSION['user_role'];
 
     <div id="lpc-shell-main">
 
+        <!-- Tabs live IN the toolbar now (was a separate <nav class="lpc-tabs">).
+             The four tab buttons keep their existing tab-link styling — the
+             underline-on-active still works inside the toolbar. The cash alert
+             and help button sit at the right of the same row via ml-auto on
+             the first right-aligned element. -->
         <div class="lpc-toolbar">
+                <button onclick="switchTab('dashboard')" class="tab-link py-4 border-b-[3px] border-lpc-dark text-lpc-dark font-black text-sm uppercase tracking-wider whitespace-nowrap transition-colors" id="tab-dashboard">
+                    <i class="fas fa-chart-line mr-2"></i> Balance Âgée
+                </button>
+
+                <button onclick="switchTab('to_invoice')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap relative transition-colors" id="tab-to_invoice">
+                    <i class="fas fa-clipboard-list mr-2"></i> BL Non Facturés
+                    <span id="badge-to-invoice" class="absolute top-2 right-[-12px] bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full hidden shadow-sm animate-pulse">0</span>
+                </button>
+
+                <button onclick="switchTab('invoices_payments')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap transition-colors" id="tab-invoices_payments">
+                    <i class="fas fa-cash-register mr-2"></i> Factures & Caisse
+                </button>
+
+                <button onclick="switchTab('wallets')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap transition-colors" id="tab-wallets">
+                    <i class="fas fa-wallet mr-2"></i> Trop Perçus (Avoirs)
+                </button>
+
+                <!-- Empty spacer with ml-auto guarantees the divider between
+                     tabs (left cluster) and controls (right cluster) regardless
+                     of whether the cash-alert badge is currently shown. -->
+                <div class="ml-auto"></div>
+
                 <button onclick="switchTab('invoices_payments')" id="global-cash-alert" class="hidden items-center gap-2 bg-amber-100 text-amber-800 px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider pulse-alert border border-amber-300 transition-all hover:bg-amber-200 shadow-sm">
                     <i class="fas fa-money-bill-wave"></i> <span id="cash-alert-count">0</span> Caisse en Attente
                 </button>
@@ -74,28 +101,9 @@ $user_role = $_SESSION['user_role'];
                 // Help for THIS page. Renders nothing until migration 068 anchors
                 // articles to 'accounting.invoices', or if the reader lacks the
                 // gating permission — safe either way.
-                echo lpc_help_link('accounting.invoices', $lang, ['class' => 'ml-auto']);
+                echo lpc_help_link('accounting.invoices', $lang);
                 ?>
         </div>
-
-        <nav class="lpc-tabs">
-            <button onclick="switchTab('dashboard')" class="tab-link py-4 border-b-[3px] border-lpc-dark text-lpc-dark font-black text-sm uppercase tracking-wider whitespace-nowrap transition-colors" id="tab-dashboard">
-                <i class="fas fa-chart-line mr-2"></i> Balance Âgée
-            </button>
-            
-            <button onclick="switchTab('to_invoice')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap relative transition-colors" id="tab-to_invoice">
-                <i class="fas fa-clipboard-list mr-2"></i> BL Non Facturés
-                <span id="badge-to-invoice" class="absolute top-2 right-[-12px] bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full hidden shadow-sm animate-pulse">0</span>
-            </button>
-            
-            <button onclick="switchTab('invoices_payments')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap transition-colors" id="tab-invoices_payments">
-                <i class="fas fa-cash-register mr-2"></i> Factures & Caisse
-            </button>
-            
-            <button onclick="switchTab('wallets')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap transition-colors" id="tab-wallets">
-                <i class="fas fa-wallet mr-2"></i> Trop Perçus (Avoirs)
-            </button>
-        </nav>
 
         <main role="main" id="main" class="lpc-page lpc-page-col relative">
 
