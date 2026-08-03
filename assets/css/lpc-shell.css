@@ -695,9 +695,17 @@ html.lpc-collapsed #lpc-topbar { left: var(--lpc-sidebar-w-collapsed); }
 .lpc-tabs[data-lpc-async]:empty { display: flex; min-height: var(--lpc-tabs-h); }
 
 /* Every segment: same height, same radius, same type — regardless of the
-   py-3/py-4 and border-b-2/border-b-[3px] each page was written with. */
+   py-3/py-4 and border-b-2/border-b-[3px] each page was written with.
+
+   The .lpc-toolbar variant lets pages consolidate their tabs into the toolbar
+   row (as invoices.php and stock.php do) without losing the lemon-green pill
+   look. .tab-link is the canonical class every page's tab button already
+   carries, so no page markup change is needed to opt in — moving the button
+   from a <nav class="lpc-tabs"> into .lpc-toolbar is enough. */
 .lpc-tabs > button,
-.lpc-tabs > a {
+.lpc-tabs > a,
+.lpc-toolbar > button.tab-link,
+.lpc-toolbar > a.tab-link {
     position: relative;
     flex: 0 0 auto;
     display: inline-flex;
@@ -722,26 +730,32 @@ html.lpc-collapsed #lpc-topbar { left: var(--lpc-sidebar-w-collapsed); }
     transition: background-color .14s ease, color .14s ease, box-shadow .14s ease;
 }
 .lpc-tabs > button:hover,
-.lpc-tabs > a:hover {
+.lpc-tabs > a:hover,
+.lpc-toolbar > button.tab-link:hover,
+.lpc-toolbar > a.tab-link:hover {
     background: var(--lpc-surface-sunken);
     color: var(--lpc-ink) !important;
 }
 
-/* The active segment. */
+/* The active segment — lemon-green pill, forest-green on hover. */
 .lpc-tabs > button:not(.border-transparent),
-.lpc-tabs > a:not(.border-transparent) {
+.lpc-tabs > a:not(.border-transparent),
+.lpc-toolbar > button.tab-link:not(.border-transparent),
+.lpc-toolbar > a.tab-link:not(.border-transparent) {
     background: var(--lpc-accent-on-light);
     color: #fff !important;
     box-shadow: 0 2px 10px -3px rgba(0, 90, 43, .55);
 }
-.lpc-tabs > button:not(.border-transparent):hover {
+.lpc-tabs > button:not(.border-transparent):hover,
+.lpc-toolbar > button.tab-link:not(.border-transparent):hover {
     background: #006932;
     color: #fff !important;
 }
 
 /* Count badges inside tabs were absolutely positioned against an underline
    layout (`absolute -right-3`). In a pill they become inline chips. */
-.lpc-tabs > button > span.absolute {
+.lpc-tabs > button > span.absolute,
+.lpc-toolbar > button.tab-link > span.absolute {
     position: static !important;
     top: auto !important;
     right: auto !important;
@@ -756,7 +770,8 @@ html.lpc-collapsed #lpc-topbar { left: var(--lpc-sidebar-w-collapsed); }
     line-height: 1;
 }
 /* On the active (green) segment a red chip clashes; lighten it instead. */
-.lpc-tabs > button:not(.border-transparent) > span.absolute {
+.lpc-tabs > button:not(.border-transparent) > span.absolute,
+.lpc-toolbar > button.tab-link:not(.border-transparent) > span.absolute {
     background: rgba(255, 255, 255, .22) !important;
     color: #fff !important;
 }
