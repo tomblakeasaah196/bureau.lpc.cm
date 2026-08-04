@@ -269,7 +269,7 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
     // the field notes from the pilot rollout). The customer's own item
     // adjustments are authoritative in either case.
     $stmt = $db->prepare(
-        "SELECT id, reference, sales_order_id, client_id, payment_collected, driver_id
+        "SELECT id, reference, sales_order_id, client_id, payment_collected, driver_id, created_by
            FROM deliveries
           WHERE id = ? AND status IN ('driver_confirmed', 'dispatched')
           FOR UPDATE"
@@ -279,6 +279,11 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
     if (!$del) {
         throw new Exception('BL introuvable, déjà signé ou dans un état inattendu.');
     }
+
+    // driver_id is nullable (pickup / supplier-direct BLs, see migration 061).
+    // inventory_movements.logged_by is NOT NULL with FK -> users.id, so fall
+    // back to the operator who generated the BL when there is no driver.
+    $loggedBy = (int) ($del['driver_id'] ?: $del['created_by']);
 
     // 1. Apply customer edits (item quantities, payment, observations).
     //    Silently skip items[] entries whose item_id doesn't belong to this
@@ -350,7 +355,7 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
 
         if ($rejected > 0) {
             $restockFull->execute([
-                (int) $it['product_id'], $rejected, $blId, (int) $del['driver_id'],
+                (int) $it['product_id'], $rejected, $blId, $loggedBy,
             ]);
         }
         $newSubtotal += $accepted * (float) $it['unit_price'];
@@ -389,7 +394,7 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
                       WHERE client_id = ? AND product_id = ?"
                 )->execute([$emptiesBack, $emptiesBack, $del['client_id'], $emptyPid]);
                 $restockEmpty->execute([
-                    $emptyPid, $emptiesBack, $blId, (int) $del['driver_id'],
+                    $emptyPid, $emptiesBack, $blId, $loggedBy,
                 ]);
             }
         }
