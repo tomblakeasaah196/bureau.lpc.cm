@@ -307,6 +307,15 @@ require __DIR__ . '/../../includes/components/topbar.php';
 <div id="lpc-shell-main">
 
     <div class="lpc-toolbar">
+        <?php
+        // Page help. Anchored to 'admin.error_monitor' by migration 073.
+        // Renders nothing on an un-migrated database, and the page RBAC gate
+        // above has already made sure the reader can see the articles. This
+        // is the toolbar-scoped « ? » that README §5.5 reserves for the
+        // page-specific article; the topbar's own icon still opens the
+        // full help centre.
+        echo lpc_help_link('admin.error_monitor', $lang);
+        ?>
         <p class="lpc-toolbar-lead text-xs text-gray-500 max-w-2xl truncate"><?= __t('ui.error_monitor.intro') ?></p>
         <form method="get" class="lpc-field">
             <!-- Carry the active filter across a window change, otherwise

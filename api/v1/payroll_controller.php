@@ -50,6 +50,7 @@ $ACTION_PERMS = [
     'preview'           => 'hr.payroll.view',
     'generate_month'    => 'hr.payroll.generate',
     'list_payslips'     => 'hr.payroll.view',
+    'employee_full_detail' => 'hr.payroll.view',
 ];
 if (!isset($ACTION_PERMS[$action])) {
     http_response_code(400);
@@ -201,6 +202,187 @@ try {
         ");
         $stmt->execute([$m, $y]);
         sendJson('success', '', ['payslips' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+    }
+
+    // -------------------------------------------------------------------------
+    // EMPLOYEE FULL DETAIL — everything the payroll detail modal needs.
+    // Returns identity + contract + this-period breakdown (from a stored
+    // payslip if generated, else a live Payroll::compute preview) +
+    // employer charges + JE preview lines + this-period advances/debts
+    // + last 6 months payslip history.
+    // -------------------------------------------------------------------------
+    if ($action === 'employee_full_detail') {
+        $uid    = (int)   ($_GET['user_id'] ?? $payload['user_id'] ?? 0);
+        $period = (string)($_GET['period']  ?? $payload['period']  ?? '');
+        if ($uid <= 0) throw new Exception("Utilisateur invalide.");
+        if (!preg_match('/^\d{4}-\d{2}$/', $period)) throw new Exception("Période invalide (YYYY-MM).");
+        [$y, $m] = array_map('intval', explode('-', $period));
+        $month = new DateTimeImmutable(sprintf('%04d-%02d-01', $y, $m));
+
+        // 1. Identity + contract
+        $stmt = $db->prepare("
+            SELECT u.id AS user_id, u.first_name, u.last_name, u.email, u.status AS user_status,
+                   r.name AS role_name,
+                   c.base_salary, c.housing_allowance, c.transport_allowance,
+                   c.cnps_number, c.marital_status, c.dependents_count,
+                   c.seniority_years, c.tax_regime, c.hire_date, c.is_active
+              FROM users u
+              JOIN roles r ON r.id = u.role_id
+              LEFT JOIN hr_contracts c ON c.user_id = u.id
+             WHERE u.id = ?
+             LIMIT 1
+        ");
+        $stmt->execute([$uid]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) throw new Exception("Employé introuvable.");
+
+        $identity = [
+            'user_id'         => (int) $row['user_id'],
+            'employee_name'   => trim($row['first_name'] . ' ' . $row['last_name']),
+            'email'           => $row['email'],
+            'user_status'     => $row['user_status'],
+            'role_name'       => $row['role_name'],
+            'cnps_number'     => $row['cnps_number'],
+            'marital_status'  => $row['marital_status'],
+            'dependents_count'=> (int) ($row['dependents_count'] ?? 0),
+            'seniority_years' => (int) ($row['seniority_years'] ?? 0),
+            'tax_regime'      => $row['tax_regime'],
+            'hire_date'       => $row['hire_date'],
+            'is_active'       => (int) ($row['is_active'] ?? 0),
+        ];
+        $contract = [
+            'base_salary'         => (float) ($row['base_salary'] ?? 0),
+            'housing_allowance'   => (float) ($row['housing_allowance'] ?? 0),
+            'transport_allowance' => (float) ($row['transport_allowance'] ?? 0),
+        ];
+
+        // 2. Current-period slip (if generated) or live compute
+        $stmt = $db->prepare("
+            SELECT * FROM hr_payslips
+             WHERE user_id = ? AND month = ? AND year = ?
+             ORDER BY id DESC LIMIT 1
+        ");
+        $stmt->execute([$uid, $m, $y]);
+        $slip = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        $current = null;
+        if ($slip) {
+            $bd = null;
+            if (!empty($slip['breakdown_json'])) {
+                $bd = json_decode($slip['breakdown_json'], true) ?: null;
+            }
+            $current = [
+                'source'         => 'payslip',
+                'is_paid'        => in_array($slip['status'], ['paid','validated'], true),
+                'payment_method' => $slip['payment_method'],
+                'token'          => $slip['token'],
+                'status'         => $slip['status'],
+                'computation'    => $bd ?: [
+                    'gross_salary'   => (float) $slip['gross_salary'],
+                    'taxable_base'   => (float) $slip['taxable_base'],
+                    'cnps_employee'  => (float) $slip['cnps_employee'],
+                    'cnps_employer'  => (float) $slip['cnps_employer'],
+                    'irpp'           => (float) $slip['irpp'],
+                    'cac'            => (float) $slip['cac'],
+                    'cfc_employee'   => (float) $slip['cfc'],
+                    'cfc_employer'   => 0.0,
+                    'crtv'           => (float) $slip['crtv'],
+                    'tdl'            => (float) $slip['tdl'],
+                    'advances_deducted'    => (float) $slip['advances_deducted'],
+                    'driver_debt_deducted' => (float) $slip['driver_debt_deducted'],
+                    'other_deductions'     => 0.0,
+                    'absences_deducted'    => (float) $slip['absences_deducted'],
+                    'net'                  => (float) $slip['net_pay'],
+                ],
+                'inputs' => [
+                    'bonuses'              => (float) $slip['bonuses'],
+                    'absences_deducted'    => (float) $slip['absences_deducted'],
+                    'advances_deducted'    => (float) $slip['advances_deducted'],
+                    'driver_debt_deducted' => (float) $slip['driver_debt_deducted'],
+                ],
+            ];
+        } else {
+            // Live compute — no slip yet for this period.
+            $contract_full = array_merge($row, [
+                'base_salary'         => $contract['base_salary'],
+                'housing_allowance'   => $contract['housing_allowance'],
+                'transport_allowance' => $contract['transport_allowance'],
+            ]);
+            // Pull the same period aggregates the grid uses.
+            $st1 = $db->prepare("SELECT COALESCE(SUM(amount),0) FROM hr_advances
+                                  WHERE user_id = ? AND status = 'approved'
+                                    AND MONTH(request_date) = ? AND YEAR(request_date) = ?");
+            $st1->execute([$uid, $m, $y]);
+            $adv_pending = (float) $st1->fetchColumn();
+            $st2 = $db->prepare("SELECT COALESCE(SUM(amount),0) FROM driver_debts
+                                  WHERE driver_id = ? AND status = 'unpaid'
+                                    AND MONTH(tour_date) = ? AND YEAR(tour_date) = ?");
+            $st2->execute([$uid, $m, $y]);
+            $debt_pending = (float) $st2->fetchColumn();
+
+            $inputs = [
+                'bonuses'              => 0.0,
+                'absences_days'        => 0.0,
+                'advances_deducted'    => $adv_pending,
+                'driver_debt_deducted' => $debt_pending,
+                'other_deductions'     => 0.0,
+            ];
+            $result = Payroll::compute($contract_full, $inputs, $month);
+            $current = [
+                'source'         => 'preview',
+                'is_paid'        => false,
+                'payment_method' => $identity['role_name'] === 'driver' ? 'caisse' : 'bank',
+                'token'          => null,
+                'status'         => 'preview',
+                'computation'    => $result,
+                'inputs'         => $inputs,
+            ];
+        }
+
+        // 3. Pending advances + driver debts detail rows for this period.
+        $stmt = $db->prepare("
+            SELECT id, amount, request_date, status
+              FROM hr_advances
+             WHERE user_id = ?
+               AND MONTH(request_date) = ? AND YEAR(request_date) = ?
+             ORDER BY request_date DESC
+        ");
+        $stmt->execute([$uid, $m, $y]);
+        $advances_period = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $debts_period = [];
+        try {
+            $stmt = $db->prepare("
+                SELECT id, amount, tour_date, status
+                  FROM driver_debts
+                 WHERE driver_id = ?
+                   AND MONTH(tour_date) = ? AND YEAR(tour_date) = ?
+                 ORDER BY tour_date DESC
+            ");
+            $stmt->execute([$uid, $m, $y]);
+            $debts_period = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) { /* driver_debts optional */ }
+
+        // 4. Last 6 months history.
+        $stmt = $db->prepare("
+            SELECT id, month, year, gross_salary, net_pay, status, token, payment_method, created_at
+              FROM hr_payslips
+             WHERE user_id = ?
+             ORDER BY year DESC, month DESC
+             LIMIT 6
+        ");
+        $stmt->execute([$uid]);
+        $history = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        sendJson('success', '', [
+            'identity'         => $identity,
+            'contract'         => $contract,
+            'period'           => $period,
+            'current'          => $current,
+            'advances_period'  => $advances_period,
+            'debts_period'     => $debts_period,
+            'history'          => $history,
+        ]);
     }
 
     // -------------------------------------------------------------------------

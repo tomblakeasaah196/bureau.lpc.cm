@@ -44,18 +44,27 @@ $user_role = $_SESSION['user_role'];
 
     <div id="lpc-shell-main">
 
-        <nav class="lpc-tabs">
-            <button onclick="switchTab('advances')" class="tab-link py-4 border-b-[3px] border-pay-highlight text-pay-dark font-black text-sm uppercase tracking-wider whitespace-nowrap relative" id="tab-advances">
-                <i class="fas fa-hand-holding-usd mr-2"></i> Demandes d'Acomptes
-                <span id="badge-advances" class="absolute top-3 -right-3 bg-rose-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm hidden">0</span>
-            </button>
-            <button onclick="switchTab('contracts')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-contracts">
-                <i class="fas fa-file-signature mr-2"></i> Employés & Contrats
-            </button>
-            <button onclick="switchTab('payroll')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-payroll">
-                <i class="fas fa-calculator mr-2"></i> Génération de la Paie
-            </button>
-        </nav>
+        <div class="lpc-toolbar flex items-center justify-between gap-4">
+            <nav class="lpc-tabs">
+                <button onclick="switchTab('advances')" class="tab-link py-4 border-b-[3px] border-pay-highlight text-pay-dark font-black text-sm uppercase tracking-wider whitespace-nowrap relative" id="tab-advances">
+                    <i class="fas fa-hand-holding-usd mr-2"></i> Demandes d'Acomptes
+                    <span id="badge-advances" class="absolute top-3 -right-3 bg-rose-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm hidden">0</span>
+                </button>
+                <button onclick="switchTab('contracts')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-contracts">
+                    <i class="fas fa-file-signature mr-2"></i> Employés & Contrats
+                </button>
+                <button onclick="switchTab('payroll')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-payroll">
+                    <i class="fas fa-calculator mr-2"></i> Génération de la Paie
+                </button>
+            </nav>
+
+            <?php
+            // Help for THIS page. Renders nothing until migration 069 anchors
+            // articles to 'hr.payroll_finance', or if the reader lacks the
+            // gating permission — safe either way.
+            echo lpc_help_link('hr.payroll_finance', $lang);
+            ?>
+        </div>
 
         <main role="main" id="main" class="lpc-page lpc-page-col relative">
 
@@ -139,6 +148,7 @@ $user_role = $_SESSION['user_role'];
                                     <tr>
                                         <th class="py-3 px-3 text-gray-500"><?= htmlspecialchars(__t('ui.x.employe')) ?></th>
                                         <th class="py-3 px-3 text-right text-gray-400">Base</th>
+                                        <th class="py-3 px-3 text-right text-sky-600 bg-sky-50" title="Indemnités logement + transport (contrat)">Indemn.</th>
                                         <th class="py-3 px-3 text-right text-emerald-600 bg-emerald-50" title="Primes et variables"><?= htmlspecialchars(__t('ui.x.primes')) ?></th>
                                         <th class="py-3 px-3 text-right text-rose-600 bg-rose-50" title="Jours d'absence"><?= htmlspecialchars(__t('ui.x.abs_j')) ?></th>
                                         <th class="py-3 px-3 text-right text-rose-600 bg-rose-50" title="Dettes chauffeurs déduites"><?= htmlspecialchars(__t('ui.x.dettes')) ?></th>
@@ -155,7 +165,7 @@ $user_role = $_SESSION['user_role'];
                                     </tr>
                                 </thead>
                                 <tbody id="tbody-payroll" class="divide-y divide-gray-100 text-xs">
-                                    <tr><td colspan="15" class="py-12 text-center text-gray-400 font-bold italic"><?= htmlspecialchars(__t('ui.x.selectionnez_une_periode_et_cliquez_sur')) ?></td></tr>
+                                    <tr><td colspan="16" class="py-12 text-center text-gray-400 font-bold italic"><?= htmlspecialchars(__t('ui.x.selectionnez_une_periode_et_cliquez_sur')) ?></td></tr>
                                 </tbody>
                             </table>
                         </form>
@@ -273,6 +283,167 @@ $user_role = $_SESSION['user_role'];
             <div class="bg-white px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
                 <button type="button" onclick="closeModal('modal-advance')" class="px-5 py-2.5 text-sm font-bold text-gray-500"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
                 <button type="button" onclick="submitAdvance()" class="px-6 py-2.5 bg-pay-highlight hover:bg-green-600 text-white rounded-lg font-bold text-sm shadow-md transition-all"><?= htmlspecialchars(__t('ui.x.soumettre_demande')) ?></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- Payroll DETAIL modal — full breakdown per employee.           -->
+    <!-- Populated by openPayrollDetailModal(uid) in hr-payroll_finance.js -->
+    <!-- ============================================================= -->
+    <div id="modal-payroll-detail" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col">
+            <div class="bg-indigo-700 px-6 py-4 flex justify-between items-center text-white shrink-0">
+                <div>
+                    <h3 class="font-black text-lg tracking-wide flex items-center gap-3">
+                        <i class="fas fa-user-tie"></i>
+                        <span id="pdet_name">—</span>
+                        <span id="pdet_role" class="text-[11px] font-bold uppercase tracking-widest text-indigo-200 bg-indigo-800/60 px-2 py-0.5 rounded"></span>
+                        <span id="pdet_status_badge" class="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded"></span>
+                    </h3>
+                    <p class="text-[11px] font-bold text-indigo-200 mt-1">
+                        Fiche de paie — <span id="pdet_period">—</span> · Source: <span id="pdet_source">—</span>
+                    </p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <a id="pdet_pdf_btn" href="#" target="_blank"
+                       class="hidden bg-white text-indigo-700 hover:bg-indigo-50 px-4 py-2 rounded-lg font-black text-xs shadow-md flex items-center gap-2">
+                        <i class="fas fa-file-pdf"></i> Télécharger Fiche PDF
+                    </a>
+                    <button type="button" onclick="closeModal('modal-payroll-detail')" class="text-indigo-200 hover:text-white">
+                        <i class="fas fa-times text-2xl"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-auto p-6 bg-slate-50 space-y-5">
+
+                <!-- Identity + contract -->
+                <section class="grid grid-cols-2 gap-5">
+                    <div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                        <h4 class="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-3"><i class="fas fa-id-card mr-1"></i> Identité</h4>
+                        <dl id="pdet_identity" class="grid grid-cols-2 gap-y-2 gap-x-4 text-xs"></dl>
+                    </div>
+                    <div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                        <h4 class="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-3"><i class="fas fa-file-contract mr-1"></i> Contrat</h4>
+                        <dl id="pdet_contract" class="grid grid-cols-2 gap-y-2 gap-x-4 text-xs"></dl>
+                    </div>
+                </section>
+
+                <!-- Composition Brut -->
+                <section class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                    <h4 class="text-[10px] font-black uppercase tracking-widest text-indigo-600 mb-3">
+                        <i class="fas fa-plus-circle mr-1"></i> Composition du Salaire Brut
+                    </h4>
+                    <table class="w-full text-xs" id="pdet_gross_table">
+                        <tbody class="divide-y divide-gray-100"></tbody>
+                    </table>
+                </section>
+
+                <!-- Cotisations & Retenues (with formulas) -->
+                <section class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                    <h4 class="text-[10px] font-black uppercase tracking-widest text-rose-600 mb-3">
+                        <i class="fas fa-minus-circle mr-1"></i> Cotisations & Retenues (part salariale)
+                    </h4>
+                    <table class="w-full text-xs" id="pdet_deductions_table">
+                        <thead class="text-[9px] uppercase tracking-widest text-gray-400 font-black">
+                            <tr>
+                                <th class="text-left py-1">Ligne</th>
+                                <th class="text-left py-1">Formule</th>
+                                <th class="text-right py-1">Montant</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100"></tbody>
+                    </table>
+                </section>
+
+                <!-- Autres déductions (avances, dettes, absences, autre) -->
+                <section class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                    <h4 class="text-[10px] font-black uppercase tracking-widest text-amber-600 mb-3">
+                        <i class="fas fa-hand-holding-usd mr-1"></i> Avances / Dettes / Absences
+                    </h4>
+                    <div id="pdet_other_deductions" class="text-xs space-y-3"></div>
+                </section>
+
+                <!-- Charges patronales -->
+                <section class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                    <h4 class="text-[10px] font-black uppercase tracking-widest text-purple-600 mb-3">
+                        <i class="fas fa-building mr-1"></i> Charges Patronales (hors net à payer)
+                    </h4>
+                    <table class="w-full text-xs" id="pdet_employer_table">
+                        <thead class="text-[9px] uppercase tracking-widest text-gray-400 font-black">
+                            <tr>
+                                <th class="text-left py-1">Ligne</th>
+                                <th class="text-left py-1">Formule</th>
+                                <th class="text-right py-1">Montant</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100"></tbody>
+                    </table>
+                </section>
+
+                <!-- Récap NET -->
+                <section class="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-5 shadow-sm">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-widest text-emerald-700">Net à payer</p>
+                            <p class="text-[10px] font-bold text-emerald-600 mt-1">Brut − Cotisations − Retenues − Avances − Dettes − Absences</p>
+                        </div>
+                        <p id="pdet_net" class="text-3xl font-black text-emerald-800">— FCFA</p>
+                    </div>
+                    <div class="mt-3 pt-3 border-t border-emerald-200 flex justify-between items-center text-xs">
+                        <span class="font-bold text-emerald-700">Mode de paiement</span>
+                        <span id="pdet_payment" class="font-black text-emerald-900 uppercase tracking-widest"></span>
+                    </div>
+                </section>
+
+                <!-- Écriture comptable (OD) -->
+                <section class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                    <h4 class="text-[10px] font-black uppercase tracking-widest text-gray-600 mb-3">
+                        <i class="fas fa-book mr-1"></i> Écriture Comptable — Journal OD (SYSCOHADA)
+                    </h4>
+                    <table class="w-full text-xs" id="pdet_journal_table">
+                        <thead class="text-[9px] uppercase tracking-widest text-gray-400 font-black">
+                            <tr>
+                                <th class="text-left py-1">Compte</th>
+                                <th class="text-left py-1">Libellé</th>
+                                <th class="text-right py-1">Débit</th>
+                                <th class="text-right py-1">Crédit</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100"></tbody>
+                        <tfoot class="text-[10px] font-black text-gray-700">
+                            <tr><td colspan="2" class="text-right pt-2">Total</td>
+                                <td id="pdet_je_debit" class="text-right pt-2">0</td>
+                                <td id="pdet_je_credit" class="text-right pt-2">0</td></tr>
+                        </tfoot>
+                    </table>
+                </section>
+
+                <!-- Historique 6 mois -->
+                <section class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                    <h4 class="text-[10px] font-black uppercase tracking-widest text-gray-600 mb-3">
+                        <i class="fas fa-history mr-1"></i> Historique — 6 derniers bulletins
+                    </h4>
+                    <table class="w-full text-xs" id="pdet_history_table">
+                        <thead class="text-[9px] uppercase tracking-widest text-gray-400 font-black">
+                            <tr>
+                                <th class="text-left py-1">Période</th>
+                                <th class="text-right py-1">Brut</th>
+                                <th class="text-right py-1">Net</th>
+                                <th class="text-center py-1">Paiement</th>
+                                <th class="text-center py-1">Statut</th>
+                                <th class="text-center py-1">Fiche</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100"></tbody>
+                    </table>
+                </section>
+            </div>
+
+            <div class="bg-white px-6 py-3 border-t border-gray-200 flex justify-end shrink-0">
+                <button type="button" onclick="closeModal('modal-payroll-detail')"
+                        class="px-5 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-800">Fermer</button>
             </div>
         </div>
     </div>
