@@ -9,9 +9,21 @@
  * -----------------------------------------------------------------------------
  */
         let currentTab = 'wizard'; // Default to wizard for testing
-        let globalData = { accounts: [], ohada_masters: [], queue: [] };
-        
+        let globalData = { accounts: [], ohada_masters: [], queue: [], autoPostThreshold: 90 };
+        const selectedIds = new Set();
+
         const fmt = (num) => LPC.fmt.int(num || 0);
+
+        // Colour buckets for the confidence pill. Kept subtle per the design
+        // brief: this is a hint, not an alarm. Rows above the threshold get a
+        // soft emerald pill; the marginal zone (75-89) is amber; anything
+        // below is rose-tinted so it stands out at a glance without shouting.
+        function confidenceStyle(score) {
+            if (score === null || score === undefined) return { cls: 'bg-gray-100 text-gray-400', label: '—', title: 'Non évalué' };
+            if (score >= globalData.autoPostThreshold) return { cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200', label: score + ' %', title: 'Peut être posté en lot' };
+            if (score >= 75) return { cls: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200', label: score + ' %', title: 'Vérification recommandée' };
+            return { cls: 'bg-rose-50 text-rose-700 ring-1 ring-rose-200', label: score + ' %', title: 'Revue manuelle nécessaire' };
+        }
 
         window.onload = () => { 
             // Initialize Wizard with 2 empty lines
@@ -54,7 +66,12 @@
                     }
                     if(tab === 'queue') {
                         globalData.queue = result.data.queue;
+                        globalData.autoPostThreshold = result.data.auto_post_threshold ?? 90;
+                        const lbl = document.getElementById('threshold-label');
+                        if (lbl) lbl.innerText = globalData.autoPostThreshold;
+                        selectedIds.clear();
                         renderQueue();
+                        updateBatchButton();
                     }
                 }
             } catch(e) { console.error("Fetch error", e); }
@@ -121,18 +138,25 @@
         function renderQueue() {
             const tbody = document.getElementById('table-body-queue');
             tbody.innerHTML = '';
-            
-            let pendingCount = 0;
 
-            if(globalData.queue.length === 0) {
-                tbody.innerHTML = LPC.html`<tr><td colspan="6" class="py-12 text-center text-gray-400 font-bold italic"><i class="fas fa-check-circle text-3xl mb-2 text-green-200 block"></i>Aucun brouillard en attente.</td></tr>`;
+            const btnSelectHigh = document.getElementById('btn-select-high');
+            if (globalData.queue.length === 0) {
+                tbody.innerHTML = LPC.html`<tr><td colspan="7" class="py-12 text-center text-gray-400 font-bold italic"><i class="fas fa-check-circle text-3xl mb-2 text-green-200 block"></i>Aucun brouillard en attente.</td></tr>`;
                 document.getElementById('badge-queue').classList.add('hidden');
+                if (btnSelectHigh) btnSelectHigh.classList.add('hidden');
                 return;
             }
 
+            // Show the "select all above threshold" shortcut only if at least
+            // one draft actually qualifies — otherwise it's a dead button.
+            const anyAboveThreshold = globalData.queue.some(e => (e.confidence_score ?? -1) >= globalData.autoPostThreshold);
+            if (btnSelectHigh) btnSelectHigh.classList.toggle('hidden', !anyAboveThreshold);
+
+            let pendingCount = 0;
+
             globalData.queue.forEach(entry => {
-                if(entry.status === 'pending') pendingCount++;
-                
+                if (entry.status === 'draft') pendingCount++;
+
                 let linesHtml = '';
                 entry.lines.forEach(l => {
                     linesHtml += LPC.html`<div class="flex justify-between text-[10px] border-b border-gray-50 py-1 last:border-0">
@@ -142,8 +166,20 @@
                     </div>`;
                 });
 
+                const style = confidenceStyle(entry.confidence_score);
+                // Tooltip shows every scoring reason. Kept as plain title so
+                // it renders identically across browsers without extra CSS.
+                const tooltip = (entry.confidence_reasons || [])
+                    .map(r => `${r.delta >= 0 ? '+' : ''}${r.delta} — ${r.message}`)
+                    .join('\n') || style.title;
+
+                const isSelected = selectedIds.has(entry.id);
+
                 tbody.innerHTML += LPC.html`
-                    <tr class="hover:bg-blue-50/20 border-b border-gray-100 transition-colors">
+                    <tr class="hover:bg-blue-50/20 border-b border-gray-100 transition-colors ${isSelected ? 'bg-emerald-50/40' : ''}" data-je-id="${entry.id}" data-je-score="${entry.confidence_score ?? ''}">
+                        <td class="py-4 px-4 text-center">
+                            <input type="checkbox" class="je-row-check w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" data-id="${entry.id}" ${isSelected ? 'checked' : ''} onclick="toggleRow(${entry.id}, this.checked)">
+                        </td>
                         <td class="py-4 px-6 font-black text-acc-dark">${entry.journal_code}</td>
                         <td class="py-4 px-6 text-xs text-gray-600 font-bold">${entry.date}<br><span class="text-[10px] text-acc-highlight">${entry.reference}</span></td>
                         <td class="py-4 px-6 text-xs font-bold text-gray-800 max-w-[200px] truncate">${entry.description}</td>
@@ -151,7 +187,9 @@
                             ${LPC.raw(linesHtml)}
                         </td>
                         <td class="py-4 px-6 text-center">
-                            <span class="bg-amber-100 text-amber-800 px-2 py-1 rounded text-[9px] font-black uppercase"><i class="fas fa-hourglass-half mr-1"></i>Brouillard</span>
+                            <span class="inline-block px-2 py-1 rounded-md text-[10px] font-black tabular-nums ${style.cls}" title="${tooltip}">
+                                ${style.label}
+                            </span>
                         </td>
                         <td class="py-4 px-6 text-right">
                             <button onclick="approveEntry(${entry.id})" class="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase shadow-md transition-all">
@@ -162,11 +200,146 @@
             });
 
             const badge = document.getElementById('badge-queue');
-            if(pendingCount > 0) {
+            if (pendingCount > 0) {
                 badge.innerText = pendingCount;
                 badge.classList.remove('hidden');
             } else {
                 badge.classList.add('hidden');
+            }
+        }
+
+        // ================= BATCH APPROVE ================= //
+
+        function toggleRow(id, checked) {
+            if (checked) selectedIds.add(id); else selectedIds.delete(id);
+            // Highlight the row without a full re-render.
+            const tr = document.querySelector(`tr[data-je-id="${id}"]`);
+            if (tr) tr.classList.toggle('bg-emerald-50/40', checked);
+            updateBatchButton();
+            syncSelectAllCheckbox();
+        }
+
+        function toggleSelectAll(checked) {
+            document.querySelectorAll('.je-row-check').forEach(cb => {
+                cb.checked = checked;
+                const id = parseInt(cb.dataset.id, 10);
+                if (checked) selectedIds.add(id); else selectedIds.delete(id);
+                const tr = cb.closest('tr');
+                if (tr) tr.classList.toggle('bg-emerald-50/40', checked);
+            });
+            updateBatchButton();
+        }
+
+        function syncSelectAllCheckbox() {
+            const all = document.querySelectorAll('.je-row-check');
+            const chk = document.getElementById('chk-select-all');
+            if (!chk || all.length === 0) return;
+            const checkedCount = Array.from(all).filter(c => c.checked).length;
+            chk.checked = checkedCount === all.length;
+            chk.indeterminate = checkedCount > 0 && checkedCount < all.length;
+        }
+
+        function selectAllAboveThreshold() {
+            const th = globalData.autoPostThreshold;
+            selectedIds.clear();
+            globalData.queue.forEach(e => {
+                if ((e.confidence_score ?? -1) >= th) selectedIds.add(e.id);
+            });
+            // Redraw so the checkbox states + row tint match the new selection.
+            renderQueue();
+            updateBatchButton();
+            syncSelectAllCheckbox();
+        }
+
+        function updateBatchButton() {
+            const btn = document.getElementById('btn-batch-approve');
+            const count = document.getElementById('batch-count');
+            if (!btn) return;
+            count.innerText = selectedIds.size;
+
+            // Batch approve is only enabled when EVERY selected row is at or
+            // above the threshold — the server enforces this too, but a
+            // disabled button is a clearer UX than an error toast.
+            const th = globalData.autoPostThreshold;
+            const allQualify = selectedIds.size > 0 && Array.from(selectedIds).every(id => {
+                const e = globalData.queue.find(x => x.id === id);
+                return e && (e.confidence_score ?? -1) >= th;
+            });
+
+            if (allQualify) {
+                btn.disabled = false;
+                btn.className = 'bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg font-black text-xs uppercase tracking-wider shadow-md transition-all';
+            } else {
+                btn.disabled = true;
+                btn.className = 'bg-gray-300 text-gray-500 cursor-not-allowed px-5 py-2 rounded-lg font-black text-xs uppercase tracking-wider shadow-sm transition-all';
+            }
+        }
+
+        // ================= THRESHOLD PREFERENCE ================= //
+        // Written through settings_controller.php so the change is validated
+        // + audited exactly like any other pref edit. lpc-rbac.js auto-attaches
+        // the X-CSRF-Token header on same-origin fetches, so nothing to plumb.
+
+        function openThresholdModal() {
+            const current = globalData.autoPostThreshold || 90;
+            document.getElementById('threshold-range').value = current;
+            document.getElementById('threshold-input').value = current;
+            document.getElementById('threshold-current-value').innerText = current;
+            openModal('modal-threshold');
+        }
+
+        async function saveThreshold() {
+            const raw = parseInt(document.getElementById('threshold-input').value, 10);
+            const v = Math.min(100, Math.max(50, isNaN(raw) ? 90 : raw));
+
+            const fd = new FormData();
+            fd.append('prefs[accounting_confidence_threshold]', String(v));
+
+            try {
+                const res = await fetch('/api/v1/settings_controller.php?action=save_preferences', {
+                    method: 'POST',
+                    body: fd
+                });
+                const result = await res.json().catch(() => ({ status: 'error', message: 'Réponse invalide.' }));
+                if (result.status === 'success' || result.ok === true) {
+                    LPC.modal.alert("Seuil enregistré à " + v + " %.");
+                    closeModal('modal-threshold');
+                    // Reload the queue so the pill colours + the "Sélectionner tout ≥ N %"
+                    // shortcut reflect the new threshold immediately.
+                    globalData.autoPostThreshold = v;
+                    const lbl = document.getElementById('threshold-label');
+                    if (lbl) lbl.innerText = v;
+                    fetchTabData('queue');
+                } else {
+                    LPC.modal.alert(result.message || "Impossible d'enregistrer le seuil (permission admin.prefs.edit requise ?).");
+                }
+            } catch (e) {
+                LPC.modal.alert("Erreur Serveur : " + e.message);
+            }
+        }
+
+        async function batchApprove() {
+            const ids = Array.from(selectedIds);
+            if (!ids.length) return;
+            const msg = ids.length === 1
+                ? "Poster cette écriture au Grand Livre ?"
+                : `Poster ${ids.length} écritures au Grand Livre en une fois ? L'opération est irréversible.`;
+            if (!(await LPC.modal.confirm(msg))) return;
+
+            try {
+                const res = await fetch('/api/v1/accounting_controller.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'batch_approve', ids })
+                });
+                const result = await res.json();
+                LPC.modal.alert(result.message || 'Terminé.');
+                if (result.status === 'success') {
+                    selectedIds.clear();
+                    fetchTabData('queue');
+                }
+            } catch (e) {
+                LPC.modal.alert('Erreur Serveur : ' + e.message);
             }
         }
 

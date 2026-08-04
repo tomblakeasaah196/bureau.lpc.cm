@@ -88,6 +88,14 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 
 <div id="lpc-shell-main">
 
+    <!-- Page-scoped toolbar: only carries the help "?" for now (aligned with
+         ledger.php / budgets.php / reports.php). Renders muted « Aide (à venir) »
+         until articles are authored against the anchor 'accounting.expenses' —
+         cf. lpc_help_link() empty-state fallback in includes/functions/help.php. -->
+    <div class="lpc-toolbar">
+        <?php echo lpc_help_link('accounting.expenses', $lang); ?>
+    </div>
+
     <nav class="lpc-tabs" id="expenses-tabs" role="tablist" aria-label="Gestion des Dépenses">
         <button role="tab" aria-selected="true" onclick="switchExpenseTab('dashboard')" id="tab-dashboard"
                 class="tab-link py-4 border-b-[3px] border-lpc-dark text-lpc-dark font-black text-sm uppercase tracking-wider whitespace-nowrap">
@@ -117,7 +125,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
              TAB — DASHBOARD
         ============================================================== -->
         <div id="content-dashboard" role="tabpanel" aria-labelledby="tab-dashboard"
-             class="tab-content active flex-col h-full gap-6">
+             class="tab-content active flex-col h-full gap-8">
 
             <!-- Toolbar: month/year + New button -->
             <div class="flex justify-between items-center shrink-0 gap-4 flex-wrap">

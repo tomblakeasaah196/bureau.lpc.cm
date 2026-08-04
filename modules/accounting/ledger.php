@@ -65,8 +65,8 @@ $user_role = $_SESSION['user_role'];
             <div class="lpc-field">
                 <label for="global_year_filter"><?= htmlspecialchars(__t('ui.x.exercice')) ?></label>
                 <select id="global_year_filter" onchange="refreshAllTabs()">
-                    <option value="2026" selected>2026</option>
-                    <option value="2025">2025</option>
+                    <!-- Populated at load from /api/v1/review_controller.php?action=get_years -->
+                    <option value="<?= (int)date('Y') ?>" selected><?= (int)date('Y') ?></option>
                 </select>
             </div>
         </div>
@@ -125,6 +125,9 @@ $user_role = $_SESSION['user_role'];
                             </thead>
                             <tbody id="tbody-balance" class="text-xs font-medium divide-y divide-gray-100">
                                 </tbody>
+                            <tfoot id="tfoot-balance" class="text-[11px] font-black uppercase tracking-widest sticky bottom-0 z-10 bg-rev-dark text-white border-t-2 border-rev-highlight">
+                                <!-- Total Général — populated by renderBalance(). Sacred double-entry row. -->
+                            </tfoot>
                         </table>
                     </div>
                 </div>
@@ -154,6 +157,9 @@ $user_role = $_SESSION['user_role'];
                             </thead>
                             <tbody id="tbody-tiers" class="text-xs font-medium divide-y divide-gray-100">
                                 </tbody>
+                            <tfoot id="tfoot-tiers" class="text-[11px] font-black uppercase tracking-widest sticky bottom-0 z-10 bg-indigo-900 text-white border-t-2 border-indigo-500">
+                                <!-- Totaux tiers — populated by renderTiers(). -->
+                            </tfoot>
                         </table>
                     </div>
                 </div>
@@ -169,7 +175,18 @@ $user_role = $_SESSION['user_role'];
                             </select>
                     </div>
                     
-                    <div class="flex gap-6 items-center">
+                    <div class="flex gap-4 items-center flex-wrap">
+                        <div class="flex flex-col">
+                            <label for="gl_lettrage_filter" class="block text-[9px] font-black text-gray-400 uppercase tracking-widest">Filtre lettrage</label>
+                            <select id="gl_lettrage_filter" onchange="fetchGrandLivre()" class="bg-gray-50 border border-gray-300 rounded-lg p-1.5 text-xs font-bold outline-none focus:ring-2 focus:ring-rev-highlight">
+                                <option value="all" selected>Toutes les lignes</option>
+                                <option value="unlettered">Non lettrées seulement</option>
+                                <option value="lettered">Lettrées seulement</option>
+                            </select>
+                        </div>
+                        <button onclick="runAutoLettrage()" title="Propose et applique les lettrages par montants égaux" class="bg-amber-50 hover:bg-amber-100 text-amber-800 px-3 py-2 rounded-lg font-black text-[11px] uppercase tracking-widest border border-amber-200">
+                            <i class="fas fa-magic mr-1"></i> Lettrer auto
+                        </button>
                         <div class="text-right">
                             <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.solde_actuel')) ?></p>
                             <p class="text-xl font-black text-gray-900" id="gl_current_balance">0 F</p>
@@ -178,6 +195,13 @@ $user_role = $_SESSION['user_role'];
                             <i class="fas fa-file-csv mr-1"></i> Exporter
                         </button>
                     </div>
+                </div>
+
+                <div id="gl_letters_summary" class="hidden bg-white rounded-2xl border border-gray-200 shadow-sm p-4 shrink-0">
+                    <p class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
+                        <i class="fas fa-tags mr-1"></i> Intégrité des lettrages sur ce compte
+                    </p>
+                    <div id="gl_letters_chips" class="flex flex-wrap gap-2"></div>
                 </div>
 
                 <div class="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col flex-1 overflow-hidden">

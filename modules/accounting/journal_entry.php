@@ -45,7 +45,7 @@ $user_role = $_SESSION['user_role'];
 
     <div id="lpc-shell-main">
 
-        <nav class="lpc-tabs">
+        <div class="lpc-toolbar">
             <button onclick="switchTab('queue')" class="tab-link py-4 border-b-[3px] border-acc-highlight text-acc-dark font-black text-sm uppercase tracking-wider whitespace-nowrap relative" id="tab-queue">
                 <i class="fas fa-inbox mr-2"></i> File d'Attente (Brouillards)
                 <span id="badge-queue" class="absolute top-3 -right-3 bg-rose-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm hidden">0</span>
@@ -56,15 +56,43 @@ $user_role = $_SESSION['user_role'];
             <button onclick="switchTab('chart')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-chart">
                 <i class="fas fa-sitemap mr-2"></i> Plan Comptable LPC
             </button>
-        </nav>
+
+            <!-- Spacer pushes the help + batch controls to the right of the toolbar. -->
+            <div class="ml-auto"></div>
+
+            <?php
+            // Help for THIS page. Renders nothing until migration 078 anchors
+            // articles to 'accounting.journal', or if the reader lacks the
+            // gating permission — safe either way.
+            echo lpc_help_link('accounting.journal', $lang);
+            ?>
+        </div>
 
         <main role="main" id="main" class="lpc-page lpc-page-col relative">
 
             <div id="content-queue" class="tab-content active flex-col h-full gap-6">
-                <div class="bg-blue-50 border border-blue-200 p-5 rounded-2xl flex justify-between items-center shrink-0">
-                    <div>
+                <div class="bg-blue-50 border border-blue-200 p-5 rounded-2xl flex justify-between items-center shrink-0 gap-4 flex-wrap">
+                    <div class="flex-1 min-w-[300px]">
                         <h3 class="font-black text-blue-900 text-sm uppercase tracking-widest flex items-center"><i class="fas fa-shield-alt mr-2"></i> <?= htmlspecialchars(__t('ui.x.zone_de_validation')) ?></h3>
-                        <p class="text-xs text-blue-700 font-bold mt-1">Ces écritures ont été générées par l'ERP (Ventes, Flotte, Trésorerie) ou sauvegardées en brouillon. Vérifiez-les avant de les poster au Grand Livre.</p>
+                        <p class="text-xs text-blue-700 font-bold mt-1">Ces écritures ont été générées par l'ERP (Ventes, Flotte, Trésorerie) ou sauvegardées en brouillon. Le score de confiance à droite indique le niveau de similarité avec vos écritures habituelles.</p>
+                    </div>
+
+                    <!-- Batch action bar. Reveals itself as soon as at least
+                         one row is selected. The "auto-select ≥ 90 %"
+                         shortcut is the point of the whole confidence system.
+                         Gear icon (admin.prefs.edit only) tunes the threshold. -->
+                    <div class="flex items-center gap-3 shrink-0">
+                        <?php if (Rbac::hasPermission('admin.prefs.edit')): ?>
+                        <button type="button" onclick="openThresholdModal()" id="btn-threshold-settings" class="bg-white border border-blue-300 text-blue-800 hover:bg-blue-50 w-9 h-9 rounded-lg flex items-center justify-center text-sm shadow-sm transition-all" title="Ajuster le seuil de confiance">
+                            <i class="fas fa-sliders-h"></i>
+                        </button>
+                        <?php endif; ?>
+                        <button type="button" onclick="selectAllAboveThreshold()" id="btn-select-high" class="hidden bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-50 px-4 py-2 rounded-lg font-black text-xs uppercase tracking-wider transition-all">
+                            <i class="fas fa-check-double mr-1"></i> Sélectionner tout ≥ <span id="threshold-label">90</span> %
+                        </button>
+                        <button type="button" onclick="batchApprove()" id="btn-batch-approve" disabled class="bg-gray-300 text-gray-500 cursor-not-allowed px-5 py-2 rounded-lg font-black text-xs uppercase tracking-wider shadow-sm transition-all">
+                            <i class="fas fa-bolt mr-1"></i> Poster la sélection (<span id="batch-count">0</span>)
+                        </button>
                     </div>
                 </div>
 
@@ -73,11 +101,14 @@ $user_role = $_SESSION['user_role'];
                         <table class="min-w-full text-left border-collapse">
                             <thead class="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
                                 <tr>
+                                    <th class="py-4 px-4 w-10 text-center">
+                                        <input type="checkbox" id="chk-select-all" onclick="toggleSelectAll(this.checked)" class="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" title="Tout sélectionner / désélectionner">
+                                    </th>
                                     <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest"><?= htmlspecialchars(__t('ui.x.journal')) ?></th>
                                     <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest"><?= htmlspecialchars(__t('ui.x.date_ref')) ?></th>
                                     <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest"><?= htmlspecialchars(__t('ui.x.description_2')) ?></th>
                                     <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right"><?= htmlspecialchars(__t('ui.x.lignes_debit_credit')) ?></th>
-                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-center"><?= htmlspecialchars(__t('ui.x.statut')) ?></th>
+                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-center w-24">Confiance</th>
                                     <th class="py-4 px-6 text-right"><?= htmlspecialchars(__t('ui.x.actions')) ?></th>
                                 </tr>
                             </thead>
@@ -200,6 +231,53 @@ $user_role = $_SESSION['user_role'];
 
         </main>
     </div>
+
+    <?php if (Rbac::hasPermission('admin.prefs.edit')): ?>
+    <!-- Threshold tuning modal. Writes to accounting_confidence_threshold via
+         the shared settings_controller.php `save_preferences` action, so the
+         change is validated + audited exactly like any other pref edit. -->
+    <div id="modal-threshold" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+            <div class="bg-acc-dark px-6 py-5 flex justify-between items-center text-white border-b border-gray-800">
+                <h3 class="font-black text-lg tracking-wide flex items-center gap-3"><i class="fas fa-sliders-h"></i> Seuil d'auto-revue</h3>
+                <button type="button" onclick="closeModal('modal-threshold')" class="text-gray-400 hover:text-white"><i class="fas fa-times text-xl"></i></button>
+            </div>
+            <div class="p-8 bg-slate-50 space-y-5">
+                <p class="text-xs text-gray-600 font-medium leading-relaxed">
+                    Score de confiance minimum pour qu'une écriture puisse être postée via <strong>Poster la sélection</strong>.
+                    En dessous de ce seuil, la validation individuelle reste possible, mais jamais en lot.
+                </p>
+
+                <div class="bg-white p-5 rounded-xl border border-gray-200 flex items-center justify-between gap-6">
+                    <div>
+                        <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Seuil actuel</p>
+                        <p class="text-4xl font-black text-acc-dark tabular-nums"><span id="threshold-current-value">90</span>&nbsp;%</p>
+                    </div>
+                    <input type="range" id="threshold-range" min="50" max="100" step="1" value="90"
+                           class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-acc-highlight"
+                           oninput="document.getElementById('threshold-current-value').innerText = this.value; document.getElementById('threshold-input').value = this.value;">
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <label class="text-xs font-black text-gray-500 uppercase tracking-widest">Valeur précise</label>
+                    <input type="number" id="threshold-input" min="50" max="100" step="1" value="90"
+                           class="w-24 bg-white border border-gray-300 rounded-lg p-2 text-sm font-black text-center outline-none focus:ring-2 focus:ring-acc-highlight tabular-nums"
+                           oninput="const v=Math.min(100,Math.max(50,parseInt(this.value)||90)); document.getElementById('threshold-range').value=v; document.getElementById('threshold-current-value').innerText=v;">
+                    <span class="text-sm font-bold text-gray-500">%</span>
+                </div>
+
+                <div class="text-[11px] text-blue-700 bg-blue-50 border border-blue-200 rounded-lg p-3 font-medium leading-relaxed">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    Recommandations : <strong>95</strong> pour une phase de rodage prudente, <strong>90</strong> par défaut, <strong>85</strong> après plusieurs semaines de recul sur les écritures habituelles.
+                </div>
+            </div>
+            <div class="bg-white px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+                <button type="button" onclick="closeModal('modal-threshold')" class="px-5 py-2.5 text-sm font-bold text-gray-500">Annuler</button>
+                <button type="button" onclick="saveThreshold()" class="px-6 py-2.5 bg-acc-highlight hover:bg-blue-600 text-white rounded-lg font-bold text-sm shadow-md transition-all">Enregistrer</button>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <div id="modal-add-account" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
