@@ -1,23 +1,32 @@
 <?php
 /**
  * MODULE: Déclarations Fiscales & Sociales (Cameroun)
- * DESCRIPTION: One place for every DGI / CNPS / commune filing —
- *              TVA, AIR (2.2% / 5.5%), DIPE (IRPP + CAC + CFC + CRTV + TDL
- *              + CNPS), TSR, patente. No expert-comptable required for
- *              routine monthly ops: everything comes from the accounting
- *              records already in the system.
+ * DESCRIPTION: One page for every DGI / CNPS / commune filing — TVA, AIR
+ *              (2.2 % / 5.5 %), DIPE (IRPP + CAC + CFC + CRTV + TDL + FNE),
+ *              CNPS (PVID + PF + AT), TSR, Commune, Patente.
  *
- * The page has 4 tabs:
- *   • Tableau de bord — next deadlines, YTD paid, credit reportable
- *   • Déclarations mensuelles — compute + save + mark filed/paid
- *   • Retenues à la source — upload client attestations
- *   • Paramètres fiscaux — company régime, CIT rate, CNPS group, etc.
+ * Everything the accountant needs each month:
+ *   • Échéances     — dashboard with upcoming filings + AIR credit pending.
+ *   • Déclarations mensuelles — grid of 12 months × 5 filings. Click any
+ *                    month to open the Master Monthly Modal with the full
+ *                    calc, the attestations, the CNPS/DGI/commune split,
+ *                    Approve/Verrouiller, download PDF, record payment.
+ *   • Retenues à la source — upload attestations from Prometal etc.
+ *   • Paramètres    — read-only summary with deeplinks to Settings tabs
+ *                    (Company · fiscal + Preferences · tax) and Payroll.
+ *
+ * No accountant re-keying: every figure comes from the accounting records
+ * already in the DB (invoices, payments, hr_payslips, supplier_invoices,
+ * withholding_certificates). The screen exists to let the accountant
+ * review, approve, and generate the audit trail.
  */
 require_once __DIR__ . '/../../includes/bootstrap.php';
 Rbac::requirePermission('accounting.invoices.view');
 require_once __DIR__ . '/../../includes/classes/TaxEngine.php';
-$lang = lpc_i18n_current_lang();
+require_once __DIR__ . '/../../includes/functions/help.php';
+$lang      = lpc_i18n_current_lang();
 $user_role = $_SESSION['user_role'] ?? 'user';
+$settings  = TaxEngine::settings();
 ?>
 <!DOCTYPE html>
 <html lang="<?= $lang ?>">
@@ -29,12 +38,40 @@ $user_role = $_SESSION['user_role'] ?? 'user';
 <style>
     .tab-content { display: none; }
     .tab-content.active { display: block; }
-    .badge-status { padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
-    .st-draft { background: #f1f5f9; color: #475569; }
-    .st-ready { background: #fef3c7; color: #92400e; }
-    .st-filed { background: #dbeafe; color: #1e40af; }
-    .st-paid  { background: #dcfce7; color: #166534; }
+    .badge-status { padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
+    .st-draft   { background: #f1f5f9; color: #475569; }
+    .st-ready   { background: #fef3c7; color: #92400e; }
+    .st-filed   { background: #dbeafe; color: #1e40af; }
+    .st-paid    { background: #dcfce7; color: #166534; }
+    .st-locked  { background: #ede9fe; color: #5b21b6; }
+    .st-missing { background: #f3f4f6; color: #9ca3af; }
     .amt { font-variant-numeric: tabular-nums; }
+    .month-cell { transition: background .1s; cursor: pointer; }
+    .month-cell:hover { background: #ecfdf5; }
+    .month-cell.done { background: #f0fdf4; }
+    .month-cell.late { background: #fef2f2; }
+    .kind-chip { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin: 1px; }
+    .kind-tva { background: #eff6ff; color: #1e40af; }
+    .kind-air { background: #f0fdf4; color: #166534; }
+    .kind-dipe{ background: #fdf4ff; color: #86198f; }
+    .kind-cnps{ background: #fef3c7; color: #92400e; }
+    .kind-tsr { background: #fef2f2; color: #b91c1c; }
+    .kind-commune { background: #f1f5f9; color: #334155; }
+    /* Master monthly modal */
+    #tax-monthly-modal { position: fixed; inset: 0; background: rgba(15,23,42,0.65); z-index: 90; display: none; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 24px 12px; }
+    #tax-monthly-modal.open { display: flex; }
+    #tax-monthly-modal .panel { background: white; border-radius: 16px; width: 100%; max-width: 1080px; box-shadow: 0 30px 60px -12px rgba(0,0,0,0.4); overflow: hidden; }
+    #tax-monthly-modal header { position: sticky; top: 0; background: linear-gradient(90deg, #065f46, #047857); color: white; padding: 20px 28px; z-index: 1; }
+    #tax-monthly-modal .body { padding: 24px 28px; max-height: 82vh; overflow-y: auto; }
+    #tax-monthly-modal .kind-section { border: 1px solid #e5e7eb; border-radius: 12px; margin-bottom: 16px; overflow: hidden; }
+    #tax-monthly-modal .kind-section > header { position: static; background: #f8fafc; color: #0f172a; padding: 12px 18px; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    #tax-monthly-modal .kind-section .content { padding: 12px 18px; }
+    #tax-monthly-modal table.lines { width: 100%; font-size: 13px; }
+    #tax-monthly-modal table.lines th, #tax-monthly-modal table.lines td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; }
+    #tax-monthly-modal table.lines th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #64748b; }
+    #tax-monthly-modal .info-line { color: #64748b; font-style: italic; }
+    #tax-monthly-modal .credit-line { color: #166534; }
+    #tax-monthly-modal .totals { background: #f8fafc; padding: 12px 18px; text-align: right; font-weight: 700; }
 </style>
 <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
@@ -49,6 +86,25 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 ?>
 
 <div id="lpc-shell-main">
+
+    <!-- Page-local toolbar. Per README §5.5 this is where the page-specific
+         help button lives (the topbar "?" is for the centre as a whole).
+         The chosen year drives the Déclarations tab and (for context) the
+         history table on the Échéances tab. -->
+    <div class="lpc-toolbar flex items-center justify-between px-4 py-3">
+        <div class="flex items-center gap-3">
+            <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest">Exercice</label>
+            <select id="tax-year" class="border border-gray-300 rounded-lg px-3 py-1.5 font-bold text-sm">
+                <?php $yy = (int) date('Y'); for ($y = $yy - 3; $y <= $yy + 1; $y++): ?>
+                    <option value="<?= $y ?>" <?= $y === $yy ? 'selected' : '' ?>><?= $y ?></option>
+                <?php endfor; ?>
+            </select>
+            <span class="text-xs text-gray-400 hidden md:inline">Régime <strong class="uppercase"><?= htmlspecialchars($settings['tax_regime'] ?? 'reel') ?></strong> · NIU <strong><?= htmlspecialchars($settings['niu'] ?? '—') ?></strong></span>
+        </div>
+        <div class="flex items-center gap-2">
+            <?= lpc_help_link('accounting.tax_declarations', $lang) ?>
+        </div>
+    </div>
 
     <nav class="lpc-tabs">
         <button onclick="switchTab('dashboard')"   id="tab-dashboard"   class="tab-link py-4 border-b-[3px] border-emerald-600 text-emerald-700 font-black text-sm uppercase tracking-wider"><i class="fas fa-chart-line mr-2"></i><?= htmlspecialchars(__t('ui.x.echeances')) ?></button>
@@ -76,15 +132,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                 </div>
             </div>
 
-            <!-- ============================================================
-                 AIR retenu en attente d'attestation — Batch B.
-                 Ce bloc reste masqué tant qu'aucune retenue n'est en
-                 attente. Sinon il liste par client × période avec un
-                 bouton "Demander l'attestation" qui télécharge un PDF
-                 formel via tax_controller.php?action=attestation_request.
-                 La query source est celle documentée dans
-                 docs/GUIDE_FISCAL_CAMEROUN.md §7.
-                 ============================================================ -->
+            <!-- AIR pending attestations (Batch B) -->
             <div id="pending-attest-card" class="hidden bg-amber-50 border-2 border-amber-300 rounded-2xl shadow-sm p-6 mb-8">
                 <div class="flex items-start justify-between gap-4 mb-4">
                     <div>
@@ -121,6 +169,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                         <tr>
                             <th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.type')) ?></th>
                             <th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.periode')) ?></th>
+                            <th class="text-left px-6 py-3">Destinataire</th>
                             <th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.brut')) ?></th>
                             <th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.credit')) ?></th>
                             <th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.a_payer')) ?></th>
@@ -129,7 +178,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                         </tr>
                     </thead>
                     <tbody id="upcoming-body" class="divide-y divide-gray-100">
-                        <tr><td colspan="7" class="px-6 py-8 text-center text-gray-400"><?= htmlspecialchars(__t('ui.account.loading')) ?></td></tr>
+                        <tr><td colspan="8" class="px-6 py-8 text-center text-gray-400"><?= htmlspecialchars(__t('ui.account.loading')) ?></td></tr>
                     </tbody>
                 </table>
             </div>
@@ -137,43 +186,34 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 
         <!-- ============ MONTHLY DECLARATIONS ============ -->
         <div id="content-monthly" class="tab-content">
-            <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6">
-                <h3 class="font-black text-gray-900 mb-4"><?= htmlspecialchars(__t('ui.x.calculer_une_declaration')) ?></h3>
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <select id="cf_kind" class="border border-gray-300 rounded-lg px-3 py-2 font-semibold">
-                        <option value="tva">TVA — 19.25%</option>
-                        <option value="air" selected>AIR — Acompte IS (2.2% / 5.5%)</option>
-                        <option value="irpp_dipe">DIPE — IRPP + CAC + CFC + CRTV + CNPS</option>
-                        <option value="tsr"><?= htmlspecialchars(__t('ui.x.tsr_services_etrangers')) ?></option>
-                        <option value="patente"><?= htmlspecialchars(__t('ui.x.patente_annuel')) ?></option>
-                    </select>
-                    <input id="cf_year"  type="number" value="<?= date('Y') ?>" class="border border-gray-300 rounded-lg px-3 py-2 font-semibold">
-                    <input id="cf_month" type="number" min="1" max="12" value="<?= (int) date('n') - 1 ?: 12 ?>" class="border border-gray-300 rounded-lg px-3 py-2 font-semibold">
-                    <button onclick="computeDeclaration()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm uppercase tracking-wider rounded-lg px-4 py-2"><i class="fas fa-calculator mr-2"></i><?= htmlspecialchars(__t('ui.x.calculer')) ?></button>
-                </div>
-            </div>
-
-            <div id="compute-result" class="hidden bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden mb-6">
-                <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+            <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden mb-6">
+                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
                     <div>
-                        <h3 class="font-black text-gray-900" id="cr_title">—</h3>
-                        <p class="text-xs text-gray-500 mt-1" id="cr_period">—</p>
+                        <h3 class="font-black text-gray-900">Calendrier des déclarations <span id="mg_year">—</span></h3>
+                        <p class="text-xs text-gray-500 mt-1">Cliquez sur un mois pour ouvrir le récapitulatif complet (TVA + AIR + DIPE + CNPS + TSR + commune) avec les attestations, l'approbation et le PDF.</p>
                     </div>
-                    <div class="flex gap-3">
-                        <button onclick="persistDeclaration()" class="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider rounded-lg px-4 py-2"><i class="fas fa-save mr-2"></i><?= htmlspecialchars(__t('ui.x.enregistrer')) ?></button>
-                        <button onclick="window.print()" class="bg-slate-600 hover:bg-slate-700 text-white font-black text-xs uppercase tracking-wider rounded-lg px-4 py-2"><i class="fas fa-print mr-2"></i><?= htmlspecialchars(__t('common.print')) ?></button>
+                    <div class="flex items-center gap-2 text-xs">
+                        <span class="badge-status st-missing">à faire</span>
+                        <span class="badge-status st-ready">calculée</span>
+                        <span class="badge-status st-locked">approuvée</span>
+                        <span class="badge-status st-paid">payée</span>
                     </div>
                 </div>
                 <table class="w-full text-sm">
                     <thead class="bg-slate-50 text-[10px] font-black text-gray-500 uppercase">
-                        <tr><th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.code')) ?></th><th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.libelle')) ?></th><th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.montant_fcfa_2')) ?></th></tr>
+                        <tr>
+                            <th class="text-left px-6 py-3">Mois</th>
+                            <th class="text-left px-6 py-3">Statuts</th>
+                            <th class="text-right px-6 py-3">DGI</th>
+                            <th class="text-right px-6 py-3">CNPS</th>
+                            <th class="text-right px-6 py-3">Commune</th>
+                            <th class="text-right px-6 py-3">Total net</th>
+                            <th class="text-left px-6 py-3">Échéance</th>
+                        </tr>
                     </thead>
-                    <tbody id="cr-lines" class="divide-y divide-gray-100"></tbody>
-                    <tfoot class="bg-slate-100 text-sm font-black">
-                        <tr><td colspan="2" class="px-6 py-3 text-right"><?= htmlspecialchars(__t('ui.x.brut')) ?></td><td class="px-6 py-3 text-right amt" id="cr_total">—</td></tr>
-                        <tr><td colspan="2" class="px-6 py-3 text-right text-emerald-700"><?= htmlspecialchars(__t('ui.x.credit')) ?></td><td class="px-6 py-3 text-right text-emerald-700 amt" id="cr_credit">—</td></tr>
-                        <tr class="border-t-2 border-emerald-600"><td colspan="2" class="px-6 py-4 text-right text-lg"><?= htmlspecialchars(__t('ui.x.net_a_payer')) ?></td><td class="px-6 py-4 text-right text-lg amt text-red-600" id="cr_net">—</td></tr>
-                    </tfoot>
+                    <tbody id="month-grid-body" class="divide-y divide-gray-100">
+                        <tr><td colspan="7" class="px-6 py-8 text-center text-gray-400"><?= htmlspecialchars(__t('ui.account.loading')) ?></td></tr>
+                    </tbody>
                 </table>
             </div>
 
@@ -183,9 +223,18 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                 </div>
                 <table class="w-full text-sm">
                     <thead class="bg-slate-50 text-[10px] font-black text-gray-500 uppercase">
-                        <tr><th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.type')) ?></th><th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.periode')) ?></th><th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.brut')) ?></th><th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.net')) ?></th><th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.statut')) ?></th><th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.actions')) ?></th></tr>
+                        <tr>
+                            <th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.type')) ?></th>
+                            <th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.periode')) ?></th>
+                            <th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.brut')) ?></th>
+                            <th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.net')) ?></th>
+                            <th class="text-left px-6 py-3"><?= htmlspecialchars(__t('ui.x.statut')) ?></th>
+                            <th class="text-right px-6 py-3"><?= htmlspecialchars(__t('ui.x.actions')) ?></th>
+                        </tr>
                     </thead>
-                    <tbody id="history-body" class="divide-y divide-gray-100"><tr><td colspan="6" class="px-6 py-8 text-center text-gray-400"><?= htmlspecialchars(__t('ui.account.loading')) ?></td></tr></tbody>
+                    <tbody id="history-body" class="divide-y divide-gray-100">
+                        <tr><td colspan="6" class="px-6 py-8 text-center text-gray-400"><?= htmlspecialchars(__t('ui.account.loading')) ?></td></tr>
+                    </tbody>
                 </table>
             </div>
         </div>
@@ -210,33 +259,134 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                 <h3 class="font-black text-gray-900 mb-4"><?= htmlspecialchars(__t('ui.x.attestations_recues')) ?></h3>
                 <table class="w-full text-sm">
                     <thead class="bg-slate-50 text-[10px] font-black text-gray-500 uppercase">
-                        <tr><th class="text-left px-4 py-3"><?= htmlspecialchars(__t('ui.x.client')) ?></th><th class="text-left px-4 py-3"><?= htmlspecialchars(__t('ui.x.n_attest')) ?></th><th class="text-left px-4 py-3"><?= htmlspecialchars(__t('ui.x.periode')) ?></th><th class="text-right px-4 py-3"><?= htmlspecialchars(__t('ui.x.montant')) ?></th><th class="text-left px-4 py-3"><?= htmlspecialchars(__t('ui.x.fichier')) ?></th></tr>
+                        <tr>
+                            <th class="text-left px-4 py-3"><?= htmlspecialchars(__t('ui.x.client')) ?></th>
+                            <th class="text-left px-4 py-3"><?= htmlspecialchars(__t('ui.x.n_attest')) ?></th>
+                            <th class="text-left px-4 py-3"><?= htmlspecialchars(__t('ui.x.periode')) ?></th>
+                            <th class="text-right px-4 py-3"><?= htmlspecialchars(__t('ui.x.montant')) ?></th>
+                            <th class="text-left px-4 py-3"><?= htmlspecialchars(__t('ui.x.fichier')) ?></th>
+                        </tr>
                     </thead>
-                    <tbody id="cert-body" class="divide-y divide-gray-100"><tr><td colspan="5" class="px-4 py-8 text-center text-gray-400"><?= htmlspecialchars(__t('ui.x.aucune_attestation')) ?></td></tr></tbody>
+                    <tbody id="cert-body" class="divide-y divide-gray-100">
+                        <tr><td colspan="5" class="px-4 py-8 text-center text-gray-400"><?= htmlspecialchars(__t('ui.account.loading')) ?></td></tr>
+                    </tbody>
                 </table>
             </div>
         </div>
 
         <!-- ============ SETTINGS ============ -->
         <div id="content-settings" class="tab-content">
-            <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 max-w-3xl">
-                <h3 class="font-black text-gray-900 mb-4"><?= htmlspecialchars(__t('ui.x.parametres_fiscaux_de_l_entreprise')) ?></h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <a href="/modules/settings/index.php?tab=company#fiscal" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 hover:border-emerald-600 hover:shadow-md transition group no-underline text-inherit">
+                    <div class="flex items-start gap-4">
+                        <div class="w-11 h-11 rounded-full bg-emerald-100 grid place-items-center text-emerald-700"><i class="fas fa-building"></i></div>
+                        <div class="min-w-0">
+                            <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Identité fiscale</p>
+                            <h3 class="font-black text-gray-900 mt-1">Fiche entreprise → régime, NIU, centre des impôts</h3>
+                            <p class="text-xs text-gray-500 mt-1">Ouvre la fiche entreprise dans le module Administration, section "Régime fiscal & social". Modification tracée dans les logs d'audit.</p>
+                        </div>
+                        <i class="fas fa-arrow-up-right-from-square text-gray-300 group-hover:text-emerald-600 mt-1"></i>
+                    </div>
+                </a>
+                <a href="/modules/settings/index.php?tab=preferences#tax" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 hover:border-emerald-600 hover:shadow-md transition group no-underline text-inherit">
+                    <div class="flex items-start gap-4">
+                        <div class="w-11 h-11 rounded-full bg-blue-100 grid place-items-center text-blue-700"><i class="fas fa-percent"></i></div>
+                        <div class="min-w-0">
+                            <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Taux fiscaux</p>
+                            <h3 class="font-black text-gray-900 mt-1">Préférences → TVA, AIR, IS, CNPS, FNE, AT, commune</h3>
+                            <p class="text-xs text-gray-500 mt-1">Toute la table des taux (%, jour d'échéance, groupe CNPS, forfait commune) sur une seule page. Sauvegarde immédiate.</p>
+                        </div>
+                        <i class="fas fa-arrow-up-right-from-square text-gray-300 group-hover:text-emerald-600 mt-1"></i>
+                    </div>
+                </a>
+                <a href="/modules/hr/payroll_finance.php" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 hover:border-emerald-600 hover:shadow-md transition group no-underline text-inherit">
+                    <div class="flex items-start gap-4">
+                        <div class="w-11 h-11 rounded-full bg-fuchsia-100 grid place-items-center text-fuchsia-700"><i class="fas fa-users"></i></div>
+                        <div class="min-w-0">
+                            <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Paie & masse salariale</p>
+                            <h3 class="font-black text-gray-900 mt-1">Générer la paie → alimente DIPE & CNPS</h3>
+                            <p class="text-xs text-gray-500 mt-1">Chaque bulletin de paie valide est agrégé automatiquement dans la déclaration DIPE (IRPP, CAC, CFC, CRTV, TDL, FNE) et CNPS (PVID, PF, AT) du mois correspondant.</p>
+                        </div>
+                        <i class="fas fa-arrow-up-right-from-square text-gray-300 group-hover:text-emerald-600 mt-1"></i>
+                    </div>
+                </a>
+                <a href="/modules/help/index.php?slug=declarations-fiscales-vue-densemble" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 hover:border-emerald-600 hover:shadow-md transition group no-underline text-inherit">
+                    <div class="flex items-start gap-4">
+                        <div class="w-11 h-11 rounded-full bg-amber-100 grid place-items-center text-amber-700"><i class="fas fa-book"></i></div>
+                        <div class="min-w-0">
+                            <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Guide fiscal</p>
+                            <h3 class="font-black text-gray-900 mt-1">Ouvrir le guide "Déclarations fiscales — vue d'ensemble"</h3>
+                            <p class="text-xs text-gray-500 mt-1">Toutes les règles CGI 2026 utilisées par le moteur, article par article, plus les procédures d'approbation, de paiement et d'archivage pour audit.</p>
+                        </div>
+                        <i class="fas fa-arrow-up-right-from-square text-gray-300 group-hover:text-emerald-600 mt-1"></i>
+                    </div>
+                </a>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 max-w-4xl">
+                <h3 class="font-black text-gray-900 mb-4">Paramètres actuellement appliqués</h3>
                 <div id="settings-form" class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                     <div><label class="text-[10px] font-black text-gray-500 uppercase"><?= htmlspecialchars(__t('ui.x.regime')) ?></label><div id="s_regime" class="font-bold text-gray-900 mt-1">—</div></div>
+                    <div><label class="text-[10px] font-black text-gray-500 uppercase">NIU</label><div id="s_niu" class="font-bold text-gray-900 mt-1">—</div></div>
                     <div><label class="text-[10px] font-black text-gray-500 uppercase">Taux AIR</label><div id="s_air" class="font-bold text-gray-900 mt-1">—</div></div>
                     <div><label class="text-[10px] font-black text-gray-500 uppercase"><?= htmlspecialchars(__t('ui.x.taux_tva')) ?></label><div id="s_tva" class="font-bold text-gray-900 mt-1">—</div></div>
                     <div><label class="text-[10px] font-black text-gray-500 uppercase">Taux IS</label><div id="s_cit" class="font-bold text-gray-900 mt-1">—</div></div>
+                    <div><label class="text-[10px] font-black text-gray-500 uppercase">Taux FNE (patronal)</label><div id="s_fne" class="font-bold text-gray-900 mt-1">—</div></div>
                     <div><label class="text-[10px] font-black text-gray-500 uppercase">Groupe CNPS (AT)</label><div id="s_cnps" class="font-bold text-gray-900 mt-1">—</div></div>
-                    <div><label class="text-[10px] font-black text-gray-500 uppercase">NIU</label><div id="s_niu" class="font-bold text-gray-900 mt-1">—</div></div>
+                    <div><label class="text-[10px] font-black text-gray-500 uppercase">Taux AT (patronal)</label><div id="s_at" class="font-bold text-gray-900 mt-1">—</div></div>
+                    <div><label class="text-[10px] font-black text-gray-500 uppercase">Taxe communale (mensuel)</label><div id="s_commune" class="font-bold text-gray-900 mt-1">—</div></div>
+                    <div><label class="text-[10px] font-black text-gray-500 uppercase">Jour d'échéance DGI/CNPS</label><div id="s_filing_day" class="font-bold text-gray-900 mt-1">—</div></div>
                 </div>
-                <p class="text-xs text-gray-500 mt-4"><?= htmlspecialchars(__t('ui.x.les_parametres_sont_modifiables_depuis')) ?> <code>company_tax_settings</code> <?= htmlspecialchars(__t('ui.x.un_module_dedie_sera_ajoute_en_attendant')) ?></p>
+                <p class="text-xs text-gray-500 mt-4"><i class="fas fa-info-circle mr-1"></i>Les taux ci-dessus sont ceux effectivement utilisés par le moteur de calcul. Toute modification passe par les deux raccourcis en haut de page — sauvegardée dans <code>app_preferences</code> et propagée dans <code>company_tax_settings</code>.</p>
             </div>
         </div>
 
     </main>
 </div>
 
-<script type="application/json" id="lpc-page-data"><?= json_encode(['v1' => htmlspecialchars(TaxEngine::settings()["tax_regime"] ?? "reel"),'v2' => (float) (TaxEngine::settings()["air_rate"] ?? 0.022),'v3' => (float) (TaxEngine::settings()["tva_rate"] ?? 0.1925),'v4' => (float) (TaxEngine::settings()["cit_rate"] ?? 0.33),'v5' => htmlspecialchars(TaxEngine::settings()["cnps_group"] ?? "A"),'v6' => htmlspecialchars(TaxEngine::settings()["niu"] ?? "—"),'v7' => __t('ui.groupe')], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
+<!-- ==================================================================
+     MASTER MONTHLY MODAL
+     Opens when a month is clicked in the Déclarations mensuelles grid.
+     Shows every declaration for that month in one place, with the
+     attestations, CNPS/DGI/commune totals, approve, PDF, payment.
+     ================================================================== -->
+<div id="tax-monthly-modal" role="dialog" aria-modal="true" aria-labelledby="tmm-title">
+    <div class="panel">
+        <header>
+            <div class="flex items-center justify-between gap-4">
+                <div>
+                    <p class="text-[10px] font-black uppercase tracking-widest text-white/60">Récapitulatif fiscal du mois</p>
+                    <h2 id="tmm-title" class="text-2xl font-black mt-1">—</h2>
+                    <p id="tmm-subtitle" class="text-xs text-white/80 mt-1">—</p>
+                </div>
+                <button onclick="closeMonthlyModal()" class="w-9 h-9 rounded-full bg-white/15 hover:bg-white/30 text-white grid place-items-center" aria-label="Fermer"><i class="fas fa-times"></i></button>
+            </div>
+            <!-- Executive totals -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
+                <div class="rounded-lg bg-white/15 px-4 py-2"><p class="text-[10px] font-black uppercase text-white/70">Total DGI</p><p id="tmm-dgi" class="text-lg font-black amt">—</p></div>
+                <div class="rounded-lg bg-white/15 px-4 py-2"><p class="text-[10px] font-black uppercase text-white/70">Total CNPS</p><p id="tmm-cnps" class="text-lg font-black amt">—</p></div>
+                <div class="rounded-lg bg-white/15 px-4 py-2"><p class="text-[10px] font-black uppercase text-white/70">Total Commune</p><p id="tmm-commune" class="text-lg font-black amt">—</p></div>
+                <div class="rounded-lg bg-white text-emerald-900 px-4 py-2"><p class="text-[10px] font-black uppercase text-emerald-700">Grand total</p><p id="tmm-grand" class="text-lg font-black amt">—</p></div>
+            </div>
+        </header>
+        <div class="body" id="tmm-body">
+            <p class="text-sm text-gray-400 text-center py-12"><?= htmlspecialchars(__t('ui.account.loading')) ?></p>
+        </div>
+    </div>
+</div>
+
+<script type="application/json" id="lpc-page-data"><?= json_encode([
+    'regime'           => htmlspecialchars($settings['tax_regime'] ?? 'reel'),
+    'air_rate'         => (float) ($settings['air_rate'] ?? 0.022),
+    'tva_rate'         => (float) ($settings['tva_rate'] ?? 0.1925),
+    'cit_rate'         => (float) ($settings['cit_rate'] ?? 0.33),
+    'fne_rate'         => (float) ($settings['fne_rate'] ?? 0.01),
+    'at_rate'          => (float) ($settings['at_rate']  ?? 0.0175),
+    'cnps_group'       => htmlspecialchars($settings['cnps_group'] ?? 'A'),
+    'commune_monthly'  => (float) ($settings['commune_monthly'] ?? 0),
+    'filing_day'       => (int)   ($settings['filing_day'] ?? 15),
+    'niu'              => htmlspecialchars($settings['niu'] ?? '—'),
+], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
 <script src="<?= lpc_asset('/assets/js/modules/accounting-tax_declarations.js') ?>" defer></script>
 </body>
 </html>
