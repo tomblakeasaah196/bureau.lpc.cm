@@ -653,23 +653,42 @@ try {
                 throw new UserFacingException("Livraisons invalides.");
             }
 
+            // Collapse the LEFT JOIN to one row per delivery. Without GROUP BY
+            // a delivery already linked to N invoice_deliveries rows would come
+            // back N times, making the count check below fail with the misleading
+            // "invalides ou n'appartiennent pas à ce client" — the deliveries
+            // are fine, they've simply been double-linked in the past. MAX() is
+            // enough to detect "already invoiced" because the check downstream
+            // only cares whether ANY invoice_id is present.
             $placeholders = implode(',', array_fill(0, count($delivery_ids), '?'));
             $stmtCheck = $db->prepare("
-                SELECT d.id, d.payment_collected, idel.invoice_id 
+                SELECT d.id, d.payment_collected, MAX(idel.invoice_id) AS invoice_id
                 FROM deliveries d
                 LEFT JOIN invoice_deliveries idel ON d.id = idel.delivery_id
-                WHERE d.id IN ($placeholders) AND d.client_id = ? FOR UPDATE
+                WHERE d.id IN ($placeholders) AND d.client_id = ?
+                GROUP BY d.id, d.payment_collected
+                FOR UPDATE
             ");
             $params = array_merge($delivery_ids, [$client_id]);
             $stmtCheck->execute($params);
             $valid_deliveries = $stmtCheck->fetchAll(PDO::FETCH_ASSOC);
 
+            // Business-rule failures below use UserFacingException so the
+            // operator sees the actual reason instead of the generic
+            // "Erreur serveur. Veuillez réessayer." — exactly the case the
+            // UserFacingException class docstring points to as the reason
+            // for its existence.
             if (count($valid_deliveries) !== count($delivery_ids)) {
-                throw new Exception("Une ou plusieurs livraisons sont invalides ou n'appartiennent pas à ce client.");
+                $found_ids   = array_column($valid_deliveries, 'id');
+                $missing_ids = array_diff($delivery_ids, $found_ids);
+                throw new UserFacingException(
+                    "Une ou plusieurs livraisons sont invalides ou n'appartiennent pas à ce client "
+                    . '(BL #' . implode(', #', $missing_ids) . ').'
+                );
             }
             foreach ($valid_deliveries as $vd) {
                 if ($vd['invoice_id'] !== null) {
-                    throw new Exception("Le BL #" . $vd['id'] . " est déjà facturé.");
+                    throw new UserFacingException("Le BL #" . $vd['id'] . " est déjà facturé.");
                 }
             }
 
@@ -1361,7 +1380,7 @@ try {
             break;
 
         default:
-            throw new Exception("Action inconnue.");
+            throw new UserFacingException("Action inconnue : {$action}.");
     }
 
 } catch (UserFacingException $e) {

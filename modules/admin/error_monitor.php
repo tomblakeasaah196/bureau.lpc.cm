@@ -163,6 +163,59 @@ $fmtTs = function (string $raw): string {
     return $d->setTimezone(new DateTimeZone(date_default_timezone_get()))->format('d-M-Y H:i:s');
 };
 
+/**
+ * Plain-text render of one aggregated error, meant to be pasted into an AI
+ * chat / bug tracker. Built server-side and stashed as JSON inside each item
+ * so the JS clipboard handler only has to join blobs — no DOM scraping, and
+ * the format stays consistent across single-item and multi-select copies.
+ *
+ * Trims samples to two lines with a total length cap because pasting a 4 MB
+ * stack blob is what people are actually trying to avoid.
+ */
+$copyBlob = function (array $row) use ($fmtTs): string {
+    $lines   = [];
+    $count   = (int) $row['count'];
+    $level   = strtoupper((string) $row['level']);
+    $msgHead = explode("\n", (string) $row['message'])[0] ?? '';
+    $lines[] = "[{$level} × {$count}] {$msgHead}";
+
+    if (!empty($row['file'])) {
+        $lines[] = 'File: ' . $row['file'] . ($row['line'] ? ':' . $row['line'] : '');
+    }
+    $lines[] = 'First seen: ' . $fmtTs($row['first_seen']) . ' (' . date_default_timezone_get() . ')';
+    $lines[] = 'Last seen:  ' . $fmtTs($row['last_seen'])  . ' (' . date_default_timezone_get() . ')';
+
+    if (!empty($row['locations']) && count($row['locations']) > 1) {
+        $lines[] = 'Locations:';
+        foreach ($row['locations'] as $loc => $n) {
+            $lines[] = '  ' . $loc . ' (' . (int) $n . '×)';
+        }
+    }
+    if (!empty($row['sources'])) {
+        $lines[] = 'Sources: ' . implode(', ', array_keys($row['sources']));
+    }
+    if (!empty($row['explain'])) {
+        $exp = __t('ui.error_monitor.explain.' . $row['explain']);
+        if ($exp !== '' && $exp !== ('ui.error_monitor.explain.' . $row['explain'])) {
+            $lines[] = 'What it means: ' . $exp;
+        }
+    }
+    if (!empty($row['samples'])) {
+        $lines[] = 'Samples:';
+        $shown = 0;
+        foreach ($row['samples'] as $s) {
+            if ($shown >= 2) break;
+            // Cap each sample at 800 chars — enough for a PHP trace header,
+            // small enough that ten of them still fit under any AI paste limit.
+            $t = trim((string) $s);
+            if (mb_strlen($t) > 800) $t = mb_substr($t, 0, 800) . ' …[truncated]';
+            $lines[] = '  ' . str_replace("\n", "\n  ", $t);
+            $shown++;
+        }
+    }
+    return implode("\n", $lines);
+};
+
 // -----------------------------------------------------------------------------
 // Logging health. "Why are there no errors after 10 a.m.?" is not answerable
 // from the entry list alone — an empty tail looks identical whether the app was
@@ -219,6 +272,26 @@ $diskTotal          = @disk_total_space($configuredDir ?: __DIR__);
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.75rem}
 details > summary{cursor:pointer;list-style:none}
 details > summary::-webkit-details-marker{display:none}
+
+/* Per-item copy + multi-select controls. Kept in the same idiom as the
+   existing .btn / .chip pair rather than pulling in a new component. */
+.err-check{margin-top:.35rem;cursor:pointer;accent-color:#005A2B}
+.err-copy-btn{background:#fff;color:#374151;border:1px solid #D1D5DB;
+              padding:.25rem .5rem;border-radius:.375rem;font-size:.7rem;
+              cursor:pointer;transition:all .15s;display:inline-flex;
+              align-items:center;gap:.25rem}
+.err-copy-btn:hover{background:#F9FAFB;color:#005A2B;border-color:#8CC63F}
+.err-copy-btn.copied{background:#DCFCE7;color:#166534;border-color:#86EFAC}
+.err-multibar{display:none;align-items:center;justify-content:space-between;
+              gap:.75rem;padding:.6rem .9rem;margin-bottom:.75rem;
+              background:#F0FDF4;border:1px solid #BBF7D0;border-radius:.5rem}
+.err-multibar.visible{display:flex}
+.err-multibar .count{font-size:.8rem;color:#166534;font-weight:600}
+.err-toast{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);
+           background:#111827;color:#fff;padding:.6rem 1rem;border-radius:.5rem;
+           font-size:.8rem;box-shadow:0 8px 24px rgba(0,0,0,.15);
+           opacity:0;pointer-events:none;transition:opacity .15s;z-index:60}
+.err-toast.visible{opacity:1}
 </style>
 <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
@@ -411,6 +484,24 @@ require __DIR__ . '/../../includes/components/topbar.php';
             'total' => $totalGroups,
         ]), ENT_QUOTES, 'UTF-8') ?>
     </p>
+
+    <!-- Multi-select copy bar. Hidden until at least one checkbox is ticked;
+         populated by admin-error_monitor.js. Lives above the list so it stays
+         visible while the user scrolls through 20 items. -->
+    <div class="err-multibar" id="err-multibar" role="region" aria-live="polite">
+        <span class="count">
+            <span id="err-multi-count">0</span> erreur(s) sélectionnée(s)
+        </span>
+        <div class="flex items-center gap-2">
+            <button type="button" id="err-multi-clear" class="btn btn-secondary">
+                Effacer
+            </button>
+            <button type="button" id="err-multi-copy" class="btn btn-primary">
+                📋 Copier la sélection
+            </button>
+        </div>
+    </div>
+
     <div class="space-y-2" id="err-list">
         <?php foreach ($pageRows as $row):
             // Severity buckets, not raw level names — the level list is wider
@@ -421,7 +512,21 @@ require __DIR__ . '/../../includes/components/topbar.php';
             <details class="err-item bg-white border border-gray-200 rounded-lg overflow-hidden"
                      data-level="<?= htmlspecialchars($row['level'], ENT_QUOTES, 'UTF-8') ?>"
                      data-text="<?= htmlspecialchars(mb_strtolower(($row['message'] ?? '') . ' ' . ($row['file'] ?? '')), ENT_QUOTES, 'UTF-8') ?>">
+                <!-- Copy payload stashed as JSON. Kept out of a data-attribute
+                     because the sample text can carry quotes, angle brackets
+                     and newlines and would be a nightmare to escape twice. A
+                     <script type="application/json"> is inert content — the
+                     browser never executes it — and JS reads .textContent. -->
+                <script type="application/json" class="err-copy-payload"><?php
+                    echo json_encode($copyBlob($row), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG);
+                ?></script>
                 <summary class="p-3 flex items-start justify-between gap-3 hover:bg-gray-50">
+                    <!-- Selection checkbox. stopPropagation so ticking it
+                         doesn't also toggle the <details> open/closed. -->
+                    <input type="checkbox" class="err-check"
+                           title="Sélectionner pour copie groupée"
+                           aria-label="Sélectionner cette erreur"
+                           onclick="event.stopPropagation();">
                     <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 mb-1">
                             <span class="<?= $cls ?>"><?= htmlspecialchars($row['level'], ENT_QUOTES, 'UTF-8') ?></span>
@@ -442,10 +547,20 @@ require __DIR__ . '/../../includes/components/topbar.php';
                             <span class="text-gray-400">(<?= htmlspecialchars(date_default_timezone_get(), ENT_QUOTES, 'UTF-8') ?>)</span>
                         </p>
                     </div>
-                    <button type="button" onclick="event.preventDefault();event.stopPropagation();this.closest('.err-item').remove();"
-                            class="text-gray-500 hover:text-red-300 text-xs px-2 py-1 rounded border border-gray-200">
-                        <?= __t('ui.cacher') ?>
-                    </button>
+                    <div class="flex items-center gap-1 shrink-0">
+                        <!-- Per-family copy. Stops propagation so summary
+                             doesn't toggle when the user just wants the text. -->
+                        <button type="button" class="err-copy-btn"
+                                title="Copier cette erreur (partageable avec un LLM)"
+                                aria-label="Copier cette erreur"
+                                onclick="event.preventDefault();event.stopPropagation();">
+                            📋 <span class="err-copy-label">Copier</span>
+                        </button>
+                        <button type="button" onclick="event.preventDefault();event.stopPropagation();this.closest('.err-item').remove();window.__lpcErrMon&&window.__lpcErrMon.refresh();"
+                                class="text-gray-500 hover:text-red-300 text-xs px-2 py-1 rounded border border-gray-200">
+                            <?= __t('ui.cacher') ?>
+                        </button>
+                    </div>
                 </summary>
                 <div class="p-3 border-t border-gray-200 bg-gray-50">
                     <?php if ($explain !== ''): ?>
@@ -509,6 +624,10 @@ require __DIR__ . '/../../includes/components/topbar.php';
 
 </main>
 </div>
+
+<!-- Clipboard toast target. Lives outside main so scroll containers don't
+     clip it. Styled to fade in/out from admin-error_monitor.js. -->
+<div id="err-toast" class="err-toast" role="status" aria-live="polite"></div>
 
 <script src="<?= lpc_asset('/assets/js/modules/admin-error_monitor.js') ?>" defer></script>
 
