@@ -39,6 +39,7 @@ $ACTION_PERMS = [
     'list_register'             => 'accounting.fixed_assets.view',
     'list_accounts'             => 'accounting.fixed_assets.view',
     'preview_dotation'          => 'accounting.fixed_assets.view',
+    'preview_dotations'         => 'accounting.fixed_assets.view',
     'capitalize_asset'          => 'accounting.fixed_assets.capitalize',
     'run_monthly_dotations'     => 'accounting.fixed_assets.depreciate',
     'dispose_asset'             => 'accounting.fixed_assets.dispose',
@@ -96,12 +97,60 @@ try {
     }
 
     if ($action === 'list_accounts') {
-        $lpc = $db->query("SELECT id, code, name FROM chart_of_accounts WHERE is_active = 1 ORDER BY code ASC")->fetchAll(PDO::FETCH_ASSOC);
-        $ohada = $db->query("SELECT id, account_number AS code, name FROM ohada_accounts ORDER BY account_number ASC")->fetchAll(PDO::FETCH_ASSOC);
-        sendJson('success', '', ['lpc' => $lpc, 'ohada' => $ohada]);
+        // Return every chart_of_accounts row bucketed by SYSCOHADA class.
+        // We JOIN ohada_accounts so we can filter on the OHADA account_number
+        // regardless of whether the chart_of_accounts row carries an
+        // LPC-prefixed vanity code (legacy) or the raw SYSCOHADA number
+        // (post migration 038 / 082).
+        $rows = $db->query("
+            SELECT coa.id, coa.code, coa.name,
+                   COALESCE(oa.account_number, coa.code) AS ohada_code
+              FROM chart_of_accounts coa
+              LEFT JOIN ohada_accounts oa ON oa.id = coa.ohada_account_id
+             WHERE coa.is_active = 1
+             ORDER BY COALESCE(oa.account_number, coa.code) ASC
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        $buckets = [
+            'assets'      => [],  // Class 2 excluding 28 — cost side.
+            'accumulated' => [],  // Class 28    — cumulative depreciation.
+            'charge'      => [],  // Class 68    — dotation aux amortissements.
+            'cash'        => [],  // Class 5     — trésorerie (cession side).
+            'plus_value'  => [],  // Class 82    — produits de cession.
+            'moins_value' => [],  // Class 81    — VCE.
+        ];
+        foreach ($rows as $r) {
+            $c = (string) $r['ohada_code'];
+            $r['ohada_code'] = $c;
+            if (strncmp($c, '28', 2) === 0)                                       { $buckets['accumulated'][] = $r; continue; }
+            if (strncmp($c, '2',  1) === 0)                                       { $buckets['assets'][]      = $r; continue; }
+            if (strncmp($c, '68', 2) === 0)                                       { $buckets['charge'][]      = $r; continue; }
+            if (strncmp($c, '5',  1) === 0)                                       { $buckets['cash'][]        = $r; continue; }
+            if (strncmp($c, '82', 2) === 0)                                       { $buckets['plus_value'][]  = $r; continue; }
+            if (strncmp($c, '81', 2) === 0)                                       { $buckets['moins_value'][] = $r; continue; }
+        }
+
+        // Company defaults from preferences — surfaced so the front-end can
+        // pre-select the 81/82 options in the cession modal.
+        $defaults = [
+            'moins_value_account_id' => (int) Prefs::int('accounting_moins_value_account_id', 0),
+            'plus_value_account_id'  => (int) Prefs::int('accounting_plus_value_account_id',  0),
+            'vat_account_id'         => (int) Prefs::int('accounting_vat_output_account_id',  0),
+        ];
+
+        sendJson('success', '', [
+            'lpc'      => $rows,                    // legacy compat — full list
+            'buckets'  => $buckets,
+            'defaults' => $defaults,
+        ]);
     }
 
     if ($action === 'list_register') {
+        // Front-end status filter: 'all' (default) | 'active' | 'depreciated' | 'disposed'.
+        // The distinction between active-with-VNC and totalement-amorti is made
+        // in PHP because it depends on the running SUM(depreciation_logs.amount)
+        // and can't be a static WHERE.
+        $filter = (string) ($_GET['status'] ?? 'all');
         $rows = $db->query("
             SELECT fa.*,
                    COALESCE((SELECT SUM(amount) FROM depreciation_logs WHERE fixed_asset_id = fa.id), 0) AS accumulated_depr,
@@ -110,6 +159,16 @@ try {
               LEFT JOIN vehicles v ON v.id = fa.vehicle_id
              ORDER BY fa.status ASC, fa.created_at DESC
         ")->fetchAll(PDO::FETCH_ASSOC);
+
+        if ($filter !== 'all') {
+            $rows = array_values(array_filter($rows, function ($r) use ($filter) {
+                $vnc = (float) $r['acquisition_cost'] - (float) $r['accumulated_depr'];
+                if ($filter === 'disposed')    return $r['status'] === 'disposed';
+                if ($filter === 'depreciated') return $vnc <= 0 && $r['status'] !== 'disposed';
+                if ($filter === 'active')      return $vnc > 0  && $r['status'] !== 'disposed';
+                return true;
+            }));
+        }
         sendJson('success', '', ['assets' => $rows]);
     }
 
@@ -129,6 +188,63 @@ try {
         if (!$a) throw new Exception("Actif introuvable.");
         $r = Depreciation::monthly($a, new DateTimeImmutable("{$period}-01"));
         sendJson('success', '', $r);
+    }
+
+    // Dry-run the whole monthly-dotation batch. Same math as
+    // run_monthly_dotations() but never touches the DB — the front-end
+    // shows the JE preview so the user can confirm before posting.
+    if ($action === 'preview_dotations') {
+        $year   = (int) ($payload['year']  ?? $_GET['year']  ?? 0);
+        $month  = (int) ($payload['month'] ?? $_GET['month'] ?? 0);
+        if ($year < 2000 || $month < 1 || $month > 12) throw new Exception("Année/mois invalide.");
+        $target_month = new DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+
+        // Closed-period sanity check — friendlier than the trigger's raw signal.
+        $fy = $db->prepare("SELECT status FROM financial_years WHERE year = ?");
+        $fy->execute([$year]);
+        $status = $fy->fetchColumn();
+        $is_closed = ($status === 'closed');
+
+        $assets = $db->query("
+            SELECT fa.*,
+                   COALESCE((SELECT SUM(amount) FROM depreciation_logs WHERE fixed_asset_id = fa.id), 0) AS accumulated
+              FROM fixed_assets fa
+             WHERE fa.status = 'active'
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        $preview = [];
+        $total_debit  = 0.0;
+        $total_credit = 0.0;
+        $already_done = 0;
+        foreach ($assets as $a) {
+            $exists = $db->prepare("SELECT 1 FROM depreciation_logs WHERE fixed_asset_id = ? AND month = ? AND year = ?");
+            $exists->execute([$a['id'], $month, $year]);
+            if ($exists->fetch()) { $already_done++; continue; }
+
+            $r = Depreciation::monthly($a, $target_month);
+            $amt = (float) $r['amount'];
+            if ($amt <= 0) continue;
+
+            $preview[] = [
+                'asset_id'       => (int) $a['id'],
+                'name'           => (string) $a['name'],
+                'amount'         => $amt,
+                'proration_days' => (int) $r['proration_days'],
+                'method'         => (string) $a['depreciation_method'],
+            ];
+            $total_debit  += $amt;
+            $total_credit += $amt;
+        }
+
+        sendJson('success', '', [
+            'lines'         => $preview,
+            'total_debit'   => round($total_debit, 2),
+            'total_credit'  => round($total_credit, 2),
+            'count'         => count($preview),
+            'already_done'  => $already_done,
+            'is_closed'     => $is_closed,
+            'period'        => sprintf('%02d/%04d', $month, $year),
+        ]);
     }
 
     // -------------------------------------------------------------------------
@@ -158,6 +274,45 @@ try {
         if ($salvage < 0 || $salvage >= $cost) throw new Exception("La valeur résiduelle doit être ≥ 0 et < coût.");
         if (!in_array($method, ['linear','declining'], true)) throw new Exception("Méthode d'amortissement invalide.");
         if ($name === '') throw new Exception("Le nom de l'actif est requis.");
+        // Acquisition <= service_start sanity — an asset can't be put into
+        // service before it was acquired.
+        try {
+            if ($acq && $start && (new DateTimeImmutable($start)) < (new DateTimeImmutable($acq))) {
+                throw new Exception("La date de mise en service ne peut pas précéder l'acquisition.");
+            }
+        } catch (Exception $dtE) { /* handled below via generic date parse */ }
+
+        // Class-prefix guard — enforce that whoever is picked in each dropdown
+        // actually lives in the right SYSCOHADA class. Prevents a tampered
+        // client from routing a dotation into 411.
+        $assertClass = function (int $accId, string $prefix, string $label) use ($db): void {
+            if ($accId <= 0) return; // required-check already caught it elsewhere
+            $st = $db->prepare("
+                SELECT COALESCE(oa.account_number, coa.code) AS code
+                  FROM chart_of_accounts coa
+                  LEFT JOIN ohada_accounts oa ON oa.id = coa.ohada_account_id
+                 WHERE coa.id = ?");
+            $st->execute([$accId]);
+            $code = (string) $st->fetchColumn();
+            if ($code === '' || strncmp($code, $prefix, strlen($prefix)) !== 0) {
+                throw new Exception("Compte {$label} invalide — code attendu commençant par « {$prefix} », reçu « {$code} ».");
+            }
+        };
+        // 2xx must not be 28xx for the asset row itself.
+        if ($asset_lpc > 0) {
+            $st = $db->prepare("
+                SELECT COALESCE(oa.account_number, coa.code) AS code
+                  FROM chart_of_accounts coa
+                  LEFT JOIN ohada_accounts oa ON oa.id = coa.ohada_account_id
+                 WHERE coa.id = ?");
+            $st->execute([$asset_lpc]);
+            $code = (string) $st->fetchColumn();
+            if ($code === '' || strncmp($code, '2', 1) !== 0 || strncmp($code, '28', 2) === 0) {
+                throw new Exception("Compte d'actif invalide — code attendu commençant par « 2 » (hors 28x).");
+            }
+        }
+        $assertClass($depr_lpc,    '28', "d'amortissement");
+        $assertClass($expense_lpc, '68', "de dotation");
 
         // Sanity: don't double-capitalize a vehicle.
         if ($veh_id !== null) {
@@ -293,11 +448,24 @@ try {
         $date      = (string)($payload['date']     ?? date('Y-m-d'));
         $cash_acc  = (int)   ($payload['cash_account_id'] ?? 0);
         $sale      = (float) ($payload['amount']   ?? 0);
+        $vat       = (float) ($payload['vat_amount'] ?? 0);
         $notes     = (string)($payload['notes']    ?? '');
 
         if ($asset_id <= 0)  throw new Exception("Actif invalide.");
         if ($cash_acc <= 0 && $sale > 0)  throw new Exception("Compte de trésorerie requis pour une vente.");
         if ($sale < 0)       throw new Exception("Montant de vente invalide.");
+        if ($vat < 0)        throw new Exception("Montant de TVA invalide.");
+        if ($vat > $sale)    throw new Exception("La TVA ne peut pas dépasser le prix de vente TTC.");
+
+        // Company-level defaults for 81x / 82x / 4431. The per-asset overrides
+        // (fixed_assets.plus_value_account_id etc.) take precedence inside
+        // Depreciation::disposalGain(); these fill in when they are NULL.
+        $defaults = [
+            'default_moins_account_id' => (int) Prefs::int('accounting_moins_value_account_id', 0),
+            'default_plus_account_id'  => (int) Prefs::int('accounting_plus_value_account_id',  0),
+            'vat_account_id'           => (int) Prefs::int('accounting_vat_output_account_id',  0),
+            'vat_amount'               => $vat,
+        ];
 
         $db->beginTransaction();
 
@@ -311,7 +479,14 @@ try {
         if (!$asset || $asset['status'] === 'disposed') throw new Exception("Actif introuvable ou déjà sorti.");
 
         $disposal_date = new DateTimeImmutable($date);
-        $gain = Depreciation::disposalGain($asset, $sale, $disposal_date, $cash_acc, (float) $asset['accumulated']);
+        $gain = Depreciation::disposalGain(
+            $asset,
+            $sale,
+            $disposal_date,
+            $cash_acc,
+            (float) $asset['accumulated'],
+            $defaults
+        );
 
         if (!$gain['is_balanced']) {
             throw new Exception("Écriture de cession non équilibrée : vérifiez les comptes 81/82.");
@@ -335,18 +510,42 @@ try {
         }
         $db->prepare("CALL post_journal_entry(?, ?)")->execute([$entry_id, $user_id]);
 
-        // Persist the disposal row + stamp the asset.
-        $db->prepare("
-            INSERT INTO fixed_asset_disposals
-                (fixed_asset_id, disposal_date, cash_account_id, sale_amount,
-                 book_value, plus_value, moins_value, journal_entry_id, notes, created_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ")->execute([
-            $asset_id, $date, $cash_acc ?: null,
-            $gain['sale_price'], $gain['book_value'],
-            $gain['plus_value'], $gain['moins_value'],
-            $entry_id, $notes, $user_id,
-        ]);
+        // Persist the disposal row + stamp the asset. `disposal_vat_amount`
+        // was added by migration 082; the INSERT is guarded via information
+        // schema so pre-082 installs still work with a zero VAT.
+        $has_vat_col = (bool) $db->query("
+            SELECT 1 FROM information_schema.columns
+             WHERE table_schema = DATABASE()
+               AND table_name = 'fixed_asset_disposals'
+               AND column_name = 'disposal_vat_amount'
+        ")->fetchColumn();
+
+        if ($has_vat_col) {
+            $db->prepare("
+                INSERT INTO fixed_asset_disposals
+                    (fixed_asset_id, disposal_date, cash_account_id, sale_amount, disposal_vat_amount,
+                     book_value, plus_value, moins_value, journal_entry_id, notes, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ")->execute([
+                $asset_id, $date, $cash_acc ?: null,
+                $gain['sale_price'], $gain['vat_amount'],
+                $gain['book_value'],
+                $gain['plus_value'], $gain['moins_value'],
+                $entry_id, $notes, $user_id,
+            ]);
+        } else {
+            $db->prepare("
+                INSERT INTO fixed_asset_disposals
+                    (fixed_asset_id, disposal_date, cash_account_id, sale_amount,
+                     book_value, plus_value, moins_value, journal_entry_id, notes, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ")->execute([
+                $asset_id, $date, $cash_acc ?: null,
+                $gain['sale_price'], $gain['book_value'],
+                $gain['plus_value'], $gain['moins_value'],
+                $entry_id, $notes, $user_id,
+            ]);
+        }
 
         $db->prepare("
             UPDATE fixed_assets

@@ -44,6 +44,14 @@ $user_role = $_SESSION['user_role'];
     ?>
 
     <div id="lpc-shell-main">
+        <div class="lpc-toolbar">
+            <?php
+            // Page help — renders the ? icon anchored at 'accounting.fixed_assets'.
+            // Muted "Aide (à venir)" fallback until migration 083 authors the
+            // articles. See modules/accounting/ledger.php for the pattern.
+            echo lpc_help_link('accounting.fixed_assets', $lang);
+            ?>
+        </div>
 
         <nav class="lpc-tabs">
             <button onclick="switchTab('queue')" class="tab-link py-4 border-b-[3px] border-asset-highlight text-asset-dark font-black text-sm uppercase tracking-wider whitespace-nowrap relative" id="tab-queue">
@@ -90,11 +98,22 @@ $user_role = $_SESSION['user_role'];
             </div>
 
             <div id="content-register" class="tab-content flex-col h-full gap-4">
-                <div class="flex justify-between items-center bg-white p-4 rounded-xl border border-gray-200 shadow-sm shrink-0">
+                <div class="flex flex-wrap justify-between items-center gap-3 bg-white p-4 rounded-xl border border-gray-200 shadow-sm shrink-0">
                     <div class="relative w-full max-w-sm">
                         <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
                         <input type="text" onkeyup="filterTable('table-body-register', this.value)" placeholder="Rechercher un actif..." class="w-full pl-11 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium outline-none focus:ring-2 focus:ring-asset-highlight">
                     </div>
+
+                    <!-- Status filter chips — the server does the filtering
+                         (list_register?status=…) so a long register isn't
+                         paid for on the client. -->
+                    <div role="group" aria-label="Filtre statut" class="inline-flex rounded-lg overflow-hidden border border-gray-200 text-[10px] font-black uppercase tracking-widest">
+                        <button type="button" data-filter-btn="active"      onclick="setRegisterFilter('active')"      class="px-3 py-2 bg-asset-dark text-white">Actifs</button>
+                        <button type="button" data-filter-btn="depreciated" onclick="setRegisterFilter('depreciated')" class="px-3 py-2 bg-gray-100 text-gray-500">Amortis</button>
+                        <button type="button" data-filter-btn="disposed"    onclick="setRegisterFilter('disposed')"    class="px-3 py-2 bg-gray-100 text-gray-500">Sortis</button>
+                        <button type="button" data-filter-btn="all"         onclick="setRegisterFilter('all')"         class="px-3 py-2 bg-gray-100 text-gray-500">Tous</button>
+                    </div>
+
                     <button onclick="exportCSV('table-register', 'Tableau_Amortissements')" class="bg-asset-dark hover:bg-black text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all flex items-center gap-2">
                         <i class="fas fa-file-excel"></i> Export Excel (VNC)
                     </button>
@@ -132,11 +151,19 @@ $user_role = $_SESSION['user_role'];
                             <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.mois_cible')) ?></label>
                             <input type="month" id="dotation_month" class="bg-white border border-gray-300 rounded-lg p-2 text-sm font-bold outline-none">
                         </div>
+                        <button onclick="previewDotations()" class="bg-white hover:bg-gray-50 text-asset-dark border border-asset-dark px-5 py-3 rounded-xl font-black text-sm transition-all h-full flex items-center mt-4">
+                            <i class="fas fa-eye mr-2"></i> Aperçu
+                        </button>
                         <button onclick="runDotations()" class="bg-asset-dark hover:bg-black text-white px-6 py-3 rounded-xl font-black text-sm shadow-xl transition-all h-full flex items-center mt-4">
                             <i class="fas fa-play mr-2"></i> Exécuter
                         </button>
                     </div>
                 </div>
+
+                <!-- Preview panel populated by previewDotations() — a dry-run
+                     of the JE that would be posted, so the user sees who and
+                     for how much before the OD entry is created. -->
+                <div id="dotation_preview" class="hidden"></div>
 
                 <div class="bg-slate-100 p-6 rounded-2xl border border-gray-200 shadow-inner flex-1 flex items-center justify-center">
                     <div class="text-center max-w-md">
@@ -258,8 +285,18 @@ $user_role = $_SESSION['user_role'];
                 </div>
                 
                 <div id="ces_amount_div">
-                    <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5"><?= htmlspecialchars(__t('ui.x.prix_de_vente_fcfa')) ?></label>
+                    <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5"><?= htmlspecialchars(__t('ui.x.prix_de_vente_fcfa')) ?> (TTC)</label>
                     <input type="number" id="ces_amount" min="0" oninput="previewCession()" class="w-full bg-white border border-gray-200 rounded-lg p-3 text-sm font-black outline-none focus:ring-2 focus:ring-rose-400 text-right" placeholder="0">
+                </div>
+
+                <!-- TVA on cession: filled only when the asset was VAT-eligible
+                     at acquisition and the sale is TTC. The controller posts
+                     the amount to 4431 and computes gain/loss on the HT price.
+                     Left blank / zero for scrap or exonerated sales. -->
+                <div id="ces_vat_div">
+                    <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">TVA collectée (FCFA)</label>
+                    <input type="number" id="ces_vat" min="0" oninput="previewCession()" class="w-full bg-white border border-gray-200 rounded-lg p-3 text-sm font-black outline-none focus:ring-2 focus:ring-rose-400 text-right" placeholder="0">
+                    <p class="text-[9px] font-bold text-gray-400 mt-1">Laissez 0 si l'actif n'était pas soumis à TVA à l'acquisition.</p>
                 </div>
 
                 <div id="ces_cash_div">
@@ -275,7 +312,11 @@ $user_role = $_SESSION['user_role'];
                     <input type="date" id="ces_date" required class="w-full bg-white border border-gray-200 rounded-lg p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-rose-400">
                 </div>
 
-                <div id="ces_preview" class="bg-white p-3 border border-gray-200 rounded-xl grid grid-cols-3 gap-3 text-center hidden">
+                <div id="ces_preview" class="bg-white p-3 border border-gray-200 rounded-xl grid grid-cols-4 gap-3 text-center hidden">
+                    <div>
+                        <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">HT</p>
+                        <p id="ces_preview_ht" class="text-sm font-black text-gray-700 mt-1">0 F</p>
+                    </div>
                     <div>
                         <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">VNC</p>
                         <p id="ces_preview_book" class="text-sm font-black text-gray-700 mt-1">0 F</p>

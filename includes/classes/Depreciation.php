@@ -80,9 +80,10 @@ final class Depreciation
 
         // Depreciable base = cost - salvage.
         $depreciable_base = max(0.0, $cost - $salvage);
+        $already_for_dbg  = (float) ($asset['accumulated'] ?? 0);
         $full_monthly     = ($method === 'linear')
             ? ($depreciable_base / $life)
-            : self::decliningMonthly($depreciable_base, $life, $service_start, $month_first);
+            : self::decliningMonthly($depreciable_base, $life, $already_for_dbg);
 
         // Proration logic: months use a 30-day convention (standard OHADA).
         // - If service_start is in this month: prorate from service_start's DoM.
@@ -170,7 +171,8 @@ final class Depreciation
         float $sale_price,
         DateTimeImmutable $disposal_date,
         int $cash_account_id,
-        ?float $accumulated_at_disposal = null
+        ?float $accumulated_at_disposal = null,
+        array $opts = []
     ): array {
         $cost = (float) ($asset['acquisition_cost'] ?? 0);
         if ($accumulated_at_disposal === null) {
@@ -179,27 +181,40 @@ final class Depreciation
         $accumulated_at_disposal = min($accumulated_at_disposal, $cost);
 
         $book_value = self::roundFcfa($cost - $accumulated_at_disposal);
+        // TVA on cession, when the sale price is TTC. Zero for scrap or
+        // non-VAT-eligible assets. Passed by the caller; we don't guess.
+        $vat_amount = self::roundFcfa((float) ($opts['vat_amount'] ?? 0));
         $sale_price = self::roundFcfa($sale_price);
+        $sale_ht    = self::roundFcfa($sale_price - $vat_amount);
 
         $plus_value  = 0.0;
         $moins_value = 0.0;
 
-        if ($sale_price >= $book_value) {
-            $plus_value  = self::roundFcfa($sale_price - $book_value);
+        // Gain/loss is computed on the HT sale, not the TTC. TVA collectée is
+        // owed to the tax office and is never part of a plus/moins-value.
+        if ($sale_ht >= $book_value) {
+            $plus_value  = self::roundFcfa($sale_ht - $book_value);
         } else {
-            $moins_value = self::roundFcfa($book_value - $sale_price);
+            $moins_value = self::roundFcfa($book_value - $sale_ht);
         }
 
-        // Journal lines (OHADA convention):
-        //   Debit cash (5xx) sale_price
+        // Journal lines (SYSCOHADA revised, "net" convention):
+        //   Debit cash (5xx) sale_price TTC
         //   Debit accumulated_depr (28x) accumulated
         //   Debit moins-value (81x) if any
         //   Credit cost (2xx) cost
         //   Credit plus-value (82x) if any
-        $cost_account_id      = (int) ($asset['cost_account_id']            ?? $asset['asset_account_id'] ?? 0);
+        //   Credit TVA facturée (4431) if TTC
+        $cost_account_id      = (int) ($asset['cost_account_id']             ?? $asset['asset_account_id'] ?? 0);
         $depr_account_id      = (int) ($asset['accumulated_depr_account_id'] ?? $asset['depr_account_id']  ?? 0);
-        $moins_account_id     = (int) ($asset['moins_value_account_id']     ?? 0);
-        $plus_account_id      = (int) ($asset['plus_value_account_id']      ?? 0);
+        // Per-asset override wins; otherwise use the company-default preference
+        // ID the caller resolved from app_preferences. Zero-fallback stays zero
+        // so the controller can surface a clean "configure 81/82" error.
+        $moins_account_id     = (int) ($asset['moins_value_account_id']      ?? 0)
+                             ?: (int) ($opts['default_moins_account_id']     ?? 0);
+        $plus_account_id      = (int) ($asset['plus_value_account_id']       ?? 0)
+                             ?: (int) ($opts['default_plus_account_id']      ?? 0);
+        $vat_account_id       = (int) ($opts['vat_account_id']               ?? 0);
 
         $lines = [];
 
@@ -214,7 +229,7 @@ final class Depreciation
         if ($accumulated_at_disposal > 0) {
             $lines[] = [
                 'account_id'  => $depr_account_id,
-                'debit'       => $accumulated_at_disposal,
+                'debit'       => self::roundFcfa($accumulated_at_disposal),
                 'credit'      => 0.0,
                 'description' => 'Solde amortissements cumulés',
             ];
@@ -231,7 +246,7 @@ final class Depreciation
             $lines[] = [
                 'account_id'  => $cost_account_id,
                 'debit'       => 0.0,
-                'credit'      => $cost,
+                'credit'      => self::roundFcfa($cost),
                 'description' => 'Sortie coût d\'acquisition',
             ];
         }
@@ -241,6 +256,14 @@ final class Depreciation
                 'debit'       => 0.0,
                 'credit'      => $plus_value,
                 'description' => 'Plus-value de cession (82x)',
+            ];
+        }
+        if ($vat_amount > 0) {
+            $lines[] = [
+                'account_id'  => $vat_account_id ?: null,
+                'debit'       => 0.0,
+                'credit'      => $vat_amount,
+                'description' => 'TVA facturée sur cession (4431)',
             ];
         }
 
@@ -253,6 +276,8 @@ final class Depreciation
         return [
             'book_value'              => $book_value,
             'sale_price'              => $sale_price,
+            'sale_ht'                 => $sale_ht,
+            'vat_amount'              => $vat_amount,
             'plus_value'              => $plus_value,
             'moins_value'             => $moins_value,
             'accumulated_at_disposal' => self::roundFcfa($accumulated_at_disposal),
@@ -293,15 +318,45 @@ final class Depreciation
         return $total;
     }
 
-    private static function decliningMonthly(float $base, int $life, DateTimeImmutable $service_start, DateTimeImmutable $month_first): float
+    /**
+     * Amortissement dégressif (SYSCOHADA / CGI Cameroun art. 7 ter).
+     *
+     * The rule the CGI applies:
+     *   · straight-line rate = 12 / lifespan_months (as a fraction per month)
+     *   · coefficient depending on useful life in YEARS:
+     *       — 1.5 for 3–4 years
+     *       — 2.0 for 5–6 years
+     *       — 2.5 for 7+ years
+     *   · monthly dépreciation = residual_base * (straight_rate * coefficient) / 12
+     *   · when residual_base * annual_rate < remaining straight-line dotation,
+     *     switch back to straight-line for the rest of the life.
+     *
+     * $accumulated is the running total already booked. The caller must
+     * pass the salvage-adjusted depreciable base.
+     */
+    private static function decliningMonthly(float $base, int $life, float $accumulated): float
     {
-        // OHADA rarely allows declining-balance, but the schema supports it.
-        // Simple implementation: 2× straight-line rate applied to remaining base.
-        // For now approximate as straight-line — a full implementation needs
-        // the running book value, which the caller doesn't hand in here.
-        // Depreciation.monthly() falls back to linear for correctness until
-        // this branch is fleshed out.
-        return $base / $life;
+        if ($life <= 0 || $base <= 0) return 0.0;
+
+        $life_years = max(1, (int) round($life / 12));
+        if ($life_years <= 2)      $coef = 1.0;   // pas de dégressif possible < 3 ans
+        elseif ($life_years <= 4)  $coef = 1.5;
+        elseif ($life_years <= 6)  $coef = 2.0;
+        else                       $coef = 2.5;
+
+        $residual = max(0.0, $base - $accumulated);
+        if ($residual <= 0) return 0.0;
+
+        $straight_annual   = $base / ($life / 12.0);       // FCFA / year (constant)
+        $declining_annual  = $residual * ($coef / $life_years);
+
+        // Switch-back rule: once the flat straight-line would beat the
+        // declining formula on residual value, use straight-line for the rest.
+        $annual = max($straight_annual, $declining_annual);
+        // Never book more than the residual base in a single year.
+        if ($annual > $residual) $annual = $residual;
+
+        return $annual / 12.0;
     }
 
     private static function empty(string $reason): array

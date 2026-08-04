@@ -46,6 +46,17 @@ $user_role = $_SESSION['user_role'];
 
     <div id="lpc-shell-main">
 
+        <div class="lpc-toolbar">
+            <?php
+            // Page help — icon pinned to the toolbar's right edge by
+            // `.lpc-toolbar > .lpc-help-btn { order: 99 }`. Opens the
+            // drawer on 'demarrer-tresorerie' (sort_order 10 on the
+            // 'accounting.cashflow' anchor); the six remaining anchored
+            // articles surface as "Voir aussi". Seeded by migration 082.
+            echo lpc_help_link('accounting.cashflow', $lang);
+            ?>
+        </div>
+
         <nav class="lpc-tabs">
             <button onclick="switchTab('wallets')" class="tab-link py-4 border-b-[3px] border-treasury-dark text-treasury-dark font-black text-sm uppercase tracking-wider whitespace-nowrap" id="tab-wallets">
                 <i class="fas fa-university mr-2"></i> Comptes & Caisse
