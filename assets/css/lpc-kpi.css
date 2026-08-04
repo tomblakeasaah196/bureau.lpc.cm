@@ -1,0 +1,571 @@
+/* assets/css/lpc-kpi.css
+ * -----------------------------------------------------------------------------
+ * Bureau LPC ERP — the KPI card system + period pill picker + drilldown modal.
+ * Introduced Sprint 7H (dashboards revamp).
+ *
+ * SCOPE
+ * -----
+ * One aesthetic anchor for every dashboard: `md_dashboard`, `finance_dashboard`,
+ * `ops_dashboard`, `sales_dashboard`, `analytics/reports`. Before this file the
+ * five dashboards used three different card treatments (bg-lpc-surface with
+ * gray-100 border; bg-white with gray-200 border; coloured bg-blue-50 alert
+ * blocks). This file collapses them to one component and one grid.
+ *
+ * DESIGN
+ * ------
+ *   · DESKTOP-FIRST grid: 5-up ≥ 1440px, 4-up 1280–1439, 2-up tablet, 1-up
+ *     mobile. Cards keep meat (≈ 260px wide at 1440) for the big number + delta
+ *     chip + inline sparkline.
+ *   · Every color is a CSS variable declared in lpc-shell.css. Nothing here
+ *     hardcodes a hex. Dark mode flips automatically via the shell tokens.
+ *   · Motion is opt-in on `[data-lpc-reduce-motion="1"]`: transitions collapse
+ *     to 0 and the count-up animation short-circuits in JS.
+ *   · Alert state uses a saturated left rail + subtle tint. State color never
+ *     replaces the card surface — the alert must still read like a KPI card,
+ *     not a warning banner.
+ *
+ * DEPENDENCIES
+ * ------------
+ * Reads from lpc-shell.css tokens only. Loaded after lpc-shell.css in
+ * head_assets.php so it can extend the shell without re-declaring anything.
+ * -----------------------------------------------------------------------------
+ */
+
+/* ===========================================================================
+   1. Grid — desktop-first, cards keep meaningful width on wide monitors.
+   ---------------------------------------------------------------------------
+   Sales' current 5-card row survives on ≥ 1440. On 13" laptops (≈ 1366 px is
+   where a lot of them sit) it drops to 4-up; the 5th card wraps to a second
+   row rather than shrinking below 260 px, which is where the sparkline and
+   delta chip start clipping each other.
+   ========================================================================= */
+.lpc-kpi-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+}
+@media (min-width: 640px)  { .lpc-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1024px) { .lpc-kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 1.5rem; } }
+@media (min-width: 1280px) { .lpc-kpi-grid { grid-template-columns: repeat(4, 1fr); } }
+@media (min-width: 1440px) { .lpc-kpi-grid { grid-template-columns: repeat(var(--lpc-kpi-cols, 5), 1fr); } }
+
+/* A per-grid override so a dashboard can pin 4 or 6 cards regardless of viewport
+   (Reports Consolidés uses 4-up at every width because 8 KPIs render as 2×4). */
+.lpc-kpi-grid[data-cols="4"] { --lpc-kpi-cols: 4; }
+.lpc-kpi-grid[data-cols="6"] { --lpc-kpi-cols: 6; }
+
+/* ===========================================================================
+   2. Card — anatomy: rail | label | value + delta | sub | sparkline
+   ---------------------------------------------------------------------------
+   The `<article>` form is the default; the `<button>` form (`.lpc-kpi-card`
+   applied to a `<button type="button">`) is what a drillable card must use —
+   never a `<div onclick>`, which is invisible to keyboard and screen readers
+   (README §5.8).
+   ========================================================================= */
+.lpc-kpi-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 168px;
+    padding: 1.125rem 1.25rem 1rem;
+
+    background: var(--lpc-surface);
+    border: 1px solid var(--lpc-border);
+    border-radius: var(--lpc-radius);
+    box-shadow: var(--lpc-shadow-card);
+
+    overflow: hidden;
+    text-align: left;
+    color: var(--lpc-ink);
+    font: inherit;
+
+    transition:
+        transform .18s ease,
+        box-shadow .18s ease,
+        border-color .18s ease;
+}
+
+/* Brand-gradient rail on the leading edge, in place of a flat color bar.
+   Alert-state cards override the gradient with a saturated single color. */
+.lpc-kpi-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: linear-gradient(180deg,
+        var(--lpc-kpi-rail-from, var(--lpc-brand-light)),
+        var(--lpc-kpi-rail-to,   var(--lpc-brand)));
+}
+
+/* Button variant: hover-lift + focus ring, keyboard-safe. */
+button.lpc-kpi-card {
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
+}
+button.lpc-kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--lpc-shadow-pop);
+    border-color: var(--lpc-brand-light);
+}
+button.lpc-kpi-card:focus-visible {
+    outline: none;
+    box-shadow: var(--lpc-ring), var(--lpc-shadow-card);
+    border-color: var(--lpc-brand-light);
+}
+html[data-lpc-reduce-motion="1"] .lpc-kpi-card,
+html[data-lpc-reduce-motion="1"] button.lpc-kpi-card:hover { transition: none; transform: none; }
+
+/* ---- Label ------------------------------------------------------------- */
+.lpc-kpi-card__label {
+    font-size: .6875rem;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--lpc-ink-mute);
+    margin: 0 0 .625rem;
+}
+
+/* ---- Value + delta row ------------------------------------------------- */
+.lpc-kpi-card__value-row {
+    display: flex;
+    align-items: baseline;
+    gap: .625rem;
+    flex-wrap: wrap;
+    margin-bottom: .25rem;
+}
+.lpc-kpi-card__value {
+    /* Tabular-nums so the number widths line up across an entire row of cards
+       — otherwise the biggest figure jitters as it counts up. */
+    font-variant-numeric: tabular-nums;
+    font-size: 1.75rem;         /* ~28px — the big number */
+    line-height: 1.15;
+    font-weight: 900;
+    color: var(--lpc-ink);
+    margin: 0;
+    white-space: nowrap;
+}
+@media (min-width: 1280px) {
+    .lpc-kpi-card__value { font-size: 2rem; }   /* ~32px on real desktops */
+}
+
+/* Full value on hover — the compact display (1.2 M) hides precision, so the
+   raw number lives on the title attribute and pops as a native tooltip. */
+.lpc-kpi-card__value[title] { cursor: help; }
+
+/* ---- Delta chip -------------------------------------------------------- */
+.lpc-kpi-card__delta {
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    padding: .125rem .5rem;
+    border-radius: 999px;
+    font-size: .6875rem;
+    font-weight: 800;
+    letter-spacing: .01em;
+    line-height: 1.4;
+    background: var(--lpc-surface-sunken);
+    color: var(--lpc-ink-soft);
+    white-space: nowrap;
+}
+.lpc-kpi-card__delta svg { width: 10px; height: 10px; }
+
+/* Sentiment: 'up' = up-is-good, 'down' = down-is-good. Set explicitly on
+   the element because "revenue ▲" is good but "AR overdue ▲" is bad — the
+   direction alone doesn't tell you which. */
+.lpc-kpi-card__delta[data-sentiment="good"] {
+    background: color-mix(in srgb, #10B981 14%, transparent);
+    color: #047857;
+}
+.lpc-kpi-card__delta[data-sentiment="bad"] {
+    background: color-mix(in srgb, #EF4444 14%, transparent);
+    color: #B91C1C;
+}
+.lpc-kpi-card__delta[data-sentiment="neutral"] { /* uses the muted defaults */ }
+
+/* Attainment variant — used when the KPI has a target (revenue vs plan,
+   empties-recovery vs 80%). Reads "82 % de la cible" instead of a Δ. */
+.lpc-kpi-card__delta[data-kind="attainment"] {
+    background: color-mix(in srgb, var(--lpc-brand-light) 18%, transparent);
+    color: var(--lpc-brand);
+}
+
+/* ---- Sub-line --------------------------------------------------------- */
+.lpc-kpi-card__sub {
+    margin: .25rem 0 auto;
+    font-size: .75rem;
+    font-weight: 600;
+    color: var(--lpc-ink-soft);
+    line-height: 1.35;
+    display: flex;
+    align-items: center;
+    gap: .375rem;
+    flex-wrap: wrap;
+}
+.lpc-kpi-card__sub svg { width: 12px; height: 12px; opacity: .8; }
+
+/* ---- Sparkline slot ---------------------------------------------------- */
+.lpc-kpi-card__spark {
+    position: relative;
+    height: 40px;
+    margin: .875rem -0.25rem -.25rem;
+    /* Room to breathe under the value; overflow allowed so a peak that
+       exceeds the extents still reads. */
+    overflow: visible;
+}
+.lpc-kpi-card__spark canvas,
+.lpc-kpi-card__spark svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* ---- Trailing "→" navigation cue on drillable cards ------------------- */
+.lpc-kpi-card__go {
+    position: absolute;
+    top: 1.125rem;
+    right: 1.125rem;
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--lpc-ink-mute);
+    border-radius: 999px;
+    transition: transform .18s ease, background .18s ease, color .18s ease;
+}
+.lpc-kpi-card__go svg { width: 14px; height: 14px; }
+button.lpc-kpi-card:hover  .lpc-kpi-card__go {
+    color: var(--lpc-brand);
+    background: color-mix(in srgb, var(--lpc-brand-light) 22%, transparent);
+    transform: translateX(2px);
+}
+html[data-lpc-reduce-motion="1"] button.lpc-kpi-card:hover .lpc-kpi-card__go { transform: none; }
+
+/* ---- Alert variant ---------------------------------------------------- */
+.lpc-kpi-card.is-alert {
+    --lpc-kpi-rail-from: #EF4444;
+    --lpc-kpi-rail-to:   #B91C1C;
+}
+.lpc-kpi-card.is-alert .lpc-kpi-card__value { color: #B91C1C; }
+html[data-lpc-theme="dark"] .lpc-kpi-card.is-alert .lpc-kpi-card__value { color: #FCA5A5; }
+
+/* Rail color helpers (opt-in per card via data-rail="warn|info|good|alert") */
+.lpc-kpi-card[data-rail="warn"] { --lpc-kpi-rail-from: #F59E0B; --lpc-kpi-rail-to: #B45309; }
+.lpc-kpi-card[data-rail="info"] { --lpc-kpi-rail-from: #3B82F6; --lpc-kpi-rail-to: #1D4ED8; }
+.lpc-kpi-card[data-rail="good"] { --lpc-kpi-rail-from: #10B981; --lpc-kpi-rail-to: #047857; }
+.lpc-kpi-card[data-rail="alert"]{ --lpc-kpi-rail-from: #EF4444; --lpc-kpi-rail-to: #B91C1C; }
+
+/* ===========================================================================
+   3. Skeleton shimmer — replaces the current .animate-pulse "Chargement…" text
+   ---------------------------------------------------------------------------
+   The old skeleton was the KPI's real text with animate-pulse + text-gray-300.
+   That leaks the shape but also leaks the loading string ("Chargement…") as
+   accessible text, which a screen reader announces every render. This one is
+   purely visual and marked aria-hidden.
+   ========================================================================= */
+.lpc-kpi-card.is-loading .lpc-kpi-card__value,
+.lpc-kpi-card.is-loading .lpc-kpi-card__delta,
+.lpc-kpi-card.is-loading .lpc-kpi-card__sub {
+    color: transparent;
+    background:
+        linear-gradient(90deg,
+            var(--lpc-surface-sunken) 0%,
+            var(--lpc-border)         50%,
+            var(--lpc-surface-sunken) 100%);
+    background-size: 200% 100%;
+    border-radius: 6px;
+    animation: lpc-kpi-shimmer 1.35s ease-in-out infinite;
+    max-width: 70%;
+}
+.lpc-kpi-card.is-loading .lpc-kpi-card__value { height: 1.75em; }
+.lpc-kpi-card.is-loading .lpc-kpi-card__delta { display: none; }
+.lpc-kpi-card.is-loading .lpc-kpi-card__sub   { height: 1em; max-width: 50%; }
+.lpc-kpi-card.is-loading .lpc-kpi-card__spark { background: linear-gradient(90deg,
+    var(--lpc-surface-sunken) 0%, var(--lpc-border) 50%, var(--lpc-surface-sunken) 100%);
+    background-size: 200% 100%;
+    border-radius: 6px;
+    animation: lpc-kpi-shimmer 1.35s ease-in-out infinite;
+    animation-delay: .15s; }
+
+@keyframes lpc-kpi-shimmer {
+    0%   { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+}
+html[data-lpc-reduce-motion="1"] .lpc-kpi-card.is-loading .lpc-kpi-card__value,
+html[data-lpc-reduce-motion="1"] .lpc-kpi-card.is-loading .lpc-kpi-card__delta,
+html[data-lpc-reduce-motion="1"] .lpc-kpi-card.is-loading .lpc-kpi-card__sub,
+html[data-lpc-reduce-motion="1"] .lpc-kpi-card.is-loading .lpc-kpi-card__spark {
+    animation: none;
+    background: var(--lpc-surface-sunken);
+}
+
+/* ===========================================================================
+   4. Card-enter stagger — cards fade+rise into place one after another
+   ---------------------------------------------------------------------------
+   Applied by lpc-kpi.js when a grid first paints. Runs once; the class is
+   removed after the last card lands so subsequent updates don't re-animate.
+   ========================================================================= */
+.lpc-kpi-grid.is-entering .lpc-kpi-card {
+    opacity: 0;
+    transform: translateY(6px);
+    animation: lpc-kpi-enter .42s cubic-bezier(.22, .61, .36, 1) forwards;
+}
+.lpc-kpi-grid.is-entering .lpc-kpi-card:nth-child(1) { animation-delay: 0ms; }
+.lpc-kpi-grid.is-entering .lpc-kpi-card:nth-child(2) { animation-delay: 60ms; }
+.lpc-kpi-grid.is-entering .lpc-kpi-card:nth-child(3) { animation-delay: 120ms; }
+.lpc-kpi-grid.is-entering .lpc-kpi-card:nth-child(4) { animation-delay: 180ms; }
+.lpc-kpi-grid.is-entering .lpc-kpi-card:nth-child(5) { animation-delay: 240ms; }
+.lpc-kpi-grid.is-entering .lpc-kpi-card:nth-child(6) { animation-delay: 300ms; }
+.lpc-kpi-grid.is-entering .lpc-kpi-card:nth-child(7) { animation-delay: 360ms; }
+.lpc-kpi-grid.is-entering .lpc-kpi-card:nth-child(8) { animation-delay: 420ms; }
+
+@keyframes lpc-kpi-enter {
+    to { opacity: 1; transform: translateY(0); }
+}
+html[data-lpc-reduce-motion="1"] .lpc-kpi-grid.is-entering .lpc-kpi-card {
+    animation: none;
+    opacity: 1;
+    transform: none;
+}
+
+/* ===========================================================================
+   5. Period pill — the segmented picker that replaces the per-dashboard mix of
+   `<select>` + hidden date-inputs. Same visual language as the tabs card, so
+   toolbar + period pill read as one cluster.
+   ========================================================================= */
+.lpc-period-pill {
+    position: relative;
+    display: inline-flex;
+    align-items: stretch;
+    gap: 2px;
+    height: var(--lpc-control-h);
+    padding: 3px;
+    background: var(--lpc-surface-sunken);
+    border: 1px solid var(--lpc-border);
+    border-radius: 999px;
+    font-size: .8125rem;
+    font-weight: 700;
+}
+.lpc-period-pill__seg {
+    appearance: none;
+    -webkit-appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--lpc-ink-soft);
+    padding: 0 .875rem;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background .18s ease, color .18s ease, box-shadow .18s ease;
+    white-space: nowrap;
+}
+.lpc-period-pill__seg:hover { color: var(--lpc-ink); }
+.lpc-period-pill__seg:focus-visible {
+    outline: none;
+    box-shadow: var(--lpc-ring);
+}
+.lpc-period-pill__seg.is-active {
+    background: var(--lpc-surface);
+    color: var(--lpc-accent-on-light);
+    box-shadow: 0 1px 2px rgba(16, 24, 40, .06);
+}
+html[data-lpc-theme="dark"] .lpc-period-pill__seg.is-active {
+    color: var(--lpc-brand-light);
+}
+html[data-lpc-reduce-motion="1"] .lpc-period-pill__seg { transition: none; }
+
+/* Custom-range popover trigger — same seg, but with a caret. */
+.lpc-period-pill__seg--custom { display: inline-flex; align-items: center; gap: .25rem; }
+.lpc-period-pill__seg--custom svg { width: 10px; height: 10px; }
+
+.lpc-period-pop {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 30;
+    display: none;
+    padding: .875rem;
+    background: var(--lpc-surface);
+    border: 1px solid var(--lpc-border);
+    border-radius: var(--lpc-radius);
+    box-shadow: var(--lpc-shadow-pop);
+    min-width: 280px;
+}
+.lpc-period-pop.is-open { display: block; }
+.lpc-period-pop label {
+    display: block;
+    font-size: .6875rem;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--lpc-ink-mute);
+    margin-bottom: .25rem;
+}
+.lpc-period-pop input[type="date"] {
+    width: 100%;
+    height: var(--lpc-control-h);
+    padding: 0 .625rem;
+    border: 1px solid var(--lpc-border);
+    border-radius: var(--lpc-radius-sm);
+    background-color: var(--lpc-surface);
+    color: var(--lpc-ink);
+    margin-bottom: .625rem;
+    font-size: .8125rem;
+    font-weight: 600;
+    outline: none;
+}
+.lpc-period-pop input[type="date"]:focus { border-color: var(--lpc-brand-light); box-shadow: var(--lpc-ring); }
+.lpc-period-pop__actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: .25rem; }
+.lpc-period-pop__actions button {
+    height: 32px;
+    padding: 0 .875rem;
+    border-radius: var(--lpc-radius-sm);
+    font-size: .75rem;
+    font-weight: 800;
+    cursor: pointer;
+    border: 1px solid var(--lpc-border);
+    background: var(--lpc-surface);
+    color: var(--lpc-ink);
+}
+.lpc-period-pop__actions button.is-primary {
+    background: var(--lpc-brand);
+    border-color: var(--lpc-brand);
+    color: #fff;
+}
+.lpc-period-pop__actions button.is-primary:hover { background: var(--lpc-brand-deep); }
+
+/* ===========================================================================
+   6. Drilldown modal body — the wrapper LPC.kpi.modal renders inside
+   LPC.modal.custom's bodyHtml slot. Same paginator + search + CSV pattern as
+   analytics-reports.js, plus a small trend sparkline strip at the top.
+   ========================================================================= */
+.lpc-kpi-drill { padding: .25rem .25rem 0; }
+.lpc-kpi-drill__trend {
+    position: relative;
+    height: 96px;
+    margin: -.25rem -.25rem .875rem;
+    padding: .625rem .875rem;
+    background: var(--lpc-surface-sunken);
+    border: 1px solid var(--lpc-border);
+    border-radius: var(--lpc-radius-sm);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+.lpc-kpi-drill__trend-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: .75rem;
+    font-size: .6875rem;
+    font-weight: 800;
+    color: var(--lpc-ink-mute);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+}
+.lpc-kpi-drill__trend-head strong {
+    font-weight: 900;
+    color: var(--lpc-ink);
+    font-size: .875rem;
+    letter-spacing: 0;
+    text-transform: none;
+    font-variant-numeric: tabular-nums;
+}
+.lpc-kpi-drill__trend-chart {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+.lpc-kpi-drill__trend-chart canvas { position: absolute; inset: 0; }
+
+.lpc-kpi-drill__tools {
+    display: flex;
+    align-items: center;
+    gap: .625rem;
+    margin-bottom: .625rem;
+}
+.lpc-kpi-drill__tools input[type="search"] {
+    flex: 1 1 auto;
+    height: 34px;
+    padding: 0 .625rem;
+    background: var(--lpc-surface-sunken);
+    border: 1px solid var(--lpc-border);
+    border-radius: var(--lpc-radius-sm);
+    color: var(--lpc-ink);
+    font-size: .8125rem;
+    outline: none;
+}
+.lpc-kpi-drill__tools input[type="search"]:focus {
+    border-color: var(--lpc-brand-light);
+    box-shadow: var(--lpc-ring);
+}
+.lpc-kpi-drill__csv {
+    display: inline-flex;
+    align-items: center;
+    gap: .375rem;
+    height: 34px;
+    padding: 0 .75rem;
+    background: var(--lpc-brand);
+    color: #fff;
+    border: 0;
+    border-radius: var(--lpc-radius-sm);
+    font-size: .75rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    cursor: pointer;
+}
+.lpc-kpi-drill__csv:hover { background: var(--lpc-brand-deep); }
+.lpc-kpi-drill__csv svg   { width: 13px; height: 13px; }
+
+.lpc-kpi-drill__table {
+    border: 1px solid var(--lpc-border);
+    border-radius: var(--lpc-radius-sm);
+    overflow: hidden;
+}
+.lpc-kpi-drill__table table { width: 100%; border-collapse: collapse; }
+.lpc-kpi-drill__table th {
+    background: var(--lpc-surface-sunken);
+    color: var(--lpc-ink-mute);
+    font-size: .6875rem;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: .5rem .75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--lpc-border);
+}
+.lpc-kpi-drill__table td {
+    padding: .55rem .75rem;
+    font-size: .8125rem;
+    color: var(--lpc-ink);
+    border-bottom: 1px solid var(--lpc-border);
+}
+.lpc-kpi-drill__table tr:last-child td { border-bottom: 0; }
+
+.lpc-kpi-drill__deeplink {
+    display: inline-flex;
+    align-items: center;
+    gap: .375rem;
+    margin-top: .875rem;
+    padding: .5rem .875rem;
+    background: var(--lpc-brand);
+    color: #fff;
+    border-radius: var(--lpc-radius-sm);
+    font-size: .8125rem;
+    font-weight: 800;
+    text-decoration: none;
+}
+.lpc-kpi-drill__deeplink:hover { background: var(--lpc-brand-deep); }
+.lpc-kpi-drill__deeplink svg   { width: 14px; height: 14px; }
+
+/* ===========================================================================
+   7. Empty state — surfaced by the API's "no data / no target" answer.
+   README §5.8: a card that cannot be computed must be visibly uncomputed —
+   never a fabricated zero.
+   ========================================================================= */
+.lpc-kpi-card__value.is-empty { color: var(--lpc-ink-mute); font-weight: 700; font-size: 1.25rem; }

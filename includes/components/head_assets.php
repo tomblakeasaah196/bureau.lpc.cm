@@ -109,6 +109,13 @@ $__i18n_payload = function_exists('lpc_i18n_js_payload')
 <!-- Help centre. After the shell, and it only defines .lpc-help-* selectors, so
      it extends the chrome rather than competing with it. -->
 <link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-help.css') ?>">
+<!-- KPI cards, period pill and drilldown modal. After the shell so it reads
+     the shell's tokens; only defines .lpc-kpi-*, .lpc-period-* selectors so it
+     extends rather than competes. Loaded app-wide because the five dashboards
+     that need it (md/finance/ops/sales + analytics reports) each include this
+     file, and any future page that adopts the KPI grid gets the styles by
+     construction rather than by remembering to link the sheet. -->
+<link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-kpi.css') ?>">
 <?php if (!$__force_light): ?>
 <!-- Dark-mode bridge. LAST, because it has to beat both Tailwind's utilities
      and the two stylesheets above on equal specificity, and it is the only one
@@ -219,6 +226,13 @@ if ($__force_light) {
      in document order before any page module script. -->
 <script src="<?= lpc_asset('/assets/js/lpc-product-picker.js') ?>" defer></script>
 <script src="<?= lpc_asset('/assets/js/lpc-deeplink.js') ?>" defer></script>
+<!-- KPI cards, period pill and drilldown modal helper. Shipped app-wide because
+     the five dashboards that need it each include head_assets, and it's inert
+     on the ~40 other pages (it registers a namespace and exits until called).
+     Order: after lpc-dom (LPC.html/fmt), lpc-modal (LPC.modal.custom) and
+     lpc-paginator (LPC.paginator.attach) — all above via defer. -->
+<script src="<?= lpc_asset('/assets/js/lpc-paginator.js') ?>" defer></script>
+<script src="<?= lpc_asset('/assets/js/lpc-kpi.js') ?>" defer></script>
 <!-- CSS stops at the edge of a <canvas>, so charts are themed in JS. Deferred
      like the rest, which puts it before every page's own deferred module script
      in document order — so the Chart.defaults it sets are already in place when

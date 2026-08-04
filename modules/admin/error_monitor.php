@@ -339,14 +339,12 @@ require __DIR__ . '/../../includes/components/topbar.php';
         ?>
     </div>
 
-    <!-- Intro paragraph. Was inside .lpc-toolbar; moved out because a long
-         sentence there compressed the Fenêtre / Télécharger / Actualiser
-         controls and pushed the help icon out of alignment. -->
+<main role="main" id="main" class="lpc-page">
+
+    <!-- Intro paragraph. Moved inside main so it inherits page padding -->
     <p class="lpc-page-intro text-xs text-gray-500 mt-1 mb-4">
         <?= __t('ui.error_monitor.intro') ?>
     </p>
-
-<main role="main" id="main" class="lpc-page">
 
 <?php if (!$logExists): ?>
     <section class="glass rounded-xl p-6 mb-6 text-center">

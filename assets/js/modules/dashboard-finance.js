@@ -1,166 +1,281 @@
 /**
  * assets/js/modules/dashboard-finance.js
  * -----------------------------------------------------------------------------
- * Bureau LPC ERP — extracted from modules/dashboard/views/finance_dashboard.php (Sprint 6 D2).
+ * Bureau LPC ERP — Contrôle financier (Direction financière).
  *
- * Original block was ~7,944 chars inline. Moved here so the CSP
- * `script-src` can drop 'unsafe-inline'. Any SP5-tagged lines from
- * the Sprint 5 concurrency stream are preserved verbatim.
+ * Sprint 7H rewrite:
+ *   · LPC.kpi cards + segmented period pill.
+ *   · KILLS the mock-data fallback the pre-7H file had. That fallback painted
+ *     plausible finance numbers ("cash_balance: 1 450 000") whenever the API
+ *     failed, so a broken query rendered as a facts-looking dashboard nobody
+ *     could distinguish from a real one. README §5.8 explicitly names this
+ *     as the worst possible failure mode.
+ *   · The reconciliation-queue table stays; only the KPI + period picker
+ *     surface changed.
  * -----------------------------------------------------------------------------
  */
-        function toggleSidebar() {
-            document.getElementById('sidebar').classList.toggle('-translate-x-full');
-            document.getElementById('sidebar-overlay').classList.toggle('hidden');
-        }
+(function () {
+    'use strict';
 
-        let cashflowChartInstance = null;
-        let arChartInstance = null;
+    var KPI_SPECS = [
+        {
+            id: 'fin-cash', label: 'Trésorerie actuelle', kind: 'fcfa', rail: 'good',
+            drill: 'cash',
+            drillCfg: {
+                title: 'Trésorerie — mouvements de la période',
+                url:   '/api/v1/finance_dashboard_api.php?action=drilldown_cash',
+                columns: ['Date', 'Écriture', 'Compte', 'Entrée', 'Sortie'],
+                csv: true,
+                deeplink: { href: '/modules/accounting/journal_entries.php?from=dashboard_finance', label: 'Ouvrir le grand livre' },
+                renderRow: function (r) {
+                    return LPC.html`<tr>
+                        <td>${LPC.fmt.date(r.date)}</td>
+                        <td>${r.reference || ''}</td>
+                        <td>${r.account_name || ''}</td>
+                        <td class="text-right">${r.inflow  > 0 ? LPC.fmt.fcfa(r.inflow)  : ''}</td>
+                        <td class="text-right">${r.outflow > 0 ? LPC.fmt.fcfa(r.outflow) : ''}</td>
+                    </tr>`;
+                },
+            },
+        },
+        {
+            id: 'fin-ar', label: 'Créances clients (AR)', kind: 'fcfa', rail: 'brand',
+            drill: 'ar',
+            drillCfg: {
+                title: 'Créances — factures ouvertes',
+                url:   '/api/v1/finance_dashboard_api.php?action=drilldown_ar',
+                columns: ['Client', 'Facture', 'Échéance', 'Retard (j)', 'Montant'],
+                csv: true,
+                deeplink: { href: '/modules/accounting/invoices.php?from=dashboard_finance', label: 'Ouvrir la facturation' },
+                renderRow: function (r) {
+                    return LPC.html`<tr>
+                        <td>${r.client_name || ''}</td>
+                        <td>${r.invoice_number || ''}</td>
+                        <td>${LPC.fmt.date(r.due_date)}</td>
+                        <td class="text-right">${r.days_overdue > 0 ? r.days_overdue : '—'}</td>
+                        <td class="text-right">${LPC.fmt.fcfa(r.amount)}</td>
+                    </tr>`;
+                },
+            },
+        },
+        {
+            id: 'fin-ap', label: 'Dettes fournisseurs (AP)', kind: 'fcfa', rail: 'warn',
+            drill: 'ap',
+            drillCfg: {
+                title: 'Dettes fournisseurs — soldes par fournisseur',
+                url:   '/api/v1/finance_dashboard_api.php?action=drilldown_ap',
+                columns: ['Fournisseur', 'Facture', 'Date', 'Montant'],
+                csv: true,
+                deeplink: { href: '/modules/procurement/supplier_invoices.php?from=dashboard_finance', label: 'Ouvrir les factures fournisseurs' },
+                renderRow: function (r) {
+                    return LPC.html`<tr>
+                        <td>${r.supplier_name || ''}</td>
+                        <td>${r.reference || ''}</td>
+                        <td>${LPC.fmt.date(r.date)}</td>
+                        <td class="text-right">${LPC.fmt.fcfa(r.amount)}</td>
+                    </tr>`;
+                },
+            },
+        },
+        {
+            id: 'fin-pending', label: 'Validations en attente', kind: 'int', rail: 'alert',
+            drill: 'pending',
+            drillCfg: {
+                title: 'Validations en attente',
+                url:   '/api/v1/finance_dashboard_api.php?action=drilldown_pending',
+                columns: ['Type', 'Référence', 'Auteur', 'Date', 'Montant'],
+                csv: true,
+                deeplink: { href: '/modules/accounting/journal_entries.php?status=pending&from=dashboard_finance', label: 'Ouvrir la file d\'attente' },
+                renderRow: function (r) {
+                    return LPC.html`<tr>
+                        <td>${r.kind || ''}</td>
+                        <td>${r.reference || ''}</td>
+                        <td>${r.author || ''}</td>
+                        <td>${LPC.fmt.date(r.date)}</td>
+                        <td class="text-right">${r.amount != null ? LPC.fmt.fcfa(r.amount) : ''}</td>
+                    </tr>`;
+                },
+            },
+        },
+        {
+            id: 'fin-margin', label: 'Marge nette (période)', kind: 'percent', rail: 'info',
+            drill: 'margin',
+            drillCfg: {
+                title: 'Marge nette — décomposition de la période',
+                url:   '/api/v1/finance_dashboard_api.php?action=drilldown_margin',
+                columns: ['Compte', 'Type', 'Débit', 'Crédit', 'Solde'],
+                csv: true,
+                deeplink: { href: '/modules/accounting/reports.php?report=income_statement&from=dashboard_finance', label: 'Compte de résultat' },
+                renderRow: function (r) {
+                    return LPC.html`<tr>
+                        <td>${r.account_name || ''}</td>
+                        <td>${r.type || ''}</td>
+                        <td class="text-right">${LPC.fmt.fcfa(r.debit)}</td>
+                        <td class="text-right">${LPC.fmt.fcfa(r.credit)}</td>
+                        <td class="text-right">${LPC.fmt.fcfa(r.balance)}</td>
+                    </tr>`;
+                },
+            },
+        },
+    ];
 
-        function getFormattedDate(date) { return date.toISOString().split('T')[0]; }
+    var cashflowChart = null;
+    var arChart       = null;
 
-        function handlePeriodChange() {
-            const selector = document.getElementById('period-selector').value;
-            const customUI = document.getElementById('custom-date-ui');
-            const today = new Date();
-            let start = '', end = getFormattedDate(today);
+    function showError(msg) {
+        var el = document.getElementById('fin-error');
+        var m  = document.getElementById('fin-error-msg');
+        if (!el) return;
+        if (m && msg) m.textContent = msg;
+        el.classList.remove('hidden');
+    }
+    function hideError() {
+        var el = document.getElementById('fin-error');
+        if (el) el.classList.add('hidden');
+    }
 
-            if (selector === 'custom') {
-                customUI.classList.remove('hidden');
-                return; 
-            } else {
-                customUI.classList.add('hidden');
-            }
+    function fetchDashboard(range) {
+        hideError();
+        LPC.kpi.setLoading('#fin-kpi-grid', true);
 
-            if (selector === 'today') {
-                start = end;
-            } else if (selector === 'month') {
-                start = getFormattedDate(new Date(today.getFullYear(), today.getMonth(), 1));
-            } else if (selector === 'ytd') {
-                start = getFormattedDate(new Date(today.getFullYear(), 0, 1));
-            }
+        var url = '/api/v1/finance_dashboard_api.php?start_date=' + encodeURIComponent(range.start)
+                + '&end_date='   + encodeURIComponent(range.end)
+                + '&prev_start=' + encodeURIComponent(range.previousStart)
+                + '&prev_end='   + encodeURIComponent(range.previousEnd);
 
-            fetchFinanceData(start, end);
-        }
-
-        function applyCustomDates() {
-            const start = document.getElementById('start-date').value;
-            const end = document.getElementById('end-date').value;
-            if (start && end) fetchFinanceData(start, end);
-        }
-
-        async function fetchFinanceData(startDate, endDate) {
-            try {
-                // UI Loading State
-                document.querySelectorAll('.animate-pulse').forEach(el => el.classList.add('text-gray-300'));
-                
-                // --- API CALL WILL GO HERE ---
-                const response = await fetch(`/api/v1/finance_dashboard_api.php?start_date=${startDate}&end_date=${endDate}`);
-                
-                if (!response.ok) throw new Error("API not ready yet");
-                
-                const result = await response.json();
-                if (result.status === 'success') {
-                    renderDashboard(result.data);
+        fetch(url, { headers: { 'Accept': 'application/json' }})
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+                if (!res || res.status !== 'success') {
+                    // No mock-data fallback anymore. A broken API is a broken
+                    // dashboard, visibly so.
+                    showError((res && res.message) || 'Réponse inattendue du serveur.');
+                    return;
                 }
+                var payload = res.data || {};
+                (payload.cards || []).forEach(function (patch) { LPC.kpi.update(patch); });
+                renderCashflow(payload.charts && payload.charts.cashflow);
+                renderAging(payload.charts && payload.charts.ar_aging);
+                renderReconTable(payload.table || []);
+            })
+            .catch(function (err) {
+                console.error('finance_dashboard fetch failed:', err);
+                showError('Connexion impossible. Vérifiez votre réseau.');
+            });
+    }
 
-            } catch (error) {
-                console.warn("API Error or Not Yet Built. Simulating data to preserve UI...", error);
-                
-                // SIMULATED DATA FOR UI TESTING (Until Backend is Confirmed)
-                const mockData = {
-                    kpis: { cash_balance: 1450000, ar_total: 12400000, ap_total: 3200000, pending_approvals: 3 },
-                    charts: {
-                        cashflow: {
-                            labels: ['1 Fév', '5 Fév', '10 Fév', '15 Fév', '20 Fév', '25 Fév'],
-                            inflows: [120000, 450000, 0, 1400000, 200000, 350000],
-                            outflows: [50000, 15000, 800000, 0, 45000, 0]
-                        },
-                        ar_aging: [8060000, 2480000, 1860000]
-                    },
-                    table: [
-                        { id: 1, driver: 'Jean (LT-456-XY)', date: '2026-02-22', cash: 25000, empties: '40 (B), 5 (SB)' }
-                    ]
-                };
-                renderDashboard(mockData);
-            }
+    function renderCashflow(data) {
+        var canvas = document.getElementById('cashflowChart');
+        if (!canvas || !window.Chart) return;
+        if (cashflowChart) cashflowChart.destroy();
+        data = data || { labels: [], inflows: [], outflows: [] };
+
+        // Honest empty state — no fake datum.
+        if (!data.labels || data.labels.length === 0) {
+            var ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            var muted = getComputedStyle(document.documentElement).getPropertyValue('--lpc-ink-mute').trim() || '#98A2B3';
+            ctx.font = '600 12px Inter, sans-serif';
+            ctx.fillStyle = muted;
+            ctx.textAlign = 'center';
+            ctx.fillText('Aucun mouvement de trésorerie sur cette période.', canvas.width / 2, canvas.height / 2);
+            return;
         }
 
-        function renderDashboard(data) {
-            // Uses LPC.fmt.fcfa / LPC.fmt.int (Sprint 6 D5).
-            const formatNum = { format: v => LPC.fmt.int(v) };
-
-            // 1. Update KPIs
-            document.getElementById('kpi-cash').innerText = LPC.fmt.fcfa(data.kpis.cash_balance);
-            document.getElementById('kpi-ar').innerText   = LPC.fmt.fcfa(data.kpis.ar_total);
-            document.getElementById('kpi-ap').innerText   = LPC.fmt.fcfa(data.kpis.ap_total);
-            document.getElementById('kpi-pending').innerText = data.kpis.pending_approvals;
-            
-            document.querySelectorAll('.animate-pulse').forEach(el => {
-                el.classList.remove('animate-pulse', 'text-gray-300', 'text-red-300');
-            });
-
-            // 2. Render Cashflow Chart (Line)
-            if (cashflowChartInstance) cashflowChartInstance.destroy();
-            const ctxCash = document.getElementById('cashflowChart').getContext('2d');
-            cashflowChartInstance = new Chart(ctxCash, {
-                type: 'line',
-                data: {
-                    labels: data.charts.cashflow.labels,
-                    datasets: [
-                        { label: 'Entrées (Encaissements)', data: data.charts.cashflow.inflows, borderColor: '#8CC63F', backgroundColor: 'rgba(140, 198, 63, 0.1)', fill: true, tension: 0.4 },
-                        { label: 'Sorties (Paiements)', data: data.charts.cashflow.outflows, borderColor: '#EF4444', backgroundColor: 'transparent', borderDash: [5, 5], tension: 0.4 }
-                    ]
+        cashflowChart = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: data.labels,
+                datasets: [
+                    { label: 'Entrées (encaissements)', data: data.inflows,  borderColor: '#8CC63F', backgroundColor: 'rgba(140, 198, 63, 0.14)', fill: true, tension: .35, borderWidth: 2 },
+                    { label: 'Sorties (paiements)',     data: data.outflows, borderColor: '#EF4444', backgroundColor: 'transparent',              borderDash: [5, 5], tension: .35, borderWidth: 2 },
+                ],
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                animation: { duration: 700 },
+                plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } } },
+                scales: {
+                    y: { beginAtZero: true, grid: { borderDash: [4, 4] } },
+                    x: { grid: { display: false } },
                 },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
-            });
+            },
+        });
+    }
 
-            // 3. Render AR Aging
-            if (arChartInstance) arChartInstance.destroy();
-            const ctxAr = document.getElementById('arChart').getContext('2d');
-            arChartInstance = new Chart(ctxAr, {
-                type: 'doughnut',
-                data: {
-                    labels: ['Courant (0-15j)', 'Retard (16-30j)', 'Critique (30j+)'],
-                    datasets: [{ data: data.charts.ar_aging, backgroundColor: ['#8CC63F', '#FBBF24', '#EF4444'], borderWidth: 0 }]
-                },
-                options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { position: 'right' } } }
-            });
+    function renderAging(data) {
+        var canvas = document.getElementById('arChart');
+        if (!canvas || !window.Chart) return;
+        if (arChart) arChart.destroy();
+        data = Array.isArray(data) ? data : [0, 0, 0];
 
-            // 4. Render Table
-            const tbody = document.getElementById('reconciliation-table-body');
-            tbody.innerHTML = '';
-            if (data.table.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-sm text-gray-500">Aucune validation en attente.</td></tr>';
-            } else {
-                data.table.forEach(row => {
-                    const varianceColor = row.variance < 0 ? 'text-red-500' : 'text-gray-500';
-                    const varianceText = row.variance < 0 ? `Manquant: ${formatNum.format(Math.abs(row.variance))}` : 'Complet';
-                    
-                    tbody.innerHTML += LPC.html`
-                        <tr class="hover:bg-gray-50 transition-colors">
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="text-sm font-bold text-gray-900">${row.driver}</div>
-                                <div class="text-xs text-gray-500">${row.date}</div>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-right font-medium text-gray-700">
-                                ${formatNum.format(row.expected_cash)} FCFA
-                                <div class="text-[10px] text-gray-400">Eau + Emballages</div>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-right">
-                                <div class="font-bold text-emerald-600">${formatNum.format(row.declared_cash)} FCFA</div>
-                                <div class="text-[10px] font-bold ${varianceColor}">${varianceText}</div>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-center">
-                                <button class="bg-lpc-dark hover:bg-green-800 text-white text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-colors">
-                                    Valider
-                                </button>
-                            </td>
-                        </tr>
-                    `;
-                });
-            }
+        arChart = new Chart(canvas.getContext('2d'), {
+            type: 'doughnut',
+            data: {
+                labels: ['Courant (0–15 j)', 'Retard (16–30 j)', 'Critique (30 j+)'],
+                datasets: [{ data: data, backgroundColor: ['#8CC63F', '#FBBF24', '#EF4444'], borderWidth: 0, hoverOffset: 4 }],
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false, cutout: '70%',
+                animation: { animateRotate: true, duration: 800 },
+                plugins: { legend: { position: 'right', labels: { usePointStyle: true, boxWidth: 8 } } },
+            },
+        });
+    }
+
+    function renderReconTable(rows) {
+        var tbody = document.getElementById('reconciliation-table-body');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-500">Aucune validation en attente.</td></tr>';
+            return;
         }
+        rows.forEach(function (row) {
+            var varianceColor = row.variance < 0 ? 'text-red-500' : 'text-gray-500';
+            var varianceText  = row.variance < 0
+                ? 'Manquant : ' + LPC.fmt.int(Math.abs(row.variance)) + ' FCFA'
+                : 'Complet';
+            tbody.insertAdjacentHTML('beforeend', LPC.html`
+                <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-sm font-bold text-gray-900">${row.driver}</div>
+                        <div class="text-xs text-gray-500">${row.date}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right font-medium text-gray-700">
+                        ${LPC.fmt.fcfa(row.expected_cash)}
+                        <div class="text-[10px] text-gray-400">Eau + Emballages</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right">
+                        <div class="font-bold text-emerald-600">${LPC.fmt.fcfa(row.declared_cash)}</div>
+                        <div class="text-[10px] font-bold ${LPC.raw(varianceColor)}">${varianceText}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                        <button type="button" class="bg-lpc-dark hover:bg-green-800 text-white text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-colors">
+                            Valider
+                        </button>
+                    </td>
+                </tr>`);
+        });
+    }
 
-        // Init
-        document.addEventListener('DOMContentLoaded', () => handlePeriodChange());
-    
+    document.addEventListener('DOMContentLoaded', function () {
+        LPC.kpi.mount('#fin-kpi-grid', KPI_SPECS.map(function (s) {
+            var m = Object.assign({}, s);
+            delete m.drillCfg;
+            return m;
+        }));
+
+        document.getElementById('fin-kpi-grid').addEventListener('lpc:kpi-open', function (e) {
+            e.preventDefault();
+            var spec = KPI_SPECS.find(function (k) { return k.id === e.detail.id; });
+            if (spec && spec.drillCfg) LPC.kpi.openDrilldown(spec.drillCfg);
+        });
+
+        LPC.kpi.mountPeriodPill('#fin-period-pill', {
+            presets: ['today', '7d', 'month', 'quarter', 'ytd', 'custom'],
+            default: 'month',              // Finance defaults to the accounting close cycle.
+            onChange: fetchDashboard,
+        });
+    });
+})();
