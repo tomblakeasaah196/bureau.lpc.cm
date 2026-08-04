@@ -342,7 +342,7 @@ require __DIR__ . '/../../includes/components/topbar.php';
     <!-- Intro paragraph. Was inside .lpc-toolbar; moved out because a long
          sentence there compressed the Fenêtre / Télécharger / Actualiser
          controls and pushed the help icon out of alignment. -->
-    <p class="lpc-page-intro text-xs text-gray-500 mt-1 mb-4 max-w-3xl">
+    <p class="lpc-page-intro text-xs text-gray-500 mt-1 mb-4">
         <?= __t('ui.error_monitor.intro') ?>
     </p>
 

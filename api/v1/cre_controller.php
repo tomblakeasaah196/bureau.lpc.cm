@@ -306,19 +306,53 @@ if ($method === 'GET') {
     
     if ($action === 'get_owed_empties') {
         try {
-            $stmt = $pdo->query("
-                SELECT
-                    c.id as client_id, c.name as client_name,
-                    s.id as site_id, s.name as site_name,
-                    p.name as product_name,
-                    cel.total_out, cel.total_in, cel.quantity_owed
-                FROM client_empties_ledger cel
-                JOIN clients c ON cel.client_id = c.id
-                LEFT JOIN client_sites s ON cel.site_id = s.id
-                JOIN products p ON cel.product_id = p.id
-                WHERE cel.quantity_owed > 0
-                ORDER BY c.name ASC, s.name ASC
-            ");
+            /*
+             * Sprint 12 (empties in-flight, migration 074) — the list now
+             * also carries quantity_in_flight so the DUS table can render
+             * an amber "En attente signature BL" column alongside the red
+             * Solde (Dû). WHERE broadened: a client with only in-flight
+             * empties (no confirmed dues) must still appear, otherwise the
+             * whole point of the in-flight bucket is lost.
+             *
+             * client_id filter (?client_id=X) added for the order_detail
+             * deep-link. When present, restricts the response to one client
+             * so the same page can be reused as a per-client drill-down
+             * without a separate endpoint.
+             */
+            $clientFilter = isset($_GET['client_id']) ? (int) $_GET['client_id'] : 0;
+            if ($clientFilter > 0) {
+                $stmt = $pdo->prepare("
+                    SELECT
+                        c.id as client_id, c.name as client_name,
+                        s.id as site_id, s.name as site_name,
+                        p.id as product_id, p.name as product_name,
+                        cel.total_out, cel.total_in, cel.quantity_owed,
+                        cel.quantity_in_flight
+                    FROM client_empties_ledger cel
+                    JOIN clients c ON cel.client_id = c.id
+                    LEFT JOIN client_sites s ON cel.site_id = s.id
+                    JOIN products p ON cel.product_id = p.id
+                    WHERE (cel.quantity_owed > 0 OR cel.quantity_in_flight > 0)
+                      AND cel.client_id = ?
+                    ORDER BY p.name ASC, s.name ASC
+                ");
+                $stmt->execute([$clientFilter]);
+            } else {
+                $stmt = $pdo->query("
+                    SELECT
+                        c.id as client_id, c.name as client_name,
+                        s.id as site_id, s.name as site_name,
+                        p.id as product_id, p.name as product_name,
+                        cel.total_out, cel.total_in, cel.quantity_owed,
+                        cel.quantity_in_flight
+                    FROM client_empties_ledger cel
+                    JOIN clients c ON cel.client_id = c.id
+                    LEFT JOIN client_sites s ON cel.site_id = s.id
+                    JOIN products p ON cel.product_id = p.id
+                    WHERE cel.quantity_owed > 0 OR cel.quantity_in_flight > 0
+                    ORDER BY c.name ASC, s.name ASC
+                ");
+            }
             sendResponse('success', 'OK', $stmt->fetchAll(PDO::FETCH_ASSOC));
         } catch (Exception $e) { sendResponse('error', 'Erreur DB: ' . $e->getMessage()); }
     }
@@ -341,6 +375,18 @@ if ($method === 'GET') {
             $clientsWithDebt = (int) $pdo->query(
                 "SELECT COUNT(DISTINCT client_id) FROM client_empties_ledger WHERE quantity_owed > 0"
             )->fetchColumn();
+            // Sprint 12 (migration 074) — empties dispatched on open BLs
+            // but not yet reconciled by signature. Reported alongside the
+            // confirmed dues so a supervisor sees BOTH: what we're sure of
+            // (red) and what's still in the pipeline (amber). Clients count
+            // is DISTINCT because one client with three open BLs is one
+            // exposure, not three.
+            $totalInFlight = (int) $pdo->query(
+                "SELECT COALESCE(SUM(quantity_in_flight), 0) FROM client_empties_ledger WHERE quantity_in_flight > 0"
+            )->fetchColumn();
+            $clientsInFlight = (int) $pdo->query(
+                "SELECT COUNT(DISTINCT client_id) FROM client_empties_ledger WHERE quantity_in_flight > 0"
+            )->fetchColumn();
             $crePending = (int) $pdo->query(
                 "SELECT COUNT(*) FROM cre_documents WHERE status = 'en_transit'"
             )->fetchColumn();
@@ -359,6 +405,8 @@ if ($method === 'GET') {
             sendResponse('success', 'OK', [
                 'total_owed'            => $totalOwed,
                 'clients_with_debt'     => $clientsWithDebt,
+                'total_in_flight'       => $totalInFlight,
+                'clients_in_flight'     => $clientsInFlight,
                 'cre_pending'           => $crePending,
                 'cre_signed_30d'        => $creSigned30,
                 'recycling_revenue_30d' => $recRev30,

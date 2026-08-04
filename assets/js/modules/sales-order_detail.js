@@ -125,6 +125,12 @@
         renderCancelBanner(o);
         renderFulfilment(d);
         renderLines(d.lines);
+        /* Sprint 12 (empties visibility) — insert the empties card between
+           lines and BLs so the reading order matches the physical
+           timeline: what was ordered → what is expected back → the BLs
+           carrying it → the invoices settling it. Card silently hides
+           itself when no line on the order is consigné. */
+        renderExpectedEmpties(d.empties);
         renderDeliveries(d.deliveries);
         renderInvoices(d.invoices);
         renderPriceChanges(d.price_changes);
@@ -286,6 +292,59 @@
                     </div>
                 </div>`;
         });
+    }
+
+    /* Sprint 12 (empties visibility) — render the expected-empties card.
+       Card is hidden entirely when no line on this order carries a
+       linked_empty_id (empties.total_expected_from_order === 0 AND every
+       line's `expected` is null); showing an empty amber card on a
+       purely-still-water order would read as a bug. */
+    function renderExpectedEmpties(empties) {
+        const card    = document.getElementById('so-empties-card');
+        const body    = document.getElementById('so-empties-body');
+        const total   = document.getElementById('so-empties-order-total');
+        const owed    = document.getElementById('so-empties-client-owed');
+        const inflt   = document.getElementById('so-empties-client-inflight');
+        const linkEl  = document.getElementById('so-empties-deeplink');
+        if (!card || !body) return;
+
+        if (!empties || !Array.isArray(empties.lines) || empties.lines.length === 0) {
+            card.classList.add('hidden'); return;
+        }
+        const anyConsigne = empties.lines.some(l => l.expected !== null);
+        if (!anyConsigne) {
+            card.classList.add('hidden'); return;
+        }
+
+        card.classList.remove('hidden');
+        body.innerHTML = '';
+        empties.lines.forEach(l => {
+            /* Non-consigné rows are printed as a muted grey em-dash in
+               the Emballage / Vides attendus columns, so the reader can
+               see that the line was considered and correctly deemed to
+               have no consigne — vs. simply being absent from the list. */
+            const emptyCell = l.expected === null
+                ? LPC.raw(`<span class="text-gray-300">— sans consigne —</span>`)
+                : LPC.raw(LPC.html`<span class="font-bold text-amber-800">${l.empty_name || ''}</span>`);
+            const expectedCell = l.expected === null
+                ? LPC.raw(`<span class="text-gray-300">—</span>`)
+                : LPC.raw(LPC.html`<span class="font-black text-lg text-amber-900">${l.expected}</span>`);
+            body.insertAdjacentHTML('beforeend', LPC.html`
+                <tr>
+                    <td class="py-3 px-6 font-bold text-gray-900">${l.product_name}</td>
+                    <td class="py-3 px-4 text-center font-black text-gray-800">${l.qty_dispatched}</td>
+                    <td class="py-3 px-4">${emptyCell}</td>
+                    <td class="py-3 px-4 text-center bg-amber-50/40">${expectedCell}</td>
+                </tr>`);
+        });
+
+        total.textContent = LPC.fmt.int(empties.total_expected_from_order || 0) + ' u.';
+        owed.textContent  = LPC.fmt.int((empties.client && empties.client.owed)      || 0) + ' u.';
+        inflt.textContent = LPC.fmt.int((empties.client && empties.client.in_flight) || 0) + ' u.';
+
+        if (linkEl && empties.client && empties.client.client_id) {
+            linkEl.href = '/modules/operations/empties_collection.php?client_id=' + encodeURIComponent(empties.client.client_id);
+        }
     }
 
     function renderPriceChanges(changes) {

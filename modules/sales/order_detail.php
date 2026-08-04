@@ -156,6 +156,54 @@ $so_id = (int) ($_GET['id'] ?? 0);
                     </div>
                 </div>
 
+                <?php /* Sprint 12 (empties visibility) — expected-empties
+                         card. Per-line "expected back" for consigned SKUs +
+                         client-level running balance (owed / in-flight)
+                         across ALL open orders, not just this one. The
+                         deep-link at the bottom opens
+                         empties_collection.php pre-filtered to this
+                         client, so an operator on the phone with the
+                         customer moves seamlessly from "here's what THIS
+                         order owed" to "here's the whole picture".
+                         Rendered only if the client actually has any
+                         consigned line on this order (JS hides it
+                         otherwise, see sales-order_detail.js). */ ?>
+                <div class="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden hidden" id="so-empties-card">
+                    <div class="bg-amber-600 px-6 py-3 flex items-center justify-between">
+                        <h4 class="text-xs font-black text-white uppercase tracking-widest"><i class="fas fa-recycle mr-2"></i>Consignes attendues de ce client</h4>
+                        <a id="so-empties-deeplink" href="#" class="text-white/90 hover:text-white text-[10px] font-black uppercase tracking-widest underline">
+                            <i class="fas fa-external-link-alt mr-1"></i>Voir toutes ses consignes
+                        </a>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-amber-50 border-b border-amber-100 text-[10px] uppercase text-amber-700 font-black tracking-widest">
+                                <tr>
+                                    <th class="py-3 px-6">Produit livré</th>
+                                    <th class="py-3 px-4 text-center">Qté expédiée</th>
+                                    <th class="py-3 px-4">Emballage consigné</th>
+                                    <th class="py-3 px-4 text-center">Vides attendus</th>
+                                </tr>
+                            </thead>
+                            <tbody id="so-empties-body" class="divide-y divide-gray-100 text-sm"></tbody>
+                        </table>
+                    </div>
+                    <div class="px-6 py-4 bg-amber-50 border-t border-amber-100 grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <p class="text-[10px] font-black text-amber-700 uppercase tracking-widest">Attendus sur cette commande</p>
+                            <p class="text-xl font-black text-amber-900 mt-1" id="so-empties-order-total">—</p>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-black text-rose-700 uppercase tracking-widest">Solde dû (confirmé)</p>
+                            <p class="text-xl font-black text-rose-800 mt-1" id="so-empties-client-owed">—</p>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-black text-amber-700 uppercase tracking-widest">En circulation (BL non signés)</p>
+                            <p class="text-xl font-black text-amber-800 mt-1" id="so-empties-client-inflight">—</p>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <!-- DELIVERIES -->
                     <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">

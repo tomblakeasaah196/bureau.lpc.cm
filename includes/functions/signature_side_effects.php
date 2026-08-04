@@ -374,8 +374,8 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
             if (!$exists->fetchColumn()) {
                 $db->prepare(
                     "INSERT INTO client_empties_ledger
-                         (client_id, product_id, total_out, total_in, quantity_owed)
-                     VALUES (?, ?, 0, 0, 0)"
+                         (client_id, product_id, total_out, total_in, quantity_owed, quantity_in_flight)
+                     VALUES (?, ?, 0, 0, 0, 0)"
                 )->execute([$del['client_id'], $emptyPid]);
             }
             if ($accepted > 0) {
@@ -396,6 +396,22 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
                 $restockEmpty->execute([
                     $emptyPid, $emptiesBack, $blId, $loggedBy,
                 ]);
+            }
+
+            // Sprint 12 (migration 074) — release the in-flight
+            // reservation for what the BL originally dispatched (shipped
+            // qty). The in-flight counter tracks empties expected to
+            // eventually book; at signature time the truth is known, so
+            // whatever this BL contributed at dispatch is subtracted.
+            // GREATEST clamp prevents any drift from ever pushing the
+            // counter negative — the reconciliation script owns absolute
+            // truth, this line just guards against integer weirdness.
+            if ($shipped > 0) {
+                $db->prepare(
+                    "UPDATE client_empties_ledger
+                        SET quantity_in_flight = GREATEST(0, quantity_in_flight - ?)
+                      WHERE client_id = ? AND product_id = ?"
+                )->execute([$shipped, $del['client_id'], $emptyPid]);
             }
         }
     }

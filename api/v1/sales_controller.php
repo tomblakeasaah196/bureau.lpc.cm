@@ -862,6 +862,42 @@ try {
             $stmtDelItem = $db->prepare("INSERT INTO delivery_items (delivery_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)");
             $stmtInvOut  = $db->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, reference_id, logged_by) VALUES (?, 'out_delivery', ?, ?, ?)");
 
+            // Sprint 12 (empties in-flight, migration 074) — the client_empties
+            // _ledger.quantity_in_flight bucket. Written HERE, at dispatch,
+            // for every line whose product carries a linked_empty_id.
+            // Decremented at BL signature (moves into total_out / quantity
+            // _owed via lpc_signature_side_effects_bl) or at BL cancellation.
+            // Fills the visibility gap between dispatch and signature — a
+            // truck leaves the yard with bottles, and Consignes sees it that
+            // instant, not "eventually when the customer signs".
+            //
+            // NULL-SITE UNIQUE TRAP — MySQL treats NULL as distinct in
+            // UNIQUE(client_id, site_id, product_id). ON DUPLICATE KEY
+            // UPDATE with site_id=NULL will fail to match existing
+            // NULL-site rows and duplicate them, corrupting the ledger.
+            // We use the same exists-check + explicit UPDATE / INSERT
+            // pattern that lpc_signature_side_effects_bl uses, so the two
+            // paths agree on how the constraint behaves.
+            $stmtLinkedEmpty = $db->prepare(
+                "SELECT linked_empty_id FROM products WHERE id = ? AND linked_empty_id IS NOT NULL LIMIT 1"
+            );
+            $stmtLedgerLookup = $db->prepare(
+                "SELECT id FROM client_empties_ledger
+                  WHERE client_id = ? AND product_id = ? AND site_id IS NULL
+                  LIMIT 1"
+            );
+            $stmtLedgerInsert = $db->prepare(
+                "INSERT INTO client_empties_ledger
+                     (client_id, site_id, product_id,
+                      total_out, total_in, quantity_owed, quantity_in_flight)
+                 VALUES (?, NULL, ?, 0, 0, 0, ?)"
+            );
+            $stmtLedgerBumpInFlight = $db->prepare(
+                "UPDATE client_empties_ledger
+                    SET quantity_in_flight = quantity_in_flight + ?
+                  WHERE id = ?"
+            );
+
             // Sprint-4-Batch-B: lock the aggregated stock per product BEFORE
             // decrementing so two concurrent dispatches for the same SKU can't
             // over-issue. The FOR UPDATE on products blocks concurrent
@@ -883,6 +919,31 @@ try {
 
                 $stmtDelItem->execute([$delivery_id, $item['product_id'], $item['quantity'], $item['unit_price']]);
                 $stmtInvOut->execute([$item['product_id'], $item['quantity'], $delivery_id, $user_id]);
+
+                // In-flight ledger bump for consigned products only. Non-
+                // consigné SKUs (Jus 30L etc.) return no rows from the
+                // lookup and skip cleanly. Lookup-then-update-or-insert
+                // to sidestep the NULL-site UNIQUE trap (see comment on
+                // the prepared statements above).
+                $stmtLinkedEmpty->execute([$item['product_id']]);
+                $linkedEmptyId = $stmtLinkedEmpty->fetchColumn();
+                if ($linkedEmptyId) {
+                    $stmtLedgerLookup->execute([
+                        $order['client_id'], (int) $linkedEmptyId,
+                    ]);
+                    $existingLedgerId = $stmtLedgerLookup->fetchColumn();
+                    if ($existingLedgerId) {
+                        $stmtLedgerBumpInFlight->execute([
+                            (int) $item['quantity'], (int) $existingLedgerId,
+                        ]);
+                    } else {
+                        $stmtLedgerInsert->execute([
+                            $order['client_id'],
+                            (int) $linkedEmptyId,
+                            (int) $item['quantity'],
+                        ]);
+                    }
+                }
             }
 
             // Sprint 9 · migration 041: mirror the physical stock movement in
@@ -1103,6 +1164,65 @@ try {
                         : ($tot_dispatched <= 0 ? 'pending'
                         : ($tot_dispatched >= $tot_ordered ? 'complete' : 'partial'));
 
+            /*
+             * Sprint 12 (empties visibility) — per-line "expected empties"
+             * and a client-level ledger snapshot for the order_detail page.
+             *
+             * Per line: dispatched-qty × linked_empty product = the number
+             * of empties this order is expected to generate. Populated
+             * ONLY for consigned SKUs; a non-consigné line returns null so
+             * the renderer can leave the row's expected-empties cell blank
+             * (as opposed to "0", which reads as "no empties expected"
+             * but might be misinterpreted).
+             *
+             * Client snapshot: current owed + in-flight totals across ALL
+             * open BLs, not just this order. That's the number the operator
+             * actually needs to make a phone call — "how many empties do
+             * you owe us today" is a per-client question, not a per-order
+             * one. Displayed as a small footer card under the per-line
+             * table with a deep-link into empties_collection.php.
+             */
+            $stmtLineEmpties = $db->prepare("
+                SELECT p.linked_empty_id, pe.name AS empty_name
+                  FROM products p
+                  LEFT JOIN products pe ON pe.id = p.linked_empty_id
+                 WHERE p.id = ?
+            ");
+            $expected_empties = [];
+            $expected_total = 0;
+            foreach ($lines as $l) {
+                $stmtLineEmpties->execute([$l['product_id']]);
+                $pe = $stmtLineEmpties->fetch(PDO::FETCH_ASSOC);
+                if (!$pe || empty($pe['linked_empty_id'])) {
+                    $expected_empties[] = [
+                        'product_id'    => (int) $l['product_id'],
+                        'product_name'  => $l['product_name'],
+                        'qty_dispatched'=> (int) $l['qty_dispatched'],
+                        'empty_name'    => null,
+                        'expected'      => null,
+                    ];
+                    continue;
+                }
+                $exp = (int) $l['qty_dispatched'];
+                $expected_total += $exp;
+                $expected_empties[] = [
+                    'product_id'    => (int) $l['product_id'],
+                    'product_name'  => $l['product_name'],
+                    'qty_dispatched'=> $exp,
+                    'empty_name'    => $pe['empty_name'],
+                    'expected'      => $exp,
+                ];
+            }
+
+            $stmtClientEmpties = $db->prepare("
+                SELECT COALESCE(SUM(quantity_owed), 0)      AS owed,
+                       COALESCE(SUM(quantity_in_flight), 0) AS in_flight
+                  FROM client_empties_ledger
+                 WHERE client_id = ?
+            ");
+            $stmtClientEmpties->execute([(int) $order['client_id']]);
+            $clientEmpties = $stmtClientEmpties->fetch(PDO::FETCH_ASSOC) ?: ['owed' => 0, 'in_flight' => 0];
+
             echo json_encode([
                 'status' => 'success',
                 'data' => [
@@ -1125,6 +1245,18 @@ try {
                         // response; the front end shows them as an opposing
                         // row in the totals card.
                         'line_surcharge' => round($tot_line_surch, 2),
+                    ],
+                    // Sprint 12 — new payload branch. Front-end reads
+                    // `empties.lines` for the per-line table and
+                    // `empties.client` for the aggregate footer.
+                    'empties' => [
+                        'lines'  => $expected_empties,
+                        'total_expected_from_order' => $expected_total,
+                        'client' => [
+                            'client_id' => (int) $order['client_id'],
+                            'owed'      => (int) $clientEmpties['owed'],
+                            'in_flight' => (int) $clientEmpties['in_flight'],
+                        ],
                     ],
                     'fulfilment_state' => $fulfilment,
                 ],

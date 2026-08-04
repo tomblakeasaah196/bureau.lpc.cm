@@ -113,17 +113,55 @@
             }
 
             // Table Injection (Dynamic Qty if completed)
+            //
+            // Sprint 12 (empties-visibility fix) — render the new "Vides
+            // Rendus" column. The column is populated ONLY for products
+            // that carry a consigne (item.has_consigne); a pure full-bottle
+            // line prints a dash so it is unambiguous that no empty was
+            // returned. delivered_qty comes from the API as either a
+            // number (customer signed and confirmed) or null (unsigned;
+            // renderer prints a dotted line to be filled in by hand).
             const tbody = document.getElementById('dyn_items_table');
             tbody.innerHTML = '';
             apiData.items.forEach(item => {
                 // Escaped by the inner LPC.html, then marked raw for the outer
                 // template. See documents-bon_commande.js for the reasoning.
                 const formatHtml = item.format ? LPC.raw(LPC.html`<span class="text-xs text-gray-500 ml-1">(${item.format})</span>`) : '';
-                // If completed, we assume item.qty is what was received for visual purposes on this simple view, 
-                // but realistically your backend might send accepted_qty. We'll show the solid number if completed.
+
+                // Prefer the signed delivered_qty when available; otherwise
+                // fall back to the shipped qty (only when the customer has
+                // completed the signature — pre-signature we print a dotted
+                // fill-in line so a paper delivery still has a place to
+                // write the number).
+                const receivedNumber = (typeof item.delivered_qty === 'number')
+                    ? item.delivered_qty
+                    : item.qty;
                 const receivedHtml = isCompleted
-                    ? LPC.raw(LPC.html`<span class="font-black text-lg text-blue-700">${item.qty}</span>`)
+                    ? LPC.raw(LPC.html`<span class="font-black text-lg text-blue-700">${receivedNumber}</span>`)
                     : LPC.raw(`<div class="w-16 h-8 border-b-2 border-dotted border-gray-400 mx-auto"></div>`);
+
+                // Empties column. Only render a number for lines with a
+                // consigne; for a non-consigné product (Jus 30L, etc.) a
+                // dash keeps the row visually consistent without inviting
+                // the reader to think the field was "left blank".
+                let emptiesHtml;
+                if (!item.has_consigne) {
+                    emptiesHtml = LPC.raw(`<span class="text-gray-300 text-sm">—</span>`);
+                } else if (isCompleted) {
+                    const n = Number(item.returned_empty_qty || 0);
+                    // A non-zero return releases the client from a consigne,
+                    // so it is printed BOLD amber to draw the eye during any
+                    // dispute review. Zero returns are printed in a muted
+                    // amber so the reader still sees the field was consciously
+                    // recorded as "no empties handed back".
+                    emptiesHtml = n > 0
+                        ? LPC.raw(LPC.html`<span class="font-black text-lg text-amber-700">${n}</span>`)
+                        : LPC.raw(`<span class="font-bold text-sm text-amber-400">0</span>`);
+                } else {
+                    // Pre-signature: dotted fill-in, matching the Qté Reçue
+                    // column's visual language.
+                    emptiesHtml = LPC.raw(`<div class="w-16 h-8 border-b-2 border-dotted border-amber-400 mx-auto"></div>`);
+                }
 
                 tbody.innerHTML += LPC.html`
                     <tr>
@@ -133,6 +171,9 @@
                         <td class="py-4 px-2 text-center font-black text-lg text-gray-800">${item.qty}</td>
                         <td class="py-4 px-2 text-center border-l border-gray-100">
                             ${receivedHtml}
+                        </td>
+                        <td class="py-4 px-2 text-center border-l border-gray-100 bg-amber-50/30">
+                            ${emptiesHtml}
                         </td>
                     </tr>
                 `;

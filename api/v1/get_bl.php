@@ -57,24 +57,48 @@ try {
     }
 
     // 3. Fetch Line Items linked to this specific Delivery
+    //
+    // Sprint 12 (empties-visibility fix) — pull delivered_quantity and
+    // returned_empty_qty too, so the printed BL can show the QTE REÇUE the
+    // customer actually confirmed and, critically, the VIDES RENDUS number
+    // that gets booked into client_empties_ledger.total_in at signature
+    // time. Before this change the paper document only carried Qté Expédiée
+    // / Qté Reçue, so a customer could sign a BL whose invisible payload
+    // returned N empties and clear a consigne without ever having seen the
+    // figure. Root-cause of BL-2608-CB78 (JBS Praxis).
     $itemsStmt = $db->prepare("
-        SELECT 
-            p.name as product_name, p.format as product_format,
-            di.quantity
+        SELECT
+            p.name AS product_name, p.format AS product_format,
+            p.linked_empty_id,
+            pe.name AS empty_name,
+            di.quantity,
+            di.delivered_quantity,
+            di.returned_empty_qty
         FROM delivery_items di
         JOIN products p ON di.product_id = p.id
+        LEFT JOIN products pe ON pe.id = p.linked_empty_id
         WHERE di.delivery_id = :delivery_id
     ");
     $itemsStmt->execute(['delivery_id' => $blData['delivery_id']]);
     $itemsResult = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // 4. Format Items array exactly as the frontend JS expects
+    // 4. Format Items array exactly as the frontend JS expects.
+    //    delivered_qty is NULL until the customer signs; the renderer decides
+    //    whether to print a solid number or leave a dotted line to be filled
+    //    in by hand at delivery. returned_empty_qty is null-coalesced to 0
+    //    because a BL that never returned empties has an implied 0 there.
     $items = [];
     foreach ($itemsResult as $item) {
         $items[] = [
-            'name'   => $item['product_name'],
-            'format' => $item['product_format'],
-            'qty'    => (int)$item['quantity']
+            'name'               => $item['product_name'],
+            'format'             => $item['product_format'],
+            'qty'                => (int) $item['quantity'],
+            'delivered_qty'      => $item['delivered_quantity'] !== null
+                                    ? (int) $item['delivered_quantity']
+                                    : null,
+            'returned_empty_qty' => (int) ($item['returned_empty_qty'] ?? 0),
+            'empty_name'         => $item['empty_name'],
+            'has_consigne'       => !empty($item['linked_empty_id']),
         ];
     }
 

@@ -248,12 +248,24 @@ if (($_GET['pdf'] ?? '') === '1') {
                 </div>
 
                 <div class="px-4 md:px-16 flex-1 flex flex-col">
+                    <?php /*
+                       Sprint 12 (empties-visibility fix) — added the "Vides
+                       rendus" column so a signed BL prints the number of
+                       empties that will be booked into client_empties_ledger
+                       .total_in. Before, the paper document only listed the
+                       full-bottle quantities, so a customer could sign a BL
+                       whose invisible payload cleared their consigne balance
+                       without ever seeing the figure. Column is rendered
+                       ONLY for lines whose product has a linked_empty_id;
+                       for a purely full-bottle line it stays blank.
+                    */ ?>
                     <table class="w-full text-left bl-table mt-4">
                         <thead>
                             <tr>
-                                <th class="py-3 px-2 text-[10px] uppercase text-gray-400 font-black tracking-widest w-2/3" data-i18n="tbl_desc">Désignation des Marchandises</th>
+                                <th class="py-3 px-2 text-[10px] uppercase text-gray-400 font-black tracking-widest w-1/2" data-i18n="tbl_desc">Désignation des Marchandises</th>
                                 <th class="py-3 px-2 text-[10px] uppercase text-gray-400 font-black tracking-widest text-center" data-i18n="tbl_qty_sent">Qté Expédiée</th>
                                 <th class="py-3 px-2 text-[10px] uppercase text-gray-400 font-black tracking-widest text-center" data-i18n="tbl_qty_rec">Qté Reçue</th>
+                                <th class="py-3 px-2 text-[10px] uppercase text-amber-600 font-black tracking-widest text-center bg-amber-50/40" data-i18n="tbl_qty_empties_back">Vides Rendus</th>
                             </tr>
                         </thead>
                         <tbody id="dyn_items_table" class="text-sm text-gray-900">

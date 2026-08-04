@@ -240,16 +240,97 @@ switch ($action) {
         Csrf::requireValid();
         if (empty($_SESSION['user_id'])) sig_fail('Session requise.', 401, 'auth');
 
-        [$type, $docId, $doc] = sig_resolve();
+        [$type, $docId, $doc, $token] = sig_resolve();
         if (!sig_can_sign_internal($type)) {
             sig_fail("Vous n'avez pas la permission de signer ce document.", 403, 'forbidden');
         }
 
+        // Sprint 12 (BL-2608-CB78 diagnosis fix) — sign_internal historically
+        // wrote only the document_signatures row and returned. That was fine
+        // for doc types whose side-effects layer is a no-op (quote, invoice,
+        // po, payslip, contract — see lpc_signature_side_effects_dispatch).
+        // For BL and CRE it silently broke business state: an operator who
+        // signed a BL from inside the ERP (the "Signer côté LPC" button)
+        // captured a signature but the delivery never flipped to completed,
+        // the empties ledger was never booked, and returned empties never
+        // restocked. We now run side effects too — but ONLY if the doc's
+        // business state is still in the trigger window. If the customer
+        // has already signed externally (BL: status=completed, CRE:
+        // status=signed) the ledger/state was already updated and running
+        // side effects again would throw "déjà traité" and abort the
+        // internal signature. State check keeps the internal button useful
+        // as either a "pre-attestation" (before the customer signs) or an
+        // "after-the-fact attestation" (after they signed).
         try {
-            $row = DocumentSignature::signInternal($type, $docId, $doc, (int) $_SESSION['user_id']);
+            $db = Database::getInstance()->getConnection();
+        } catch (Throwable $e) {
+            error_log('signatures_controller: DB unavailable at sign_internal: ' . $e->getMessage());
+            sig_fail('Service indisponible.', 503, 'db_down');
+        }
+
+        // Decide whether side effects should fire for THIS doc, from THIS
+        // party. Keep the rule table tiny and explicit — anything not
+        // listed here defaults to false and behaves exactly like the old
+        // no-side-effect internal sign, so quote / invoice / po / payslip
+        // / contract are unaffected by this change.
+        $shouldRunSideEffects = false;
+        try {
+            if ($type === 'bl') {
+                $s = $db->prepare("SELECT status FROM deliveries WHERE id = ? LIMIT 1");
+                $s->execute([$docId]);
+                $st = (string) $s->fetchColumn();
+                $shouldRunSideEffects = in_array($st, ['dispatched', 'driver_confirmed'], true);
+            } elseif ($type === 'cre') {
+                $s = $db->prepare("SELECT status FROM cre_documents WHERE id = ? LIMIT 1");
+                $s->execute([$docId]);
+                $shouldRunSideEffects = ((string) $s->fetchColumn() === 'en_transit');
+            }
+        } catch (Throwable $e) {
+            // A read failure here is fatal — better to refuse the
+            // signature than to fall through and lose the state check.
+            error_log('signatures_controller: state check failed at sign_internal: ' . $e->getMessage());
+            sig_fail('Service indisponible.', 503, 'db_down');
+        }
+
+        // Internal signature carries no counterparty-editable extras (only
+        // BL sign_external posts items[]/payment/observations). Passing an
+        // empty items[] means the BL side-effects branch skips the
+        // "customer amended these lines" block and uses whatever the driver
+        // already recorded — the correct semantics for an operator-side
+        // attestation.
+        $extras = [
+            'items'             => [],
+            'payment_collected' => null,
+            'observations'      => null,
+        ];
+
+        try {
+            $db->beginTransaction();
+
+            if ($shouldRunSideEffects) {
+                lpc_signature_side_effects_dispatch($db, $type, $docId, $extras);
+            }
+
+            // Re-read after side effects (a no-op re-read if we skipped)
+            // so the hash covers the post-state, matching sign_external's
+            // ordering exactly. $token was captured from sig_resolve()
+            // above (4th element of the return tuple).
+            $signedDoc = $shouldRunSideEffects
+                ? sig_load_doc($db, $type, $token)
+                : $doc;
+            if (!$signedDoc) {
+                throw new RuntimeException('Document illisible après mise à jour.');
+            }
+
+            $row = DocumentSignature::signInternal(
+                $type, $docId, $signedDoc, (int) $_SESSION['user_id']
+            );
+            $db->commit();
         } catch (RuntimeException $e) {
+            if ($db->inTransaction()) $db->rollBack();
             sig_fail($e->getMessage(), 400, 'signature_refused');
         } catch (Throwable $e) {
+            if ($db->inTransaction()) $db->rollBack();
             error_log('signatures_controller: sign_internal failed: ' . $e->getMessage());
             sig_fail("La signature n'a pas pu être enregistrée.", 500, 'server');
         }

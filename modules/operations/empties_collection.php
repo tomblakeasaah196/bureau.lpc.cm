@@ -132,7 +132,13 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
         <main role="main" id="main" class="lpc-page lpc-page-col">
 
             <h2 class="text-lg font-black text-gray-800 mb-4"><?= htmlspecialchars(__t('ui.x.indicateurs_cles_kpis')) ?></h2>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-6" id="kpi-ribbon"></div>
+            <?php /* Sprint 12 — grid widened from 4 to 5 to accommodate the
+                     new "Vides en circulation" tile. 2-col on mobile stays
+                     the same; on md+ we go xl:grid-cols-5 so the tiles
+                     don't get squeezed on standard laptop widths, with
+                     md:grid-cols-3 as a middle breakpoint that avoids the
+                     "one lonely tile on row 2" look. */ ?>
+            <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 md:gap-6 mb-6" id="kpi-ribbon"></div>
 
             <!-- ==============================================================
                  TAB: DUS — outstanding empties balances + intégré Historique
@@ -180,11 +186,18 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                                     <th class="py-3 px-4 text-center text-blue-500" title="<?= htmlspecialchars(__t('ui.x.total_livre')) ?>"><?= htmlspecialchars(__t('ui.x.livres_out')) ?></th>
                                     <th class="py-3 px-4 text-center text-green-500" title="<?= htmlspecialchars(__t('ui.x.total_rendu')) ?>"><?= htmlspecialchars(__t('ui.x.rendus_in')) ?></th>
                                     <th class="py-3 px-4 text-center text-rose-500 bg-rose-50" title="<?= htmlspecialchars(__t('ui.x.actuellement_du')) ?>"><?= htmlspecialchars(__t('ui.x.solde_du')) ?></th>
+                                    <?php /* Sprint 12 (migration 074) — the in-flight column.
+                                             Amber background, tight tooltip: "Empties on open
+                                             BLs (dispatched/driver_confirmed) not yet
+                                             reconciled by signature." Kept visually distinct
+                                             from Solde (Dû) so a supervisor never adds red
+                                             and amber into one confidence figure. */ ?>
+                                    <th class="py-3 px-4 text-center text-amber-600 bg-amber-50" title="Vides dispatchés sur des BL non encore signés">EN ATTENTE BL</th>
                                     <th class="py-3 px-4 text-right"><?= htmlspecialchars(__t('ui.x.action')) ?></th>
                                 </tr>
                             </thead>
                             <tbody id="tbody-owed" class="divide-y divide-gray-100 text-sm">
-                                <tr><td colspan="6" class="text-center py-8 text-gray-400 font-bold"><i class="fas fa-spinner fa-spin"></i> <?= htmlspecialchars(__t('ui.x.chargement')) ?></td></tr>
+                                <tr><td colspan="7" class="text-center py-8 text-gray-400 font-bold"><i class="fas fa-spinner fa-spin"></i> <?= htmlspecialchars(__t('ui.x.chargement')) ?></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -575,6 +588,13 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
         window.LPC_CAN_CREATE_CRE     = <?= $canCreateCre ? 'true' : 'false' ?>;
         window.LPC_CAN_SELL_RECYCLER  = <?= $canSellRecycler ? 'true' : 'false' ?>;
         window.LPC_CAN_VIEW_REVENUE   = <?= $canViewRevenue ? 'true' : 'false' ?>;
+        /* Sprint 12 — order_detail deep-link. When the page is opened as
+           empties_collection.php?client_id=42, the JS uses this to (a)
+           pass client_id to get_owed_empties so only that client's rows
+           come back, and (b) render a "showing only X" chip so the operator
+           knows they are in a filtered view and offers a link to clear
+           the filter. Absent (0) means "show everyone" — default. */
+        window.LPC_EMPTIES_CLIENT_FILTER = <?= (int) ($_GET['client_id'] ?? 0) ?>;
     </script>
     <script src="<?= lpc_asset('/assets/js/modules/operations-empties_collection.js') ?>" defer></script>
 </body>

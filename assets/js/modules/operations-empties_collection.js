@@ -221,6 +221,19 @@
                 value: fmt(k.total_owed) + ' u.',
                 sub:   (k.clients_with_debt || 0) + ' ' + (LPC.t ? LPC.t('ui.x.clients_avec_dette') : 'clients avec dette'),
             }));
+            /* Sprint 12 (migration 074) — the in-flight KPI. Sits between
+               Solde dû (confirmed) and CRE en attente (paperwork open) so
+               the eye reads left-to-right in decreasing confidence: sure →
+               probable → maybe. Amber accent matches the DUS column so the
+               two surfaces are visually linked. */
+            box.appendChild(kpiCard({
+                type: 'inflight',
+                icon: 'fas fa-truck-loading',
+                accent: 'amber',
+                label: 'Vides en circulation',
+                value: fmt(k.total_in_flight || 0) + ' u.',
+                sub:   (k.clients_in_flight || 0) + ' client(s) · BL non signés',
+            }));
             box.appendChild(kpiCard({
                 type: 'pending',
                 icon: 'fas fa-clock',
@@ -251,7 +264,7 @@
     }
 
     function kpiSkeleton() {
-        return Array.from({ length: 4 })
+        return Array.from({ length: 5 })
             .map(() => '<div class="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm animate-pulse h-[110px]"></div>')
             .join('');
     }
@@ -311,6 +324,11 @@
 
         try {
             if (type === 'owed')      return renderOwedDrillDown(body, cta);
+            /* Sprint 12 — in-flight drill-down. Uses the same owed-cache
+               so no extra roundtrip; groups by client and sums
+               quantity_in_flight. Reuses the KPI modal chrome — no new
+               modal added. */
+            if (type === 'inflight')  return renderInflightDrillDown(body, cta);
             if (type === 'pending')   return renderCreDrillDown(body, cta, 'en_transit', 'CRE en attente de signature');
             if (type === 'signed30') return renderCreDrillDown(body, cta, 'signed', 'CRE signés (30 j)');
             if (type === 'revenue30') return renderRevenueDrillDown(body, cta);
@@ -367,6 +385,54 @@
                 prefillCollection(b.dataset.kpiCollect, b.dataset.kpiSite || null);
             });
         });
+    }
+
+    /* Sprint 12 (migration 074) — in-flight drill-down. Same shape as
+       renderOwedDrillDown but reads quantity_in_flight instead of
+       quantity_owed. Reuses owedRowsCache (the get_owed_empties response
+       returns both fields on the same row) so no extra network call. */
+    async function renderInflightDrillDown(body, cta) {
+        let rows = owedRowsCache;
+        if (!rows || !rows.length) {
+            const res = await fetch('/api/v1/cre_controller.php?action=get_owed_empties');
+            const r = await res.json();
+            rows = r.data || [];
+        }
+        const byClient = {};
+        rows.forEach(function (r) {
+            const qty = Number(r.quantity_in_flight) || 0;
+            if (qty <= 0) return; // in-flight bucket only
+            const key = r.client_name + (r.site_name ? ' · ' + r.site_name : '');
+            if (!byClient[key]) byClient[key] = { client_id: r.client_id, site_id: r.site_id, name: key, total: 0, lines: [] };
+            byClient[key].total += qty;
+            byClient[key].lines.push(r);
+        });
+        const groups = Object.values(byClient).sort(function (a, b) { return b.total - a.total; });
+        if (!groups.length) {
+            body.innerHTML = '<p class="text-center py-8 text-gray-400 font-bold text-sm">Aucun vide en circulation. Tous les BL sont signés. 🎉</p>';
+            cta.href = '#'; cta.classList.add('pointer-events-none', 'opacity-50');
+            return;
+        }
+        let html = '<div class="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">'
+                 + '<i class="fas fa-info-circle mr-1"></i>'
+                 + 'Ces vides ont été expédiés sur des BL <strong>non encore signés</strong>. Ils basculeront en "Solde dû" dès que le client signera.'
+                 + '</div>';
+        html += '<table class="w-full text-sm">'
+              + '<thead class="text-[10px] font-black text-gray-500 uppercase tracking-wider">'
+              + '  <tr><th class="text-left py-2">Client / Site</th><th class="text-right py-2">En circulation (u.)</th></tr>'
+              + '</thead><tbody class="divide-y divide-gray-100">';
+        groups.forEach(function (g) {
+            html += '<tr>'
+                  + '  <td class="py-2 font-black text-gray-900">' + LPC.escapeHtml(g.name) + '</td>'
+                  + '  <td class="py-2 text-right font-black text-amber-700">' + fmt(g.total) + '</td>'
+                  + '</tr>';
+        });
+        html += '</tbody></table>';
+        body.innerHTML = html;
+        cta.textContent = 'Voir dans DUS';
+        cta.href = '#';
+        cta.classList.remove('pointer-events-none', 'opacity-50');
+        cta.onclick = function (ev) { ev.preventDefault(); closeModal('modal-kpi-detail'); switchTab('owed'); switchOwedView('current'); };
     }
 
     async function renderCreDrillDown(body, cta, statusFilter, label) {
@@ -452,21 +518,52 @@
     async function loadOwedEmpties() {
         const tbody = document.getElementById('tbody-owed');
         try {
-            const res = await fetch('/api/v1/cre_controller.php?action=get_owed_empties');
+            /* Sprint 12 — honour the ?client_id= URL filter set by the
+               order_detail deep-link. When present we pass it through so
+               the backend returns only that client's rows; the "filtered
+               view" chip is rendered elsewhere (see renderFilterChip
+               below). Absent → default "everyone" behaviour, unchanged. */
+            const cid = Number(window.LPC_EMPTIES_CLIENT_FILTER || 0);
+            const url = cid > 0
+                ? '/api/v1/cre_controller.php?action=get_owed_empties&client_id=' + encodeURIComponent(cid)
+                : '/api/v1/cre_controller.php?action=get_owed_empties';
+            const res = await fetch(url);
             const result = await res.json();
             owedRowsCache = (result.data || []);
             renderOwedRows(owedRowsCache);
+            renderFilterChip(cid, owedRowsCache);
         } catch (e) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-red-500 font-bold">'
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-red-500 font-bold">'
                             + (LPC.t ? LPC.t('ui.x.erreur_reseau') : 'Erreur réseau.') + '</td></tr>';
         }
+    }
+
+    /* Sprint 12 — filtered-view chip. When the operator arrived here from
+       an order_detail deep-link, tell them plainly that they're not looking
+       at everyone, and give them one click to clear it. Rendered inline in
+       the DUS panel header, above the table. */
+    function renderFilterChip(cid, rows) {
+        const anchor = document.getElementById('owed-view-current');
+        if (!anchor) return;
+        // Remove any previously-rendered chip so re-renders don't stack.
+        const prev = anchor.querySelector('[data-client-filter-chip]');
+        if (prev) prev.remove();
+        if (!cid) return;
+        const name = (rows[0] && rows[0].client_name) || 'ce client';
+        const chip = document.createElement('div');
+        chip.dataset.clientFilterChip = '1';
+        chip.className = 'flex items-center justify-between gap-3 bg-blue-50 border-b border-blue-200 px-6 py-2 text-xs font-bold text-blue-900';
+        chip.innerHTML =
+              '<span><i class="fas fa-filter mr-1"></i>Vue filtrée sur <strong>' + LPC.escapeHtml(String(name)) + '</strong></span>'
+            + '<a href="/modules/operations/empties_collection.php" class="underline hover:text-blue-700">Voir tous les clients</a>';
+        anchor.insertBefore(chip, anchor.firstChild);
     }
 
     function renderOwedRows(rows) {
         const tbody = document.getElementById('tbody-owed');
         tbody.innerHTML = '';
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-400 font-bold">'
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-gray-400 font-bold">'
                             + (LPC.t ? LPC.t('ui.x.aucun_solde_du') : 'Aucun solde dû.') + '</td></tr>';
             return;
         }
@@ -474,6 +571,15 @@
             const siteName = row.site_name
                 ? LPC.raw(LPC.html`<span class="text-xs text-blue-600 block">${row.site_name}</span>`)
                 : '';
+            /* Sprint 12 — amber in-flight cell. Non-zero: bold amber to
+               match the KPI accent. Zero / missing: muted em-dash so the
+               reader distinguishes "field-known-to-be-zero" from "field
+               not populated" (there is no third case, but the visual
+               grammar helps a supervisor scanning the column). */
+            const inFlight = Number(row.quantity_in_flight || 0);
+            const inFlightCell = inFlight > 0
+                ? LPC.raw(LPC.html`<span class="font-black text-amber-700">${inFlight}</span>`)
+                : LPC.raw('<span class="text-gray-300">—</span>');
             tbody.insertAdjacentHTML('beforeend', LPC.html`
                 <tr class="hover:bg-gray-50 transition-colors">
                     <td class="py-3 px-4 font-black text-gray-900">${row.client_name} ${siteName}</td>
@@ -481,6 +587,7 @@
                     <td class="py-3 px-4 text-center font-black text-blue-600">${row.total_out}</td>
                     <td class="py-3 px-4 text-center font-black text-green-600">${row.total_in}</td>
                     <td class="py-3 px-4 text-center font-black text-rose-600 bg-rose-50/50">${row.quantity_owed}</td>
+                    <td class="py-3 px-4 text-center bg-amber-50/40">${inFlightCell}</td>
                     <td class="py-3 px-4 text-right">
                         <button type="button" onclick="prefillCollection(${row.client_id}, ${row.site_id || 'null'})"
                                 data-perm="operations.empties.create_cre"

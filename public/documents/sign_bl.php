@@ -135,9 +135,19 @@ if (empty($token)) {
                 <div class="space-y-4" id="items_container">
                     <?php foreach($items as $i):
                         $default_qty = $i['delivered_quantity'] !== null ? $i['delivered_quantity'] : $i['original_qty'];
-                        $default_empty = $i['returned_empty_qty'] !== null ? $i['returned_empty_qty'] : 0;
+                        /*
+                         * SAFETY DEFAULT (bug fix: BL-2608-CB78 case) — never
+                         * pre-fill the "vides rendus" field from delivery_items,
+                         * even if a driver typed a value earlier. On a first
+                         * delivery there are no empties to return, and the old
+                         * default silently zeroed out the empties ledger by
+                         * booking total_in = total_out at signature time. The
+                         * customer must deliberately type a non-zero number for
+                         * empties to be considered returned.
+                         */
+                        $default_empty = 0;
                     ?>
-                        <div class="item-row bg-gray-50 border border-gray-200 p-4 rounded-xl" data-id="<?php echo $i['item_id']; ?>">
+                        <div class="item-row bg-gray-50 border border-gray-200 p-4 rounded-xl overflow-hidden" data-id="<?php echo $i['item_id']; ?>">
                             <p class="font-black text-sm text-gray-800 mb-3"><?php echo htmlspecialchars($i['product_name']); ?></p>
 
                             <div class="flex items-center justify-between mb-3">
@@ -146,9 +156,29 @@ if (empty($token)) {
                             </div>
 
                             <?php if($i['empty_name']): ?>
-                            <div class="flex items-center justify-between pt-3 border-t border-gray-200">
-                                <label class="text-xs font-bold text-gray-600">Vides Rendus <span class="text-amber-500 text-[10px] uppercase block">Emballages remis au chauffeur</span></label>
-                                <input type="number" min="0" class="input-empties w-20 text-center font-black text-lg bg-white border border-emerald-300 rounded-lg py-1 focus:ring-2 focus:ring-emerald-500 outline-none text-emerald-700 shadow-sm" value="<?php echo $default_empty; ?>">
+                            <?php /*
+                                 Amber banner + unmissable copy — a signed BL that
+                                 books returned_empty_qty > 0 releases the client
+                                 from a consigne, so the customer must SEE this
+                                 field and consciously type a number. The old
+                                 subtle green input line lost customers to the
+                                 default and cleared the ledger silently.
+                            */ ?>
+                            <div class="mt-3 -mx-4 -mb-4 px-4 py-3 bg-amber-50 border-t-2 border-amber-300">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div class="flex-1 min-w-0">
+                                        <label class="block text-sm font-black text-amber-900 uppercase tracking-wide">
+                                            <i class="fas fa-recycle mr-1"></i>Vides rendus MAINTENANT
+                                        </label>
+                                        <p class="text-[11px] font-bold text-amber-700 mt-0.5 leading-tight">
+                                            Combien d'emballages vides le client remet-il au chauffeur à l'instant&nbsp;? <span class="underline">0 par défaut.</span>
+                                            Ne remplir que si des vides changent physiquement de mains maintenant.
+                                        </p>
+                                    </div>
+                                    <input type="number" min="0" inputmode="numeric"
+                                           class="input-empties w-24 text-center font-black text-xl bg-white border-2 border-amber-400 rounded-lg py-2 focus:ring-2 focus:ring-amber-500 outline-none text-amber-900 shadow-sm shrink-0"
+                                           value="<?php echo $default_empty; ?>">
+                                </div>
                             </div>
                             <?php endif; ?>
                         </div>
