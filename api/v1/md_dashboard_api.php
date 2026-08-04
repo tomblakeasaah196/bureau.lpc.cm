@@ -56,6 +56,8 @@
  */
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/classes/Paginator.php';
+require_once __DIR__ . '/../../includes/functions/lpc_csv.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -214,6 +216,198 @@ try {
     error_log('md_dashboard: DB unavailable: ' . $e->getMessage());
     http_response_code(503);
     md_respond('error', 'Base de données indisponible.');
+}
+
+// =============================================================================
+// DRILLDOWN DISPATCH — Sprint 7H
+// -----------------------------------------------------------------------------
+// Each `drilldown_*` action ends the request (md_run_drilldown() exits). If
+// the caller passes no `action`, or `action=overview`, we fall through to the
+// KPI-closure block below and return the aggregate payload.
+// =============================================================================
+
+/**
+ * Shared drilldown runner. Mirrors analytics_controller's helper so the two
+ * files stay recognisably the same shape.
+ */
+function md_run_drilldown(
+    PDO $pdo,
+    string $sql_body,
+    array $params,
+    string $select,
+    array $searchable,
+    array $csv_headers,
+    array $csv_columns,
+    string $csv_prefix,
+    ?callable $row_transform = null
+): void {
+    $format = strtolower((string)($_GET['format'] ?? 'json'));
+
+    $q = trim((string)($_GET['q'] ?? ''));
+    if ($q !== '' && !empty($searchable)) {
+        [$sql_body, $params] = Paginator::addWhere($sql_body, $params, $q, $searchable);
+    }
+
+    if ($format === 'csv') {
+        $stmt = $pdo->prepare('SELECT ' . $select . ' ' . $sql_body);
+        $stmt->execute($params);
+        $rows = (function () use ($stmt, $row_transform) {
+            while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                yield $row_transform ? $row_transform($r) : $r;
+            }
+        })();
+        lpc_csv_stream($csv_headers, $rows, $csv_prefix . '-' . date('Ymd') . '.csv', $csv_columns);
+        exit;
+    }
+
+    $page = Paginator::paginate($pdo, $sql_body, $params, $select);
+    if ($row_transform) {
+        $page['data'] = array_map($row_transform, $page['data']);
+    }
+    echo json_encode([
+        'status' => 'success',
+        'data'   => [
+            'rows'       => $page['data'],
+            'pagination' => [
+                'page'        => $page['page'],
+                'per_page'    => $page['per_page'],
+                'total'       => $page['total'],
+                'total_pages' => $page['total_pages'],
+                'has_prev'    => $page['has_prev'],
+                'has_next'    => $page['has_next'],
+            ],
+        ],
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+$__action = (string)($_GET['action'] ?? '');
+
+// drilldown_revenue — journal lines contributing to revenue for the period.
+if ($__action === 'drilldown_revenue') {
+    $sql = "
+        FROM journal_lines jl
+        JOIN journal_entries je ON jl.journal_entry_id = je.id
+        JOIN chart_of_accounts coa ON jl.account_id = coa.id
+        WHERE coa.type = 'revenue'
+          AND je.status = 'approved'
+          AND je.date BETWEEN :s AND :e
+        ORDER BY je.date DESC, je.id DESC
+    ";
+    md_run_drilldown($db, $sql,
+        ['s' => $start_date, 'e' => $end_date],
+        "je.id, je.date, je.reference, coa.name AS account_name, coa.code AS account_code,
+         (jl.credit - jl.debit) AS amount",
+        ['je.reference', 'coa.name', 'coa.code'],
+        ['Date', 'Référence', 'Compte', 'Code', 'Montant FCFA'],
+        ['date', 'reference', 'account_name', 'account_code', 'amount'],
+        'md-revenue'
+    );
+}
+
+// drilldown_ar — unpaid invoices with client + days-overdue.
+if ($__action === 'drilldown_ar') {
+    $sql = "
+        FROM invoices i
+        LEFT JOIN clients c ON c.id = i.client_id
+        WHERE i.status <> 'paid'
+        ORDER BY (DATEDIFF(CURRENT_DATE, i.due_date)) DESC, i.total_amount DESC
+    ";
+    md_run_drilldown($db, $sql, [],
+        "i.id,
+         COALESCE(c.name, '—') AS client_name,
+         COALESCE(c.lpc_code, '') AS client_code,
+         i.reference AS invoice_number,
+         i.due_date,
+         GREATEST(0, DATEDIFF(CURRENT_DATE, i.due_date)) AS days_overdue,
+         i.total_amount AS amount",
+        ['c.name', 'c.lpc_code', 'i.reference'],
+        ['Client', 'Code', 'Facture', 'Échéance', 'Retard (j)', 'Montant FCFA'],
+        ['client_name', 'client_code', 'invoice_number', 'due_date', 'days_overdue', 'amount'],
+        'md-ar'
+    );
+}
+
+// drilldown_margin — decomposition of the income statement for the period:
+// every revenue/expense account with its debit/credit/balance.
+if ($__action === 'drilldown_margin') {
+    $sql = "
+        FROM chart_of_accounts coa
+        LEFT JOIN journal_lines jl ON jl.account_id = coa.id
+        LEFT JOIN journal_entries je ON jl.journal_entry_id = je.id
+            AND je.status = 'approved'
+            AND je.date BETWEEN :s AND :e
+        WHERE coa.type IN ('revenue', 'expense')
+        GROUP BY coa.id, coa.name, coa.type
+        HAVING (COALESCE(SUM(jl.debit), 0) + COALESCE(SUM(jl.credit), 0)) > 0
+        ORDER BY coa.type DESC, ABS(COALESCE(SUM(jl.credit - jl.debit), 0)) DESC
+    ";
+    md_run_drilldown($db, $sql,
+        ['s' => $start_date, 'e' => $end_date],
+        "coa.name AS account_name,
+         coa.type,
+         COALESCE(SUM(jl.debit), 0)  AS debit,
+         COALESCE(SUM(jl.credit), 0) AS credit,
+         CASE WHEN coa.type = 'revenue'
+              THEN COALESCE(SUM(jl.credit - jl.debit), 0)
+              ELSE COALESCE(SUM(jl.debit - jl.credit), 0)
+         END AS balance",
+        ['coa.name'],
+        ['Compte', 'Type', 'Débit FCFA', 'Crédit FCFA', 'Solde FCFA'],
+        ['account_name', 'type', 'debit', 'credit', 'balance'],
+        'md-margin'
+    );
+}
+
+// drilldown_empties — per-driver empties rate for the period.
+if ($__action === 'drilldown_empties') {
+    $sql = "
+        FROM users u
+        LEFT JOIN deliveries d ON d.driver_id = u.id AND d.date BETWEEN :s AND :e
+        LEFT JOIN delivery_items di ON di.delivery_id = d.id
+        LEFT JOIN cash_reconciliations cr ON cr.driver_id = u.id AND cr.date BETWEEN :s2 AND :e2
+        WHERE u.role_id IN (SELECT id FROM roles WHERE name = 'driver')
+        GROUP BY u.id, u.first_name, u.last_name
+        HAVING delivered > 0 OR returned > 0
+        ORDER BY delivered DESC
+    ";
+    md_run_drilldown($db, $sql,
+        ['s' => $start_date, 'e' => $end_date, 's2' => $start_date, 'e2' => $end_date],
+        "CONCAT(u.first_name, ' ', SUBSTRING(u.last_name, 1, 1), '.') AS driver_name,
+         COALESCE(SUM(di.quantity), 0) AS delivered,
+         COALESCE(SUM(cr.empties_with_cork + cr.empties_without_cork), 0) AS returned,
+         CASE WHEN COALESCE(SUM(di.quantity), 0) > 0
+              THEN ROUND((COALESCE(SUM(cr.empties_with_cork + cr.empties_without_cork), 0)
+                       / COALESCE(SUM(di.quantity), 1)) * 100, 1)
+              ELSE 0 END AS rate",
+        ['u.first_name', 'u.last_name'],
+        ['Chauffeur', 'Livrées', 'Retournées', 'Taux %'],
+        ['driver_name', 'delivered', 'returned', 'rate'],
+        'md-empties'
+    );
+}
+
+// drilldown_cash — every cash/bank account's balance as of end_date.
+if ($__action === 'drilldown_cash') {
+    $sql = "
+        FROM chart_of_accounts coa
+        LEFT JOIN journal_lines jl ON jl.account_id = coa.id
+        LEFT JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'approved'
+        WHERE coa.type = 'asset'
+          AND (LOWER(coa.name) LIKE '%caisse%' OR LOWER(coa.name) LIKE '%banque%'
+               OR coa.code LIKE '52%' OR coa.code LIKE '57%')
+        GROUP BY coa.id, coa.name, coa.code
+        ORDER BY balance DESC
+    ";
+    md_run_drilldown($db, $sql, [],
+        "coa.name AS account_name,
+         coa.code,
+         COALESCE(SUM(jl.debit - jl.credit), 0) AS balance",
+        ['coa.name', 'coa.code'],
+        ['Compte', 'Code', 'Solde FCFA'],
+        ['account_name', 'code', 'balance'],
+        'md-cash'
+    );
 }
 
 // -----------------------------------------------------------------------------

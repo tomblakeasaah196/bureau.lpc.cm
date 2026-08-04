@@ -46,6 +46,8 @@
  */
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/classes/Paginator.php';
+require_once __DIR__ . '/../../includes/functions/lpc_csv.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -74,10 +76,187 @@ function lpc_sd_respond(string $status, string $message, array $data = []): void
     exit;
 }
 
+/**
+ * Shared drilldown runner. Same shape as the md/finance/ops helpers.
+ */
+function sd_run_drilldown(
+    PDO $pdo,
+    string $sql_body,
+    array $params,
+    string $select,
+    array $searchable,
+    array $csv_headers,
+    array $csv_columns,
+    string $csv_prefix,
+    ?callable $row_transform = null
+): void {
+    $format = strtolower((string)($_GET['format'] ?? 'json'));
+
+    $q = trim((string)($_GET['q'] ?? ''));
+    if ($q !== '' && !empty($searchable)) {
+        [$sql_body, $params] = Paginator::addWhere($sql_body, $params, $q, $searchable);
+    }
+
+    if ($format === 'csv') {
+        $stmt = $pdo->prepare('SELECT ' . $select . ' ' . $sql_body);
+        $stmt->execute($params);
+        $rows = (function () use ($stmt, $row_transform) {
+            while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                yield $row_transform ? $row_transform($r) : $r;
+            }
+        })();
+        lpc_csv_stream($csv_headers, $rows, $csv_prefix . '-' . date('Ymd') . '.csv', $csv_columns);
+        exit;
+    }
+
+    $page = Paginator::paginate($pdo, $sql_body, $params, $select);
+    if ($row_transform) {
+        $page['data'] = array_map($row_transform, $page['data']);
+    }
+    echo json_encode([
+        'status' => 'success',
+        'data'   => [
+            'rows'       => $page['data'],
+            'pagination' => [
+                'page'        => $page['page'],
+                'per_page'    => $page['per_page'],
+                'total'       => $page['total'],
+                'total_pages' => $page['total_pages'],
+                'has_prev'    => $page['has_prev'],
+                'has_next'    => $page['has_next'],
+            ],
+        ],
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 try {
     $db = Database::getInstance()->getConnection();
 
+    // -------------------------------------------------------------------------
+    // Period + scope resolution — used by BOTH overview and drilldowns.
+    // -------------------------------------------------------------------------
+    $__year  = (int)($_GET['year']  ?? date('Y'));
+    $__month = (int)($_GET['month'] ?? date('n'));
+    if ($__year < 2000 || $__year > 2100) $__year  = (int)date('Y');
+    if ($__month < 1   || $__month > 12)  $__month = (int)date('n');
+    $__userId = (int)($_SESSION['user_id'] ?? 0);
+    if ($__userId <= 0) {
+        http_response_code(401);
+        lpc_sd_respond('error', 'Session invalide.');
+    }
+    $__canSeeTeam = Rbac::hasPermission('dashboard.md.view');
+    $__scope      = (($_GET['scope'] ?? 'me') === 'team' && $__canSeeTeam) ? 'team' : 'me';
+    $__scopeIsMe  = ($__scope === 'me');
+    // owner predicate + parameter binding — same pattern as the overview block.
+    $__ownerPred  = $__scopeIsMe ? 'so.created_by = :uid' : '1 = 1';
+    $__ownerBind  = $__scopeIsMe ? [':uid' => $__userId]  : [];
+
+    // ---- Drilldown dispatch (Sprint 7H) -------------------------------------
     $action = $_GET['action'] ?? '';
+
+    if ($action === 'drilldown_revenue') {
+        // All orders written by this salesperson (or the team) in the month.
+        $sql = "
+            FROM sales_orders so
+            LEFT JOIN clients c ON c.id = so.client_id
+            WHERE {$__ownerPred}
+              AND so.status <> 'cancelled'
+              AND YEAR(so.date) = :y AND MONTH(so.date) = :m
+            ORDER BY so.date DESC, so.id DESC
+        ";
+        sd_run_drilldown($db, $sql,
+            array_merge($__ownerBind, [':y' => $__year, ':m' => $__month]),
+            "so.date, so.reference, so.status,
+             COALESCE(c.name, '—') AS client_name,
+             so.total_amount",
+            ['so.reference', 'c.name'],
+            ['Date', 'Commande', 'Client', 'Statut', 'Total FCFA'],
+            ['date', 'reference', 'client_name', 'status', 'total_amount'],
+            'sd-revenue'
+        );
+    }
+
+    if ($action === 'drilldown_vol_20l' || $action === 'drilldown_vol_15l') {
+        $isTwenty = ($action === 'drilldown_vol_20l');
+        $familyPred = $isTwenty
+            ? "(p.category = 'Eau' AND (p.code LIKE '%-20L-%' OR p.format = '20L'))"
+            : "(p.category = 'Eau' AND (p.code LIKE '%-1.5L-%' OR p.format = '1.5L'))";
+        $sql = "
+            FROM sales_orders so
+            JOIN sales_order_items soi ON soi.sales_order_id = so.id
+            JOIN products p ON p.id = soi.product_id
+            LEFT JOIN clients c ON c.id = so.client_id
+            WHERE {$__ownerPred}
+              AND so.status <> 'cancelled'
+              AND {$familyPred}
+              AND YEAR(so.date) = :y AND MONTH(so.date) = :m
+            GROUP BY c.id, c.name
+            ORDER BY quantity DESC
+        ";
+        sd_run_drilldown($db, $sql,
+            array_merge($__ownerBind, [':y' => $__year, ':m' => $__month]),
+            "COALESCE(c.name, '—') AS client_name,
+             COUNT(DISTINCT so.id) AS order_count,
+             SUM(soi.quantity)     AS quantity",
+            ['c.name'],
+            ['Client', 'Commandes', $isTwenty ? 'Bouteilles 20L' : 'Bouteilles 1,5L'],
+            ['client_name', 'order_count', 'quantity'],
+            $isTwenty ? 'sd-vol-20l' : 'sd-vol-15l'
+        );
+    }
+
+    if ($action === 'drilldown_dispatch') {
+        $sql = "
+            FROM sales_orders so
+            LEFT JOIN clients c ON c.id = so.client_id
+            WHERE {$__ownerPred}
+              AND so.status IN ('pending', 'partial_dispatch')
+            ORDER BY so.date ASC
+        ";
+        sd_run_drilldown($db, $sql,
+            $__ownerBind,
+            "so.date, so.reference, so.status,
+             COALESCE(c.name, '—') AS client_name,
+             so.total_amount",
+            ['so.reference', 'c.name'],
+            ['Date', 'Commande', 'Client', 'Montant FCFA', 'Statut'],
+            ['date', 'reference', 'client_name', 'total_amount', 'status'],
+            'sd-dispatch'
+        );
+    }
+
+    if ($action === 'drilldown_overdue') {
+        // Same balance formula as the overview card — payments must be
+        // 'validated' to count. `invoices.amount_paid` does not exist.
+        $clientsSub = "SELECT DISTINCT so2.client_id FROM sales_orders so2
+                        WHERE so2.status <> 'cancelled'"
+                    . ($__scopeIsMe ? " AND so2.created_by = :uid_c" : "");
+        $clientBind = $__scopeIsMe ? [':uid_c' => $__userId] : [];
+        $sql = "
+            FROM invoices i
+            LEFT JOIN clients c ON c.id = i.client_id
+            WHERE i.status <> 'paid'
+              AND i.due_date < CURRENT_DATE()
+              AND i.client_id IN ({$clientsSub})
+            ORDER BY (DATEDIFF(CURRENT_DATE, i.due_date)) DESC
+        ";
+        sd_run_drilldown($db, $sql, $clientBind,
+            "COALESCE(c.name, '—') AS client_name,
+             i.reference AS invoice_number,
+             i.due_date,
+             GREATEST(0, DATEDIFF(CURRENT_DATE, i.due_date)) AS days_overdue,
+             (i.total_amount - COALESCE((
+                SELECT SUM(pm.amount) FROM payments pm
+                 WHERE pm.invoice_id = i.id AND pm.status = 'validated'
+             ), 0)) AS balance",
+            ['c.name', 'i.reference'],
+            ['Client', 'Facture', 'Échéance', 'Retard (j)', 'Solde FCFA'],
+            ['client_name', 'invoice_number', 'due_date', 'days_overdue', 'balance'],
+            'sd-overdue'
+        );
+    }
+
     if ($action !== 'overview') {
         http_response_code(400);
         lpc_sd_respond('error', 'Action inconnue.');

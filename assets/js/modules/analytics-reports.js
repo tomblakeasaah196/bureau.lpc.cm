@@ -1,51 +1,234 @@
 /**
  * assets/js/modules/analytics-reports.js
  * -----------------------------------------------------------------------------
- * Bureau LPC ERP — Sprint 7A rewrite of the analytics dashboard client.
+ * Bureau LPC ERP — Rapports Consolidés (Vue Dirigeant).
  *
- * Sprint 6 D2 extracted this file from an inline <script> block. Sprint 7A
- * replaces the six fake `setTimeout` drilldown placeholders with real,
- * paginated, searchable, CSV-exportable modals backed by
- * api/v1/analytics_controller.php drilldown_* actions (audit item #47).
+ * Sprint 7A introduced real paginated drilldowns (LPC.modal.custom +
+ * LPC.paginator.attach + iframe CSV export). Sprint 7H completes the
+ * migration:
+ *   · KPI cards are mounted via LPC.kpi.mount + LPC.kpi.update — the manual
+ *     `document.getElementById('kpi_*').innerText = …` block is gone.
+ *   · 4 new KPIs added (marge brute top-3, ROI flotte, balance âgée > 60 j,
+ *     écart budgétaire global) — the grid renders 2 rows of 4.
+ *   · Drilldowns are wired through the same LPC.kpi.openDrilldown helper
+ *     the other four dashboards use, replacing the bespoke openDrillDown()
+ *     path for the 6 KPIs that ARE cards. openDrillDown() itself survives
+ *     for the two chart-header buttons (fleet_roi / budget) that still open
+ *     the old-style Sprint 7A modal without going through a card.
  *
- * KEEP:
- *   · Chart initialization + dashboard fetch behaviour (unchanged public API).
- *   · exportDashboardToPDF() dashboard-image export (still html2pdf; not in
- *     Sprint 7A scope — see D3 for the bilan/résultat server-side PDFs).
- *
- * REPLACE:
- *   · openDrillDown(metricType) — was a fake setTimeout injecting placeholder
- *     text. Now opens LPC.modal.custom with a real <table>, wires
- *     LPC.paginator.attach against the matching drilldown_* endpoint, and
- *     exposes an "Export CSV" button in the modal body that hits the same
- *     endpoint with ?format=csv.
+ * KEEP
+ *   · loadDashboardData / initCharts / exportDashboardToPDF — unchanged flow
+ *   · The DRILLDOWNS map + its openDrillDown(metricType) entry point
  * -----------------------------------------------------------------------------
  */
 (function () {
     'use strict';
 
-    // ------------------------------------------------------------------
-    // Local formatting shortcut (kept for parity with the pre-7A file).
-    // ------------------------------------------------------------------
-    const fmt = (num) => LPC.fmt.int(num || 0);
+    var fmt = function (n) { return LPC.fmt.int(n || 0); };
+    var fleetChart, liquidityChart, agingChart;
 
-    let fleetChart, liquidityChart, agingChart;
+    // ==================================================================
+    // KPI SPEC — 8 cards, 2 rows of 4. Values from analytics_controller
+    // get_dashboard action fill these in via updateKpis().
+    // ==================================================================
+    var KPI_SPECS = [
+        { id: 'ar-revenue',       label: "Chiffre d'affaires",           kind: 'fcfa',    rail: 'brand', drill: 'revenue'             },
+        { id: 'ar-payroll-ratio', label: 'Ratio masse salariale',        kind: 'percent', rail: 'info',  drill: 'payroll'             },
+        { id: 'ar-delivery-cost', label: 'Coût moyen / livraison',       kind: 'fcfa',    rail: 'warn',  drill: 'fleet'               },
+        { id: 'ar-empties-risk',  label: 'Risque emballages non rendus', kind: 'fcfa',    rail: 'alert', drill: 'empties'             },
+        // Sprint 7H additions
+        { id: 'ar-gross-margin',  label: 'Marge brute (top-3)',          kind: 'percent', rail: 'good',  drill: 'gross_margin_cat'    },
+        { id: 'ar-fleet-roi',     label: 'ROI flotte',                   kind: 'text',    rail: 'brand', drill: 'fleet_roi'           },
+        { id: 'ar-ar-over60',     label: 'Balance âgée > 60 j',          kind: 'percent', rail: 'alert', drill: 'ar_over60'           },
+        { id: 'ar-budget-exec',   label: 'Écart budgétaire global',      kind: 'percent', rail: 'info',  drill: 'budget_execution'    },
+    ];
 
-    window.addEventListener('DOMContentLoaded', () => {
+    // ==================================================================
+    // Drilldown catalogue — key = KPI spec's `drill`, value = full cfg
+    // for LPC.kpi.openDrilldown. openDrillDown(key) below also reads
+    // this map so the two chart-header buttons keep working.
+    // ==================================================================
+    var DRILLDOWNS = {
+        revenue: {
+            title:  "Chiffre d'affaires — factures de la période",
+            url:    '/api/v1/analytics_controller.php?action=drilldown_revenue',
+            columns:['Date', 'Référence', 'Client', 'Statut', 'Total FCFA'],
+            csv: true,
+            deeplink: { href: '/modules/accounting/invoices.php?from=analytics_reports', label: 'Ouvrir la facturation' },
+            renderRow: function (r) {
+                return LPC.html`<tr>
+                    <td>${r.date || ''}</td>
+                    <td>${r.reference || ''}</td>
+                    <td>${r.client_name || '—'}</td>
+                    <td>${r.status || ''}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.total_amount || 0)}</td>
+                </tr>`;
+            },
+        },
+        payroll: {
+            title:  'Masse salariale — bulletins de la période',
+            url:    '/api/v1/analytics_controller.php?action=drilldown_payroll',
+            columns:['Période', 'Employé', 'Rôle', 'Brut FCFA', 'Net FCFA', 'Statut'],
+            csv: true,
+            deeplink: { href: '/modules/hr/payroll.php?from=analytics_reports', label: 'Ouvrir la paie' },
+            renderRow: function (r) {
+                return LPC.html`<tr>
+                    <td>${r.year}-${String(r.month).padStart(2, '0')}</td>
+                    <td>${(r.last_name || '') + ' ' + (r.first_name || '')}</td>
+                    <td>${r.role_name || ''}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.gross_salary || 0)}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.net_pay || 0)}</td>
+                    <td>${r.status || ''}</td>
+                </tr>`;
+            },
+        },
+        fleet: {
+            title:  'Coût moyen par livraison — mois par mois',
+            url:    '/api/v1/analytics_controller.php?action=drilldown_fleet',
+            columns:['Mois', 'Livraisons', 'Carburant', 'Maintenance', 'Total', 'Coût / livraison'],
+            csv: true,
+            deeplink: { href: '/modules/fleet/vehicles.php?from=analytics_reports', label: 'Ouvrir la flotte' },
+            renderRow: function (r) {
+                return LPC.html`<tr>
+                    <td>${r.month_year || ''}</td>
+                    <td class="text-right">${LPC.fmt.int(r.total_deliveries || 0)}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.total_fuel_cost || 0)}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.total_maint_cost || 0)}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.total_cost || 0)}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.cost_per_delivery || 0)}</td>
+                </tr>`;
+            },
+        },
+        fleet_roi: {
+            title:  'ROI par véhicule — carburant + maintenance',
+            url:    '/api/v1/analytics_controller.php?action=drilldown_fleet_roi',
+            columns:['Immatriculation', 'Type', 'Modèle', 'Carburant', 'Maintenance', 'Total'],
+            csv: true,
+            deeplink: { href: '/modules/fleet/vehicles.php?from=analytics_reports', label: 'Ouvrir la flotte' },
+            renderRow: function (r) {
+                return LPC.html`<tr>
+                    <td>${r.plate_number || ''}</td>
+                    <td>${r.type || ''}</td>
+                    <td>${r.make_model || ''}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.fuel_cost || 0)}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.maint_cost || 0)}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.total_cost || 0)}</td>
+                </tr>`;
+            },
+        },
+        empties: {
+            title:  'Risque emballages — clients détenteurs de bouteilles',
+            url:    '/api/v1/analytics_controller.php?action=drilldown_empties',
+            columns:['Code', 'Client', 'Type', 'Téléphone', 'Bouteilles', 'Risque FCFA'],
+            csv: true,
+            deeplink: { href: '/modules/operations/empties_collection.php?from=analytics_reports', label: 'Voir les emballages' },
+            renderRow: function (r) {
+                return LPC.html`<tr>
+                    <td>${r.client_code || ''}</td>
+                    <td>${r.client_name || '—'}</td>
+                    <td>${r.client_type || ''}</td>
+                    <td>${r.client_phone || ''}</td>
+                    <td class="text-right">${LPC.fmt.int(r.bottles_with_client || 0)}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.financial_risk_fcfa || 0)}</td>
+                </tr>`;
+            },
+        },
+        budget: {
+            title:  'Exécution budgétaire — charges par compte (Classe 6)',
+            url:    '/api/v1/analytics_controller.php?action=drilldown_budget',
+            columns:['Compte', 'Libellé', 'Écritures', 'Réalisé FCFA'],
+            csv: true,
+            deeplink: { href: '/modules/accounting/budgets.php?from=analytics_reports', label: 'Ouvrir le budget' },
+            renderRow: function (r) {
+                return LPC.html`<tr>
+                    <td>${r.code || ''}</td>
+                    <td>${r.name || ''}</td>
+                    <td class="text-right">${LPC.fmt.int(r.entries || 0)}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.actual || 0)}</td>
+                </tr>`;
+            },
+        },
+
+        // ---- Sprint 7H additions -------------------------------------
+
+        gross_margin_cat: {
+            title:  'Marge brute par catégorie',
+            url:    '/api/v1/analytics_controller.php?action=drilldown_gross_margin_cat',
+            columns:['Catégorie', 'Compte', 'CA FCFA', 'Coût FCFA', 'Marge FCFA'],
+            csv: true,
+            deeplink: { href: '/modules/accounting/reports.php?report=gross_margin&from=analytics_reports', label: 'Voir le rapport' },
+            renderRow: function (r) {
+                return LPC.html`<tr>
+                    <td>${r.category || ''}</td>
+                    <td>${r.account_code || ''}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.revenue || 0)}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.cogs || 0)}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.gross_fcfa || 0)}</td>
+                </tr>`;
+            },
+        },
+        ar_over60: {
+            title:  'Balance âgée > 60 j — factures',
+            url:    '/api/v1/analytics_controller.php?action=drilldown_ar_over60',
+            columns:['Client', 'Code', 'Facture', 'Échéance', 'Retard (j)', 'Montant FCFA'],
+            csv: true,
+            deeplink: { href: '/modules/accounting/invoices.php?status=overdue&from=analytics_reports', label: 'Ouvrir la facturation' },
+            renderRow: function (r) {
+                return LPC.html`<tr>
+                    <td>${r.client_name || '—'}</td>
+                    <td>${r.client_code || ''}</td>
+                    <td>${r.invoice_number || ''}</td>
+                    <td>${LPC.fmt.date(r.due_date)}</td>
+                    <td class="text-right">${r.days_overdue}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.amount || 0)}</td>
+                </tr>`;
+            },
+        },
+        budget_execution: {
+            title:  'Exécution budgétaire — toutes les lignes',
+            url:    '/api/v1/analytics_controller.php?action=drilldown_budget_execution',
+            columns:['Catégorie', 'Compte', 'Planifié', 'Réalisé', 'Écart', 'Exécution %'],
+            csv: true,
+            deeplink: { href: '/modules/accounting/budgets.php?from=analytics_reports', label: 'Ouvrir le budget' },
+            renderRow: function (r) {
+                return LPC.html`<tr>
+                    <td>${r.category || ''}</td>
+                    <td>${r.account_code || ''}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.planned || 0)}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.actual || 0)}</td>
+                    <td class="text-right">${LPC.fmt.fcfa(r.variance || 0)}</td>
+                    <td class="text-right">${r.execution_pct != null ? r.execution_pct + ' %' : '—'}</td>
+                </tr>`;
+            },
+        },
+    };
+
+    // ==================================================================
+    // BOOT
+    // ==================================================================
+    window.addEventListener('DOMContentLoaded', function () {
         initCharts();
+        mountKpiGrid();
         loadDashboardData();
     });
 
-    // Legacy shim (referenced by the old drilldown code path). Not used
-    // anymore for drilldowns but kept for any inline onclick that still uses it.
-    function openModal(id) { const el = document.getElementById(id); if (el) el.classList.remove('hidden'); }
-    function closeModal(id) { const el = document.getElementById(id); if (el) el.classList.add('hidden'); }
+    function mountKpiGrid() {
+        LPC.kpi.mount('#ar-kpi-grid', KPI_SPECS.map(function (s) {
+            return { id: s.id, label: s.label, kind: s.kind, rail: s.rail, drill: s.drill };
+        }));
+
+        document.getElementById('ar-kpi-grid').addEventListener('lpc:kpi-open', function (e) {
+            e.preventDefault();
+            var spec = KPI_SPECS.find(function (k) { return k.id === e.detail.id; });
+            if (spec && DRILLDOWNS[spec.drill]) LPC.kpi.openDrilldown(DRILLDOWNS[spec.drill]);
+        });
+    }
 
     // ==================================================================
-    // CHART INITIALIZATION
+    // CHART INITIALIZATION — unchanged from pre-7H.
     // ==================================================================
     function initCharts() {
-        const ctxFleet = document.getElementById('fleetRoiChart').getContext('2d');
+        var ctxFleet = document.getElementById('fleetRoiChart').getContext('2d');
         fleetChart = new Chart(ctxFleet, {
             type: 'bar',
             data: { labels: [], datasets: [] },
@@ -54,23 +237,25 @@
                 interaction: { mode: 'index', intersect: false },
                 scales: {
                     y:  { type: 'linear', display: true, position: 'left',  title: { display: true, text: "Chiffre d'Affaires (F)" } },
-                    y1: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Coût Transport (F)' }, grid: { drawOnChartArea: false } }
-                }
-            }
+                    y1: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Coût Transport (F)' }, grid: { drawOnChartArea: false } },
+                },
+            },
         });
 
-        const ctxLiq = document.getElementById('liquidityChart').getContext('2d');
+        var ctxLiq = document.getElementById('liquidityChart').getContext('2d');
         liquidityChart = new Chart(ctxLiq, {
             type: 'doughnut',
             data: { labels: ['Caisse', 'Banques', 'Mobile Money'], datasets: [{ data: [0, 0, 0], backgroundColor: ['#10B981', '#3B82F6', '#F59E0B'] }] },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, cutout: '70%' }
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, cutout: '70%' },
         });
 
-        const ctxAge = document.getElementById('arAgingChart').getContext('2d');
+        var ctxAge = document.getElementById('arAgingChart').getContext('2d');
         agingChart = new Chart(ctxAge, {
             type: 'bar',
-            data: { labels: ['0-30 Jours', '31-60 Jours', '61-90 Jours', '> 90 Jours'], datasets: [{ label: 'Montant Dû (FCFA)', data: [0, 0, 0, 0], backgroundColor: ['#34D399', '#FBBF24', '#F87171', '#991B1B'] }] },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            data: { labels: ['0-30 Jours', '31-60 Jours', '61-90 Jours', '> 90 Jours'],
+                    datasets: [{ label: 'Montant Dû (FCFA)', data: [0, 0, 0, 0],
+                                 backgroundColor: ['#34D399', '#FBBF24', '#F87171', '#991B1B'] }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } },
         });
     }
 
@@ -78,54 +263,150 @@
     // FETCH DASHBOARD
     // ==================================================================
     async function loadDashboardData() {
-        const timeframe = document.getElementById('timeframe_filter').value;
+        var timeframe = document.getElementById('timeframe_filter').value;
         document.getElementById('view_period_label').innerText =
             timeframe === 'YTD' ? 'YTD (Année en cours)' : 'MTD (Mois en cours)';
 
+        LPC.kpi.setLoading('#ar-kpi-grid', true);
+
         try {
-            const res = await fetch(`/api/v1/analytics_controller.php?action=get_dashboard&timeframe=${encodeURIComponent(timeframe)}`,
+            var res = await fetch('/api/v1/analytics_controller.php?action=get_dashboard&timeframe=' + encodeURIComponent(timeframe),
                 { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
             if (!res.ok) return;
-            const result = await res.json();
+            var result = await res.json();
             if (result.status !== 'success') return;
 
-            updateTopCards(result.data.kpis);
+            updateKpis(result.data.kpis);
             updateCharts(result.data.charts);
             updateBudgetTable(result.data.budget);
         } catch (e) { console.error('Fetch error', e); }
     }
 
-    function updateTopCards(kpi) {
-        const formatTrend = (pct, inverseGood = false) => {
-            if (pct === null || isNaN(pct)) return `<span class="text-gray-400">N/A</span>`;
-            const isPositive = pct > 0;
-            const isGood = inverseGood ? !isPositive : isPositive;
-            const color = isGood ? 'text-emerald-500' : 'text-rose-500';
-            const icon  = isPositive ? 'fa-arrow-up' : 'fa-arrow-down';
-            if (pct === 0) return `<span class="text-gray-400"><i class="fas fa-minus"></i> Stable vs Mois Préc.</span>`;
-            return `<span class="${color} font-black"><i class="fas ${icon}"></i> ${Math.abs(pct).toFixed(1)}%</span> <span class="text-gray-400 font-medium">vs Mois Préc.</span>`;
+    function trendDelta(pct, upIs) {
+        // `upIs` — 'good' means ↑ is positive for the business, 'bad' means ↑ is negative.
+        if (pct === null || pct === undefined || isNaN(pct)) return { kind: 'none' };
+        var direction = pct > 0 ? 'up' : (pct < 0 ? 'down' : null);
+        var sentiment = 'neutral';
+        if (pct !== 0) {
+            var isUp = pct > 0;
+            if ((upIs === 'good' && isUp) || (upIs === 'bad' && !isUp)) sentiment = 'good';
+            else                                                        sentiment = 'bad';
+        }
+        var sign = pct > 0 ? '+' : '';
+        return {
+            kind:      'change',
+            value:     Math.round(pct * 10) / 10,
+            label:     sign + Math.abs(pct).toFixed(1).replace('.', ',') + ' % vs mois préc.',
+            sentiment: sentiment,
+            direction: direction,
         };
+    }
 
-        document.getElementById('kpi_revenue').innerText            = LPC.fmt.fcfa(kpi.revenue);
-        document.getElementById('kpi_revenue_trend').innerHTML      = formatTrend(kpi.revenue_trend);
-        document.getElementById('kpi_payroll_ratio').innerText      = kpi.payroll_ratio.toFixed(1);
-        document.getElementById('kpi_payroll_trend').innerHTML      = formatTrend(kpi.payroll_trend, true);
-        document.getElementById('kpi_delivery_cost').innerText      = LPC.fmt.fcfa(kpi.delivery_cost);
-        document.getElementById('kpi_delivery_trend').innerHTML     = formatTrend(kpi.delivery_trend, true);
-        document.getElementById('kpi_empties_risk').innerText       = LPC.fmt.fcfa(kpi.empties_risk);
+    function updateKpis(kpi) {
+        // 1. Chiffre d'affaires
+        LPC.kpi.update({
+            id:    'ar-revenue',
+            value: kpi.revenue,
+            delta: trendDelta(kpi.revenue_trend, 'good'),
+            sub:   "Revenu comptabilisé (classe 7)",
+        });
+
+        // 2. Ratio masse salariale (↓ is good — lower cost as % of revenue)
+        LPC.kpi.update({
+            id:    'ar-payroll-ratio',
+            value: kpi.payroll_ratio,
+            delta: trendDelta(kpi.payroll_trend, 'bad'),
+            sub:   'Charges de personnel / CA',
+        });
+
+        // 3. Coût moyen livraison (↓ is good)
+        LPC.kpi.update({
+            id:    'ar-delivery-cost',
+            value: kpi.delivery_cost,
+            delta: trendDelta(kpi.delivery_trend, 'bad'),
+            sub:   'Carburant + maintenance / livraison',
+        });
+
+        // 4. Risque emballages
+        LPC.kpi.update({
+            id:    'ar-empties-risk',
+            value: kpi.empties_risk,
+            delta: { kind: 'none' },
+            sub:   'Valeur totale des bouteilles en circulation',
+        });
+
+        // ---- Sprint 7H additions ----
+
+        // 5. Marge brute top-3 categories — display the weighted average % as the
+        //    headline number and list the top-3 categories in the sub-line.
+        var top3 = Array.isArray(kpi.gross_margin_top3) ? kpi.gross_margin_top3 : [];
+        var totalRev = top3.reduce(function (s, r) { return s + Number(r.revenue || 0); }, 0);
+        var totalGm  = top3.reduce(function (s, r) { return s + Number(r.gross_fcfa || 0); }, 0);
+        var pctGm    = totalRev > 0 ? Math.round((totalGm / totalRev) * 1000) / 10 : null;
+        LPC.kpi.update({
+            id:    'ar-gross-margin',
+            value: pctGm,
+            empty: pctGm === null ? 'Sans CA' : null,
+            delta: { kind: 'none' },
+            sub:   top3.length
+                     ? 'Top: ' + top3.map(function (r) { return r.category; }).join(' · ')
+                     : 'Aucune catégorie',
+        });
+
+        // 6. ROI flotte — text KPI (ratio, not currency). If the fleet costs
+        //    figure is 0, the ratio is undefined and rendered as an empty state.
+        var roi = kpi.fleet_roi;
+        LPC.kpi.update({
+            id:    'ar-fleet-roi',
+            value: roi,
+            empty: (roi === null || roi === undefined) ? 'Sans coûts' : null,
+            kind:  'text',
+            text:  roi != null ? roi.toFixed(2).replace('.', ',') + ' ×' : '—',
+            delta: { kind: 'none' },
+            sub:   'CA / coût transport de la période',
+        });
+
+        // 7. Balance âgée > 60 j — % of AR older than 60 days.
+        LPC.kpi.update({
+            id:    'ar-ar-over60',
+            value: kpi.ar_over60_pct,
+            delta: {
+                kind:      'change',
+                value:     null,
+                label:     LPC.fmt.fcfa(kpi.ar_over60_amount || 0),
+                sentiment: (kpi.ar_over60_pct || 0) > 30 ? 'bad' : 'neutral',
+                direction: null,
+            },
+            sub:   'Sur AR totale : ' + LPC.fmt.fcfa(kpi.ar_total_amount || 0),
+        });
+
+        // 8. Écart budgétaire global — actual / planned %.
+        LPC.kpi.update({
+            id:    'ar-budget-exec',
+            value: kpi.budget_execution_pct,
+            empty: kpi.budget_execution_pct === null ? 'Aucun budget actif' : null,
+            delta: {
+                kind:      'change',
+                value:     null,
+                label:     LPC.fmt.fcfa(kpi.budget_execution_actual || 0) + ' / ' + LPC.fmt.fcfa(kpi.budget_execution_planned || 0),
+                sentiment: (kpi.budget_execution_pct || 0) > 100 ? 'bad' : 'neutral',
+                direction: null,
+            },
+            sub:   'Réalisé / planifié (année en cours)',
+        });
     }
 
     function updateCharts(data) {
         fleetChart.data.labels    = data.fleet.labels;
         fleetChart.data.datasets  = [
             { label: "Chiffre d'Affaires",              data: data.fleet.revenue, backgroundColor: '#EFF6FF', borderColor: '#3B82F6', borderWidth: 2, type: 'bar',  yAxisID: 'y'  },
-            { label: 'Coût Transport (Carburant+Maint)', data: data.fleet.costs,   borderColor: '#EF4444',   backgroundColor: '#EF4444',                  type: 'line', tension: 0.3, yAxisID: 'y1' }
+            { label: 'Coût Transport (Carburant+Maint)', data: data.fleet.costs,   borderColor: '#EF4444',   backgroundColor: '#EF4444',                  type: 'line', tension: 0.3, yAxisID: 'y1' },
         ];
         fleetChart.update();
 
         liquidityChart.data.datasets[0].data = [data.liquidity.caisse, data.liquidity.banques, data.liquidity.momo];
         liquidityChart.update();
-        const totalLiq = data.liquidity.caisse + data.liquidity.banques + data.liquidity.momo;
+        var totalLiq = data.liquidity.caisse + data.liquidity.banques + data.liquidity.momo;
         document.getElementById('total_liquidity').innerText = LPC.fmt.fcfa(totalLiq);
 
         agingChart.data.datasets[0].data = [data.aging.d30, data.aging.d60, data.aging.d90, data.aging.d90plus];
@@ -133,267 +414,72 @@
     }
 
     function updateBudgetTable(budgetData) {
-        const tbody = document.getElementById('tbody-budget');
+        var tbody = document.getElementById('tbody-budget');
         tbody.innerHTML = '';
-
         if (!budgetData || budgetData.length === 0) {
             tbody.innerHTML = LPC.html`<tr><td colspan="3" class="py-4 text-center text-gray-400 italic">Aucune donnée budgétaire.</td></tr>`;
             return;
         }
-
-        budgetData.forEach(b => {
-            const varPct   = ((b.actual - b.budgeted) / b.budgeted) * 100;
-            const varColor = varPct > 0 ? 'text-rose-500 bg-rose-50' : 'text-emerald-500 bg-emerald-50';
-            const icon     = varPct > 0 ? '+' : '';
-
-            tbody.innerHTML += LPC.html`
+        budgetData.forEach(function (b) {
+            var varPct   = ((b.actual - b.budgeted) / b.budgeted) * 100;
+            var varColor = varPct > 0 ? 'text-rose-500 bg-rose-50' : 'text-emerald-500 bg-emerald-50';
+            var icon     = varPct > 0 ? '+' : '';
+            tbody.insertAdjacentHTML('beforeend', LPC.html`
                 <tr class="border-b border-gray-50">
                     <td class="py-2 px-4 text-xs font-bold text-gray-700">${b.category}</td>
                     <td class="py-2 px-4 text-right font-black text-gray-900">${fmt(b.actual)} F</td>
                     <td class="py-2 px-4 text-right">
-                        <span class="px-2 py-1 rounded text-[10px] font-black ${varColor}">${icon}${varPct.toFixed(1)}%</span>
+                        <span class="px-2 py-1 rounded text-[10px] font-black ${LPC.raw(varColor)}">${icon}${varPct.toFixed(1)}%</span>
                     </td>
-                </tr>`;
+                </tr>`);
         });
     }
 
     // ==================================================================
-    // SPRINT 7A · DRILLDOWNS (real data)
+    // openDrillDown — public entry point for the two chart-header buttons
+    // (fleet_roi and budget) that don't go through a KPI card. Routes to
+    // the same DRILLDOWNS catalogue.
     // ==================================================================
-
-    // metricType → { action, title, columns[], renderRow(row), searchPlaceholder }
-    // renderRow is a plain function that returns an <tr>…</tr> LPC.html string.
-    const DRILLDOWNS = {
-        revenue: {
-            action:  'drilldown_revenue',
-            titleKey:'analytics.drilldown.revenue',
-            titleFr: "Chiffre d'affaires — Factures de la période",
-            searchFr:'Réf. facture, client, code…',
-            columns: ['Date', 'Référence', 'Client', 'Statut', 'Total FCFA'],
-            renderRow: (r) => LPC.html`
-                <tr class="border-b border-gray-50 hover:bg-gray-50">
-                    <td class="py-2 px-3 text-xs text-gray-500">${r.date || ''}</td>
-                    <td class="py-2 px-3 font-mono text-xs font-black text-gray-900">${r.reference || ''}</td>
-                    <td class="py-2 px-3 text-xs font-bold text-gray-800">${r.client_name || '—'}<div class="text-[10px] font-normal text-gray-400 uppercase tracking-widest">${r.client_code || ''}</div></td>
-                    <td class="py-2 px-3 text-[10px] uppercase font-black tracking-widest ${statusColor(r.status)}">${r.status || ''}</td>
-                    <td class="py-2 px-3 text-right font-black text-gray-900">${LPC.fmt.fcfa(r.total_amount || 0)}</td>
-                </tr>`,
-        },
-        payroll: {
-            action:  'drilldown_payroll',
-            titleKey:'analytics.drilldown.payroll',
-            titleFr: 'Masse salariale — Bulletins de paie de la période',
-            searchFr:'Nom, prénom, code employé, rôle…',
-            columns: ['Période', 'Employé', 'Rôle', 'Brut FCFA', 'Net FCFA', 'Statut'],
-            renderRow: (r) => LPC.html`
-                <tr class="border-b border-gray-50 hover:bg-gray-50">
-                    <td class="py-2 px-3 font-mono text-xs text-gray-500">${r.year}-${String(r.month).padStart(2, '0')}</td>
-                    <td class="py-2 px-3 text-xs font-bold text-gray-800">${(r.last_name || '') + ' ' + (r.first_name || '')}<div class="text-[10px] font-normal text-gray-400">${r.employee_code || ''}</div></td>
-                    <td class="py-2 px-3 text-[10px] uppercase font-black text-gray-500 tracking-widest">${r.role_name || ''}</td>
-                    <td class="py-2 px-3 text-right font-bold text-gray-700">${LPC.fmt.fcfa(r.gross_salary || 0)}</td>
-                    <td class="py-2 px-3 text-right font-black text-emerald-700">${LPC.fmt.fcfa(r.net_pay || 0)}</td>
-                    <td class="py-2 px-3 text-[10px] uppercase font-black tracking-widest ${statusColor(r.status)}">${r.status || ''}</td>
-                </tr>`,
-        },
-        fleet: {
-            action:  'drilldown_fleet',
-            titleKey:'analytics.drilldown.fleet',
-            titleFr: 'Coût moyen par livraison — Mois par mois',
-            searchFr:'YYYY-MM…',
-            columns: ['Mois', 'Livraisons', 'Carburant', 'Maintenance', 'Total', 'Coût / livraison'],
-            renderRow: (r) => LPC.html`
-                <tr class="border-b border-gray-50 hover:bg-gray-50">
-                    <td class="py-2 px-3 font-mono text-xs text-gray-500">${r.month_year || ''}</td>
-                    <td class="py-2 px-3 text-right text-xs font-bold text-gray-800">${LPC.fmt.int(r.total_deliveries || 0)}</td>
-                    <td class="py-2 px-3 text-right text-xs text-gray-700">${LPC.fmt.fcfa(r.total_fuel_cost || 0)}</td>
-                    <td class="py-2 px-3 text-right text-xs text-gray-700">${LPC.fmt.fcfa(r.total_maint_cost || 0)}</td>
-                    <td class="py-2 px-3 text-right font-black text-gray-900">${LPC.fmt.fcfa(r.total_cost || 0)}</td>
-                    <td class="py-2 px-3 text-right font-black text-rose-700">${LPC.fmt.fcfa(r.cost_per_delivery || 0)}</td>
-                </tr>`,
-        },
-        fleet_roi: {
-            action:  'drilldown_fleet_roi',
-            titleKey:'analytics.drilldown.fleet_roi',
-            titleFr: 'ROI par véhicule — Carburant + maintenance',
-            searchFr:'Immatriculation, modèle…',
-            columns: ['Immatriculation', 'Type', 'Modèle', 'Carburant', 'Maintenance', 'Total'],
-            renderRow: (r) => LPC.html`
-                <tr class="border-b border-gray-50 hover:bg-gray-50">
-                    <td class="py-2 px-3 font-mono text-xs font-black text-gray-900">${r.plate_number || ''}</td>
-                    <td class="py-2 px-3 text-[10px] uppercase font-black text-gray-500 tracking-widest">${r.type || ''}</td>
-                    <td class="py-2 px-3 text-xs text-gray-700">${r.make_model || ''}</td>
-                    <td class="py-2 px-3 text-right text-xs text-gray-700">${LPC.fmt.fcfa(r.fuel_cost || 0)}<div class="text-[10px] text-gray-400">${LPC.fmt.int(r.fuel_entries || 0)} pleins</div></td>
-                    <td class="py-2 px-3 text-right text-xs text-gray-700">${LPC.fmt.fcfa(r.maint_cost || 0)}<div class="text-[10px] text-gray-400">${LPC.fmt.int(r.maint_entries || 0)} interv.</div></td>
-                    <td class="py-2 px-3 text-right font-black text-gray-900">${LPC.fmt.fcfa(r.total_cost || 0)}</td>
-                </tr>`,
-        },
-        empties: {
-            action:  'drilldown_empties',
-            titleKey:'analytics.drilldown.empties',
-            titleFr: 'Risque emballages — Clients détenteurs de bouteilles',
-            searchFr:'Client, code, téléphone…',
-            columns: ['Code', 'Client', 'Type', 'Téléphone', 'Bouteilles', 'Risque FCFA'],
-            renderRow: (r) => LPC.html`
-                <tr class="border-b border-gray-50 hover:bg-gray-50">
-                    <td class="py-2 px-3 font-mono text-xs font-black text-gray-900">${r.client_code || ''}</td>
-                    <td class="py-2 px-3 text-xs font-bold text-gray-800">${r.client_name || '—'}</td>
-                    <td class="py-2 px-3 text-[10px] uppercase font-black text-gray-500 tracking-widest">${r.client_type || ''}</td>
-                    <td class="py-2 px-3 text-xs text-gray-500">${r.client_phone || ''}</td>
-                    <td class="py-2 px-3 text-right text-xs font-bold text-gray-800">${LPC.fmt.int(r.bottles_with_client || 0)}</td>
-                    <td class="py-2 px-3 text-right font-black text-rose-700">${LPC.fmt.fcfa(r.financial_risk_fcfa || 0)}</td>
-                </tr>`,
-        },
-        budget: {
-            action:  'drilldown_budget',
-            titleKey:'analytics.drilldown.budget',
-            titleFr: 'Exécution budgétaire — Charges par compte (Classe 6)',
-            searchFr:'Compte, libellé…',
-            columns: ['Compte', 'Libellé', 'Écritures', 'Réalisé FCFA'],
-            renderRow: (r) => LPC.html`
-                <tr class="border-b border-gray-50 hover:bg-gray-50">
-                    <td class="py-2 px-3 font-mono text-xs font-black text-gray-900">${r.code || ''}</td>
-                    <td class="py-2 px-3 text-xs font-bold text-gray-800">${r.name || ''}</td>
-                    <td class="py-2 px-3 text-right text-[10px] text-gray-500">${LPC.fmt.int(r.entries || 0)}</td>
-                    <td class="py-2 px-3 text-right font-black text-gray-900">${LPC.fmt.fcfa(r.actual || 0)}</td>
-                </tr>`,
-        },
-    };
-
-    function statusColor(status) {
-        const s = String(status || '').toLowerCase();
-        if (s === 'paid'      || s === 'validated') return 'text-emerald-600';
-        if (s === 'partial'   || s === 'draft')     return 'text-amber-600';
-        if (s === 'unpaid'    || s === 'rejected')  return 'text-rose-600';
-        return 'text-gray-500';
-    }
-
-    // Translated title / labels with graceful fallback to the FR literals.
-    function t(key, fallback) {
-        if (window.LPC && typeof window.LPC.t === 'function') {
-            const v = LPC.t(key);
-            if (v && v !== key) return v;
-        }
-        return fallback;
-    }
-
-    // Public entry point invoked by the KPI-card `onclick="openDrillDown('…')"`.
-    async function openDrillDown(metricType) {
-        const cfg = DRILLDOWNS[metricType];
+    function openDrillDown(metricType) {
+        var cfg = DRILLDOWNS[metricType];
         if (!cfg) {
-            LPC.modal.alert('Aucun détail disponible pour cet indicateur.');
+            if (window.LPC && LPC.modal) LPC.modal.alert('Aucun détail disponible pour cet indicateur.');
             return;
         }
-
-        // Timeframe travels from the top selector to every drilldown.
-        const timeframe = document.getElementById('timeframe_filter').value || 'YTD';
-
-        const title       = t(cfg.titleKey, cfg.titleFr);
-        const searchPh    = cfg.searchFr;
-        const closeLbl    = t('common.close',      'Fermer');
-        const exportLbl   = t('common.export_csv', 'Exporter CSV');
-        const tbodyId     = 'lpc-drilldown-tbody-' + Math.random().toString(36).slice(2, 8);
-        const searchId    = 'lpc-drilldown-search-' + Math.random().toString(36).slice(2, 8);
-        const exportBtnId = 'lpc-drilldown-export-' + Math.random().toString(36).slice(2, 8);
-
-        // Column headers rendered without escaping — labels are trusted constants.
-        const headerCells = cfg.columns.map(c => `<th class="py-2 px-3 text-[10px] uppercase font-black text-gray-400 tracking-widest text-left">${c}</th>`).join('');
-
-        const bodyHtml =
-            '<div class="p-4 space-y-3">' +
-                '<div class="flex items-center gap-3">' +
-                    `<input id="${searchId}" type="search" placeholder="${searchPh}" ` +
-                        'class="lpc-focusable flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-fin-highlight">' +
-                    `<button type="button" id="${exportBtnId}" ` +
-                        'class="lpc-focusable inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-widest px-3 py-2 rounded-lg shadow-sm">' +
-                        `<i class="fas fa-file-csv"></i> ${exportLbl}` +
-                    '</button>' +
-                '</div>' +
-                '<div class="border border-gray-200 rounded-xl overflow-hidden">' +
-                    '<table class="min-w-full text-left border-collapse">' +
-                        `<thead class="bg-gray-50"><tr>${headerCells}</tr></thead>` +
-                        `<tbody id="${tbodyId}" class="divide-y divide-gray-100 text-xs"></tbody>` +
-                    '</table>' +
-                '</div>' +
-            '</div>';
-
-        // The custom() call synchronously appends the modal to the DOM before
-        // returning its promise; we can safely query for the new nodes right
-        // after and wire up the paginator + export button.
-        const modalPromise = LPC.modal.custom({
-            title: title,
-            bodyHtml: bodyHtml,
-            buttons: [
-                { label: closeLbl, value: null, primary: true },
-            ],
-            dismissable: true,
-        });
-
-        const tbody     = document.getElementById(tbodyId);
-        const search    = document.getElementById(searchId);
-        const exportBtn = document.getElementById(exportBtnId);
-
-        const url = `/api/v1/analytics_controller.php?action=${encodeURIComponent(cfg.action)}&period=${encodeURIComponent(timeframe)}`;
-
-        LPC.paginator.attach(tbody, {
-            url:          url,
-            dataPath:     'data.rows',
-            envelopePath: 'data.pagination',
-            renderRow:    cfg.renderRow,
-            searchInput:  search,
-            pageSize:     25,
-            colspan:      cfg.columns.length,
-            emptyMsg:     'Aucun résultat pour cette période.',
-        });
-
-        if (exportBtn) {
-            exportBtn.addEventListener('click', () => {
-                const q = (search && search.value ? search.value.trim() : '');
-                const dl = new URL(url, window.location.origin);
-                dl.searchParams.set('format', 'csv');
-                if (q) dl.searchParams.set('q', q);
-                // Trigger the download in a hidden iframe so the modal stays open.
-                const iframe = document.createElement('iframe');
-                iframe.style.display = 'none';
-                iframe.src = dl.toString();
-                document.body.appendChild(iframe);
-                setTimeout(() => { try { iframe.remove(); } catch (e) {} }, 20000);
-            });
-        }
-
-        await modalPromise;   // resolves when the user closes / escapes.
+        // Thread the current timeframe into the URL so the drilldown matches
+        // the top-of-page period picker.
+        var timeframe = document.getElementById('timeframe_filter').value || 'YTD';
+        var scoped = Object.assign({}, cfg);
+        var sep = scoped.url.indexOf('?') === -1 ? '?' : '&';
+        scoped.url = scoped.url + sep + 'period=' + encodeURIComponent(timeframe);
+        LPC.kpi.openDrilldown(scoped);
     }
 
     // ==================================================================
-    // DASHBOARD PDF EXPORT
-    // -------------------------------------------------------------------
-    // NOTE: The bilan/résultat exports move to a server-side dompdf pipeline
-    // in Sprint 7A D3. The board dashboard preview here is a screenshot
-    // export used by the MD to email a snapshot; keeping html2pdf until we
-    // build a data-driven dompdf template for the analytics view too.
+    // DASHBOARD PDF EXPORT — unchanged.
     // ==================================================================
     function exportDashboardToPDF() {
-        const element   = document.getElementById('dashboard-content');
-        const watermark = document.getElementById('pdf-watermark');
-
+        var element   = document.getElementById('dashboard-content');
+        var watermark = document.getElementById('pdf-watermark');
         document.getElementById('print_date').innerText = new Date().toLocaleString('fr-FR');
         watermark.classList.remove('hidden');
-
-        const opt = {
+        var opt = {
             margin:      10,
-            filename:    `LPC_Board_Dashboard_${new Date().toISOString().split('T')[0]}.pdf`,
+            filename:    'LPC_Board_Dashboard_' + new Date().toISOString().split('T')[0] + '.pdf',
             image:       { type: 'jpeg', quality: 0.98 },
             html2canvas: { scale: 2, useCORS: true },
-            jsPDF:       { unit: 'mm', format: 'a4', orientation: 'landscape' }
+            jsPDF:       { unit: 'mm', format: 'a4', orientation: 'landscape' },
         };
-
-        html2pdf().set(opt).from(element).save().then(() => { watermark.classList.add('hidden'); });
+        html2pdf().set(opt).from(element).save().then(function () { watermark.classList.add('hidden'); });
     }
 
-    // Expose the public functions on window so the existing inline
-    // onclick handlers in reports.php keep working.
-    window.openDrillDown         = openDrillDown;
-    window.exportDashboardToPDF  = exportDashboardToPDF;
-    window.loadDashboardData     = loadDashboardData;
-    window.openModal             = openModal;
-    window.closeModal            = closeModal;
+    // Legacy shim (referenced by any leftover inline onclick that still uses it).
+    function openModal(id)  { var el = document.getElementById(id); if (el) el.classList.remove('hidden'); }
+    function closeModal(id) { var el = document.getElementById(id); if (el) el.classList.add('hidden'); }
+
+    window.openDrillDown        = openDrillDown;
+    window.exportDashboardToPDF = exportDashboardToPDF;
+    window.loadDashboardData    = loadDashboardData;
+    window.openModal            = openModal;
+    window.closeModal           = closeModal;
 })();

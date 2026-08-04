@@ -12,6 +12,8 @@
  */
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/classes/Paginator.php';
+require_once __DIR__ . '/../../includes/functions/lpc_csv.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -108,6 +110,187 @@ try {
     error_log('ops_dashboard: DB unavailable: ' . $e->getMessage());
     http_response_code(503);
     od_respond('error', 'Base de données indisponible.');
+}
+
+// =============================================================================
+// DRILLDOWN DISPATCH — Sprint 7H
+// =============================================================================
+function od_run_drilldown(
+    PDO $pdo,
+    string $sql_body,
+    array $params,
+    string $select,
+    array $searchable,
+    array $csv_headers,
+    array $csv_columns,
+    string $csv_prefix,
+    ?callable $row_transform = null
+): void {
+    $format = strtolower((string)($_GET['format'] ?? 'json'));
+
+    $q = trim((string)($_GET['q'] ?? ''));
+    if ($q !== '' && !empty($searchable)) {
+        [$sql_body, $params] = Paginator::addWhere($sql_body, $params, $q, $searchable);
+    }
+
+    if ($format === 'csv') {
+        $stmt = $pdo->prepare('SELECT ' . $select . ' ' . $sql_body);
+        $stmt->execute($params);
+        $rows = (function () use ($stmt, $row_transform) {
+            while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                yield $row_transform ? $row_transform($r) : $r;
+            }
+        })();
+        lpc_csv_stream($csv_headers, $rows, $csv_prefix . '-' . date('Ymd') . '.csv', $csv_columns);
+        exit;
+    }
+
+    $page = Paginator::paginate($pdo, $sql_body, $params, $select);
+    if ($row_transform) {
+        $page['data'] = array_map($row_transform, $page['data']);
+    }
+    echo json_encode([
+        'status' => 'success',
+        'data'   => [
+            'rows'       => $page['data'],
+            'pagination' => [
+                'page'        => $page['page'],
+                'per_page'    => $page['per_page'],
+                'total'       => $page['total'],
+                'total_pages' => $page['total_pages'],
+                'has_prev'    => $page['has_prev'],
+                'has_next'    => $page['has_next'],
+            ],
+        ],
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+$__action = (string)($_GET['action'] ?? '');
+
+if ($__action === 'drilldown_pending_bl') {
+    $today = date('Y-m-d');
+    $sql = "
+        FROM deliveries d
+        LEFT JOIN clients c ON c.id = d.client_id
+        LEFT JOIN users   u ON u.id = d.driver_id
+        WHERE d.date >= :today AND d.status = 'delivered'
+        ORDER BY d.date ASC, d.id ASC
+    ";
+    od_run_drilldown($db, $sql,
+        ['today' => $today],
+        "d.reference,
+         COALESCE(c.name, '—') AS client_name,
+         COALESCE(c.address, '') AS address,
+         CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(SUBSTRING(u.last_name, 1, 1), '')) AS driver,
+         d.status",
+        ['d.reference', 'c.name', 'c.address'],
+        ['Référence', 'Client', 'Adresse', 'Chauffeur', 'Statut'],
+        ['reference', 'client_name', 'address', 'driver', 'status'],
+        'ops-pending-bl'
+    );
+}
+
+if ($__action === 'drilldown_low_stock') {
+    // Threshold constant = 100 items (matches the KPI count above).
+    $sql = "
+        FROM products p
+        LEFT JOIN inventory_movements im ON p.id = im.product_id
+        GROUP BY p.id, p.name, p.category
+        HAVING COALESCE(SUM(im.quantity), 0) < 100
+        ORDER BY COALESCE(SUM(im.quantity), 0) ASC
+    ";
+    od_run_drilldown($db, $sql, [],
+        "p.name,
+         p.category,
+         COALESCE(SUM(im.quantity), 0) AS stock,
+         100 AS threshold",
+        ['p.name', 'p.category'],
+        ['Produit', 'Catégorie', 'Stock', 'Seuil'],
+        ['name', 'category', 'stock', 'threshold'],
+        'ops-low-stock'
+    );
+}
+
+if ($__action === 'drilldown_empties') {
+    // Same per-driver decomposition as md-empties.
+    $sql = "
+        FROM users u
+        LEFT JOIN deliveries d ON d.driver_id = u.id AND d.date BETWEEN :s AND :e
+        LEFT JOIN delivery_items di ON di.delivery_id = d.id
+        LEFT JOIN products p ON p.id = di.product_id AND p.category = 'water'
+        LEFT JOIN cash_reconciliations cr ON cr.driver_id = u.id AND cr.date BETWEEN :s2 AND :e2
+        WHERE u.role_id IN (SELECT id FROM roles WHERE name = 'driver')
+        GROUP BY u.id, u.first_name, u.last_name
+        HAVING delivered > 0 OR returned > 0
+        ORDER BY delivered DESC
+    ";
+    od_run_drilldown($db, $sql,
+        ['s' => $start_date, 'e' => $end_date, 's2' => $start_date, 'e2' => $end_date],
+        "CONCAT(u.first_name, ' ', SUBSTRING(u.last_name, 1, 1), '.') AS driver_name,
+         COALESCE(SUM(di.quantity), 0) AS delivered,
+         COALESCE(SUM(cr.empties_with_cork + cr.empties_without_cork), 0) AS returned,
+         CASE WHEN COALESCE(SUM(di.quantity), 0) > 0
+              THEN ROUND((COALESCE(SUM(cr.empties_with_cork + cr.empties_without_cork), 0)
+                       / COALESCE(SUM(di.quantity), 1)) * 100, 1)
+              ELSE 0 END AS rate",
+        ['u.first_name', 'u.last_name'],
+        ['Chauffeur', 'Livrées', 'Retournées', 'Taux %'],
+        ['driver_name', 'delivered', 'returned', 'rate'],
+        'ops-empties'
+    );
+}
+
+if ($__action === 'drilldown_fleet') {
+    // `vehicles` has no assigned-driver column on this install; the driver
+    // relationship is discovered through `deliveries.driver_id + vehicle_id`.
+    // Available columns per fleet_controller.php: plate_number, make_model,
+    // current_odometer, status, insurance_expiry, technical_visit_expiry.
+    $sql = "
+        FROM vehicles v
+        LEFT JOIN (
+            SELECT d2.vehicle_id, MAX(d2.date) AS last_date
+              FROM deliveries d2
+             GROUP BY d2.vehicle_id
+        ) ld ON ld.vehicle_id = v.id
+        LEFT JOIN deliveries d ON d.vehicle_id = v.id AND d.date = ld.last_date
+        LEFT JOIN users u ON u.id = d.driver_id
+        GROUP BY v.id, v.plate_number, v.make_model, v.status, ld.last_date, u.first_name, u.last_name
+        ORDER BY FIELD(v.status, 'active', 'repair', 'retired'), v.plate_number ASC
+    ";
+    od_run_drilldown($db, $sql, [],
+        "v.make_model AS name,
+         v.plate_number AS plate,
+         CONCAT(COALESCE(u.first_name, '—'), ' ', COALESCE(SUBSTRING(u.last_name, 1, 1), '')) AS driver,
+         v.status,
+         ld.last_date AS last_seen",
+        ['v.make_model', 'v.plate_number', 'u.first_name'],
+        ['Véhicule', 'Immatriculation', 'Dernier chauffeur', 'Statut', 'Dernière activité'],
+        ['name', 'plate', 'driver', 'status', 'last_seen'],
+        'ops-fleet'
+    );
+}
+
+if ($__action === 'drilldown_completed_today') {
+    $today = date('Y-m-d');
+    $sql = "
+        FROM deliveries d
+        LEFT JOIN clients c ON c.id = d.client_id
+        LEFT JOIN users   u ON u.id = d.driver_id
+        WHERE d.date = :today AND d.status IN ('delivered', 'invoiced')
+        ORDER BY d.updated_at DESC, d.id DESC
+    ";
+    od_run_drilldown($db, $sql,
+        ['today' => $today],
+        "d.reference,
+         COALESCE(c.name, '—') AS client_name,
+         CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(SUBSTRING(u.last_name, 1, 1), '')) AS driver,
+         d.updated_at AS completed_at",
+        ['d.reference', 'c.name'],
+        ['Référence', 'Client', 'Chauffeur', 'Heure'],
+        ['reference', 'client_name', 'driver', 'completed_at'],
+        'ops-completed-today'
+    );
 }
 
 // -----------------------------------------------------------------------------

@@ -26,13 +26,17 @@ try {
 // via data-perm on the UI without changing the API contract.
 // -----------------------------------------------------------------------------
 $ACTION_PERMS = [
-    'get_dashboard'          => 'analytics.reports.view',
-    'drilldown_revenue'      => 'analytics.reports.view',
-    'drilldown_payroll'      => 'analytics.reports.view',
-    'drilldown_fleet'        => 'analytics.reports.view',
-    'drilldown_fleet_roi'    => 'analytics.reports.view',
-    'drilldown_empties'      => 'analytics.reports.view',
-    'drilldown_budget'       => 'analytics.reports.view',
+    'get_dashboard'                => 'analytics.reports.view',
+    'drilldown_revenue'            => 'analytics.reports.view',
+    'drilldown_payroll'            => 'analytics.reports.view',
+    'drilldown_fleet'              => 'analytics.reports.view',
+    'drilldown_fleet_roi'          => 'analytics.reports.view',
+    'drilldown_empties'            => 'analytics.reports.view',
+    'drilldown_budget'             => 'analytics.reports.view',
+    // Sprint 7H — the four new Reports Consolidés KPIs.
+    'drilldown_gross_margin_cat'   => 'analytics.reports.view',
+    'drilldown_ar_over60'          => 'analytics.reports.view',
+    'drilldown_budget_execution'   => 'analytics.reports.view',
 ];
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -306,6 +310,116 @@ if ($action === 'get_dashboard') {
             }
         }
 
+        // ---- SPRINT 7H · Four new KPIs (marge brute top-3, ROI flotte,
+        //      balance âgée > 60 j, écart budgétaire global) --------------------
+
+        // 1. Marge brute par catégorie — top 3 by contribution.
+        //    Revenue lines carry `category` on the product mapping; here we take
+        //    the OHADA category tree via account codes 70x (revenue) and 60x/61x
+        //    (COGS-ish). Values pass through a null-safe wrapper.
+        $gross_margin_top3 = [];
+        try {
+            $stmtGm = $pdo->prepare("
+                SELECT
+                    COALESCE(ca.name, '—') AS category,
+                    COALESCE(SUM(CASE WHEN ca.code LIKE '70%' THEN (jl.credit - jl.debit) ELSE 0 END), 0) AS revenue,
+                    COALESCE(SUM(CASE WHEN ca.code LIKE '6%'  THEN (jl.debit  - jl.credit) ELSE 0 END), 0) AS cogs
+                  FROM journal_lines jl
+                  JOIN journal_entries je ON jl.journal_entry_id = je.id
+                  JOIN chart_of_accounts ca ON jl.account_id = ca.id
+                 WHERE je.status = 'approved' AND je.date >= ? AND je.date <= ?
+                   AND (ca.code LIKE '70%' OR ca.code LIKE '6%')
+                 GROUP BY ca.id
+                HAVING revenue > 0
+                 ORDER BY (revenue - cogs) DESC
+                 LIMIT 3
+            ");
+            $stmtGm->execute([$start_date, $today]);
+            foreach ($stmtGm->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $rev  = (float)$row['revenue'];
+                $cogs = (float)$row['cogs'];
+                $gross_margin_top3[] = [
+                    'category'    => $row['category'],
+                    'revenue'     => $rev,
+                    'cogs'        => $cogs,
+                    'gross_pct'   => $rev > 0 ? round((($rev - $cogs) / $rev) * 100.0, 1) : null,
+                    'gross_fcfa'  => $rev - $cogs,
+                ];
+            }
+        } catch (Throwable $e) {
+            error_log('analytics_controller gross_margin_top3: ' . $e->getMessage());
+        }
+
+        // 2. ROI flotte — revenue / fleet_cost for the selected period.
+        //    Uses the same view_fleet_roi source the fleet chart already reads.
+        $fleet_costs_sum = 0.0;
+        $fleet_rev_sum   = 0.0;
+        try {
+            $stmtFl = $pdo->prepare("
+                SELECT COALESCE(SUM(total_fuel_cost + total_maint_cost), 0) AS c
+                  FROM view_fleet_roi
+                 WHERE month_year >= ?
+            ");
+            $stmtFl->execute([substr($start_date, 0, 7)]);
+            $fleet_costs_sum = (float)$stmtFl->fetchColumn();
+            $fleet_rev_sum   = $rev_total;  // already computed above
+        } catch (Throwable $e) {
+            error_log('analytics_controller fleet_roi: ' . $e->getMessage());
+        }
+        $fleet_roi_ratio = $fleet_costs_sum > 0 ? ($fleet_rev_sum / $fleet_costs_sum) : null;
+
+        // 3. Balance âgée > 60 j — percentage of AR older than 60 days.
+        //    Reads the same view_ar_aging the chart uses.
+        $ar_over60_pct    = null;
+        $ar_over60_amount = 0.0;
+        $ar_total_amount  = 0.0;
+        try {
+            $sum = (float)$agingRow['d30'] + (float)$agingRow['d60'] + (float)$agingRow['d90'] + (float)$agingRow['d90plus'];
+            $over = (float)$agingRow['d90'] + (float)$agingRow['d90plus'];
+            $ar_over60_amount = $over;
+            $ar_total_amount  = $sum;
+            $ar_over60_pct    = $sum > 0 ? round(($over / $sum) * 100.0, 1) : 0.0;
+        } catch (Throwable $e) {
+            error_log('analytics_controller ar_over60: ' . $e->getMessage());
+        }
+
+        // 4. Écart budgétaire global — sum(actuals) / sum(planned) across
+        //    every budget line in the active budget for the current year.
+        $budget_execution_pct    = null;
+        $budget_execution_actual = 0.0;
+        $budget_execution_planned = 0.0;
+        try {
+            $y = (int)date('Y', strtotime($today));
+            $stmtBe = $pdo->prepare("
+                SELECT COALESCE(SUM(bl.annual_amount), 0) AS planned
+                  FROM budgets b
+                  JOIN budget_lines bl ON bl.budget_id = b.id
+                 WHERE b.fiscal_year = ? AND b.status = 'active'
+            ");
+            $stmtBe->execute([$y]);
+            $planned = (float)$stmtBe->fetchColumn();
+
+            // Actuals = every approved journal_line hitting an expense account
+            // during the fiscal year to date.
+            $stmtBa = $pdo->prepare("
+                SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS actual
+                  FROM journal_lines jl
+                  JOIN journal_entries je ON jl.journal_entry_id = je.id
+                  JOIN chart_of_accounts ca ON jl.account_id = ca.id
+                 WHERE je.status = 'approved'
+                   AND ca.type = 'expense'
+                   AND je.date >= ? AND je.date <= ?
+            ");
+            $stmtBa->execute([$y . '-01-01', $today]);
+            $actual = (float)$stmtBa->fetchColumn();
+
+            $budget_execution_planned = $planned;
+            $budget_execution_actual  = $actual;
+            $budget_execution_pct     = $planned > 0 ? round(($actual / $planned) * 100.0, 1) : null;
+        } catch (Throwable $e) {
+            error_log('analytics_controller budget_execution: ' . $e->getMessage());
+        }
+
         analytics_send_json('success', 'Dashboard loaded', [
             'kpis' => [
                 'revenue'        => $rev_total,
@@ -315,6 +429,16 @@ if ($action === 'get_dashboard') {
                 'delivery_cost'  => $cost_per_del_total,
                 'delivery_trend' => $cost_del_trend,
                 'empties_risk'   => $empties_risk,
+                // Sprint 7H additions
+                'gross_margin_top3'      => $gross_margin_top3,
+                'fleet_roi'              => $fleet_roi_ratio,
+                'fleet_roi_costs'        => $fleet_costs_sum,
+                'ar_over60_pct'          => $ar_over60_pct,
+                'ar_over60_amount'       => $ar_over60_amount,
+                'ar_total_amount'        => $ar_total_amount,
+                'budget_execution_pct'   => $budget_execution_pct,
+                'budget_execution_actual'  => $budget_execution_actual,
+                'budget_execution_planned' => $budget_execution_planned,
             ],
             'charts' => [
                 'fleet'     => ['labels' => $fleet_labels, 'revenue' => $fleet_rev, 'costs' => $fleet_costs],
@@ -620,6 +744,115 @@ if ($action === 'drilldown_budget') {
             'has_next'    => $page < $total_pages,
         ],
     ]);
+}
+
+// =============================================================================
+// SPRINT 7H — drilldowns for the four new Reports Consolidés KPIs.
+// =============================================================================
+
+// drilldown_gross_margin_cat — every revenue category with its gross margin
+// for the period, not only the top 3 the card shows.
+if ($action === 'drilldown_gross_margin_cat') {
+    $bounds = analytics_resolve_period();
+    $sql_body = "
+        FROM chart_of_accounts ca
+        LEFT JOIN journal_lines   jl ON jl.account_id = ca.id
+        LEFT JOIN journal_entries je ON jl.journal_entry_id = je.id
+            AND je.status = 'approved'
+            AND je.date >= :start AND je.date <= :end
+        WHERE ca.code LIKE '70%' OR ca.code LIKE '6%'
+        GROUP BY ca.id
+        HAVING revenue > 0 OR cogs > 0
+        ORDER BY (revenue - cogs) DESC
+    ";
+    $select = "
+        COALESCE(ca.name, '—') AS category,
+        ca.code AS account_code,
+        COALESCE(SUM(CASE WHEN ca.code LIKE '70%' THEN (jl.credit - jl.debit) ELSE 0 END), 0) AS revenue,
+        COALESCE(SUM(CASE WHEN ca.code LIKE '6%'  THEN (jl.debit  - jl.credit) ELSE 0 END), 0) AS cogs,
+        (COALESCE(SUM(CASE WHEN ca.code LIKE '70%' THEN (jl.credit - jl.debit) ELSE 0 END), 0)
+         - COALESCE(SUM(CASE WHEN ca.code LIKE '6%'  THEN (jl.debit  - jl.credit) ELSE 0 END), 0))
+         AS gross_fcfa
+    ";
+    analytics_run_drilldown(
+        $pdo, $sql_body,
+        ['start' => $bounds['start'], 'end' => $bounds['end']],
+        $select,
+        ['ca.name', 'ca.code'],
+        ['Catégorie', 'Compte', 'CA FCFA', 'Coût FCFA', 'Marge brute FCFA'],
+        ['category', 'account_code', 'revenue', 'cogs', 'gross_fcfa'],
+        'gross-margin-cat'
+    );
+}
+
+// drilldown_ar_over60 — every open invoice with due_date > 60 days ago.
+if ($action === 'drilldown_ar_over60') {
+    $sql_body = "
+        FROM invoices i
+        LEFT JOIN clients c ON c.id = i.client_id
+        WHERE i.status <> 'paid'
+          AND DATEDIFF(CURRENT_DATE, i.due_date) > 60
+        ORDER BY DATEDIFF(CURRENT_DATE, i.due_date) DESC, i.total_amount DESC
+    ";
+    $select = "
+        i.id,
+        COALESCE(c.name, '—') AS client_name,
+        COALESCE(c.lpc_code, '') AS client_code,
+        i.reference AS invoice_number,
+        i.due_date,
+        DATEDIFF(CURRENT_DATE, i.due_date) AS days_overdue,
+        i.total_amount AS amount
+    ";
+    analytics_run_drilldown(
+        $pdo, $sql_body, [],
+        $select,
+        ['c.name', 'c.lpc_code', 'i.reference'],
+        ['Client', 'Code', 'Facture', 'Échéance', 'Retard (j)', 'Montant FCFA'],
+        ['client_name', 'client_code', 'invoice_number', 'due_date', 'days_overdue', 'amount'],
+        'ar-over60'
+    );
+}
+
+// drilldown_budget_execution — every budget line with its planned vs actual.
+if ($action === 'drilldown_budget_execution') {
+    $y = (int)($_GET['year'] ?? date('Y'));
+    if ($y < 2000 || $y > 2999) $y = (int)date('Y');
+    $sql_body = "
+        FROM budget_lines bl
+        JOIN budgets b ON b.id = bl.budget_id
+        LEFT JOIN ohada_accounts oa ON bl.ohada_account_id = oa.id
+        LEFT JOIN (
+            SELECT ca.code AS acode, SUM(jl.debit - jl.credit) AS actual
+              FROM journal_lines jl
+              JOIN journal_entries je ON jl.journal_entry_id = je.id
+              JOIN chart_of_accounts ca ON jl.account_id = ca.id
+             WHERE je.status = 'approved'
+               AND ca.type = 'expense'
+               AND je.date >= :year_start AND je.date <= :year_end
+             GROUP BY ca.code
+        ) act ON act.acode = oa.code
+        WHERE b.fiscal_year = :y AND b.status = 'active'
+        ORDER BY (COALESCE(act.actual, 0) - bl.annual_amount) DESC
+    ";
+    $select = "
+        COALESCE(oa.name, '—') AS category,
+        oa.code AS account_code,
+        bl.annual_amount AS planned,
+        COALESCE(act.actual, 0) AS actual,
+        (COALESCE(act.actual, 0) - bl.annual_amount) AS variance,
+        CASE WHEN bl.annual_amount > 0
+             THEN ROUND((COALESCE(act.actual, 0) / bl.annual_amount) * 100.0, 1)
+             ELSE NULL END AS execution_pct
+    ";
+    analytics_run_drilldown(
+        $pdo, $sql_body,
+        ['y' => $y, 'year_start' => $y . '-01-01', 'year_end' => $y . '-12-31'],
+        $select,
+        ['oa.name', 'oa.code'],
+        ['Catégorie', 'Compte', 'Planifié FCFA', 'Réalisé FCFA', 'Écart FCFA', 'Exécution %'],
+        ['category', 'account_code', 'planned', 'actual', 'variance', 'execution_pct'],
+        'budget-execution'
+    );
 }
 
 // Should never reach here — every registered action exits above.

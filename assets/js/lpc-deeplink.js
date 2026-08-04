@@ -35,13 +35,25 @@
     var params = new URLSearchParams(window.location.search);
 
     // Whitelist of return destinations. Add a page here to make it linkable-back-to.
+    // README §5.8: `from` is a KEY into this map, never a URL. An unknown key
+    // renders no chip — that is the whole point of the whitelist, otherwise
+    // `?from=//evil.example` turns every page in the app into an open redirector.
     var ORIGINS = {
         crm_clients: { href: '/modules/crm/clients.php', label: 'Base Clients' },
         crm_studio:  { href: '/modules/crm/proposal_studio.php', label: 'Studio Proposition' },
         sales:       { href: '/modules/sales/orders.php', label: 'Ventes & Commandes' },
         dash_sales:  { href: '/modules/dashboard/views/sales_dashboard.php', label: 'Tableau de Bord Ventes' },
         invoices:    { href: '/modules/accounting/invoices.php', label: 'Facturation & AR' },
-        empties:     { href: '/modules/operations/empties_collection.php', label: 'Gestion des Vides' }
+        empties:     { href: '/modules/operations/empties_collection.php', label: 'Gestion des Vides' },
+        // Sprint 7H — the five dashboards each become a return destination now
+        // that every KPI card deep-links to its source page. Keys mirror the
+        // dashboard filenames so a URL search for `?from=dashboard_md` lands
+        // on the right file without needing to consult a table.
+        dashboard_md:      { href: '/modules/dashboard/views/md_dashboard.php',      label: 'Tableau de Bord Exécutif' },
+        dashboard_finance: { href: '/modules/dashboard/views/finance_dashboard.php', label: 'Tableau de Bord Finance' },
+        dashboard_ops:     { href: '/modules/dashboard/views/ops_dashboard.php',     label: 'Tableau de Bord Opérations' },
+        dashboard_sales:   { href: '/modules/dashboard/views/sales_dashboard.php',   label: 'Tableau de Bord Ventes' },
+        analytics_reports: { href: '/modules/analytics/reports.php',                 label: 'Rapports Consolidés' }
     };
 
     var rawId = params.get('client_id');

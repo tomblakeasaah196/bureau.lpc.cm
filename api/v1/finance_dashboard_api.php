@@ -29,6 +29,8 @@
  */
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/classes/Paginator.php';
+require_once __DIR__ . '/../../includes/functions/lpc_csv.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -116,6 +118,201 @@ try {
     error_log('finance_dashboard: DB unavailable: ' . $e->getMessage());
     http_response_code(503);
     fd_respond('error', 'Base de données indisponible.');
+}
+
+// =============================================================================
+// DRILLDOWN DISPATCH — Sprint 7H
+// Same helper shape as md_dashboard_api. Kept per-file rather than hoisted
+// to a shared include because each controller's ACTION_PERMS map is
+// permission-specific.
+// =============================================================================
+function fd_run_drilldown(
+    PDO $pdo,
+    string $sql_body,
+    array $params,
+    string $select,
+    array $searchable,
+    array $csv_headers,
+    array $csv_columns,
+    string $csv_prefix,
+    ?callable $row_transform = null
+): void {
+    $format = strtolower((string)($_GET['format'] ?? 'json'));
+
+    $q = trim((string)($_GET['q'] ?? ''));
+    if ($q !== '' && !empty($searchable)) {
+        [$sql_body, $params] = Paginator::addWhere($sql_body, $params, $q, $searchable);
+    }
+
+    if ($format === 'csv') {
+        $stmt = $pdo->prepare('SELECT ' . $select . ' ' . $sql_body);
+        $stmt->execute($params);
+        $rows = (function () use ($stmt, $row_transform) {
+            while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                yield $row_transform ? $row_transform($r) : $r;
+            }
+        })();
+        lpc_csv_stream($csv_headers, $rows, $csv_prefix . '-' . date('Ymd') . '.csv', $csv_columns);
+        exit;
+    }
+
+    $page = Paginator::paginate($pdo, $sql_body, $params, $select);
+    if ($row_transform) {
+        $page['data'] = array_map($row_transform, $page['data']);
+    }
+    echo json_encode([
+        'status' => 'success',
+        'data'   => [
+            'rows'       => $page['data'],
+            'pagination' => [
+                'page'        => $page['page'],
+                'per_page'    => $page['per_page'],
+                'total'       => $page['total'],
+                'total_pages' => $page['total_pages'],
+                'has_prev'    => $page['has_prev'],
+                'has_next'    => $page['has_next'],
+            ],
+        ],
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+$__action = (string)($_GET['action'] ?? '');
+
+if ($__action === 'drilldown_cash') {
+    $sql = "
+        FROM journal_lines jl
+        JOIN journal_entries je ON jl.journal_entry_id = je.id
+        JOIN chart_of_accounts coa ON jl.account_id = coa.id
+        WHERE coa.code IN ('LPC05711', 'LPC52111')
+          AND je.status = 'approved'
+          AND je.date BETWEEN :s AND :e
+        ORDER BY je.date DESC, je.id DESC
+    ";
+    fd_run_drilldown($db, $sql,
+        ['s' => $start_date, 'e' => $end_date],
+        "je.date, je.reference, coa.name AS account_name, jl.debit AS inflow, jl.credit AS outflow",
+        ['je.reference', 'coa.name'],
+        ['Date', 'Référence', 'Compte', 'Entrée FCFA', 'Sortie FCFA'],
+        ['date', 'reference', 'account_name', 'inflow', 'outflow'],
+        'fin-cash'
+    );
+}
+
+if ($__action === 'drilldown_ar') {
+    $sql = "
+        FROM invoices i
+        LEFT JOIN clients c ON c.id = i.client_id
+        WHERE i.status <> 'paid'
+        ORDER BY (DATEDIFF(CURRENT_DATE, i.due_date)) DESC, i.total_amount DESC
+    ";
+    fd_run_drilldown($db, $sql, [],
+        "i.id,
+         COALESCE(c.name, '—') AS client_name,
+         i.reference AS invoice_number,
+         i.due_date,
+         GREATEST(0, DATEDIFF(CURRENT_DATE, i.due_date)) AS days_overdue,
+         i.total_amount AS amount",
+        ['c.name', 'i.reference'],
+        ['Client', 'Facture', 'Échéance', 'Retard (j)', 'Montant FCFA'],
+        ['client_name', 'invoice_number', 'due_date', 'days_overdue', 'amount'],
+        'fin-ar'
+    );
+}
+
+if ($__action === 'drilldown_ap') {
+    // Supplier balances as of end_date. supplier_invoices is the source of truth
+    // where it exists; falls back to journal_lines against LPC40111 otherwise.
+    $sql = "
+        FROM journal_lines jl
+        JOIN journal_entries je ON jl.journal_entry_id = je.id
+        JOIN chart_of_accounts coa ON jl.account_id = coa.id
+        WHERE coa.code = 'LPC40111'
+          AND je.status = 'approved'
+          AND je.date <= :e
+        ORDER BY je.date DESC
+    ";
+    fd_run_drilldown($db, $sql,
+        ['e' => $end_date],
+        "je.date,
+         je.reference,
+         COALESCE(je.description, '') AS supplier_name,
+         (jl.credit - jl.debit) AS amount",
+        ['je.reference', 'je.description'],
+        ['Date', 'Référence', 'Fournisseur', 'Montant FCFA'],
+        ['date', 'reference', 'supplier_name', 'amount'],
+        'fin-ap',
+        function ($r) {
+            // Match the client's expected `reference` field.
+            $r['reference'] = $r['reference'] ?? '';
+            return $r;
+        }
+    );
+}
+
+if ($__action === 'drilldown_pending') {
+    // UNION so a single drilldown lists both the reconciliations and the
+    // journal entries awaiting validation, colour-coded by kind.
+    $sql = "
+        FROM (
+            SELECT 'Caisse chauffeur' AS kind,
+                   cr.date,
+                   CONCAT('#', cr.id) AS reference,
+                   CONCAT(u.first_name, ' ', SUBSTRING(u.last_name, 1, 1), '.') AS author,
+                   cr.reported_cash AS amount
+              FROM cash_reconciliations cr
+              JOIN users u ON u.id = cr.driver_id
+             WHERE cr.status = 'pending_accountant'
+             UNION ALL
+            SELECT 'Écriture comptable' AS kind,
+                   je.date,
+                   je.reference,
+                   COALESCE(uu.first_name, '—') AS author,
+                   (SELECT COALESCE(SUM(jl.debit), 0) FROM journal_lines jl WHERE jl.journal_entry_id = je.id) AS amount
+              FROM journal_entries je
+              LEFT JOIN users uu ON uu.id = je.created_by
+             WHERE je.status = 'pending'
+        ) t
+        ORDER BY t.date DESC
+    ";
+    fd_run_drilldown($db, $sql, [],
+        "t.kind, t.date, t.reference, t.author, t.amount",
+        ['t.reference', 't.author', 't.kind'],
+        ['Type', 'Date', 'Référence', 'Auteur', 'Montant FCFA'],
+        ['kind', 'date', 'reference', 'author', 'amount'],
+        'fin-pending'
+    );
+}
+
+if ($__action === 'drilldown_margin') {
+    // Same shape as md drilldown_margin — the two dashboards read the same
+    // underlying decomposition; only the period selector differs.
+    $sql = "
+        FROM chart_of_accounts coa
+        LEFT JOIN journal_lines jl ON jl.account_id = coa.id
+        LEFT JOIN journal_entries je ON jl.journal_entry_id = je.id
+            AND je.status = 'approved'
+            AND je.date BETWEEN :s AND :e
+        WHERE coa.type IN ('revenue', 'expense')
+        GROUP BY coa.id, coa.name, coa.type
+        HAVING (COALESCE(SUM(jl.debit), 0) + COALESCE(SUM(jl.credit), 0)) > 0
+        ORDER BY coa.type DESC, ABS(COALESCE(SUM(jl.credit - jl.debit), 0)) DESC
+    ";
+    fd_run_drilldown($db, $sql,
+        ['s' => $start_date, 'e' => $end_date],
+        "coa.name AS account_name,
+         coa.type,
+         COALESCE(SUM(jl.debit), 0)  AS debit,
+         COALESCE(SUM(jl.credit), 0) AS credit,
+         CASE WHEN coa.type = 'revenue'
+              THEN COALESCE(SUM(jl.credit - jl.debit), 0)
+              ELSE COALESCE(SUM(jl.debit - jl.credit), 0)
+         END AS balance",
+        ['coa.name'],
+        ['Compte', 'Type', 'Débit FCFA', 'Crédit FCFA', 'Solde FCFA'],
+        ['account_name', 'type', 'debit', 'credit', 'balance'],
+        'fin-margin'
+    );
 }
 
 // -----------------------------------------------------------------------------
