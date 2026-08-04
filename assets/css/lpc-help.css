@@ -52,9 +52,32 @@
     .lpc-help-btn-label { display: none; }
 }
 
-/* Pin help to the trailing edge of the toolbar. `margin-left:auto` on the
-   button itself would fight `.lpc-toolbar-lead`; this is scoped to help only. */
-.lpc-toolbar > .lpc-help-btn { margin-left: auto; }
+/* Pin help to the trailing edge of the toolbar — regardless of source order.
+   The toolbar is `display:flex; justify-content:flex-end`, so packing already
+   goes right; `order:99` guarantees the help button is the LAST visible child
+   no matter where in the DOM the page put its <?= lpc_help_link(...) ?> call.
+   Combined with margin-left:auto so a page with a .lpc-toolbar-lead still gets
+   the lead pushed to the extreme left and help stays at the extreme right.
+   Aug 2026: the sweep that wired lpc_help_link on every page relied on this
+   rule — without it, each page had to be edited to put the call last. */
+.lpc-toolbar > .lpc-help-btn {
+    order: 99;
+    margin-left: auto;
+}
+
+/* Empty state: no articles wired yet. The icon still renders (so the reader
+   knows help exists in principle) but softens the border and colour to signal
+   "coming soon". Emitted as an <a> in help.php so a click still leads to the
+   help centre index instead of doing nothing. */
+.lpc-help-btn-empty {
+    opacity: .55;
+    border-style: dashed;
+    text-decoration: none;
+}
+.lpc-help-btn-empty:hover {
+    opacity: 1;
+    border-style: solid;
+}
 
 /* The topbar "?" — sits beside the + and must read as chrome, not as content.
    Mirrors .lpc-icon-btn so the three round buttons stay visually identical. */

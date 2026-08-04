@@ -80,6 +80,13 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
              selects, because lpc-shell.css loads after tailwind.css and a
              `display` rule there would beat Tailwind's `.hidden`. */ ?>
     <div class="lpc-toolbar">
+        <?php
+        // Page help — icon pinned to the toolbar's right edge by
+        // `.lpc-toolbar > .lpc-help-btn { order: 99 }`. Renders a
+        // muted « Aide (à venir) » link until articles are authored
+        // against the anchor 'dashboard.sales'.
+        echo lpc_help_link('dashboard.sales', $lang);
+        ?>
         <label for="sd-month" class="sr-only">Mois</label>
         <select id="sd-month" class="lpc-control">
             <?php foreach ($monthNames as $num => $name): ?>

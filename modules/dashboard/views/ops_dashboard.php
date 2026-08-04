@@ -38,6 +38,13 @@ $initials = strtoupper(substr($display_name, 0, 2));
 
     <div id="lpc-shell-main">
         <div class="lpc-toolbar">
+            <?php
+            // Page help — icon pinned to the toolbar's right edge by
+            // `.lpc-toolbar > .lpc-help-btn { order: 99 }`. Renders a
+            // muted « Aide (à venir) » link until articles are authored
+            // against the anchor 'dashboard.ops'.
+            echo lpc_help_link('dashboard.ops', $lang);
+            ?>
             <div id="custom-date-ui" class="hidden flex items-center space-x-2 bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
                 <input type="date" id="start-date" class="text-sm text-gray-700 bg-transparent border-none focus:ring-0 p-1.5 cursor-pointer">
                 <span class="text-gray-400 text-sm">au</span>

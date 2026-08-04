@@ -307,16 +307,6 @@ require __DIR__ . '/../../includes/components/topbar.php';
 <div id="lpc-shell-main">
 
     <div class="lpc-toolbar">
-        <?php
-        // Page help. Anchored to 'admin.error_monitor' by migration 073.
-        // Renders nothing on an un-migrated database, and the page RBAC gate
-        // above has already made sure the reader can see the articles. This
-        // is the toolbar-scoped « ? » that README §5.5 reserves for the
-        // page-specific article; the topbar's own icon still opens the
-        // full help centre.
-        echo lpc_help_link('admin.error_monitor', $lang);
-        ?>
-        <p class="lpc-toolbar-lead text-xs text-gray-500 max-w-2xl truncate"><?= __t('ui.error_monitor.intro') ?></p>
         <form method="get" class="lpc-field">
             <!-- Carry the active filter across a window change, otherwise
                  resizing the read window silently resets the user's search. -->
@@ -337,7 +327,24 @@ require __DIR__ . '/../../includes/components/topbar.php';
         <button onclick="location.reload()" class="btn btn-primary">
             ⟲ <?= __t('ui.actualiser') ?>
         </button>
+        <?php
+        // Page help. Anchored to 'admin.error_monitor' by migration 073.
+        // The button always renders (lpc_help_link's "always on" behaviour):
+        // when no articles exist yet it opens the help centre index in a
+        // muted state. Global CSS in lpc-shell.css pins .lpc-help-btn to the
+        // extreme right of any .lpc-toolbar via margin-left:auto, so its
+        // position here in source order is arbitrary — the flexbox does the
+        // work. Kept last for readability.
+        echo lpc_help_link('admin.error_monitor', $lang);
+        ?>
     </div>
+
+    <!-- Intro paragraph. Was inside .lpc-toolbar; moved out because a long
+         sentence there compressed the Fenêtre / Télécharger / Actualiser
+         controls and pushed the help icon out of alignment. -->
+    <p class="lpc-page-intro text-xs text-gray-500 mt-1 mb-4 max-w-3xl">
+        <?= __t('ui.error_monitor.intro') ?>
+    </p>
 
 <main role="main" id="main" class="lpc-page">
 

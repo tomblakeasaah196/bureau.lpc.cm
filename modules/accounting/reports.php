@@ -63,6 +63,13 @@ $user_role = $_SESSION['user_role'];
 
     <div id="lpc-shell-main">
         <div class="lpc-toolbar">
+            <?php
+            // Page help — icon pinned to the toolbar's right edge by
+            // `.lpc-toolbar > .lpc-help-btn { order: 99 }`. Renders a
+            // muted « Aide (à venir) » link until articles are authored
+            // against the anchor 'accounting.reports'.
+            echo lpc_help_link('accounting.reports', $lang);
+            ?>
             <div class="lpc-toolbar-lead hidden md:block" id="tax_indicator_panel">
                 <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest leading-tight">Simulation IS vs AIR (5.5%)</p>
                 <p class="text-sm font-black text-emerald-600 leading-tight" id="tax_status_text"><?= htmlspecialchars(__t('ui.x.chargement')) ?></p>

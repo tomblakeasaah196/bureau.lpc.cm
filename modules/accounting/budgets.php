@@ -50,6 +50,13 @@ $user_role = $_SESSION['user_role'];
 
     <div id="lpc-shell-main">
         <div class="lpc-toolbar">
+            <?php
+            // Page help — icon pinned to the toolbar's right edge by
+            // `.lpc-toolbar > .lpc-help-btn { order: 99 }`. Renders a
+            // muted « Aide (à venir) » link until articles are authored
+            // against the anchor 'accounting.budgets'.
+            echo lpc_help_link('accounting.budgets', $lang);
+            ?>
             <div class="lpc-field">
                 <label for="global_year_filter"><?= htmlspecialchars(__t('ui.x.exercice')) ?></label>
                 <select id="global_year_filter" onchange="refreshAllTabs()">

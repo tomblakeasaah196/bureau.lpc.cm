@@ -68,6 +68,13 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 <div id="lpc-shell-main">
 
     <div class="lpc-toolbar">
+        <?php
+        // Page help — icon pinned to the toolbar's right edge by
+        // `.lpc-toolbar > .lpc-help-btn { order: 99 }`. Renders a
+        // muted « Aide (à venir) » link until articles are authored
+        // against the anchor 'admin.help_articles'.
+        echo lpc_help_link('admin.help_articles', $lang);
+        ?>
         <a href="?new=1&lang=<?= $lang ?>"
            class="bg-lpc-dark hover:bg-[#004722] text-white px-4 md:px-5 py-2.5 rounded-xl font-bold shadow-md transition-all flex items-center shrink-0 no-underline">
             <svg class="w-5 h-5 md:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>

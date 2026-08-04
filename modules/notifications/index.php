@@ -53,6 +53,13 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 <div id="lpc-shell-main">
 
     <div class="lpc-toolbar">
+        <?php
+        // Page help — icon pinned to the toolbar's right edge by
+        // `.lpc-toolbar > .lpc-help-btn { order: 99 }`. Renders a
+        // muted « Aide (à venir) » link until articles are authored
+        // against the anchor 'notifications.index'.
+        echo lpc_help_link('notifications.index', $lang);
+        ?>
         <p class="lpc-toolbar-lead text-xs font-bold uppercase tracking-widest text-gray-400">
             <span id="notif-summary">—</span>
         </p>
