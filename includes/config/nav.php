@@ -111,7 +111,7 @@ $CATALOGUE = [
   'acc_expenses'   => ['href'=>'/modules/accounting/expenses.php',               'icon'=>$I['calculator'],'permission'=>'accounting.expenses.view',     'label_fr'=>'Dépenses',                'label_en'=>'Expenses'],
   'acc_budgets'    => ['href'=>'/modules/accounting/budgets.php',                'icon'=>$I['chart'],     'permission'=>'accounting.budgets.view',      'label_fr'=>'Budgets',                 'label_en'=>'Budgets'],
   'acc_assets'     => ['href'=>'/modules/accounting/fixed_assets.php',           'icon'=>$I['building'],  'permission'=>'accounting.fixed_assets.view', 'label_fr'=>'Immobilisations',         'label_en'=>'Fixed Assets'],
-  'acc_reports'    => ['href'=>'/modules/accounting/reports.php',                'icon'=>$I['calculator'],'permission'=>'accounting.reports.view',      'label_fr'=>'Bilan & Résultat',        'label_en'=>'Reports (SYSCOHADA)'],
+  'acc_reports'    => ['href'=>'/modules/accounting/reports.php',                'icon'=>$I['calculator'],'permission'=>'accounting.reports.view',      'label_fr'=>'États Financiers',        'label_en'=>'Financial Statements (SYSCOHADA)'],
   // tax_declarations.php gates on accounting.invoices.view (see its header).
   'acc_tax'        => ['href'=>'/modules/accounting/tax_declarations.php',       'icon'=>$I['calculator'],'permission'=>'accounting.invoices.view',     'label_fr'=>'Déclarations Fiscales',   'label_en'=>'Tax Declarations'],
 
@@ -178,7 +178,7 @@ $PROFILES = [
       ['ref'=>'acc_cashflow',   'label_fr'=>'Trésorerie & Banque',      'label_en'=>'Treasury & Bank'],
       ['ref'=>'acc_assets',     'label_fr'=>'Immobilisations',          'label_en'=>'Fixed Assets'],
       ['ref'=>'acc_tax',        'label_fr'=>'Déclarations Fiscales',    'label_en'=>'Tax Declarations'],
-      ['ref'=>'acc_reports',    'label_fr'=>'Bilan & Résultat',         'label_en'=>'Balance Sheet & P&L'],
+      ['ref'=>'acc_reports',    'label_fr'=>'États Financiers (Bilan · Résultat · TFT · Notes · Clôture)', 'label_en'=>'Financial Statements (Bilan · P&L · TFT · Notes · Closing)'],
       ['ref'=>'acc_budgets',    'label_fr'=>'Budgets & Performance',    'label_en'=>'Budgets & Performance'],
     ]],
     ['heading_fr'=>'Administration & RH', 'heading_en'=>'Administration & HR', 'items'=>[

@@ -184,23 +184,28 @@ if ($method === 'GET') {
             $data['resultat_net_N'] = $total_produits_N;
             $data['resultat_net_N_1'] = $total_produits_N_1;
 
-            // 4. Tax Simulation (IS 30% vs AIR 5.5%)
-            $is_amount = $data['resultat_net_N'] > 0 ? $data['resultat_net_N'] * 0.30 : 0;
-            
-            // Get AIR paid (Account 4492 Debit balance)
-            $stmtAIR = $pdo->prepare("
-                SELECT SUM(jl.debit - jl.credit) 
-                FROM journal_lines jl JOIN chart_of_accounts ca ON jl.account_id = ca.id 
-                JOIN journal_entries je ON jl.journal_entry_id = je.id 
-                WHERE ca.code LIKE '4492%' AND YEAR(je.date) = ? AND je.status = 'approved'
-            ");
-            $stmtAIR->execute([$year]);
-            $air_paid = (float)$stmtAIR->fetchColumn();
-
-            $data['tax_simulation'] = [
-                'is_amount' => $is_amount,
-                'air_paid' => $air_paid
-            ];
+            // 4. Tax Simulation — dynamic, driven by company_tax_settings
+            //    (see includes/functions/tax_simulation.php). Fully wraps the
+            //    old hardcoded (IS 30% vs AIR 5.5%) block so the caller always
+            //    gets a well-shaped `tax_simulation` — even if the settings row
+            //    is missing (in which case defaults kick in AND we surface it
+            //    in the `label` so the accountant knows to configure the entity).
+            require_once __DIR__ . '/../../includes/functions/tax_simulation.php';
+            try {
+                $data['tax_simulation'] = build_tax_simulation($pdo, $year, $data['resultat']);
+            } catch (Throwable $tx) {
+                // Never let the tax block break generate_reports. Emit a
+                // neutral placeholder so the frontend can show "Indisponible".
+                error_log('tax_simulation error: ' . $tx->getMessage());
+                $data['tax_simulation'] = [
+                    'regime'   => 'unknown',
+                    'label'    => "Simulation IS indisponible",
+                    'cit_rate' => 0, 'air_rate' => 0,
+                    'is_on_profit' => 0, 'is_minimum' => 0, 'is_due' => 0,
+                    'air_paid' => 0, 'air_withheld' => 0,
+                    'error'    => true,
+                ];
+            }
 
             $data['year_status'] = $year_status;
 
@@ -394,6 +399,71 @@ if ($method === 'GET') {
 }
 
 // ==========================================
+// SPRINT 8B · GET — TFT, Notes Annexes, Closing state
+// ==========================================
+if ($method === 'GET' && $action === 'closing_state') {
+    require_once __DIR__ . '/../../includes/classes/YearEndClosing.php';
+    $year = (int)($_GET['year'] ?? date('Y'));
+    $engine = new YearEndClosing($pdo, (int)($user_id ?? 0));
+    $state = $engine->getState($year);
+    $adj = $pdo->prepare(
+        "SELECT id, kind, target_ref, amount, description, journal_entry_id,
+                reversal_journal_entry_id, status, created_at
+           FROM year_end_adjustments WHERE fiscal_year = ? ORDER BY created_at DESC"
+    );
+    $adj->execute([$year]);
+    $state['adjustments'] = $adj->fetchAll(PDO::FETCH_ASSOC);
+    $state['preflight']   = $engine->preflight($year);
+    sendResponse('success', 'closing state', $state);
+}
+
+if ($method === 'GET' && $action === 'tft') {
+    require_once __DIR__ . '/../../includes/functions/tft_engine.php';
+    $year = (int)($_GET['year'] ?? date('Y'));
+    try {
+        $data = build_tft($pdo, $year);
+        sendResponse('success', 'TFT', $data);
+    } catch (Throwable $e) {
+        error_log('tft error: ' . $e->getMessage());
+        sendResponse('error', 'Erreur TFT : ' . $e->getMessage());
+    }
+}
+
+if ($method === 'GET' && $action === 'notes_annexes') {
+    require_once __DIR__ . '/../../includes/functions/notes_annexes.php';
+    $year = (int)($_GET['year'] ?? date('Y'));
+    try {
+        $data = build_notes_annexes($pdo, $year);
+        sendResponse('success', 'Notes annexes', $data);
+    } catch (Throwable $e) {
+        error_log('notes error: ' . $e->getMessage());
+        sendResponse('error', 'Erreur Notes : ' . $e->getMessage());
+    }
+}
+
+if ($method === 'GET' && $action === 'export_notes_xlsx') {
+    if (!Rbac::hasPermission('accounting.reports.export')) {
+        http_response_code(403);
+        sendResponse('error', 'Permission requise : accounting.reports.export.');
+    }
+    require_once __DIR__ . '/../../includes/functions/notes_annexes.php';
+    $year = (int)($_GET['year'] ?? date('Y'));
+    try {
+        $data = build_notes_annexes($pdo, $year);
+        $filename = "LPC_Notes_Annexes_{$year}.xlsx";
+        // Prefer PhpSpreadsheet when available; otherwise fall back to a
+        // native SpreadsheetML 2003 XML workbook (opens in every Excel/LO
+        // release since 2003) so a fresh install still produces a real .xlsx
+        // download instead of a 500.
+        export_notes_xlsx($data, $filename);
+        exit;
+    } catch (Throwable $e) {
+        error_log('notes xlsx error: ' . $e->getMessage());
+        sendResponse('error', 'Erreur export Notes : ' . $e->getMessage());
+    }
+}
+
+// ==========================================
 // [POST] WRITE OPERATIONS (CLÔTURE)
 // ==========================================
 if ($method === 'POST') {
@@ -401,6 +471,51 @@ if ($method === 'POST') {
     if (!$payload || !isset($payload['action'])) sendResponse('error', 'Payload invalide.');
 
     $action = $payload['action'];
+
+    // ------------------------------------------------------------------
+    // SPRINT 8B · Clôture wizard — phased actions
+    //   - closing_transition:  { year, to, note }
+    //   - closing_run_phase:   { year, phase } where phase in
+    //       depreciation | is_provision | profit_incorporation
+    //   - closing_reverse_adj: { adjustment_id }
+    // Backward-compat: 'close_year' is kept and now delegates to the engine's
+    // full sequence: transition → depreciation → is_provision →
+    // profit_incorporation → provisional_closed → A-Nouveaux → final_closed.
+    // ------------------------------------------------------------------
+    if ($action === 'closing_transition') {
+        if (!Rbac::hasPermission('accounting.closing.run')) sendResponse('error', 'Permission requise.');
+        require_once __DIR__ . '/../../includes/classes/YearEndClosing.php';
+        try {
+            $engine = new YearEndClosing($pdo, (int)$user_id);
+            $to = $engine->transition((int)$payload['year'], (string)$payload['to'], $payload['note'] ?? null);
+            sendResponse('success', "État: $to", ['state' => $to]);
+        } catch (Throwable $e) { sendResponse('error', $e->getMessage()); }
+    }
+    if ($action === 'closing_run_phase') {
+        if (!Rbac::hasPermission('accounting.closing.run')) sendResponse('error', 'Permission requise.');
+        require_once __DIR__ . '/../../includes/classes/YearEndClosing.php';
+        $engine = new YearEndClosing($pdo, (int)$user_id);
+        $year = (int)$payload['year']; $phase = (string)$payload['phase'];
+        try {
+            $n = 0;
+            switch ($phase) {
+                case 'depreciation':          $n = $engine->runDepreciation($year); break;
+                case 'is_provision':          $n = $engine->runIsProvision($year); break;
+                case 'profit_incorporation':  $n = $engine->runProfitIncorporation($year); break;
+                default: sendResponse('error', "Phase inconnue: $phase");
+            }
+            sendResponse('success', "$n écritures générées", ['created' => $n, 'phase' => $phase]);
+        } catch (Throwable $e) { sendResponse('error', $e->getMessage()); }
+    }
+    if ($action === 'closing_reverse_adj') {
+        if (!Rbac::hasPermission('accounting.closing.run')) sendResponse('error', 'Permission requise.');
+        require_once __DIR__ . '/../../includes/classes/YearEndClosing.php';
+        try {
+            $engine = new YearEndClosing($pdo, (int)$user_id);
+            $revId = $engine->reverseAdjustment((int)$payload['adjustment_id']);
+            sendResponse('success', 'Extourne posté', ['reversal_journal_entry_id' => $revId]);
+        } catch (Throwable $e) { sendResponse('error', $e->getMessage()); }
+    }
 
     if ($action === 'close_year') {
         if ($user_role !== 'admin') sendResponse('error', 'Seul un Administrateur peut clôturer un exercice.');

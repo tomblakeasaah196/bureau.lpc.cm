@@ -111,8 +111,19 @@ $user_role = $_SESSION['user_role'];
                 <button onclick="switchTab('resultat')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-resultat">
                     <i class="fas fa-chart-line mr-2"></i> Compte de Résultat (SIG)
                 </button>
+                <button onclick="switchTab('tft')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-tft">
+                    <i class="fas fa-water mr-2"></i> Flux de Trésorerie (TFT)
+                </button>
+                <button onclick="switchTab('notes')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-notes">
+                    <i class="fas fa-book-open mr-2"></i> Notes Annexes
+                </button>
+                <?php if($user_role === 'admin'): ?>
+                <button onclick="switchTab('cloture')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-cloture">
+                    <i class="fas fa-lock mr-2"></i> Assistant Clôture
+                </button>
+                <?php endif; ?>
                 <button onclick="switchTab('dashboard')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-dashboard">
-                    <i class="fas fa-tachometer-alt mr-2"></i> Vue Dirigeant (Managerial)
+                    <i class="fas fa-tachometer-alt mr-2"></i> Vue Dirigeant
                 </button>
         </nav>
 
@@ -190,6 +201,119 @@ $user_role = $_SESSION['user_role'];
                     </div>
                 </div>
             </div>
+
+            <!-- Sprint 8B — TFT (Tableau de Flux de Trésorerie) -->
+            <div id="content-tft" class="tab-content flex-col h-full gap-6">
+                <div class="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
+                    <div class="bg-cyan-50 border-b border-cyan-100 px-6 py-4 flex justify-between items-center">
+                        <div>
+                            <h3 class="font-black text-cyan-900 text-sm uppercase tracking-widest">Tableau de Flux de Trésorerie (méthode indirecte)</h3>
+                            <p class="text-[10px] font-bold text-cyan-700 uppercase">SYSCOHADA révisé — Article 30</p>
+                        </div>
+                        <div id="tft_reconciliation" class="text-xs font-black text-gray-400">—</div>
+                    </div>
+                    <div class="overflow-auto">
+                        <table class="min-w-full text-left border-collapse">
+                            <thead class="bg-gray-50 text-[9px] uppercase text-gray-400 font-black tracking-widest border-b border-gray-200">
+                                <tr>
+                                    <th class="py-3 px-4 w-16">Code</th>
+                                    <th class="py-3 px-4">Rubrique</th>
+                                    <th class="py-3 px-4 text-right">Exercice N</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-tft" class="text-xs font-medium divide-y divide-gray-100">
+                                <tr><td colspan="3" class="py-8 text-center text-gray-400 italic"><i class="fas fa-spinner fa-spin mr-2"></i> Chargement du TFT…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sprint 8B — Notes Annexes -->
+            <div id="content-notes" class="tab-content flex-col h-full gap-6">
+                <div class="flex justify-between items-center shrink-0">
+                    <h2 class="font-black text-gray-800 uppercase tracking-widest text-sm">Notes Annexes (SYSCOHADA)</h2>
+                    <div class="flex gap-2">
+                        <button onclick="exportNotesXlsx()" data-perm="accounting.reports.export" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-black text-xs shadow-sm transition-all">
+                            <i class="fas fa-file-excel mr-1"></i> Exporter Excel (une note = un onglet)
+                        </button>
+                    </div>
+                </div>
+                <div id="notes-container" class="flex flex-col gap-4">
+                    <div class="text-center text-gray-400 py-12"><i class="fas fa-spinner fa-spin mr-2"></i>Génération des Notes…</div>
+                </div>
+            </div>
+
+            <?php if($user_role === 'admin'): ?>
+            <!-- Sprint 8B — Assistant Clôture Annuelle -->
+            <div id="content-cloture" class="tab-content flex-col h-full gap-6">
+                <div class="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
+                    <div class="bg-amber-50 border-b border-amber-100 px-6 py-4 flex justify-between items-center">
+                        <div>
+                            <h3 class="font-black text-amber-900 text-sm uppercase tracking-widest">Assistant de Clôture Annuelle</h3>
+                            <p class="text-[10px] font-bold text-amber-700 uppercase">Écritures d'inventaire, provisions, arrêté des comptes</p>
+                        </div>
+                        <div id="cloture_state_badge" class="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded bg-gray-100 text-gray-500">—</div>
+                    </div>
+                    <div class="p-6 space-y-6">
+                        <div>
+                            <h4 class="text-[11px] uppercase font-black tracking-widest text-gray-500 mb-3">1. Contrôles préalables (Preflight)</h4>
+                            <div id="cloture_preflight" class="space-y-2 text-sm"></div>
+                        </div>
+                        <div>
+                            <h4 class="text-[11px] uppercase font-black tracking-widest text-gray-500 mb-3">2. Phases d'inventaire</h4>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <button onclick="runClosingPhase('depreciation')" class="text-left p-4 rounded-xl border border-gray-200 hover:border-amber-400 hover:bg-amber-50 transition">
+                                    <div class="font-black text-sm text-gray-800">Dotations aux amortissements</div>
+                                    <div class="text-[11px] text-gray-500 mt-1">Génère une OD par immobilisation active, prorata inclus.</div>
+                                </button>
+                                <button onclick="runClosingPhase('is_provision')" class="text-left p-4 rounded-xl border border-gray-200 hover:border-amber-400 hover:bg-amber-50 transition">
+                                    <div class="font-black text-sm text-gray-800">Provision IS</div>
+                                    <div class="text-[11px] text-gray-500 mt-1">Charge 891 vs dette 4472, taux selon régime fiscal.</div>
+                                </button>
+                                <button onclick="runClosingPhase('profit_incorporation')" class="text-left p-4 rounded-xl border border-gray-200 hover:border-amber-400 hover:bg-amber-50 transition">
+                                    <div class="font-black text-sm text-gray-800">Affectation du résultat</div>
+                                    <div class="text-[11px] text-gray-500 mt-1">Incorpore le net dans 131 (bénéfice) ou 139 (perte).</div>
+                                </button>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="text-[11px] uppercase font-black tracking-widest text-gray-500 mb-3">3. Écritures d'inventaire enregistrées</h4>
+                            <div class="overflow-auto border border-gray-200 rounded-xl">
+                                <table class="min-w-full text-xs">
+                                    <thead class="bg-gray-50 text-[9px] uppercase text-gray-400 font-black tracking-widest">
+                                        <tr>
+                                            <th class="py-2 px-3 text-left">Nature</th>
+                                            <th class="py-2 px-3 text-left">Cible</th>
+                                            <th class="py-2 px-3 text-right">Montant</th>
+                                            <th class="py-2 px-3 text-left">Description</th>
+                                            <th class="py-2 px-3 text-left">Statut</th>
+                                            <th class="py-2 px-3"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="cloture_adjustments"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="text-[11px] uppercase font-black tracking-widest text-gray-500 mb-3">4. Transitions d'état</h4>
+                            <div class="flex flex-wrap gap-2">
+                                <button onclick="closingTransition('inventory')"          class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold">▶ Démarrer inventaire</button>
+                                <button onclick="closingTransition('adjustments')"        class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold">▶ Démarrer ajustements</button>
+                                <button onclick="closingTransition('provisional_closed')" class="bg-amber-100 hover:bg-amber-200 text-amber-900 px-3 py-2 rounded-lg text-xs font-bold">▶ Clôture provisoire</button>
+                                <button onclick="closingTransition('locked')"             class="bg-orange-100 hover:bg-orange-200 text-orange-900 px-3 py-2 rounded-lg text-xs font-bold">▶ Verrouiller</button>
+                                <button onclick="closingTransition('final_closed')"       class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-lg text-xs font-black">▶ Clôture définitive</button>
+                            </div>
+                            <p class="text-[10px] text-gray-500 mt-3 italic">
+                                <strong>Transitions autorisées :</strong> open → inventory → adjustments → provisional_closed → locked → final_closed.
+                                Un exercice en <em>provisional_closed</em> n'accepte plus que des OD (opérations diverses).
+                                Un exercice <em>locked</em> ou <em>final_closed</em> ne peut plus recevoir d'écritures.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
 
             <!-- Sprint 7A D2 — Vue Dirigeant (executive summary) -->
             <div id="content-dashboard" class="tab-content flex-col h-full gap-6" data-lpc-vue-dirigeant>

@@ -37,33 +37,61 @@
 
         async function fetchFinancials() {
             const year = document.getElementById('report_year').value;
+            // Fail-safe: never leave the tax indicator stuck on "Chargement..."
+            // no matter which downstream step throws. See setTaxIndicatorError().
+            const taxTextEl = document.getElementById('tax_status_text');
             try {
                 // Future Backend Hook (The Mapping Engine)
                 const res = await fetch(`/api/v1/financials_controller.php?action=generate_reports&year=${year}`);
-                if(!res.ok) return;
+                if(!res.ok) {
+                    setTaxIndicatorError(`HTTP ${res.status}`);
+                    return;
+                }
                 const result = await res.json();
 
-                if (result.status === 'success') {
-                    financialData = result.data;
-                    renderBilan();
-                    renderResultat();
-                    updateTaxIndicator();
-                    
-                    // Manage Close button state
-                    const btnClose = document.getElementById('btn_cloture');
-                    if(btnClose) {
-                        if(financialData.year_status === 'closed') {
-                            btnClose.classList.replace('bg-rose-600', 'bg-gray-400');
-                            btnClose.innerHTML = LPC.html`<i class="fas fa-lock"></i> Exercice Clôturé`;
-                            btnClose.disabled = true;
-                        } else {
-                            btnClose.classList.replace('bg-gray-400', 'bg-rose-600');
-                            btnClose.innerHTML = LPC.html`<i class="fas fa-unlock"></i> Clôturer l'Exercice`;
-                            btnClose.disabled = false;
-                        }
+                if (result.status !== 'success') {
+                    setTaxIndicatorError(result.message || 'API');
+                    return;
+                }
+
+                financialData = result.data || {};
+
+                // Render each section in isolation so one bad section doesn't
+                // starve the others (the earlier code let an exception in
+                // renderBilan skip updateTaxIndicator, which is what left
+                // "Chargement..." pinned on the toolbar).
+                try { renderBilan();    } catch(e) { console.error('renderBilan',    e); }
+                try { renderResultat(); } catch(e) { console.error('renderResultat', e); }
+                try { updateTaxIndicator(); } catch(e) { console.error('updateTaxIndicator', e); setTaxIndicatorError('render'); }
+
+                // Manage Close button state
+                const btnClose = document.getElementById('btn_cloture');
+                if(btnClose) {
+                    const st = financialData.year_status || 'open';
+                    const closedLike = (st === 'closed' || st === 'locked' || st === 'final_closed');
+                    if(closedLike) {
+                        btnClose.classList.replace('bg-rose-600', 'bg-gray-400');
+                        btnClose.innerHTML = LPC.html`<i class="fas fa-lock"></i> Exercice Clôturé`;
+                        btnClose.disabled = true;
+                    } else {
+                        btnClose.classList.replace('bg-gray-400', 'bg-rose-600');
+                        btnClose.innerHTML = LPC.html`<i class="fas fa-unlock"></i> Assistant de Clôture`;
+                        btnClose.disabled = false;
                     }
                 }
-            } catch(e) { console.error("Fetch error", e); }
+            } catch(e) {
+                console.error("Fetch error", e);
+                setTaxIndicatorError('réseau');
+            }
+        }
+
+        function setTaxIndicatorError(reason) {
+            const el = document.getElementById('tax_status_text');
+            const panel = document.getElementById('tax_indicator_panel');
+            if (!el) return;
+            el.className = 'text-sm font-black text-gray-500 leading-tight';
+            el.innerHTML = LPC.html`Indisponible <span class="text-[9px] text-gray-400 font-bold">(${reason})</span>`;
+            if (panel) panel.title = 'Simulation fiscale indisponible — vérifier /api/v1/financials_controller.php';
         }
 
         // ================= RENDERS ================= //
@@ -256,20 +284,51 @@
         }
 
         function updateTaxIndicator() {
-            // Logic for Answer 6A (AIR vs IS Simulation)
-            if(!financialData) return;
-            const isEstime = financialData.tax_simulation.is_amount; // e.g. 30% of profit
-            const airPaid = financialData.tax_simulation.air_paid; // Balance of acc 4492
-            const toPay = isEstime - airPaid;
-
+            // Rewritten to drive off company_tax_settings (régime + rates)
+            // returned by the API rather than the old hard-coded 30% / 5.5%.
+            //
+            // Server contract (see api/v1/financials_controller.php → build_tax_simulation):
+            //   tax_simulation: {
+            //     regime:      'reel' | 'simplifie' | 'forfait' | 'non_professionnel',
+            //     cit_rate:    0.30,   // IS
+            //     air_rate:    0.055,  // AIR / minimum de perception on turnover
+            //     min_perception_base: 12345678, // turnover class 7*
+            //     is_on_profit:        3703703, // profit * cit_rate (0 if loss)
+            //     is_minimum:          678913,  // turnover * air_rate  (régime réel floor)
+            //     is_due:              max(profit, minimum) — whichever applies for the régime
+            //     air_paid:            balance of 4471 (acompte IS / minimum de perception)
+            //     air_withheld:        balance of 4424 (AIR withheld by clients)
+            //     credit_reportable:   |négatif|, si en crédit
+            //     label:               short human-readable rule ("Régime Réel — IS 30%")
+            //   }
+            const panel = document.getElementById('tax_indicator_panel');
             const textEl = document.getElementById('tax_status_text');
-            if (toPay > 0) {
-                textEl.innerHTML = LPC.html`IS: ${fmt(isEstime)} - AIR: ${fmt(airPaid)} = <span class="text-rose-600 font-black" title="Reste à Payer">Reliquat IS: ${fmt(toPay)} F</span>`;
-            } else if (toPay < 0) {
-                textEl.innerHTML = LPC.html`IS: ${fmt(isEstime)} - AIR: ${fmt(airPaid)} = <span class="text-emerald-600 font-black" title="Crédit d'Impôt">Crédit État: +${fmt(Math.abs(toPay))} F</span>`;
+            if (!textEl) return;
+
+            const ts = (financialData && financialData.tax_simulation) || null;
+            if (!ts) {
+                setTaxIndicatorError('config');
+                return;
+            }
+
+            // Rewrite the small caption above the value with the actual regime + rate
+            const caption = panel ? panel.querySelector('p') : null;
+            if (caption && ts.label) caption.textContent = ts.label;
+
+            const due = Number(ts.is_due || 0);
+            const credit = Number(ts.air_paid || 0) + Number(ts.air_withheld || 0);
+            const toPay = due - credit;
+
+            textEl.className = 'text-sm font-black leading-tight';
+            if (Math.abs(toPay) < 1) {
+                textEl.classList.add('text-gray-700');
+                textEl.innerHTML = LPC.html`Impôt couvert intégralement par acomptes/AIR.`;
+            } else if (toPay > 0) {
+                textEl.classList.add('text-rose-700');
+                textEl.innerHTML = LPC.html`IS dû: ${fmt(due)} F — Acomptes: ${fmt(credit)} F → <span class="text-rose-600 font-black" title="Reste à Payer">Reliquat: ${fmt(toPay)} F</span>`;
             } else {
-                textEl.innerHTML = LPC.html`Impôt totalement couvert par l'AIR (5.5%).`;
-                textEl.className = "text-sm font-black text-gray-600";
+                textEl.classList.add('text-emerald-700');
+                textEl.innerHTML = LPC.html`IS dû: ${fmt(due)} F — Acomptes: ${fmt(credit)} F → <span class="text-emerald-600 font-black" title="Crédit d'Impôt">Crédit reportable: ${fmt(Math.abs(toPay))} F</span>`;
             }
         }
 
@@ -501,3 +560,214 @@
         window.exportToExcel               = exportToExcel;
         window.printExecutiveSummary       = printExecutiveSummary;
         window.exportExecutiveSummaryPDF   = exportExecutiveSummaryPDF;
+
+        // =========================================================
+        // SPRINT 8B — TFT / Notes / Clôture wizard
+        // ---------------------------------------------------------
+        // Lazy-loads each tab on first activation and on year change.
+        // =========================================================
+        let tftLoaded = false, notesLoaded = false, clotureLoaded = false;
+        const _origSwitchTab8B = switchTab;
+        switchTab = function(tab) {
+            _origSwitchTab8B(tab);
+            if (tab === 'tft'     && !tftLoaded)     loadTft();
+            if (tab === 'notes'   && !notesLoaded)   loadNotes();
+            if (tab === 'cloture' && !clotureLoaded) loadCloture();
+        };
+        const _origFetchFinancials8B = fetchFinancials;
+        fetchFinancials = async function() {
+            await _origFetchFinancials8B();
+            // Force reload of downstream tabs the next time they are shown
+            tftLoaded = notesLoaded = clotureLoaded = false;
+            if (currentTab === 'tft')     loadTft();
+            if (currentTab === 'notes')   loadNotes();
+            if (currentTab === 'cloture') loadCloture();
+        };
+
+        async function loadTft() {
+            const year = document.getElementById('report_year').value;
+            const tbody = document.getElementById('tbody-tft');
+            const recEl = document.getElementById('tft_reconciliation');
+            tbody.innerHTML = LPC.html`<tr><td colspan="3" class="py-8 text-center text-gray-400 italic"><i class="fas fa-spinner fa-spin mr-2"></i>Chargement du TFT…</td></tr>`;
+            try {
+                const res = await fetch(`/api/v1/financials_controller.php?action=tft&year=${year}`);
+                const result = await res.json();
+                if (result.status !== 'success') throw new Error(result.message || 'TFT');
+                tbody.innerHTML = '';
+                (result.data.lines || []).forEach(l => {
+                    const isTotal = l.sign === '=' || l.activity === 'total';
+                    tbody.innerHTML += LPC.html`
+                        <tr class="${isTotal ? 'bg-cyan-50 font-black' : 'hover:bg-gray-50'}">
+                            <td class="py-2 px-4 text-gray-400 font-mono">${l.code}</td>
+                            <td class="py-2 px-4 ${isTotal ? 'uppercase tracking-widest text-cyan-900 text-[11px]' : ''}">${l.name}</td>
+                            <td class="py-2 px-4 text-right ${isTotal ? 'text-cyan-900' : ''}">${fmt(l.value || 0)}</td>
+                        </tr>`;
+                });
+                const rec = result.data.reconciled ? '✓ Rapprochement OK' : `⚠ Écart: ${fmt(result.data.delta)} F`;
+                recEl.className = 'text-xs font-black ' + (result.data.reconciled ? 'text-emerald-600' : 'text-rose-600');
+                recEl.textContent = rec;
+                tftLoaded = true;
+            } catch (e) {
+                console.error('TFT', e);
+                tbody.innerHTML = LPC.html`<tr><td colspan="3" class="py-8 text-center text-rose-500">Erreur de chargement du TFT.</td></tr>`;
+            }
+        }
+
+        async function loadNotes() {
+            const year = document.getElementById('report_year').value;
+            const box = document.getElementById('notes-container');
+            box.innerHTML = LPC.html`<div class="text-center text-gray-400 py-12"><i class="fas fa-spinner fa-spin mr-2"></i>Génération des Notes…</div>`;
+            try {
+                const res = await fetch(`/api/v1/financials_controller.php?action=notes_annexes&year=${year}`);
+                const result = await res.json();
+                if (result.status !== 'success') throw new Error(result.message || 'Notes');
+                box.innerHTML = '';
+                (result.data.notes || []).forEach(n => {
+                    let table = `<table class="min-w-full text-xs"><thead class="bg-gray-50 text-[9px] uppercase text-gray-400 font-black tracking-widest"><tr>`;
+                    n.columns.forEach(c => table += `<th class="py-2 px-3 text-left">${c}</th>`);
+                    table += `</tr></thead><tbody class="divide-y divide-gray-100">`;
+                    if (!n.rows.length) {
+                        table += `<tr><td colspan="${n.columns.length}" class="py-3 px-3 italic text-gray-400">Aucune donnée à date.</td></tr>`;
+                    } else {
+                        n.rows.forEach(r => {
+                            table += '<tr>';
+                            r.forEach((v, i) => {
+                                const isNum = typeof v === 'number';
+                                table += `<td class="py-1.5 px-3 ${isNum ? 'text-right font-mono' : ''}">${isNum ? fmt(v) : (v ?? '')}</td>`;
+                            });
+                            table += '</tr>';
+                        });
+                    }
+                    if (n.totals && n.totals.length) {
+                        table += '<tr class="bg-gray-100 font-black">';
+                        n.totals.forEach((v, i) => {
+                            if (i === 0 && (v === null || typeof v !== 'number')) { table += `<td class="py-2 px-3 uppercase text-[10px] tracking-widest">${v || 'TOTAL'}</td>`; return; }
+                            const isNum = typeof v === 'number';
+                            table += `<td class="py-2 px-3 ${isNum ? 'text-right font-mono' : ''}">${isNum ? fmt(v) : ''}</td>`;
+                        });
+                        table += '</tr>';
+                    }
+                    table += '</tbody></table>';
+                    const metaTxt = (n.meta && n.meta.note) ? `<p class="text-[10px] italic text-gray-500 mt-2">${n.meta.note}</p>` : '';
+                    box.innerHTML += LPC.html`
+                        <details open class="bg-white border border-gray-200 rounded-2xl shadow-sm">
+                            <summary class="cursor-pointer px-5 py-3 flex justify-between items-center border-b border-gray-100">
+                                <span class="font-black text-gray-800 text-sm">${n.code} — ${n.title}</span>
+                                <span class="text-[10px] text-gray-400 font-bold">${n.rows.length} ligne(s)</span>
+                            </summary>
+                            <div class="p-4 overflow-auto">${LPC.raw(table)}${LPC.raw(metaTxt)}</div>
+                        </details>`;
+                });
+                notesLoaded = true;
+            } catch (e) {
+                console.error('notes', e);
+                box.innerHTML = LPC.html`<div class="text-rose-500 text-center py-6">Erreur de génération des Notes.</div>`;
+            }
+        }
+
+        function exportNotesXlsx() {
+            const year = document.getElementById('report_year').value;
+            window.location.href = `/api/v1/financials_controller.php?action=export_notes_xlsx&year=${year}`;
+        }
+
+        async function loadCloture() {
+            const year = document.getElementById('report_year').value;
+            try {
+                const res = await fetch(`/api/v1/financials_controller.php?action=closing_state&year=${year}`);
+                const result = await res.json();
+                if (result.status !== 'success') throw new Error(result.message || 'closing');
+                const d = result.data;
+                const badge = document.getElementById('cloture_state_badge');
+                const colors = { open:'bg-gray-100 text-gray-700', inventory:'bg-blue-100 text-blue-800',
+                                 adjustments:'bg-amber-100 text-amber-800', provisional_closed:'bg-orange-100 text-orange-800',
+                                 locked:'bg-rose-100 text-rose-800', final_closed:'bg-slate-800 text-white' };
+                const st = d.state || 'open';
+                badge.className = 'text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded ' + (colors[st] || 'bg-gray-100');
+                badge.textContent = st.replace('_',' ');
+
+                // Preflight
+                const pfEl = document.getElementById('cloture_preflight');
+                pfEl.innerHTML = '';
+                (d.preflight?.checks || []).forEach(c => {
+                    const icon = c.ok ? '<i class="fas fa-check-circle text-emerald-500"></i>' : '<i class="fas fa-times-circle text-rose-500"></i>';
+                    pfEl.innerHTML += LPC.html`
+                        <div class="flex items-center gap-3 p-3 rounded-lg border border-gray-100">
+                            <span class="text-lg">${LPC.raw(icon)}</span>
+                            <div class="flex-1"><div class="font-bold text-sm">${c.label}</div><div class="text-[11px] text-gray-500">${c.detail}</div></div>
+                        </div>`;
+                });
+
+                // Adjustments
+                const adjEl = document.getElementById('cloture_adjustments');
+                adjEl.innerHTML = '';
+                if (!(d.adjustments || []).length) {
+                    adjEl.innerHTML = LPC.html`<tr><td colspan="6" class="py-4 px-3 text-center italic text-gray-400">Aucune écriture d'inventaire enregistrée.</td></tr>`;
+                } else {
+                    d.adjustments.forEach(a => {
+                        const canRev = a.status === 'posted' && !a.reversal_journal_entry_id;
+                        adjEl.innerHTML += LPC.html`
+                            <tr class="border-t border-gray-100">
+                                <td class="py-2 px-3 font-bold uppercase text-[10px] text-gray-500">${a.kind}</td>
+                                <td class="py-2 px-3 font-mono text-[10px] text-gray-500">${a.target_ref || '—'}</td>
+                                <td class="py-2 px-3 text-right font-mono">${fmt(a.amount)}</td>
+                                <td class="py-2 px-3">${a.description}</td>
+                                <td class="py-2 px-3"><span class="px-2 py-0.5 rounded text-[9px] font-black uppercase ${a.status === 'reversed' ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'}">${a.status}</span></td>
+                                <td class="py-2 px-3 text-right">${canRev ? LPC.raw(`<button onclick="reverseAdjustment(${a.id})" class="text-rose-600 text-[10px] font-bold hover:underline">Extourner</button>`) : ''}</td>
+                            </tr>`;
+                    });
+                }
+                clotureLoaded = true;
+            } catch (e) {
+                console.error('cloture', e);
+                LPC.modal.alert('Erreur de chargement de l\'assistant de clôture.');
+            }
+        }
+
+        async function runClosingPhase(phase) {
+            const year = document.getElementById('report_year').value;
+            if (!(await LPC.modal.confirm(`Lancer la phase « ${phase} » pour l'exercice ${year} ?\n\nLes écritures OD sont horodatées au 31/12 et postées avec statut « approved ». Chaque phase est idempotente (unique par année/nature/cible) — vous pouvez la rejouer sans doublon.`))) return;
+            try {
+                const res = await fetch('/api/v1/financials_controller.php', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ action: 'closing_run_phase', year, phase })
+                });
+                const r = await res.json();
+                LPC.modal.alert(r.message);
+                if (r.status === 'success') { clotureLoaded = false; loadCloture(); }
+            } catch (e) { LPC.modal.alert('Erreur serveur.'); }
+        }
+
+        async function closingTransition(to) {
+            const year = document.getElementById('report_year').value;
+            const msg = to === 'final_closed'
+                ? `⚠ CLÔTURE DÉFINITIVE de l'exercice ${year}.\n\nAction IRREVERSIBLE. Les A-Nouveaux seront générés pour ${parseInt(year)+1}. Aucune écriture ne pourra plus être postée sur ${year}. Confirmez ?`
+                : `Passer l'exercice ${year} en état « ${to} » ?`;
+            if (!(await LPC.modal.confirm(msg))) return;
+            try {
+                const res = await fetch('/api/v1/financials_controller.php', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ action: to === 'final_closed' ? 'close_year' : 'closing_transition', year, to })
+                });
+                const r = await res.json();
+                LPC.modal.alert(r.message);
+                if (r.status === 'success') { clotureLoaded = false; loadCloture(); fetchFinancials(); }
+            } catch (e) { LPC.modal.alert('Erreur serveur.'); }
+        }
+
+        async function reverseAdjustment(id) {
+            if (!(await LPC.modal.confirm('Extourner cette écriture ? Une écriture de contrepassation sera postée au 01/01 N+1.'))) return;
+            try {
+                const res = await fetch('/api/v1/financials_controller.php', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ action: 'closing_reverse_adj', adjustment_id: id })
+                });
+                const r = await res.json();
+                LPC.modal.alert(r.message);
+                if (r.status === 'success') { clotureLoaded = false; loadCloture(); }
+            } catch (e) { LPC.modal.alert('Erreur serveur.'); }
+        }
+
+        window.runClosingPhase   = runClosingPhase;
+        window.closingTransition = closingTransition;
+        window.reverseAdjustment = reverseAdjustment;
+        window.exportNotesXlsx   = exportNotesXlsx;
