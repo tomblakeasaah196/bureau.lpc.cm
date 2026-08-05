@@ -25,7 +25,11 @@ $user_role = $_SESSION['user_role'];
 
     <style>
         .tab-content { display: none; }
-        .tab-content.active { display: flex; animation: slideUp 0.3s ease-out; }
+        /* !important: the shared tailwind.css (loaded after this block via
+           head_assets.php) also defines .tab-content.active{display:block}
+           at identical specificity. Without !important that rule wins on
+           source order and silently kills flex-col/gap-* on every tab. */
+        .tab-content.active { display: flex !important; animation: slideUp 0.3s ease-out; }
 
         /* Sprint 7A D2 — print stylesheet: strip chrome, keep the Vue Dirigeant. */
         @media print {
@@ -203,7 +207,7 @@ $user_role = $_SESSION['user_role'];
                     <span class="text-sm font-bold uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.chargement_de_la_vue_dirigeant')) ?></span>
                 </div>
 
-                <div id="vue_dirigeant_body" class="hidden flex-col gap-6 print:gap-3">
+                <div id="vue_dirigeant_body" class="hidden flex flex-col gap-6 print:gap-3">
 
                     <!-- Row 1 — Ratios -->
                     <section class="grid grid-cols-1 md:grid-cols-5 gap-4">

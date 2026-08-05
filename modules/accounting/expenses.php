@@ -41,7 +41,11 @@ $can_recur    = Rbac::hasPermission('accounting.expenses.recurring.manage');
 
     <style>
         .tab-content { display: none; animation: fadeIn 0.25s ease; }
-        .tab-content.active { display: flex; }
+        /* !important: the shared tailwind.css (loaded after this block via
+           head_assets.php) also defines .tab-content.active{display:block}
+           at identical specificity. Without !important that rule wins on
+           source order and silently kills flex-col/gap-* on every tab. */
+        .tab-content.active { display: flex !important; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
