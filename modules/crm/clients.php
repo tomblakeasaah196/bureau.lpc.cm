@@ -56,15 +56,18 @@ $lang = lpc_i18n_current_lang();
             transition: background .12s, border-color .12s;
         }
         .kpi-row + .kpi-row { margin-top: .15rem; }
-        a.kpi-row:hover { background: #f9fafb; border-color: #e5e7eb; }
-        .kpi-row-name  { font-weight: 700; color: #111827; font-size: .875rem; }
-        .kpi-row-meta  { font-size: .6875rem; color: #6b7280; margin-top: .1rem; }
+        /* Hover surface goes through the shell tokens so it inverts in dark
+           mode. Border was #e5e7eb on #f9fafb — 1.18:1, which is why hover
+           looked flat; --lpc-border is 3+ on either surface. */
+        a.kpi-row:hover { background: var(--lpc-surface-sunken); border-color: var(--lpc-border); }
+        .kpi-row-name  { font-weight: 700; color: var(--lpc-ink); font-size: .875rem; }
+        .kpi-row-meta  { font-size: .6875rem; color: var(--lpc-ink-soft); margin-top: .1rem; }
         .kpi-row-value { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
-        .kpi-overdue   { color: #b91c1c; }
-        .kpi-bar       { height: 4px; border-radius: 999px; background: #e5e7eb; margin-top: .4rem; overflow: hidden; }
-        .kpi-bar > i   { display: block; height: 100%; background: var(--lpc-brand, #005A2B); }
+        .kpi-overdue   { color: var(--lpc-status-danger-fg); }
+        .kpi-bar       { height: 4px; border-radius: 999px; background: var(--lpc-border); margin-top: .4rem; overflow: hidden; }
+        .kpi-bar > i   { display: block; height: 100%; background: var(--lpc-accent-on-light); }
         .kpi-stat      { display: flex; justify-content: space-between; padding: .45rem 0;
-                         border-bottom: 1px dashed #e5e7eb; font-size: .8125rem; }
+                         border-bottom: 1px dashed var(--lpc-border); font-size: .8125rem; }
         .kpi-stat:last-child { border-bottom: 0; }
         /* Was max-h-[60vh] — an arbitrary Tailwind value, and those are
            compiled at build time. It was never in assets/css/tailwind.css, so
@@ -105,19 +108,23 @@ $lang = lpc_i18n_current_lang();
             font-size: .625rem; font-weight: 800; text-transform: uppercase;
             letter-spacing: .04em; white-space: nowrap;
         }
-        .devis-badge-sent    { background: #eff6ff; color: #1d4ed8; }
-        .devis-badge-signed  { background: #ecfdf5; color: #047857; }
-        .devis-badge-expired { background: #fef2f2; color: #b91c1c; }
+        /* Devis badges use the shared status palette. Before this rewrite
+           the same "success" role was #ecfdf5/#047857 here and #dcfce7/#166534
+           in Accounting; consolidating on --lpc-status-* means a green pill
+           looks identical in every module. */
+        .devis-badge-sent    { background: var(--lpc-status-info-bg);    color: var(--lpc-status-info-fg);    }
+        .devis-badge-signed  { background: var(--lpc-status-success-bg); color: var(--lpc-status-success-fg); }
+        .devis-badge-expired { background: var(--lpc-status-danger-bg);  color: var(--lpc-status-danger-fg);  }
         /* "Visé LPC" — an INTERNAL attestation, shown alongside the real
            status rather than instead of it. Deliberately not green: the
            client has not agreed to anything yet, and a green badge here
            would read as a won deal on a sales review. Slate, so it reads
            as metadata next to the status it accompanies. */
-        .devis-badge-visa    { background: #f1f5f9; color: #475569; margin-left: .3rem; }
+        .devis-badge-visa    { background: var(--lpc-status-neutral-bg); color: var(--lpc-status-neutral-fg); margin-left: .3rem; }
         /* Signed, then edited. Amber rather than green: the signature exists
            but no longer matches the figures, and that is a discrepancy to
            investigate, not a clean sign-off. */
-        .devis-badge-stale   { background: #fffbeb; color: #b45309; }
+        .devis-badge-stale   { background: var(--lpc-status-warning-bg); color: var(--lpc-status-warning-fg); }
 
         .devis-modal-scroll { max-height: 62vh; overflow-y: auto; }
 
@@ -125,7 +132,7 @@ $lang = lpc_i18n_current_lang();
            the picker cannot preselect anything and the line is shown as the
            frozen text it is. */
         .devis-line-locked {
-            background: #f9fafb; color: #6b7280;
+            background: var(--lpc-surface-sunken); color: var(--lpc-ink-soft);
         }
     </style>
 <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>

@@ -29,10 +29,17 @@ $user_role = $_SESSION['user_role'];
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         
         /* Hierarchy Styling */
-        .row-class { background-color: #1e293b; color: white; font-weight: 900; }
-        .row-master { background-color: #f1f5f9; color: #334155; font-weight: 800; border-top: 2px solid #e2e8f0; }
-        .row-aux { background-color: white; }
-        .row-aux:hover { background-color: #f8fafc; }
+        /* Chart-of-accounts row tiers. The .row-master pair used to be a
+           fixed light slate that inverted in dark mode into a near-white
+           strip; the neutral status token pair inverts cleanly. .row-class
+           and .row-aux keep their intended contrast on white (dark ink
+           strip and plain body row); .row-class is remapped in
+           lpc-theme.css to a surface-raised bar for the same effect on
+           dark. */
+        .row-class  { background-color: #1e293b; color: white; font-weight: 900; }
+        .row-master { background-color: var(--lpc-status-neutral-bg); color: var(--lpc-status-neutral-fg); font-weight: 800; border-top: 2px solid var(--lpc-border); }
+        .row-aux    { background-color: var(--lpc-surface); }
+        .row-aux:hover { background-color: var(--lpc-status-neutral-tint); }
         
         .anomaly-text { color: #ef4444; font-weight: 900; }
         .zero-row { display: none; } /* Hidden by default per Answer 2A */

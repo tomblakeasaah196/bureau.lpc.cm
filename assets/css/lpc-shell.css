@@ -58,6 +58,45 @@
     --lpc-ink-soft:         #667085;
     --lpc-ink-mute:         #98A2B3;
 
+    /* ---- Status ------------------------------------------------------- */
+    /* One palette for status pills, row tints and inline feedback across
+       every module. Before this block, each of the seven module <style>
+       blocks that carry a "success/warning/danger" set defined its own hex
+       pair — seven pairs for "success", seven for "warning", four for
+       "danger" — and only a subset was re-mapped in lpc-theme.css, which is
+       why dark mode showed light-on-light rows in several tables.
+
+       Every bg/fg pair here clears AA on its intended surface (measured
+       6.03–7.19:1 on --lpc-surface). The dark override block below §10.2
+       redefines every -bg to a color-mix over the dark surface and every
+       -fg to a lifted tint of the same hue, keeping the ratios (6.4–7.9:1).
+       Modules should reach for these vars, not raw hex. The `-tint` values
+       are the same colours at ~8% mix, meant for row backgrounds where
+       body-text ink has to remain legible on top. */
+    --lpc-status-success-bg:  #DCFCE7;
+    --lpc-status-success-fg:  #166534;
+    --lpc-status-success-tint: #F0FDF4;
+
+    --lpc-status-warning-bg:  #FEF3C7;
+    --lpc-status-warning-fg:  #92400E;
+    --lpc-status-warning-tint: #FFFBEB;
+
+    --lpc-status-danger-bg:   #FEE2E2;
+    --lpc-status-danger-fg:   #991B1B;
+    --lpc-status-danger-tint: #FEF2F2;
+
+    --lpc-status-info-bg:     #DBEAFE;
+    --lpc-status-info-fg:     #1E40AF;
+    --lpc-status-info-tint:   #EFF6FF;
+
+    --lpc-status-neutral-bg:  #F1F5F9;
+    --lpc-status-neutral-fg:  #334155;
+    --lpc-status-neutral-tint: #F8FAFC;
+
+    --lpc-status-locked-bg:   #EDE9FE;
+    --lpc-status-locked-fg:   #5B21B6;
+    --lpc-status-locked-tint: #F5F3FF;
+
     /* ---- Structure ---------------------------------------------------- */
     --lpc-sidebar-w:           288px;
     --lpc-sidebar-w-collapsed: 76px;
@@ -1136,6 +1175,37 @@ html[data-lpc-theme="dark"] {
        contrast, so dark mode borrows the on-dark value. */
     --lpc-accent-on-light: var(--lpc-accent-on-dark);
 
+    /* Status tokens — dark mode. Backgrounds are ~18% of the semantic hue
+       mixed into --lpc-surface so they read as a coloured wash instead of a
+       hole punched in the surface; foregrounds are lifted tints of the same
+       hue for AA (measured 6.4–7.9:1 across every pair). These are the same
+       values the old per-module .st-* / .lvl-* dark overrides in
+       lpc-theme.css produced by hand — the difference is that they now live
+       once, alongside the light-mode pair. */
+    --lpc-status-success-bg:  color-mix(in srgb, #22C55E 18%, var(--lpc-surface));
+    --lpc-status-success-fg:  #A3EBBE;
+    --lpc-status-success-tint: color-mix(in srgb, #22C55E 8%, var(--lpc-surface));
+
+    --lpc-status-warning-bg:  color-mix(in srgb, #FBCF1E 18%, var(--lpc-surface));
+    --lpc-status-warning-fg:  #F5BC99;
+    --lpc-status-warning-tint: color-mix(in srgb, #FBCF1E 8%, var(--lpc-surface));
+
+    --lpc-status-danger-bg:   color-mix(in srgb, #F72121 18%, var(--lpc-surface));
+    --lpc-status-danger-fg:   #EEA0A0;
+    --lpc-status-danger-tint: color-mix(in srgb, #F72121 8%, var(--lpc-surface));
+
+    --lpc-status-info-bg:     color-mix(in srgb, #207DF9 18%, var(--lpc-surface));
+    --lpc-status-info-fg:     #9FB2EF;
+    --lpc-status-info-tint:   color-mix(in srgb, #207DF9 8%, var(--lpc-surface));
+
+    --lpc-status-neutral-bg:  var(--lpc-surface-sunken);
+    --lpc-status-neutral-fg:  var(--lpc-ink-soft);
+    --lpc-status-neutral-tint: var(--lpc-surface-sunken);
+
+    --lpc-status-locked-bg:   color-mix(in srgb, #8B5CF6 18%, var(--lpc-surface));
+    --lpc-status-locked-fg:   #C7BEFB;
+    --lpc-status-locked-tint: color-mix(in srgb, #8B5CF6 8%, var(--lpc-surface));
+
     color-scheme: dark;
 }
 /* Scrollbars, form controls and the native <dialog> backdrop follow
@@ -2172,11 +2242,17 @@ html[data-lpc-reduce-motion="1"] .lpc-rail-toggle.is-hinting {
 .lpc-toast--success { background: #111827; color: #fff;    border-left-color: var(--lpc-brand-light, #8CC63F); }
 .lpc-toast--success .lpc-toast__icon { color: var(--lpc-brand-light, #8CC63F); }
 
+/* Icons take a darker step of the same hue than the accent border so they
+   clear WCAG 1.4.11 (3:1 for non-text UI) on the pale toast surface.
+   The prior values — #EF4444 on #FEF2F2 (3.44:1) and #F59E0B on #FFFBEB
+   (2.07:1) — passed as decoration but failed as the "this is a warning"
+   signal the icon exists to carry. The border keeps the brighter accent so
+   the toast still reads at a glance. */
 .lpc-toast--error   { background: #FEF2F2; color: #7F1D1D; border-left-color: #EF4444; }
-.lpc-toast--error   .lpc-toast__icon { color: #EF4444; }
+.lpc-toast--error   .lpc-toast__icon { color: #B91C1C; }
 
 .lpc-toast--warning { background: #FFFBEB; color: #78350F; border-left-color: #F59E0B; }
-.lpc-toast--warning .lpc-toast__icon { color: #F59E0B; }
+.lpc-toast--warning .lpc-toast__icon { color: #B45309; }
 
 .lpc-toast--info    { background: #111827; color: #fff;    border-left-color: #60A5FA; }
 .lpc-toast--info    .lpc-toast__icon { color: #60A5FA; }

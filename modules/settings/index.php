@@ -88,10 +88,15 @@ $tabDefs = [
                      padding:.7rem .85rem; font-size:.875rem; font-weight:500; color:#111827;
                      outline:none; transition:border-color .15s, box-shadow .15s; }
         .lpc-input:focus { border-color:#005A2B; box-shadow:0 0 0 3px rgba(0,90,43,.12); background:#fff; }
-        .lpc-input:disabled { background:#F3F4F6; color:#9CA3AF; cursor:not-allowed; }
-        .lpc-input.is-dirty { border-color:#8CC63F; background:#F7FCEF; }
-        .lpc-input.is-error { border-color:#DC2626; background:#FEF2F2; }
-        .lpc-field-help { font-size:.7rem; color:#9CA3AF; margin-top:.3rem; line-height:1.35; }
+        /* Disabled state was #9CA3AF on #F3F4F6 — 2.31:1. Disabled text is
+           still text and still has to be read; --lpc-ink-soft on the sunken
+           surface is 5.4:1 and reads as "unavailable" without disappearing.
+           is-dirty/is-error use the shared status tokens so the field
+           feedback matches every other module and inverts in dark mode. */
+        .lpc-input:disabled { background:var(--lpc-surface-sunken); color:var(--lpc-ink-soft); cursor:not-allowed; }
+        .lpc-input.is-dirty { border-color:var(--lpc-accent-on-light); background:var(--lpc-status-success-tint); }
+        .lpc-input.is-error { border-color:var(--lpc-status-danger-fg); background:var(--lpc-status-danger-tint); }
+        .lpc-field-help { font-size:.7rem; color:var(--lpc-ink-soft); margin-top:.3rem; line-height:1.35; }
 
         .lpc-section { background:#fff; border:1px solid #E5E7EB; border-radius:1rem;
                        box-shadow:0 1px 2px rgba(16,24,40,.04); margin-bottom:1.25rem; overflow:hidden; }
@@ -111,7 +116,10 @@ $tabDefs = [
         .lpc-logo-drop { border:2px dashed #D1D5DB; border-radius:.75rem; padding:1rem;
                          display:flex; align-items:center; gap:1rem; cursor:pointer;
                          transition:border-color .15s, background .15s; background:#F9FAFB; }
-        .lpc-logo-drop:hover { border-color:#8CC63F; background:#F7FCEF; }
+        /* Hover uses --lpc-accent-on-light (dark green, 7.9:1 on white) as the
+           border rather than --lpc-brand-light (#8CC63F, 1.96:1) — the light
+           green is a chrome accent, not a legible outline on a pale field. */
+        .lpc-logo-drop:hover { border-color:var(--lpc-accent-on-light); background:var(--lpc-status-success-tint); }
         .lpc-logo-drop img { max-height:48px; max-width:140px; object-fit:contain; }
 
         /* RBAC matrix */
@@ -119,8 +127,8 @@ $tabDefs = [
         .lpc-matrix input[type=checkbox] { accent-color:#005A2B; width:1rem; height:1rem; cursor:pointer; }
         .lpc-role-chip { border:1px solid #E5E7EB; background:#fff; border-radius:.75rem;
                          padding:.6rem .9rem; cursor:pointer; text-align:left; transition:all .15s; }
-        .lpc-role-chip:hover { border-color:#8CC63F; }
-        .lpc-role-chip.active { border-color:#005A2B; background:#F7FCEF; box-shadow:0 0 0 2px rgba(0,90,43,.1); }
+        .lpc-role-chip:hover { border-color:var(--lpc-accent-on-light); }
+        .lpc-role-chip.active { border-color:var(--lpc-accent-on-light); background:var(--lpc-status-success-tint); box-shadow:0 0 0 2px rgba(0,90,43,.1); }
 
         /* Letterhead preview — mirrors the PDF template closely enough to be
            useful without pretending to be pixel-exact. */

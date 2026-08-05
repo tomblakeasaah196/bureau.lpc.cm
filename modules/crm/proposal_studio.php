@@ -75,7 +75,7 @@ try {
         .pt-lang         { font-size: .625rem; font-weight: 800; letter-spacing: .08em;
                            text-transform: uppercase; color: #9ca3af; margin-bottom: .3rem; display: block; }
         .pt-badge        { font-size: .625rem; font-weight: 700; padding: .1rem .4rem;
-                           border-radius: .25rem; background: #fef3c7; color: #92400e; }
+                           border-radius: .25rem; background: var(--lpc-status-warning-bg); color: var(--lpc-status-warning-fg); }
         .pt-logo-prev    { height: 2.5rem; width: auto; max-width: 9rem; object-fit: contain;
                            background: #f9fafb; border: 1px solid #e5e7eb; border-radius: .375rem; padding: .25rem; }
         .pt-panel[hidden] { display: none; }
@@ -86,10 +86,10 @@ try {
         .pt-count        { display: block; text-align: right; font-size: .6875rem;
                            font-variant-numeric: tabular-nums; color: #9ca3af;
                            margin-top: .25rem; }
-        .pt-count.warn   { color: #b45309; font-weight: 700; }
-        .pt-count.over   { color: #b91c1c; font-weight: 800; }
-        .pt-count.under  { color: #6b7280; }
-        .pt-input.over   { border-color: #b91c1c; background: #fef2f2; }
+        .pt-count.warn   { color: var(--lpc-status-warning-fg); font-weight: 700; }
+        .pt-count.over   { color: var(--lpc-status-danger-fg);  font-weight: 800; }
+        .pt-count.under  { color: var(--lpc-ink-soft); }
+        .pt-input.over   { border-color: var(--lpc-status-danger-fg); background: var(--lpc-status-danger-tint); }
 
         /* Image row. These widths were Tailwind arbitrary values
            (min-w-[16rem]); those are compiled at build time and were never in

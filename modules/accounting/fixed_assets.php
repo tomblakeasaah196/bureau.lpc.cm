@@ -27,8 +27,13 @@ $user_role = $_SESSION['user_role'];
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        .vnc-zero { background-color: #f8fafc; color: #94a3b8; }
-        .vnc-zero .font-black { color: #94a3b8; }
+        /* Rows for assets whose net value has hit zero. Old pair was #94a3b8
+           on #f8fafc = 2.45:1, and in dark mode the near-white background
+           stayed fixed while the inner ink flipped to near-white — same
+           invisibility bug as .month-cell.done in tax_declarations.
+           Neutral status tokens invert cleanly and clear AA. */
+        .vnc-zero { background-color: var(--lpc-status-neutral-tint); color: var(--lpc-status-neutral-fg); }
+        .vnc-zero .font-black { color: var(--lpc-status-neutral-fg); }
     </style>
 <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>

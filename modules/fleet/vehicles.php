@@ -36,9 +36,14 @@ $user_role = $_SESSION['user_role'];
         .glass-panel { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
         th { position: sticky; top: 0; background-color: #f8fafc; z-index: 10; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
         
-        .status-badge-active { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
-        .status-badge-repair { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
-        .status-badge-retired { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+        /* Vehicle status pills share the app-wide status palette so
+           "active" here matches "signed" in CRM and "paid" in Accounting.
+           Border colour drops — the coloured fill already separates the
+           badge from the row, and the extra border was invisible in dark
+           mode where the fill is a color-mix over the dark surface. */
+        .status-badge-active  { background: var(--lpc-status-success-bg); color: var(--lpc-status-success-fg); }
+        .status-badge-repair  { background: var(--lpc-status-danger-bg);  color: var(--lpc-status-danger-fg);  }
+        .status-badge-retired { background: var(--lpc-status-neutral-bg); color: var(--lpc-status-neutral-fg); }
     </style>
 <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>

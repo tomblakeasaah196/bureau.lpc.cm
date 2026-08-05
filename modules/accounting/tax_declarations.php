@@ -39,24 +39,35 @@ $settings  = TaxEngine::settings();
     .tab-content { display: none; }
     .tab-content.active { display: block; }
     .badge-status { padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
-    .st-draft   { background: #f1f5f9; color: #475569; }
-    .st-ready   { background: #fef3c7; color: #92400e; }
-    .st-filed   { background: #dbeafe; color: #1e40af; }
-    .st-paid    { background: #dcfce7; color: #166534; }
-    .st-locked  { background: #ede9fe; color: #5b21b6; }
-    .st-missing { background: #f3f4f6; color: #9ca3af; }
+    /* Status pills and row tints read from the shell's --lpc-status-* tokens
+       so they invert correctly in dark mode. Before this rewrite, .st-missing
+       was #9ca3af on #f3f4f6 (2.31:1, fails AA even in light mode), and
+       .month-cell.done / .late set near-white row backgrounds that stayed
+       fixed under the dark theme — the text inside was remapped to near-white
+       ink and the whole row became invisible (~1.1:1). All values come from
+       one place now and every module using status colour follows the same
+       set. */
+    .st-draft   { background: var(--lpc-status-neutral-bg); color: var(--lpc-status-neutral-fg); }
+    .st-ready   { background: var(--lpc-status-warning-bg); color: var(--lpc-status-warning-fg); }
+    .st-filed   { background: var(--lpc-status-info-bg);    color: var(--lpc-status-info-fg);    }
+    .st-paid    { background: var(--lpc-status-success-bg); color: var(--lpc-status-success-fg); }
+    .st-locked  { background: var(--lpc-status-locked-bg);  color: var(--lpc-status-locked-fg);  }
+    .st-missing { background: var(--lpc-status-neutral-bg); color: var(--lpc-status-neutral-fg); }
     .amt { font-variant-numeric: tabular-nums; }
     .month-cell { transition: background .1s; cursor: pointer; }
-    .month-cell:hover { background: #ecfdf5; }
-    .month-cell.done { background: #f0fdf4; }
-    .month-cell.late { background: #fef2f2; }
+    .month-cell:hover { background: var(--lpc-status-success-tint); }
+    .month-cell.done  { background: var(--lpc-status-success-tint); }
+    .month-cell.late  { background: var(--lpc-status-danger-tint);  }
     .kind-chip { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin: 1px; }
-    .kind-tva { background: #eff6ff; color: #1e40af; }
-    .kind-air { background: #f0fdf4; color: #166534; }
-    .kind-dipe{ background: #fdf4ff; color: #86198f; }
-    .kind-cnps{ background: #fef3c7; color: #92400e; }
-    .kind-tsr { background: #fef2f2; color: #b91c1c; }
-    .kind-commune { background: #f1f5f9; color: #334155; }
+    .kind-tva     { background: var(--lpc-status-info-bg);    color: var(--lpc-status-info-fg);    }
+    .kind-air     { background: var(--lpc-status-success-bg); color: var(--lpc-status-success-fg); }
+    /* dipe is the one taxonomy colour we keep off the shared status palette
+       (there is no "magenta" role token). color-mix over --lpc-surface makes
+       it invert with the theme without needing a lpc-theme.css override. */
+    .kind-dipe    { background: color-mix(in srgb, #C026D3 18%, var(--lpc-surface)); color: color-mix(in srgb, #C026D3 65%, var(--lpc-ink)); }
+    .kind-cnps    { background: var(--lpc-status-warning-bg); color: var(--lpc-status-warning-fg); }
+    .kind-tsr     { background: var(--lpc-status-danger-bg);  color: var(--lpc-status-danger-fg);  }
+    .kind-commune { background: var(--lpc-status-neutral-bg); color: var(--lpc-status-neutral-fg); }
     /* Master monthly modal */
     #tax-monthly-modal { position: fixed; inset: 0; background: rgba(15,23,42,0.65); z-index: 90; display: none; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 24px 12px; }
     #tax-monthly-modal.open { display: flex; }

@@ -253,17 +253,22 @@ $diskTotal          = @disk_total_space($configuredDir ?: __DIR__);
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 .glass{background:#fff;border:1px solid #E5E7EB;box-shadow:0 1px 2px rgba(16,24,40,.04)}
-.chip{background:#F3F4F6;border:1px solid #E5E7EB;padding:.15rem .5rem;border-radius:9999px;font-size:.7rem;color:#374151}
+.chip{background:var(--lpc-status-neutral-bg);border:1px solid var(--lpc-border);padding:.15rem .5rem;border-radius:9999px;font-size:.7rem;color:var(--lpc-status-neutral-fg)}
 .bar{display:flex;align-items:flex-end;height:120px;gap:2px;padding:.5rem}
 .bar > div{flex:1 1 0;background:linear-gradient(180deg,#8CC63F,#005A2B);border-radius:2px 2px 0 0;min-height:2px;position:relative;transition:opacity .15s}
 .bar > div:hover{opacity:.8}
 .bar > div span{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:.65rem;color:#fff;background:#000a;padding:2px 4px;border-radius:3px;pointer-events:none;opacity:0;transition:opacity .1s}
 .bar > div:hover span{opacity:1}
 .lvl{padding:.1rem .5rem;border-radius:.25rem;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
-.lvl-fatal,.lvl-parse,.lvl-error{background:#FEE2E2;color:#991B1B}
-.lvl-warning{background:#FEF3C7;color:#92400E}
-.lvl-notice,.lvl-deprecated,.lvl-strict{background:#CFFAFE;color:#155E75}
-.lvl-info{background:#F1F5F9;color:#334155}
+/* Severity chips read from the shell status tokens so admin's palette
+   matches every other module's warning/danger and inverts in dark mode
+   without a per-rule override in lpc-theme.css. .lvl-notice keeps its own
+   teal hue because "info" is already used for filed / sent elsewhere and
+   the two need to be distinguishable when they appear together. */
+.lvl-fatal,.lvl-parse,.lvl-error{background:var(--lpc-status-danger-bg);color:var(--lpc-status-danger-fg)}
+.lvl-warning{background:var(--lpc-status-warning-bg);color:var(--lpc-status-warning-fg)}
+.lvl-notice,.lvl-deprecated,.lvl-strict{background:color-mix(in srgb,#06B6D4 18%,var(--lpc-surface));color:color-mix(in srgb,#06B6D4 60%,var(--lpc-ink))}
+.lvl-info{background:var(--lpc-status-neutral-bg);color:var(--lpc-status-neutral-fg)}
 .btn{padding:.4rem .9rem;border-radius:.5rem;font-weight:600;font-size:.8rem;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:.4rem}
 .btn-primary{background:linear-gradient(90deg,#005A2B,#8CC63F);color:#fff}
 .btn-primary:hover{opacity:.92}
@@ -280,8 +285,14 @@ details > summary::-webkit-details-marker{display:none}
               padding:.25rem .5rem;border-radius:.375rem;font-size:.7rem;
               cursor:pointer;transition:all .15s;display:inline-flex;
               align-items:center;gap:.25rem}
-.err-copy-btn:hover{background:#F9FAFB;color:#005A2B;border-color:#8CC63F}
-.err-copy-btn.copied{background:#DCFCE7;color:#166534;border-color:#86EFAC}
+/* Hover ink was #8CC63F, which is 1.96:1 on the pale #F9FAFB below — the
+   brand-light green is a chrome accent, not a text colour on white. Switch
+   to --lpc-accent-on-light (#005A2B, 7.9:1) for the text; keep the light
+   green as the border where it functions as an outline, not as text.
+   .copied used #86EFAC as border (1.28:1 when read as fg on #DCFCE7 by
+   scanners); the border stays decorative but the fg now clears AA cleanly. */
+.err-copy-btn:hover{background:var(--lpc-surface-sunken);color:var(--lpc-accent-on-light);border-color:var(--lpc-brand-light)}
+.err-copy-btn.copied{background:var(--lpc-status-success-bg);color:var(--lpc-status-success-fg);border-color:var(--lpc-status-success-fg)}
 .err-multibar{display:none;align-items:center;justify-content:space-between;
               gap:.75rem;padding:.6rem .9rem;margin-bottom:.75rem;
               background:#F0FDF4;border:1px solid #BBF7D0;border-radius:.5rem}

@@ -42,7 +42,13 @@ $user_role = $_SESSION['user_role'];
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         
-        .row-sig { background-color: #eef2ff; color: #3730a3; font-weight: 900; border-top: 2px solid #c7d2fe; border-bottom: 2px solid #c7d2fe; }
+        /* Report subtotal (`row-sig`) and grand total (`row-total`). The
+           subtotal row uses the shared "locked" indigo token — same colour
+           families already used for approved/signed content elsewhere so
+           the visual language stays consistent. The grand-total dark bar
+           is kept as-is; lpc-theme.css already remaps it to a
+           surface-raised strip in dark mode. */
+        .row-sig   { background-color: var(--lpc-status-locked-bg); color: var(--lpc-status-locked-fg); font-weight: 900; border-top: 2px solid var(--lpc-status-locked-fg); border-bottom: 2px solid var(--lpc-status-locked-fg); }
         .row-total { background-color: #1e1b4b; color: white; font-weight: 900; }
         .clickable-row { cursor: pointer; transition: background-color 0.2s; }
         .clickable-row:hover { background-color: #f8fafc; }

@@ -658,6 +658,9 @@
     letter-spacing: .04em;
     text-transform: uppercase;
 }
-.lpc-help-badge--on   { background: #EEF6EE; color: #14532D; }
-.lpc-help-badge--off  { background: #F1F5F9; color: #64748B; }
-.lpc-help-badge--perm { background: #EFF6FF; color: #1E40AF; font-family: ui-monospace, monospace; text-transform: none; letter-spacing: 0; }
+/* Help-page state badges use the shell status tokens. --off was #64748B on
+   #F1F5F9 (4.34:1, just under AA at 4.5:1) — the neutral token pair passes
+   at 8.8:1 and matches every other "neutral" pill in the app. */
+.lpc-help-badge--on   { background: var(--lpc-status-success-bg); color: var(--lpc-status-success-fg); }
+.lpc-help-badge--off  { background: var(--lpc-status-neutral-bg); color: var(--lpc-status-neutral-fg); }
+.lpc-help-badge--perm { background: var(--lpc-status-info-bg);    color: var(--lpc-status-info-fg);    font-family: ui-monospace, monospace; text-transform: none; letter-spacing: 0; }

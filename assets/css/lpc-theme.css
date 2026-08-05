@@ -2691,6 +2691,18 @@ html[data-lpc-theme="dark"] .lpc-help-skeleton { background: linear-gradient(90d
    scripts/build_theme_css.py, scan_page_styles(). Do not hand-edit: fix the
    colour in the page, or the mapping in map_colour(), and rebuild.
 
+   MIGRATION NOTE (WCAG audit sprint):
+   The .st-*, .lvl-*, .devis-badge-*, .status-badge-*, .row-master and
+   .row-sig rules below are now REDUNDANT — those selectors have been
+   migrated in the module pages to read from the --lpc-status-* tokens in
+   lpc-shell.css §Status, which invert automatically in dark mode. The
+   rules here still resolve to the same colour-mix values, so leaving them
+   in causes no visible change; the next run of build_theme_css.py should
+   detect that the underlying page-local hex values have been removed and
+   emit a shorter file. Until then, both mechanisms produce the same
+   pixels — the shell tokens carry the semantics, these rules carry the
+   history.
+
    Colours are mapped by lightness and saturation rather than from a lookup
    table, because these pages never shared a palette. #F9FAFB, #f8fafc, #f1f5f9
    and #FCFCFD all mean "one step below the card"; all four land on

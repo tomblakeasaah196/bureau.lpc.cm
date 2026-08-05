@@ -56,12 +56,16 @@ $can_recur    = Rbac::hasPermission('accounting.expenses.recurring.manage');
         }
         .cat-pill i { font-size: 10px; }
 
-        /* Budget bar shared shape */
-        .bar-track { background: #f1f5f9; border-radius: 9999px; height: 6px; overflow: hidden; }
+        /* Budget bar. Track and fills read from status tokens so the bar is
+           legible on both light and dark themes; the fills are the darker
+           `-fg` step (not the bright hue) because a 6px stripe against a
+           pale track needs 3:1 (SC 1.4.11 non-text UI) and #10b981 /
+           #f59e0b did not clear it. */
+        .bar-track { background: var(--lpc-status-neutral-bg); border-radius: 9999px; height: 6px; overflow: hidden; }
         .bar-fill  { height: 100%; transition: width .4s ease; }
-        .bar-fill.ok    { background: #10b981; }
-        .bar-fill.warn  { background: #f59e0b; }
-        .bar-fill.over  { background: #ef4444; }
+        .bar-fill.ok    { background: var(--lpc-status-success-fg); }
+        .bar-fill.warn  { background: var(--lpc-status-warning-fg); }
+        .bar-fill.over  { background: var(--lpc-status-danger-fg);  }
 
         .stat-card { transition: transform .15s ease, box-shadow .15s ease; }
         .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px -12px rgba(0,0,0,.15); }
