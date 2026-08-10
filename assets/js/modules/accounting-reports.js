@@ -609,7 +609,8 @@
                 tftLoaded = true;
             } catch (e) {
                 console.error('TFT', e);
-                tbody.innerHTML = LPC.html`<tr><td colspan="3" class="py-8 text-center text-rose-500">Erreur de chargement du TFT.</td></tr>`;
+                const msg = (e && e.message) ? e.message : 'inconnue';
+                tbody.innerHTML = LPC.html`<tr><td colspan="3" class="py-8 text-center text-rose-500 text-xs"><i class="fas fa-exclamation-triangle mr-2"></i>Erreur de chargement du TFT — <span class="font-mono">${msg}</span></td></tr>`;
             }
         }
 

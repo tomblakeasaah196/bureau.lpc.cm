@@ -95,6 +95,41 @@ $__i18n_payload = function_exists('lpc_i18n_js_payload')
     ? lpc_i18n_js_payload()
     : '{"lang":"fr","strings":{}}';
 ?>
+<?php
+// -----------------------------------------------------------------------------
+// Preload the two stylesheets the shell literally cannot paint without.
+// Browsers only start fetching a <link rel="stylesheet"> once the parser
+// reaches it — putting `rel="preload"` first turns those two into
+// discoverable, high-priority fetches that begin in parallel with the HTML
+// download, saving one round-trip on the critical path. Kept above every
+// other tag deliberately.
+// -----------------------------------------------------------------------------
+?>
+<link rel="preload" as="style" href="<?= lpc_asset('/assets/css/tailwind.css') ?>">
+<link rel="preload" as="style" href="<?= lpc_asset('/assets/css/lpc-shell.css') ?>">
+
+<?php
+// -----------------------------------------------------------------------------
+// Turbo Drive — persistent shell across navigations.
+//
+// This is the single biggest lever for perceived speed on a PHP MPA: clicking
+// a nav link no longer tears down the browser context and rebuilds it from
+// scratch. Turbo intercepts same-origin GETs, fetches the next page in the
+// background, swaps only the <body>, merges the <head> (deduping stylesheets
+// and scripts by src), and leaves any element marked `data-turbo-permanent`
+// mounted in place. `#lpc-sidebar` carries that attribute — see
+// includes/components/sidebar.php — so CSS/JS don't re-parse, scroll position
+// holds, and there's no flash of the previous section collapsing.
+//
+// Loaded EARLY (before the app JS below) so it's ready to intercept the very
+// first click. `data-turbo-track="reload"` on this and on every app-wide
+// asset means a deploy that changes any tracked file's URL (they all carry
+// ?v=<mtime>) forces one full page load, and Turbo takes over again from
+// there — no risk of running stale JS against fresh HTML.
+// -----------------------------------------------------------------------------
+?>
+<script src="<?= lpc_asset('/assets/vendor/turbo/turbo.min.js') ?>" data-turbo-track="reload" defer></script>
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -102,20 +137,21 @@ $__i18n_payload = function_exists('lpc_i18n_js_payload')
 <link rel="stylesheet"
       href="/assets/vendor/fontawesome/css/all.min.css"
       integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0"
-      crossorigin="anonymous">
+      crossorigin="anonymous"
+      data-turbo-track="reload">
 
-<link rel="stylesheet" href="<?= lpc_asset('/assets/css/tailwind.css') ?>">
-<link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-shell.css') ?>">
+<link rel="stylesheet" href="<?= lpc_asset('/assets/css/tailwind.css') ?>" data-turbo-track="reload">
+<link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-shell.css') ?>" data-turbo-track="reload">
 <!-- Help centre. After the shell, and it only defines .lpc-help-* selectors, so
      it extends the chrome rather than competing with it. -->
-<link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-help.css') ?>">
+<link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-help.css') ?>" data-turbo-track="reload">
 <!-- KPI cards, period pill and drilldown modal. After the shell so it reads
      the shell's tokens; only defines .lpc-kpi-*, .lpc-period-* selectors so it
      extends rather than competes. Loaded app-wide because the five dashboards
      that need it (md/finance/ops/sales + analytics reports) each include this
      file, and any future page that adopts the KPI grid gets the styles by
      construction rather than by remembering to link the sheet. -->
-<link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-kpi.css') ?>">
+<link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-kpi.css') ?>" data-turbo-track="reload">
 <?php if (!$__force_light): ?>
 <!-- Dark-mode bridge. LAST, because it has to beat both Tailwind's utilities
      and the two stylesheets above on equal specificity, and it is the only one
@@ -131,7 +167,7 @@ $__i18n_payload = function_exists('lpc_i18n_js_payload')
      the OS switching at sunset while the preference is "system"), and a
      conditional <link> would mean the first toggle of a session repaints the
      page against a stylesheet the browser has not fetched yet. -->
-<link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-theme.css') ?>">
+<link rel="stylesheet" href="<?= lpc_asset('/assets/css/lpc-theme.css') ?>" data-turbo-track="reload">
 <?php endif; ?>
 
 <?php
@@ -201,44 +237,78 @@ if ($__force_light) {
 })();</script>
 
 <script type="application/json" id="lpc-bootstrap-data"><?= json_encode(['lang' => $__lang, 'i18n' => json_decode($__i18n_payload, true)], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
-<script src="<?= lpc_asset('/assets/js/lpc-dom.js') ?>" defer></script>
-<script src="<?= lpc_asset('/assets/js/lpc-i18n.js') ?>" defer></script>
-<script src="<?= lpc_asset('/assets/js/lpc-modal.js') ?>" defer></script>
-<!-- Shipped app-wide: the two page-local showToast() copies it replaces both
-     leaked their toasts permanently (dead animation classes -> the removal
-     handler never ran). See the header of lpc-toast.js. -->
-<script src="<?= lpc_asset('/assets/js/lpc-toast.js') ?>" defer></script>
-<script src="<?= lpc_asset('/assets/js/lpc-a11y.js') ?>" defer></script>
-<!-- Session lock. Blurs the current view and demands a password the instant a
-     session dies — either the idle timer here fires, or any /api/ fetch comes
-     back 401 with a session_expired code (which is exactly what bootstrap.php
-     and Rbac::redirectToLogin emit). Owns the idle timer that lpc-sidebar.js
-     used to run; the sidebar's copy is now a no-op stub. -->
-<script src="<?= lpc_asset('/assets/js/lpc-session-lock.js') ?>" defer></script>
-<!-- Product picker. Shipped app-wide rather than per-page on purpose: it
-     upgrades any [data-lpc-product-picker] element it finds, and watches for
-     ones added later, so adopting it on a new screen is one attribute and no
-     <script> tag. Inert on the ~20 pages with no such element — it finds
-     nothing, attaches one MutationObserver, and costs a parse.
+<?php
+// -----------------------------------------------------------------------------
+// App-wide JS — one bundle when built, else the twelve individual files.
+//
+// The build artefact at /assets/js/build/lpc-core.min.js is written by
+// scripts/build-js.mjs (`npm run build:js`). It concatenates the twelve
+// files listed below in the exact order they used to be emitted, and
+// esbuild-minifies the result — 185 KB raw → 68 KB, gzipped to ~22 KB on
+// the wire. That is one HTTP fetch instead of twelve, and the parser walks
+// one file instead of stopping between each.
+//
+// Fallback rule: we ship the bundle only if its mtime is at least as new as
+// every source file's mtime. Someone editing lpc-modal.js and forgetting to
+// rebuild would otherwise silently keep serving yesterday's bundle — the
+// fallback catches that automatically. Miss the rebuild step, and you drop
+// to the twelve individual tags, which are the source of truth. No silent
+// serving of stale JS.
+//
+// `data-turbo-track="reload"` on every tag: Turbo compares src URLs across
+// visits, and since each URL carries ?v=<mtime>, any deploy that touches
+// core JS forces exactly ONE full page load and Turbo takes over again from
+// there. Untracked identical srcs in <head> get deduped by the browser (no
+// re-download, no re-execute) — that's what gives visits their sub-100ms
+// feel.
+//
+// The one script NOT here is `/assets/js/lpc-sidebar.js`: it is emitted by
+// sidebar.php because it depends on that file's own inline `Rbac::jsBootstrap`
+// block being on the page. Sidebar-scoped, sidebar-adjacent.
+// -----------------------------------------------------------------------------
+$__coreSources = [
+    'lpc-dom.js', 'lpc-i18n.js', 'lpc-modal.js', 'lpc-toast.js',
+    'lpc-a11y.js', 'lpc-session-lock.js', 'lpc-product-picker.js',
+    'lpc-deeplink.js', 'lpc-paginator.js', 'lpc-kpi.js',
+    'lpc-chart-theme.js', 'lpc-turbo-init.js',
+];
+$__coreBundle = __DIR__ . '/../../assets/js/build/lpc-core.min.js';
+$__jsBase     = __DIR__ . '/../../assets/js/';
 
-     Order matters only in that it must come after lpc-dom (LPC.fmt) and
-     lpc-i18n (LPC.t); both are above. All three are deferred, so they execute
-     in document order before any page module script. -->
-<script src="<?= lpc_asset('/assets/js/lpc-product-picker.js') ?>" defer></script>
-<script src="<?= lpc_asset('/assets/js/lpc-deeplink.js') ?>" defer></script>
-<!-- KPI cards, period pill and drilldown modal helper. Shipped app-wide because
-     the five dashboards that need it each include head_assets, and it's inert
-     on the ~40 other pages (it registers a namespace and exits until called).
-     Order: after lpc-dom (LPC.html/fmt), lpc-modal (LPC.modal.custom) and
-     lpc-paginator (LPC.paginator.attach) — all above via defer. -->
-<script src="<?= lpc_asset('/assets/js/lpc-paginator.js') ?>" defer></script>
-<script src="<?= lpc_asset('/assets/js/lpc-kpi.js') ?>" defer></script>
-<!-- CSS stops at the edge of a <canvas>, so charts are themed in JS. Deferred
-     like the rest, which puts it before every page's own deferred module script
-     in document order — so the Chart.defaults it sets are already in place when
-     those scripts construct their charts. Harmless on the ~16 pages with no
-     charts: it finds no Chart global and exits. -->
-<script src="<?= lpc_asset('/assets/js/lpc-chart-theme.js') ?>" defer></script>
+$__useBundle = is_file($__coreBundle);
+if ($__useBundle) {
+    $__bundleMtime = (int) @filemtime($__coreBundle);
+    foreach ($__coreSources as $__s) {
+        $__srcMtime = (int) @filemtime($__jsBase . $__s);
+        if ($__srcMtime > $__bundleMtime) {
+            // A source has been edited more recently than the bundle. Fall
+            // back to individual tags rather than serve stale JS, and warn
+            // in the console so someone notices to run `npm run build:js`.
+            $__useBundle = false;
+            echo "\n<script>console.warn('[LPC] core JS bundle is stale (source " . htmlspecialchars($__s, ENT_QUOTES) . " newer than build). Run: npm run build:js');</script>\n";
+            break;
+        }
+    }
+}
+if ($__useBundle):
+?>
+<script src="<?= lpc_asset('/assets/js/build/lpc-core.min.js') ?>" defer data-turbo-track="reload"></script>
+<?php else: ?>
+<script src="<?= lpc_asset('/assets/js/lpc-dom.js') ?>"             defer data-turbo-track="reload"></script>
+<script src="<?= lpc_asset('/assets/js/lpc-i18n.js') ?>"            defer data-turbo-track="reload"></script>
+<script src="<?= lpc_asset('/assets/js/lpc-modal.js') ?>"           defer data-turbo-track="reload"></script>
+<script src="<?= lpc_asset('/assets/js/lpc-toast.js') ?>"           defer data-turbo-track="reload"></script>
+<script src="<?= lpc_asset('/assets/js/lpc-a11y.js') ?>"            defer data-turbo-track="reload"></script>
+<script src="<?= lpc_asset('/assets/js/lpc-session-lock.js') ?>"    defer data-turbo-track="reload"></script>
+<script src="<?= lpc_asset('/assets/js/lpc-product-picker.js') ?>"  defer data-turbo-track="reload"></script>
+<script src="<?= lpc_asset('/assets/js/lpc-deeplink.js') ?>"        defer data-turbo-track="reload"></script>
+<script src="<?= lpc_asset('/assets/js/lpc-paginator.js') ?>"       defer data-turbo-track="reload"></script>
+<script src="<?= lpc_asset('/assets/js/lpc-kpi.js') ?>"             defer data-turbo-track="reload"></script>
+<script src="<?= lpc_asset('/assets/js/lpc-chart-theme.js') ?>"     defer data-turbo-track="reload"></script>
+<script src="<?= lpc_asset('/assets/js/lpc-turbo-init.js') ?>"      defer data-turbo-track="reload"></script>
+<?php endif;
+unset($__coreSources, $__coreBundle, $__jsBase, $__useBundle, $__bundleMtime, $__s, $__srcMtime);
+?>
 <?php
 // Auto-detect a stub tailwind.css and warn during development.
 $__css_path = __DIR__ . '/../../assets/css/tailwind.css';

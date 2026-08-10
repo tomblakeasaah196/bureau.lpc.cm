@@ -6,13 +6,15 @@
   "scripts": {
     "build:css":  "tailwindcss -i ./assets/css/src/input.css -o ./assets/css/tailwind.css --minify",
     "watch:css":  "tailwindcss -i ./assets/css/src/input.css -o ./assets/css/tailwind.css --watch",
-    "build":      "npm run build:css"
+    "build:js":   "node scripts/build-js.mjs",
+    "build":      "npm run build:css && npm run build:js"
   },
   "devDependencies": {
     "tailwindcss": "^3.4.10",
     "@tailwindcss/forms": "^0.5.7",
     "@tailwindcss/typography": "^0.5.13",
     "autoprefixer": "^10.4.20",
+    "esbuild": "^0.24.0",
     "postcss": "^8.4.41"
   }
 }

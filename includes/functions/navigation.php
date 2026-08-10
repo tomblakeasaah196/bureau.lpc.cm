@@ -37,33 +37,20 @@
  * -----------------------------------------------------------------------------
  */
 
-if (!function_exists('lpc_nav_sections')) {
+if (!function_exists('lpc_nav_build_base_sections')) {
 
     /**
-     * @param string|null $lang 'fr'|'en'. Defaults to the request language.
-     * @return array<int, array{heading:string, collapsed:bool, items:array<int,
-     *         array{label:string, href:string, icon:string, permission:string}>}>
+     * Builds the (role, lang) → RBAC-filtered section list, WITHOUT applying
+     * rule 4 (which section starts expanded — that depends on the current
+     * URL). Split from lpc_nav_sections() so the cross-request cache can
+     * store this path-independent result and rule 4 can be re-applied cheaply
+     * per request.
+     *
+     * @return array{out:array,catalogue:array,placed:array<string,bool>}
      */
-    function lpc_nav_sections(?string $lang = null): array
+    function lpc_nav_build_base_sections(string $configPath, string $role, bool $en): array
     {
-        static $memo = [];
-
-        $lang = $lang ?: (in_array(($_GET['lang'] ?? 'fr'), ['fr', 'en'], true)
-            ? ($_GET['lang'] ?? 'fr')
-            : 'fr');
-        $en = ($lang === 'en');
-
-        $role = strtolower(trim((string) ($_SESSION['user_role'] ?? '')));
-        // The path is part of the key because rule 4 below expands whichever
-        // section holds the current page. It is constant within a request, so
-        // this only ever adds one memo entry — but leaving it out would be a
-        // trap for the first caller that renders two paths in one request.
-        $key  = $role . '|' . $lang . '|' . strtok((string) ($_SERVER['REQUEST_URI'] ?? ''), '?');
-        if (isset($memo[$key])) {
-            return $memo[$key];
-        }
-
-        $cfg       = require __DIR__ . '/../config/nav.php';
+        $cfg       = require $configPath;
         $catalogue = $cfg['catalogue'] ?? [];
         $profiles  = $cfg['profiles']  ?? [];
         $aliases   = $cfg['aliases']   ?? [];
@@ -114,10 +101,9 @@ if (!function_exists('lpc_nav_sections')) {
                 'heading'   => $en
                     ? ($section['heading_en'] ?? $section['heading_fr'] ?? '')
                     : ($section['heading_fr'] ?? ''),
-                // Resolved below, once every section is known — the rule needs
-                // to see which section holds the current page before it can
-                // decide anything. `collapsed` here only carries the profile's
-                // explicit wish, if it stated one.
+                // Resolved by rule 4 in lpc_nav_sections() once the current
+                // path is known. `null` here carries "the profile did not
+                // state a preference"; a bool carries the explicit wish.
                 'collapsed' => array_key_exists('collapsed', $section)
                     ? (bool) $section['collapsed']
                     : null,
@@ -157,6 +143,86 @@ if (!function_exists('lpc_nav_sections')) {
                 'items'     => $extra,
             ];
         }
+
+        return ['out' => $out, 'catalogue' => $catalogue, 'placed' => $placed];
+    }
+}
+
+if (!function_exists('lpc_nav_sections')) {
+
+    /**
+     * @param string|null $lang 'fr'|'en'. Defaults to the request language.
+     * @return array<int, array{heading:string, collapsed:bool, items:array<int,
+     *         array{label:string, href:string, icon:string, permission:string}>}>
+     */
+    function lpc_nav_sections(?string $lang = null): array
+    {
+        static $memo = [];
+
+        $lang = $lang ?: (in_array(($_GET['lang'] ?? 'fr'), ['fr', 'en'], true)
+            ? ($_GET['lang'] ?? 'fr')
+            : 'fr');
+        $en = ($lang === 'en');
+
+        $role = strtolower(trim((string) ($_SESSION['user_role'] ?? '')));
+        // The path is part of the key because rule 4 below expands whichever
+        // section holds the current page. It is constant within a request, so
+        // this only ever adds one memo entry — but leaving it out would be a
+        // trap for the first caller that renders two paths in one request.
+        $key  = $role . '|' . $lang . '|' . strtok((string) ($_SERVER['REQUEST_URI'] ?? ''), '?');
+        if (isset($memo[$key])) {
+            return $memo[$key];
+        }
+
+        // -----------------------------------------------------------------
+        // Cross-request cache for the expensive part.
+        //
+        // The (role, lang) → RBAC-filtered sections mapping is the slow bit —
+        // it iterates the catalogue, checks each permission, resolves labels
+        // and copies rows. That result does NOT depend on the current path;
+        // only rule 4 below does, and rule 4 is trivial to re-apply on top.
+        //
+        // So we cache the pre-rule-4 shape by (role, lang), invalidated by
+        // nav.php's mtime (touch it and every cache entry becomes stale on
+        // its next read — no manual bust). APCu is used when available;
+        // otherwise we skip caching quietly. `sec_cross_request_cache` was
+        // added to Prefs specifically as the kill-switch if this ever goes
+        // wrong; falling through to the uncached path is the safe default.
+        // -----------------------------------------------------------------
+        $configPath   = __DIR__ . '/../config/nav.php';
+        $configMtime  = @filemtime($configPath) ?: 0;
+        $baseCacheKey = 'lpc.nav.base.v1:' . $role . '|' . $lang . '|' . $configMtime;
+
+        $useApcu = function_exists('apcu_fetch') && function_exists('apcu_store') && ini_get('apc.enabled');
+
+        $baseSections = null;
+        if ($useApcu) {
+            $found = false;
+            $cached = apcu_fetch($baseCacheKey, $found);
+            if ($found && is_array($cached)) {
+                $baseSections = $cached;
+            }
+        }
+
+        if ($baseSections === null) {
+            $baseSections = lpc_nav_build_base_sections($configPath, $role, $en);
+            if ($useApcu) {
+                // 1 hour TTL. The mtime already invalidates on config edits;
+                // TTL is only a floor for permission-check drift and role
+                // rename edge cases that could otherwise leave a stale entry
+                // forever on a rarely-restarted box.
+                @apcu_store($baseCacheKey, $baseSections, 3600);
+            }
+        }
+
+        // $baseSections['out'] is already the (role,lang)-scoped section list
+        // WITH rule-3 extras appended. It does NOT know about the current
+        // path yet — rule 4 below is the only path-dependent bit, and it
+        // runs on every request against this cached array. Copy so the
+        // in-place mutation of `collapsed` below never leaks into the cached
+        // entry (APCu serializes on write, but the fallback code path may
+        // hold the same reference in-process).
+        $out = $baseSections['out'];
 
         // ---- Rule 4: which sections start expanded ---------------------------
         //

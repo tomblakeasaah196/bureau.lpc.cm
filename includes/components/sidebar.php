@@ -42,6 +42,17 @@ $__nav = lpc_nav_sections($lang);
 <aside id="lpc-sidebar"
        role="navigation"
        aria-label="<?= htmlspecialchars(__t('ui.a11y.main_nav')) ?>"
+       <?php /* Turbo Drive persists the sidebar across visits — same id + this
+                attribute in both the outgoing and incoming pages tells Turbo
+                to lift the live DOM node into the new page rather than swap
+                it. That is what makes clicks between modules feel instant:
+                no re-parse of the sidebar's CSS/JS, no lost scroll position,
+                and no flash of the previous section collapsing shut. The
+                active-link highlight and per-section auto-expand are updated
+                in JS on `turbo:load` by assets/js/lpc-sidebar.js, since the
+                server-rendered `aria-current` on the outgoing page no longer
+                matches the incoming URL. */ ?>
+       data-turbo-permanent
        <?php /* Hoisted for assets/js/lpc-sidebar.js, which owns the idle
                 auto-logout timer. CSP is `script-src 'self'`, so the value
                 travels as a data attribute rather than an inline <script>.

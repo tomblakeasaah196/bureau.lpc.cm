@@ -158,6 +158,13 @@ DELIMITER //
 DROP TRIGGER IF EXISTS bi_je_closed_period //
 DROP TRIGGER IF EXISTS bu_je_closed_period //
 
+-- The two triggers below were created by hand on some environments before
+-- this migration existed. Drop before create so the migration is idempotent
+-- on those environments — otherwise MySQL error 1359 (« Trigger already
+-- exists ») blocks not just this migration but every subsequent one.
+DROP TRIGGER IF EXISTS bi_je_state_lock //
+DROP TRIGGER IF EXISTS bu_je_state_lock //
+
 CREATE TRIGGER bi_je_state_lock
 BEFORE INSERT ON journal_entries
 FOR EACH ROW

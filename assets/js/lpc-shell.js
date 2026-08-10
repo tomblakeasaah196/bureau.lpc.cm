@@ -70,19 +70,36 @@
         }, 1200);
     }
 
-    document.addEventListener('DOMContentLoaded', function () {
-        var btns = document.querySelectorAll('[data-lpc-collapse-toggle]');
-        for (var i = 0; i < btns.length; i++) {
-            btns[i].addEventListener('click', function () {
-                setCollapsed(!document.documentElement.classList.contains('lpc-collapsed'));
-            });
-        }
-        // Only the floating one is worth hinting — it is the only one with no
-        // label. If a page still renders an older in-header toggle, it is left
-        // alone rather than jiggling in the middle of the brand row.
+    // Event delegation instead of per-button binding: the rail toggle sits
+    // OUTSIDE the `data-turbo-permanent` sidebar, so it is replaced on every
+    // Turbo visit. A `document`-level click listener catches the new node just
+    // as well as the old one, and only ever binds ONCE — no matter how many
+    // times this file executes (Turbo re-runs body-loaded scripts per visit).
+    if (!document.__lpcCollapseBound) {
+        document.__lpcCollapseBound = true;
+        document.addEventListener('click', function (ev) {
+            var btn = ev.target.closest && ev.target.closest('[data-lpc-collapse-toggle]');
+            if (!btn) return;
+            setCollapsed(!document.documentElement.classList.contains('lpc-collapsed'));
+        });
+    }
+
+    // The "hey, here's the toggle" wiggle. Runs per page render — first load
+    // AND every Turbo visit — but the hintOnce() session flag inside means it
+    // still fires only once per browser session. Only the floating rail
+    // toggle is worth hinting; if a page still renders an older in-header
+    // toggle, it is left alone rather than jiggling in the middle of the
+    // brand row.
+    function hintRail() {
         var rail = document.querySelector('.lpc-rail-toggle[data-lpc-collapse-toggle]');
         if (rail) hintOnce(rail);
-    });
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', hintRail, { once: true });
+    } else {
+        hintRail();
+    }
+    document.addEventListener('turbo:load', hintRail);
 
     window.LPC = window.LPC || {};
     window.LPC.setSidebarCollapsed = setCollapsed;

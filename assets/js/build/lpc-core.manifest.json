@@ -1,0 +1,67 @@
+{
+  "hash": "sha384-Hszyb83Wq0e7YpQKsR8k0s8avP4JDSML8k2pRvGG7qHm6fL6DfzO7Z/C2YRWJwXx",
+  "size": 68438,
+  "files": [
+    {
+      "file": "lpc-dom.js",
+      "size": 5629,
+      "mtime": 1785317566550.1606
+    },
+    {
+      "file": "lpc-i18n.js",
+      "size": 3473,
+      "mtime": 1784625405125.2488
+    },
+    {
+      "file": "lpc-modal.js",
+      "size": 14329,
+      "mtime": 1784624455173.4778
+    },
+    {
+      "file": "lpc-toast.js",
+      "size": 8738,
+      "mtime": 1785314322944.311
+    },
+    {
+      "file": "lpc-a11y.js",
+      "size": 8942,
+      "mtime": 1784625096759.0403
+    },
+    {
+      "file": "lpc-session-lock.js",
+      "size": 18171,
+      "mtime": 1785766507188.9607
+    },
+    {
+      "file": "lpc-product-picker.js",
+      "size": 46868,
+      "mtime": 1785364778254.3008
+    },
+    {
+      "file": "lpc-deeplink.js",
+      "size": 9439,
+      "mtime": 1785838223688.3252
+    },
+    {
+      "file": "lpc-paginator.js",
+      "size": 15416,
+      "mtime": 1785509186097.8496
+    },
+    {
+      "file": "lpc-kpi.js",
+      "size": 37126,
+      "mtime": 1785837346253.679
+    },
+    {
+      "file": "lpc-chart-theme.js",
+      "size": 11151,
+      "mtime": 1785260301582.1565
+    },
+    {
+      "file": "lpc-turbo-init.js",
+      "size": 6399,
+      "mtime": 1786383387049.8313
+    }
+  ],
+  "builtAt": "2026-08-10T17:40:24.585Z"
+}
