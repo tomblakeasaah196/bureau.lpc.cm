@@ -214,11 +214,12 @@ INSERT INTO permissions (name, module, description) VALUES
   ('accounting.closing.reopen', 'accounting', 'Ré-ouvrir un exercice verrouillé (DG)')
 ON DUPLICATE KEY UPDATE description = VALUES(description);
 
-INSERT INTO role_permissions (role_name, permission_id)
-SELECT 'admin', p.id FROM permissions p
- WHERE p.name IN ('accounting.closing.run','accounting.closing.reopen')
-   AND NOT EXISTS (SELECT 1 FROM role_permissions rp
-                    WHERE rp.role_name='admin' AND rp.permission_id=p.id);
+-- role_permissions keys on (role_id, permission_id) — join via roles.name (see
+-- migration 001_rbac_seed.sql for the canonical idiom).
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT (SELECT id FROM roles WHERE name = 'admin'), p.id
+  FROM permissions p
+ WHERE p.name IN ('accounting.closing.run','accounting.closing.reopen');
 
 DROP PROCEDURE IF EXISTS lpc_add_col_088;
 

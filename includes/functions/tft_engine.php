@@ -115,16 +115,18 @@ function build_tft(PDO $pdo, int $year): array
 
 function _tft_class_balance(PDO $pdo, string $prefix, int $year): float
 {
-    // Cumulative balance (bilan-style)
+    // Cumulative balance (bilan-style).
+    // NOTE: uses ? positional placeholders — with PDO::ATTR_EMULATE_PREPARES=false
+    // (production default), MySQL refuses a named placeholder used more than once.
     $st = $pdo->prepare(
         "SELECT COALESCE(SUM(jl.debit - jl.credit),0)
            FROM journal_lines jl
            JOIN chart_of_accounts ca ON ca.id = jl.account_id
            JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status='approved'
-          WHERE SUBSTRING(ca.code,1,LENGTH(:pref)) = :pref
-            AND YEAR(je.date) <= :yr"
+          WHERE SUBSTRING(ca.code,1,LENGTH(?)) = ?
+            AND YEAR(je.date) <= ?"
     );
-    $st->execute(['pref' => $prefix, 'yr' => $year]);
+    $st->execute([$prefix, $prefix, $year]);
     return (float)$st->fetchColumn();
 }
 

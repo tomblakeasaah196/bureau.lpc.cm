@@ -49,24 +49,30 @@ function getFinancialAggregates($pdo, $year) {
 
     // 2. We need cumulative balances for the Bilan (Class 1-5) and periodic for Résultat (Class 6-8)
     // To optimize, we pull ALL approved journal lines for the relevant years into PHP memory for rapid sorting.
+    // ? positional placeholders — the earlier :yr_n / :yr_n1 named form was
+    // rejected by MySQL under real prepared statements (SQLSTATE HY093) because
+    // each name appeared four times. Positional placeholders can be bound
+    // repeatedly, so we bind the same year value in the order the query needs it.
     $stmt = $pdo->prepare("
-        SELECT 
-            ca.code as account_code, 
+        SELECT
+            ca.code as account_code,
             SUBSTRING(ca.code, 1, 1) as class,
-            SUM(CASE WHEN YEAR(je.date) <= :yr_n THEN jl.debit ELSE 0 END) as cum_debit_n,
-            SUM(CASE WHEN YEAR(je.date) <= :yr_n THEN jl.credit ELSE 0 END) as cum_credit_n,
-            SUM(CASE WHEN YEAR(je.date) = :yr_n THEN jl.debit ELSE 0 END) as per_debit_n,
-            SUM(CASE WHEN YEAR(je.date) = :yr_n THEN jl.credit ELSE 0 END) as per_credit_n,
-            SUM(CASE WHEN YEAR(je.date) <= :yr_n1 THEN jl.debit ELSE 0 END) as cum_debit_n1,
-            SUM(CASE WHEN YEAR(je.date) <= :yr_n1 THEN jl.credit ELSE 0 END) as cum_credit_n1,
-            SUM(CASE WHEN YEAR(je.date) = :yr_n1 THEN jl.debit ELSE 0 END) as per_debit_n1,
-            SUM(CASE WHEN YEAR(je.date) = :yr_n1 THEN jl.credit ELSE 0 END) as per_credit_n1
+            SUM(CASE WHEN YEAR(je.date) <= ? THEN jl.debit ELSE 0 END) as cum_debit_n,
+            SUM(CASE WHEN YEAR(je.date) <= ? THEN jl.credit ELSE 0 END) as cum_credit_n,
+            SUM(CASE WHEN YEAR(je.date) = ?  THEN jl.debit ELSE 0 END) as per_debit_n,
+            SUM(CASE WHEN YEAR(je.date) = ?  THEN jl.credit ELSE 0 END) as per_credit_n,
+            SUM(CASE WHEN YEAR(je.date) <= ? THEN jl.debit ELSE 0 END) as cum_debit_n1,
+            SUM(CASE WHEN YEAR(je.date) <= ? THEN jl.credit ELSE 0 END) as cum_credit_n1,
+            SUM(CASE WHEN YEAR(je.date) = ?  THEN jl.debit ELSE 0 END) as per_debit_n1,
+            SUM(CASE WHEN YEAR(je.date) = ?  THEN jl.credit ELSE 0 END) as per_credit_n1
         FROM chart_of_accounts ca
         JOIN journal_lines jl ON ca.id = jl.account_id
         JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'approved'
         GROUP BY ca.id
     ");
-    $stmt->execute(['yr_n' => $year, 'yr_n1' => $year - 1]);
+    $yn  = $year;
+    $yn1 = $year - 1;
+    $stmt->execute([$yn, $yn, $yn, $yn, $yn1, $yn1, $yn1, $yn1]);
     $accounts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     // 3. Initialize the Result Structure
