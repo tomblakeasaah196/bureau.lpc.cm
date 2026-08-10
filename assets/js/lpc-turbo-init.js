@@ -39,6 +39,46 @@
 (function () {
     'use strict';
 
+    // -----------------------------------------------------------------------
+    // KILL SWITCH — Turbo Drive is loaded but not driving navigation.
+    //
+    // WHY IT IS OFF
+    // -------------
+    // 29 of the 53 files under assets/js/modules/ do their per-page init
+    // inside `document.addEventListener('DOMContentLoaded', ...)`. That
+    // event fires exactly once per HTML parse. Under Turbo Drive, clicking
+    // a nav link swaps the <body> and fires `turbo:load` instead — the
+    // module scripts re-execute, register a DOMContentLoaded listener that
+    // will never fire again, and the page renders but is inert (no tab
+    // switching, no charts, no bound form handlers) until the user hits
+    // reload. Reload triggers a real HTML parse → DOMContentLoaded fires →
+    // init runs → the page works.
+    //
+    // Rather than migrate 29 files in one shot and risk something subtler
+    // (module scripts that fetch on mount would double-fetch under a naïve
+    // "just alias turbo:load to DOMContentLoaded" shim), we disable Turbo
+    // Drive globally here. Every other win from the sidebar-perf pass —
+    // the JS bundle, the CSS preload, `.user.ini` OPcache, the sidebar
+    // highlight/scroll on first load — is independent of Turbo and stays.
+    //
+    // HOW TO RE-ENABLE IT LATER
+    // -------------------------
+    // Migrate module scripts to use `LPC.onReady(fn)` (or listen for BOTH
+    // DOMContentLoaded and turbo:load, guarded by a per-page init flag),
+    // then delete the two lines below. The rest of this file — the
+    // progress-bar tuning, the before-cache popover teardown, and the
+    // POST-form opt-out — will start doing useful work again the moment
+    // Turbo.session.drive flips back to true.
+    // -----------------------------------------------------------------------
+    if (window.Turbo) {
+        try { Turbo.session.drive = false; } catch (e) { /* older Turbo */ }
+    } else {
+        document.addEventListener('turbo:load', function once() {
+            document.removeEventListener('turbo:load', once);
+            if (window.Turbo) { try { Turbo.session.drive = false; } catch (e) {} }
+        }, { once: true });
+    }
+
     // Turbo may still be parsing on very slow connections when this runs; both
     // are `defer` so they execute in document order, but be defensive anyway.
     // Everything that touches `Turbo` is inside listeners, which fire after all

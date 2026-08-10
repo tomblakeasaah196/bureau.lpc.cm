@@ -1,6 +1,6 @@
 {
-  "hash": "sha384-Hszyb83Wq0e7YpQKsR8k0s8avP4JDSML8k2pRvGG7qHm6fL6DfzO7Z/C2YRWJwXx",
-  "size": 68438,
+  "hash": "sha384-/SPNvGShrxpCrVbcSxa221MLMdY5FiIfjoxIWEth4+7vdajxFYR6DtPATxAnWd6W",
+  "size": 68669,
   "files": [
     {
       "file": "lpc-dom.js",
@@ -59,9 +59,9 @@
     },
     {
       "file": "lpc-turbo-init.js",
-      "size": 6399,
-      "mtime": 1786383387049.8313
+      "size": 8618,
+      "mtime": 1786385252875.2036
     }
   ],
-  "builtAt": "2026-08-10T17:40:24.585Z"
+  "builtAt": "2026-08-10T22:46:40.345Z"
 }
