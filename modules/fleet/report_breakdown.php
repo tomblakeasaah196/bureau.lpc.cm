@@ -23,6 +23,17 @@ $lang = lpc_i18n_current_lang();
     <header class="bg-red-600 text-white shadow-md h-16 flex items-center px-4 shrink-0 relative">
         <a href="/modules/dashboard/views/driver_dashboard.php" class="absolute left-4 text-xl"><i class="fas fa-arrow-left"></i></a>
         <h1 class="w-full text-center text-lg font-black tracking-wide"><i class="fas fa-tools mr-2"></i> <?= htmlspecialchars(__t('ui.x.declarer_une_panne')) ?></h1>
+        <?php
+        // Help for THIS page. Content already shipped under 'fleet.breakdown'
+        // (migration 071) but was never reachable — this button plus the
+        // drawer include near the closing </body> below are what was missing.
+        // Styled with .lpc-help-topbar-btn (the round chrome variant) since
+        // .lpc-help-btn's default pill assumes a light .lpc-surface toolbar,
+        // not a dark/red mobile header.
+        echo lpc_help_link('fleet.breakdown', $lang, [
+            'class' => 'lpc-help-topbar-btn absolute right-4 top-1/2 -translate-y-1/2',
+        ]);
+        ?>
     </header>
 
     <main role="main" id="main" class="flex-1 overflow-y-auto p-4 pb-8">
@@ -68,5 +79,14 @@ $lang = lpc_i18n_current_lang();
     </main>
 
     <script src="<?= lpc_asset('/assets/js/modules/fleet-report_breakdown.js') ?>" defer></script>
+
+    <?php
+    // This page has no topbar.php (it's a standalone driver-mobile screen), so
+    // unlike every other page in the app it doesn't get the help drawer chrome
+    // for free — topbar.php is the only other place that requires this file.
+    // Without it, the button above would render but clicking it would do
+    // nothing: no #lpc-help-drawer in the DOM, no lpc-help.js listening.
+    require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/help_drawer.php';
+    ?>
 </body>
 </html>
