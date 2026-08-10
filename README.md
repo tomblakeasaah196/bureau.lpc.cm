@@ -54,14 +54,21 @@ context that's already settled.
   deploy pipeline (migrations, OHADA COA preflight, permission fixes,
   smoke tests). `.env` and `uploads/` are both gitignored, so `reset
   --hard` never touches either.
-- **Two `deploy.sh`/`verify.sh` warnings show up on every run** — neither
-  means anything is broken, both are known and pre-existing:
-  1. "migration gap" complaints about numbers 009 / 015 / 017 / 019 / 021 /
-     026 — deliberately-reserved-but-unused numbers from parallel work
-     streams (see migrations/ comments), expected and documented.
-  2. "per-role smoke failed" — needs dedicated `SMOKE_*` test-user
-     credentials that were never set up; a testing-infra gap, not a
-     live-site problem.
+- **Deploy should now come back clean (0 fails).** History: `verify.sh`
+  used to emit 6 "migration gap" fails (009 / 015 / 017 / 019 / 021 / 026)
+  and 1 "per-role smoke failed" on every run, both known-benign. Sprint 13
+  closed both:
+  1. Every gap now has an explicit `NNN_reserved.sql` placeholder (no-op
+     `DO 0;`, idempotent, follows the pattern `043_reserved.sql` established).
+     Any new gap that appears from now on is a real problem, not another
+     line on the known-warnings list.
+  2. `scripts/tests/smoke.php` now exits 0 (with a "skipped" line) when
+     `SMOKE_*` creds aren't configured. A real 500 on a page a configured
+     role can see still fails with exit 1 as before — only the "no test
+     users exist" case changed from fail-deploy to skip-with-warning.
+  Also fixed: two migrations shared number 069 (the payroll help articles
+  file was renumbered to 083, filling that gap too), and `coa_preflight.php`
+  now checks 552 / 422 / 7074 which PR-1 / PR-2 depend on at runtime.
 - **Future automation considered but not yet built:** cPanel's own
   Git™ Version Control feature is the recommended next step whenever
   there's time — the server pulls from GitHub itself (outbound, so the

@@ -1,0 +1,23 @@
+-- =============================================================================
+-- 015_reserved.sql
+-- -----------------------------------------------------------------------------
+-- Bureau LPC ERP — placeholder to close a numbering gap.
+--
+-- WHY:
+--   Migration 015 was reserved during parallel-sprint work but never
+--   authored. The surrounding real migrations are:
+--     · 014_products_is_empty.sql
+--     · 016_purge_archive_tables.sql
+--   scripts/verify.sh's "Migration sequence" check walks migrations/*.sql
+--   expecting strictly contiguous numbers and flags any break as a possible
+--   rename. Rather than teach the check about historical reservations, we
+--   file an explicit no-op placeholder for every gap so the sequence stays
+--   contiguous. Same posture as 043_reserved.sql (July 2026).
+--
+--   Adopting this pattern site-wide means: any future gap = a real problem
+--   that needs investigation, not another line on the "known warnings" list.
+--
+-- Idempotent: no-op, safe to re-run.
+-- =============================================================================
+
+DO 0;

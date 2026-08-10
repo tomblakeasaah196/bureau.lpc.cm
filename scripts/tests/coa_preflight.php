@@ -40,13 +40,24 @@ $B = $isTty ? "\033[1m"  : ''; $N = $isTty ? "\033[0m"  : '';
  */
 $required = [
     ['prefix' => '521', 'label' => 'Banques',                                    'why' => 'JournalPoster::coaFromTreasury (bank)'],
+    ['prefix' => '552', 'label' => 'Monnaie électronique — téléphone portable',  'why' => 'JournalPoster::coaFromTreasury (MoMo / Orange Money); seeded by migration 044'],
     ['prefix' => '571', 'label' => 'Caisse',                                     'why' => 'JournalPoster::coaFromTreasury (caisse)'],
     ['prefix' => '411', 'label' => 'Clients',                                    'why' => 'JournalPoster::postInvoicePayment / postInvoiceIssued'],
     ['prefix' => '401', 'label' => 'Fournisseurs',                               'why' => 'procurement + supplier AP posting'],
     ['prefix' => '419', 'label' => 'Clients — avoirs et RRR à accorder',         'why' => 'JournalPoster: unassigned client payment (wallet)'],
-    ['prefix' => '421', 'label' => 'Personnel — rémunérations dues',             'why' => 'Payroll + tournée shortfall (driver debt)'],
+    ['prefix' => '421', 'label' => 'Personnel — avances / débits',               'why' => 'JournalPoster::postAdvanceDisbursement + tournée shortfall (migration 096)'],
+    // NEW (PR-2, migration 095): payroll settlement debits 422 back against a
+    // treasury account. Without this row, JournalPoster::postPayrollSettlement
+    // throws on the first Marquer Payées click; catching it here avoids a 3am
+    // scramble.
+    ['prefix' => '422', 'label' => 'Personnel — rémunérations dues',             'why' => 'JournalPoster::postPayrollSettlement (migration 095)'],
     ['prefix' => '606', 'label' => 'Achats de fournitures',                      'why' => 'expense JE default debit family'],
     ['prefix' => '701', 'label' => 'Ventes de produits finis',                   'why' => 'JournalPoster::postInvoiceIssued (revenue)'],
+    // NEW (PR-2, migration 094): recycling sales credit 7074, seeded by
+    // migration 041. Without the COA row, sell_to_recycler rolls back the
+    // whole sale — inventory movement + notification included — on the first
+    // recycler visit after PR-2 ships.
+    ['prefix' => '7074','label' => 'Bonis sur reprises et cessions d\'emballages','why' => 'JournalPoster::postRecyclingSale (migration 094)'],
     ['prefix' => '641', 'label' => 'Rémunérations du personnel',                 'why' => 'Payroll::postPayrollRun'],
     ['prefix' => '431', 'label' => 'Sécurité sociale (CNPS)',                    'why' => 'Payroll CNPS liability'],
     ['prefix' => '442', 'label' => 'État — impôts et taxes',                     'why' => 'Payroll IRPP / TVA-related liability posting'],

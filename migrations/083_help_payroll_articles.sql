@@ -1,7 +1,16 @@
 -- =============================================================================
--- 069_help_payroll_articles.sql
+-- 083_help_payroll_articles.sql
 -- -----------------------------------------------------------------------------
 -- Bureau LPC ERP — help content for the Paie & Acomptes (HR payroll) module.
+--
+-- RENUMBERED from 069_help_payroll_articles.sql. The original 069 slot
+-- collided with 069_help_empties_articles.sql (two files, same number), which
+-- confused the verify.sh migration-sequence check into flagging a spurious
+-- gap at 070 on every deploy. Migration content is unchanged and fully
+-- idempotent (INSERT … ON DUPLICATE KEY UPDATE across the board), so re-
+-- applying under the new version on the next deploy is a no-op — no data
+-- is rewritten, and the schema_migrations row for the old '069_help_payroll_
+-- articles' version simply remains historical.
 --
 -- WHY
 --   The payroll page (modules/hr/payroll_finance.php) is the highest-stakes
