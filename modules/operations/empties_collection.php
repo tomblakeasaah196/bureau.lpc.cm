@@ -290,10 +290,29 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                         <input type="text" id="recycler_location" placeholder="Ex: Usine de Recyclage Yassa..." required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-amber-500">
                     </div>
 
+                    <?php /*
+                        PR-2, migration 094 · treasury account picker. Until now
+                        "Paiement Cash" was a hardcoded chip on the "quantités"
+                        card, but the reality is drivers occasionally get paid
+                        by MoMo/transfer instead. The picker defaults to the
+                        first active caisse (loaded by JS) so the common case
+                        stays one-click; the driver can override without
+                        leaving the form.
+                    */ ?>
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                        <h3 class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3"><i class="fas fa-wallet mr-1"></i> Compte de Trésorerie</h3>
+                        <select id="rec_treasury_account" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-amber-500">
+                            <option value="">Chargement...</option>
+                        </select>
+                        <p class="text-[10px] font-bold text-gray-500 mt-2">
+                            <i class="fas fa-info-circle mr-1"></i>
+                            Le solde de ce compte sera crédité du cash reçu.
+                        </p>
+                    </div>
+
                     <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                         <div class="flex justify-between items-center mb-3">
                             <h3 class="text-[10px] font-black text-gray-400 uppercase tracking-widest"><i class="fas fa-recycle mr-1"></i> <?= htmlspecialchars(__t('ui.x.2_quantites_vendues')) ?></h3>
-                            <span class="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200"><?= htmlspecialchars(__t('ui.x.paiement_cash')) ?></span>
                         </div>
 
                         <?php /* Also rendered by JS from the empties catalogue,

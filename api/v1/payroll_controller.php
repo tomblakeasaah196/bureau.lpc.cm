@@ -3,6 +3,7 @@
 // Sprint-4 (parallel) rewrite. Bootstrap loads env, DB, session, CSRF, Rbac.
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/Payroll.php';
+require_once __DIR__ . '/../../includes/classes/JournalPoster.php'; // PR-2, migration 095
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -51,6 +52,12 @@ $ACTION_PERMS = [
     'generate_month'    => 'hr.payroll.generate',
     'list_payslips'     => 'hr.payroll.view',
     'employee_full_detail' => 'hr.payroll.view',
+    // PR-2, migration 095 · disbursement half of payroll.
+    'list_unsettled_payslips' => 'hr.payroll.generate',
+    'settle_payslips'         => 'hr.payroll.generate',
+    'list_treasury_accounts'  => 'hr.payroll.generate',
+    // PR-2, migration 096 · advance disbursement (Dr 421 / Cr treasury).
+    'disburse_advance'        => 'hr.payroll.approve_advance',
 ];
 if (!isset($ACTION_PERMS[$action])) {
     http_response_code(400);
@@ -155,7 +162,7 @@ try {
         ");
         $stmt_adv  = $db->prepare("
             SELECT COALESCE(SUM(amount), 0) FROM hr_advances
-             WHERE user_id = ? AND status = 'approved' AND MONTH(request_date) = ? AND YEAR(request_date) = ?
+             WHERE user_id = ? AND status IN ('approved','disbursed') AND MONTH(request_date) = ? AND YEAR(request_date) = ?
         ");
         $stmt_debt = $db->prepare("
             SELECT COALESCE(SUM(amount), 0) FROM driver_debts
@@ -202,6 +209,128 @@ try {
         ");
         $stmt->execute([$m, $y]);
         sendJson('success', '', ['payslips' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+    }
+
+    // -------------------------------------------------------------------------
+    // TREASURY ACCOUNTS — feeds the Marquer Payées modal picker.
+    // PR-2, migration 095.
+    // -------------------------------------------------------------------------
+    if ($action === 'list_treasury_accounts') {
+        $rows = $db->query("
+            SELECT id, name, type, balance
+              FROM treasury_accounts
+             WHERE status = 'active'
+             ORDER BY sort_order ASC, type, name
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        sendJson('success', '', $rows);
+    }
+
+    // -------------------------------------------------------------------------
+    // LIST UNSETTLED PAYSLIPS — for a given period (YYYY-MM), grouped by the
+    // payment_method column so the UI can render two lists (bank-paid and
+    // caisse-paid). Only payslips where status='paid' (accrual posted) AND
+    // payment_je_id IS NULL (disbursement NOT posted) are returned — the
+    // exact "waiting to be paid" state migration 095 introduced.
+    //
+    // Historical rows with status='paid' + payment_je_id=NULL that pre-date
+    // 095 ALSO show up here. The Backfill Posture rule (leave history
+    // alone) is respected because the UI must scope the query to the
+    // current pay period, which the user chooses; nothing auto-settles
+    // old months.
+    // -------------------------------------------------------------------------
+    if ($action === 'list_unsettled_payslips') {
+        $period = (string)($_GET['period'] ?? $payload['period'] ?? '');
+        if (!preg_match('/^\d{4}-\d{2}$/', $period)) throw new Exception("Période invalide (YYYY-MM).");
+        [$y, $m] = array_map('intval', explode('-', $period));
+
+        // Detect migration 095 — if the column isn't there yet, everything
+        // is "unsettled" by definition (no way to mark otherwise), so
+        // fall back to a COUNT that returns the raw list.
+        $has_col = (int) $db->query("
+            SELECT COUNT(*) FROM information_schema.columns
+             WHERE table_schema = DATABASE()
+               AND table_name = 'hr_payslips'
+               AND column_name = 'payment_je_id'
+        ")->fetchColumn() > 0;
+
+        $where = "p.month = ? AND p.year = ? AND p.status = 'paid'";
+        if ($has_col) $where .= " AND p.payment_je_id IS NULL";
+
+        $stmt = $db->prepare("
+            SELECT p.id, p.user_id, p.net_pay, p.payment_method,
+                   CONCAT(u.first_name,' ',u.last_name) AS employee_name,
+                   r.name AS role_name
+              FROM hr_payslips p
+              JOIN users u ON u.id = p.user_id
+              JOIN roles r ON r.id = u.role_id
+             WHERE {$where}
+             ORDER BY p.payment_method, u.last_name, u.first_name
+        ");
+        $stmt->execute([$m, $y]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Group by payment_method for the UI. The controller does the
+        // grouping (not the client) so the totals server-side match what
+        // postPayrollSettlement will see.
+        $groups = ['bank' => ['payslips' => [], 'total' => 0.0],
+                   'caisse' => ['payslips' => [], 'total' => 0.0]];
+        foreach ($rows as $r) {
+            $key = ($r['payment_method'] === 'caisse') ? 'caisse' : 'bank';
+            $groups[$key]['payslips'][] = $r;
+            $groups[$key]['total']     += (float) $r['net_pay'];
+        }
+        sendJson('success', '', ['period' => $period, 'groups' => $groups]);
+    }
+
+    // -------------------------------------------------------------------------
+    // SETTLE PAYSLIPS — the "Marquer Payées" bulk action.
+    //
+    // Given a list of payslip ids all paid FROM THE SAME treasury account,
+    // posts ONE JE (Dr 422 sum / Cr treasury COA sum) via
+    // JournalPoster::postPayrollSettlement.
+    //
+    // The client MUST call this once per treasury account: mixing accounts
+    // in one call would fold them into one JE with a single treasury
+    // credit, which would be wrong (the money left different accounts).
+    // Failing that check on the server side would be nice; today the
+    // grouping is a controller convention only.
+    // -------------------------------------------------------------------------
+    if ($action === 'settle_payslips') {
+        $treasury_account_id = (int)($payload['treasury_account_id'] ?? 0);
+        $payment_date        = trim((string)($payload['payment_date'] ?? date('Y-m-d')));
+        $payslip_ids         = $payload['payslip_ids'] ?? [];
+        $note                = trim((string)($payload['note'] ?? ''));
+
+        if ($treasury_account_id <= 0) throw new Exception("Compte de trésorerie requis.");
+        if (!is_array($payslip_ids) || empty($payslip_ids)) {
+            throw new Exception("Aucun bulletin sélectionné.");
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $payment_date)) {
+            throw new Exception("Date de paiement invalide.");
+        }
+
+        $chk = $db->prepare("SELECT 1 FROM treasury_accounts WHERE id = ? AND status = 'active'");
+        $chk->execute([$treasury_account_id]);
+        if (!$chk->fetchColumn()) throw new Exception("Compte de trésorerie invalide ou inactif.");
+
+        $db->beginTransaction();
+        try {
+            $je_id = JournalPoster::postPayrollSettlement(
+                $treasury_account_id,
+                array_map('intval', $payslip_ids),
+                $payment_date,
+                $note
+            );
+            $db->commit();
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            throw $e;
+        }
+
+        sendJson('success', 'Règlement enregistré.', [
+            'journal_entry_id' => $je_id,
+            'count'            => count($payslip_ids),
+        ]);
     }
 
     // -------------------------------------------------------------------------
@@ -309,8 +438,12 @@ try {
                 'transport_allowance' => $contract['transport_allowance'],
             ]);
             // Pull the same period aggregates the grid uses.
+            // Migration 096 · 'disbursed' is the new state after the cash
+            // has actually been handed over (JE posted). Both statuses count
+            // toward what a payslip should reclaim: 'approved' is the legacy
+            // "money out off-books" path, 'disbursed' is the new booked one.
             $st1 = $db->prepare("SELECT COALESCE(SUM(amount),0) FROM hr_advances
-                                  WHERE user_id = ? AND status = 'approved'
+                                  WHERE user_id = ? AND status IN ('approved','disbursed')
                                     AND MONTH(request_date) = ? AND YEAR(request_date) = ?");
             $st1->execute([$uid, $m, $y]);
             $adv_pending = (float) $st1->fetchColumn();
@@ -474,6 +607,43 @@ try {
         sendJson('success', 'Acompte approuvé.');
     }
 
+    // PR-2, migration 096 · disburse an approved advance.
+    //   Dr 421 Personnel — avances / Cr treasury COA
+    // Requires payload: advance_id, treasury_account_id, payment_date, note?
+    if ($action === 'disburse_advance') {
+        $advance_id          = (int)($payload['advance_id'] ?? $payload['id'] ?? 0);
+        $treasury_account_id = (int)($payload['treasury_account_id'] ?? 0);
+        $payment_date        = trim((string)($payload['payment_date'] ?? date('Y-m-d')));
+        $note                = trim((string)($payload['note'] ?? ''));
+
+        if ($advance_id <= 0)          throw new Exception("ID acompte invalide.");
+        if ($treasury_account_id <= 0) throw new Exception("Compte de trésorerie requis.");
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $payment_date)) {
+            throw new Exception("Date de paiement invalide.");
+        }
+
+        // Verify the treasury account is active before opening a transaction.
+        $chk = $db->prepare("SELECT 1 FROM treasury_accounts WHERE id = ? AND status = 'active'");
+        $chk->execute([$treasury_account_id]);
+        if (!$chk->fetchColumn()) throw new Exception("Compte de trésorerie invalide ou inactif.");
+
+        $db->beginTransaction();
+        try {
+            $je_id = JournalPoster::postAdvanceDisbursement(
+                $advance_id,
+                $treasury_account_id,
+                $payment_date,
+                $note
+            );
+            $db->commit();
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            throw $e;
+        }
+
+        sendJson('success', 'Acompte décaissé.', ['journal_entry_id' => $je_id]);
+    }
+
     if ($action === 'reject_advance') {
         $id     = (int) ($payload['advance_id'] ?? $payload['id'] ?? 0);
         $reason = trim((string) ($payload['reason'] ?? ''));
@@ -593,9 +763,15 @@ try {
                ->execute([$entry_id, $payslip_id]);
 
             // Consume advances + driver debts.
+            //
+            // Migration 096 · both 'approved' (legacy, cash off-books) and
+            // 'disbursed' (post-096, JE posted) count as consumable. After
+            // consumption both roll into 'deducted', which is the terminal
+            // state — the JE line credited to 421 above (line 712) settles
+            // BOTH the pre-096 zero balance AND the post-096 debit balance.
             $db->prepare("
                 UPDATE hr_advances SET status = 'deducted', payslip_id = ?
-                 WHERE user_id = ? AND status = 'approved'
+                 WHERE user_id = ? AND status IN ('approved','disbursed')
                    AND MONTH(request_date) = ? AND YEAR(request_date) = ?
             ")->execute([$payslip_id, $uid, $m, $y]);
 

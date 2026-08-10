@@ -80,6 +80,13 @@
 
                     populateDeliveryPlaceSelect();
 
+                    // Migration 093 · seed the treasury account picker for
+                    // the "Payé" branch of the PO form. Populated once on
+                    // load; onSupplierChange picks the supplier's default
+                    // afterwards. onPaymentStatusChange toggles visibility.
+                    populateTreasuryAccountSelect();
+                    onPaymentStatusChange();
+
                     // Which supplier the Ristournes modal opens for by default —
                     // no more name-matching "Source du Pays"/"SDP", and no more
                     // landing on whichever supplier happens to sort first
@@ -105,6 +112,90 @@
                 sel.innerHTML += LPC.html`<option value="${p.id}">${p.name}</option>`;
             });
             if (current) sel.value = current;
+        }
+
+        // Migration 093 · treasury account picker helpers for the PO form.
+        //
+        // The four accounts on show mirror the ones the encaissement modal
+        // uses on the AR side (Caisse Principale, CCA Bank, MoMo…), so the
+        // buyer never needs to remember which is which — the picker matches
+        // what they see everywhere else in the app.
+        function populateTreasuryAccountSelect() {
+            const sel = document.getElementById('po_treasury_account');
+            if (!sel) return;
+            sel.innerHTML = '<option value="">Choisir un compte...</option>';
+            const accounts = metaData.treasury_accounts || [];
+            accounts.forEach(a => {
+                // The label mirrors what expenses.php shows in the same
+                // dropdown ("Nom — 2 540 000 F"), for continuity of UX.
+                const bal = LPC.fmt.int(Number(a.balance) || 0);
+                sel.innerHTML += LPC.html`<option value="${a.id}" data-balance="${a.balance}">${a.name} — ${bal} F</option>`;
+            });
+        }
+
+        function onSupplierChange(selectElement) {
+            // Two independent duties folded into one handler so the form has
+            // ONE onchange to bind: refresh the ristourne panel (old
+            // behaviour), and pre-select this supplier's default treasury
+            // account (migration 093). Keeping them separate would mean two
+            // onchange bindings competing on the same select.
+            checkSupplierRebate(selectElement);
+
+            const supplierId = parseInt(selectElement.value, 10);
+            if (!supplierId) return;
+            const supplier = (metaData.suppliers || []).find(s => Number(s.id) === supplierId);
+            const defaultAccountId = supplier ? supplier.default_payment_account_id : null;
+
+            const treasurySel = document.getElementById('po_treasury_account');
+            if (!treasurySel) return;
+            if (defaultAccountId) {
+                treasurySel.value = String(defaultAccountId);
+            } else if (!treasurySel.value && (metaData.treasury_accounts || []).length > 0) {
+                // No supplier default set — fall back to the first active
+                // account (matches sort_order from migration 044). Only fires
+                // when nothing is picked yet, so it never overwrites a
+                // deliberate choice.
+                treasurySel.value = String(metaData.treasury_accounts[0].id);
+            }
+            updateTreasuryBalanceInfo();
+        }
+
+        function onPaymentStatusChange() {
+            const status = document.getElementById('po_payment_status').value;
+            const block  = document.getElementById('po-treasury-block');
+            const sel    = document.getElementById('po_treasury_account');
+            if (!block || !sel) return;
+
+            if (status === 'paid') {
+                block.classList.remove('hidden');
+                sel.required = true;
+            } else {
+                // À crédit — hide the picker AND clear its value, so a stale
+                // selection from a paid-then-toggled-to-unpaid state doesn't
+                // silently ride along in the submit payload.
+                block.classList.add('hidden');
+                sel.required = false;
+                sel.value = '';
+            }
+            updateTreasuryBalanceInfo();
+        }
+
+        function updateTreasuryBalanceInfo() {
+            // A live "solde actuel" preview reassures the buyer that the
+            // account they picked has the money. It is informational only —
+            // insufficient balance does NOT block save_po, because the JE
+            // fires at reception, not at creation, and the account might be
+            // topped up between the two events (that is exactly why the
+            // Trésorerie transfer form exists).
+            const sel  = document.getElementById('po_treasury_account');
+            const info = document.getElementById('po-treasury-balance-info');
+            const val  = document.getElementById('po-treasury-balance-value');
+            if (!sel || !info || !val) return;
+            const opt = sel.options[sel.selectedIndex];
+            if (!opt || !opt.value) { info.classList.add('hidden'); return; }
+            const balance = Number(opt.dataset.balance) || 0;
+            val.innerText = LPC.fmt.int(balance) + ' F';
+            info.classList.remove('hidden');
         }
 
         async function switchTab(tab) {
@@ -745,11 +836,21 @@ function openRistourneModal() {
             const rows = document.querySelectorAll('.item-row');
             if(rows.length === 0) return LPC.modal.alert("Veuillez ajouter au moins un produit.");
 
+            // Migration 093 · treasury account is mandatory on the "Payé"
+            // branch. Client-side check so the buyer sees the error under
+            // the field they need to fix, not as a generic API error banner.
+            const paymentStatus = document.getElementById('po_payment_status').value;
+            const treasuryAccountId = document.getElementById('po_treasury_account').value || null;
+            if (paymentStatus === 'paid' && !treasuryAccountId) {
+                return LPC.modal.alert("Veuillez sélectionner le compte de trésorerie qui paiera ce fournisseur.");
+            }
+
             const payload = {
                 action: 'save_po',
                 supplier_id: supplierId,
                 date: document.getElementById('po_date').value,
-                payment_status: document.getElementById('po_payment_status').value,
+                payment_status: paymentStatus,
+                treasury_account_id: paymentStatus === 'paid' ? treasuryAccountId : null,
                 discount_amount: document.getElementById('po_discount_amount').value || 0,
                 discount_note: document.getElementById('po_discount_note').value,
                 delivery_place_id: document.getElementById('po_delivery_place').value || null,
@@ -924,4 +1025,213 @@ function openRistourneModal() {
         // removed with the tab. Purchase orders are cancelled through
         // cancelPurchaseOrder() (soft-reversal), never deleted, so nothing on
         // this page needs a generic delete helper anymore.
+
+        // ==================================================================
+        // PAYER FOURNISSEUR — migration 093, PR-1.
+        // ------------------------------------------------------------------
+        // Standalone settlement path for POs created "Non payé (à crédit)".
+        // Cash-on-delivery still goes through the inline picker on the PO
+        // form; this modal covers everything paid later.
+        //
+        // State: a single object holds the current supplier's unpaid POs
+        // so the tick-all handler and the total-computer can reach them
+        // without re-querying the DOM every keystroke.
+        // ==================================================================
+        let paySupplierState = { pos: [] };
+
+        function openPaySupplierModal() {
+            // Populate supplier + treasury dropdowns from metaData (already
+            // loaded once at page init). Reset previous state so re-opening
+            // the modal shows an empty basket rather than the last run's.
+            const supSel = document.getElementById('pay_supplier_id');
+            supSel.innerHTML = '<option value="">Choisir un fournisseur...</option>';
+            (metaData.suppliers || []).forEach(s => {
+                supSel.innerHTML += LPC.html`<option value="${s.id}">${s.name}</option>`;
+            });
+
+            const treasSel = document.getElementById('pay_treasury_account_id');
+            treasSel.innerHTML = '<option value="">Choisir un compte...</option>';
+            (metaData.treasury_accounts || []).forEach(a => {
+                const bal = LPC.fmt.int(Number(a.balance) || 0);
+                treasSel.innerHTML += LPC.html`<option value="${a.id}" data-balance="${a.balance}">${a.name} — ${bal} F</option>`;
+            });
+
+            document.getElementById('pay_payment_date').valueAsDate = new Date();
+            document.getElementById('pay_note').value = '';
+            document.getElementById('pay_pos_all').checked = false;
+            paySupplierState = { pos: [] };
+            renderPayPosList();
+            updatePaySummary();
+            document.getElementById('pay-treasury-balance').classList.add('hidden');
+
+            document.getElementById('paySupplierModal').classList.remove('hidden');
+        }
+
+        async function onPaySupplierChange() {
+            const supplierId = parseInt(document.getElementById('pay_supplier_id').value, 10);
+            if (!supplierId) {
+                paySupplierState.pos = [];
+                renderPayPosList();
+                updatePaySummary();
+                return;
+            }
+
+            // Pre-select this supplier's default treasury account, same
+            // priority order the inline PO picker uses.
+            const supplier = (metaData.suppliers || []).find(s => Number(s.id) === supplierId);
+            const treasSel = document.getElementById('pay_treasury_account_id');
+            if (supplier && supplier.default_payment_account_id) {
+                treasSel.value = String(supplier.default_payment_account_id);
+                updatePayTreasuryBalance();
+            }
+
+            // Fetch this supplier's unpaid, non-cancelled POs.
+            try {
+                const res = await fetch(`/api/v1/procurement_controller.php?action=list_unpaid_pos_by_supplier&supplier_id=${supplierId}`);
+                const result = await res.json();
+                if (result.status === 'success') {
+                    paySupplierState.pos = (result.data.pos || []).map(p => ({
+                        id: Number(p.id),
+                        reference: p.reference,
+                        date: p.date,
+                        total_amount: Number(p.total_amount),
+                        status: p.status,
+                        checked: false,
+                    }));
+                } else {
+                    paySupplierState.pos = [];
+                    LPC.modal.alert("Erreur: " + (result.message || 'chargement impossible.'));
+                }
+            } catch (e) {
+                paySupplierState.pos = [];
+                LPC.modal.alert("Erreur système lors du chargement des bons impayés.");
+            }
+            document.getElementById('pay_pos_all').checked = false;
+            renderPayPosList();
+            updatePaySummary();
+        }
+
+        function renderPayPosList() {
+            const body = document.getElementById('pay-pos-body');
+            if (!paySupplierState.pos.length) {
+                // Two different "empty" states: no supplier picked vs
+                // supplier has nothing outstanding. Discriminate so the
+                // user knows which one they're looking at.
+                const supplierPicked = !!document.getElementById('pay_supplier_id').value;
+                body.innerHTML = supplierPicked
+                    ? '<div class="p-8 text-center text-sm font-bold text-emerald-700"><i class="fas fa-check-circle text-2xl mb-2 block"></i>Aucun bon de commande impayé pour ce fournisseur.</div>'
+                    : '<div class="p-8 text-center text-sm font-bold text-gray-400">Sélectionnez un fournisseur pour afficher ses bons impayés.</div>';
+                return;
+            }
+
+            body.innerHTML = paySupplierState.pos.map((p, i) => LPC.html`
+                <label class="flex items-center gap-4 px-6 py-3 hover:bg-emerald-50/50 cursor-pointer">
+                    <input type="checkbox" class="pay-po-check w-5 h-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                           data-idx="${i}" onchange="onPayPoCheck(${i}, this.checked)" ${p.checked ? 'checked' : ''}>
+                    <div class="flex-1 min-w-0">
+                        <p class="font-bold text-gray-900 text-sm truncate">${p.reference}</p>
+                        <p class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">${p.date} · ${p.status}</p>
+                    </div>
+                    <p class="font-black text-gray-900 text-sm shrink-0">${LPC.fmt.int(p.total_amount)} F</p>
+                </label>
+            `).join('');
+        }
+
+        function onPayPoCheck(idx, checked) {
+            if (paySupplierState.pos[idx]) paySupplierState.pos[idx].checked = !!checked;
+            // Sync the "tout cocher" master to the actual state — if the
+            // buyer manually unticked one, the master must reflect that.
+            const all = paySupplierState.pos.length > 0
+                && paySupplierState.pos.every(p => p.checked);
+            document.getElementById('pay_pos_all').checked = all;
+            updatePaySummary();
+        }
+
+        function togglePayPosAll(checked) {
+            paySupplierState.pos.forEach(p => { p.checked = !!checked; });
+            renderPayPosList();
+            updatePaySummary();
+        }
+
+        function updatePaySummary() {
+            const selected = paySupplierState.pos.filter(p => p.checked);
+            const total    = selected.reduce((sum, p) => sum + p.total_amount, 0);
+            document.getElementById('pay-summary-count').innerText = `${selected.length} bon(s) sélectionné(s)`;
+            document.getElementById('pay-summary-total').innerText = LPC.fmt.int(total) + ' F';
+        }
+
+        function updatePayTreasuryBalance() {
+            const sel  = document.getElementById('pay_treasury_account_id');
+            const info = document.getElementById('pay-treasury-balance');
+            const val  = document.getElementById('pay-treasury-balance-value');
+            const opt  = sel.options[sel.selectedIndex];
+            if (!opt || !opt.value) { info.classList.add('hidden'); return; }
+            const balance = Number(opt.dataset.balance) || 0;
+            val.innerText = LPC.fmt.int(balance) + ' F';
+            info.classList.remove('hidden');
+        }
+
+        async function submitSupplierPayment() {
+            const supplierId    = parseInt(document.getElementById('pay_supplier_id').value, 10);
+            const treasuryId    = parseInt(document.getElementById('pay_treasury_account_id').value, 10);
+            const paymentDate   = document.getElementById('pay_payment_date').value;
+            const note          = document.getElementById('pay_note').value.trim();
+            const selectedPoIds = paySupplierState.pos.filter(p => p.checked).map(p => p.id);
+            const total         = paySupplierState.pos.filter(p => p.checked).reduce((sum, p) => sum + p.total_amount, 0);
+
+            if (!supplierId)         return LPC.modal.alert("Veuillez sélectionner un fournisseur.");
+            if (!treasuryId)         return LPC.modal.alert("Veuillez sélectionner un compte de trésorerie.");
+            if (!paymentDate)        return LPC.modal.alert("Veuillez indiquer une date de paiement.");
+            if (!selectedPoIds.length) return LPC.modal.alert("Veuillez cocher au moins un bon à régler.");
+
+            // Warn if the selected total exceeds the account balance. Not a
+            // hard block — the JE will still post — but the buyer probably
+            // wants to know before the account swings negative on paper.
+            const opt = document.getElementById('pay_treasury_account_id').options[
+                        document.getElementById('pay_treasury_account_id').selectedIndex];
+            const balance = Number((opt && opt.dataset.balance) || 0);
+            if (total > balance) {
+                const proceed = await LPC.modal.confirm(
+                    `Le montant sélectionné (${LPC.fmt.int(total)} F) dépasse le solde du compte (${LPC.fmt.int(balance)} F). Continuer quand même ?`
+                );
+                if (!proceed) return;
+            }
+
+            const btn = document.querySelector('#paySupplierModal button.bg-emerald-700');
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Traitement...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/v1/procurement_controller.php', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        action: 'settle_supplier_pos',
+                        supplier_id: supplierId,
+                        treasury_account_id: treasuryId,
+                        payment_date: paymentDate,
+                        po_ids: selectedPoIds,
+                        note: note,
+                    }),
+                });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    closeModal('paySupplierModal');
+                    LPC.modal.alert(result.message || 'Règlement effectué.');
+                    // Refresh both the metadata (treasury balances have
+                    // moved) and the current tab (payment_status has
+                    // flipped on the settled rows).
+                    await fetchMetaData();
+                    loadTabData();
+                } else {
+                    LPC.modal.alert("Erreur: " + (result.message || 'règlement impossible.'));
+                }
+            } catch (e) {
+                LPC.modal.alert("Erreur système lors du règlement.");
+            } finally {
+                btn.innerHTML = '<i class="fas fa-check"></i> Confirmer le Règlement';
+                btn.disabled = false;
+            }
+        }
     

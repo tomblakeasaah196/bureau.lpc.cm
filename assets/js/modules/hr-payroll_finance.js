@@ -97,7 +97,14 @@
                     actions = `<button onclick="approveAdvance(${a.id})" class="text-emerald-600 hover:text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase border border-emerald-200 mr-2">Approuver</button>
                                <button onclick="rejectAdvance(${a.id})" class="text-rose-600 hover:text-rose-800 bg-rose-50 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase border border-rose-200">Refuser</button>`;
                 } else if(a.status === 'approved') {
-                    statusBadge = `<span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-[9px] font-black uppercase">Approuvé (À Déduire)</span>`;
+                    // PR-2, migration 096 · after approval, the advance must
+                    // be DISBURSED before it hits the ledger. Old flow left
+                    // this step off-books; the Décaisser button posts the
+                    // Dr 421 / Cr treasury JE and decrements the till.
+                    statusBadge = `<span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-[9px] font-black uppercase">Approuvé (À Décaisser)</span>`;
+                    actions = `<button onclick="openDisburseAdvanceModal(${a.id}, ${Number(a.amount)}, ${JSON.stringify(a.employee_name)})" class="text-emerald-700 hover:text-emerald-900 bg-emerald-50 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase border border-emerald-300"><i class="fas fa-money-bill-wave mr-1"></i>Décaisser</button>`;
+                } else if(a.status === 'disbursed') {
+                    statusBadge = `<span class="bg-emerald-100 text-emerald-800 px-2 py-1 rounded text-[9px] font-black uppercase">Décaissé (À Déduire)</span>`;
                 } else if(a.status === 'deducted') {
                     statusBadge = `<span class="bg-gray-200 text-gray-600 px-2 py-1 rounded text-[9px] font-black uppercase">Soldé (Déduit)</span>`;
                 } else {
@@ -754,3 +761,230 @@
             }).join('') || LPC.html`<tr><td colspan="6" class="py-4 text-center italic text-gray-400">Aucun bulletin antérieur.</td></tr>`;
             document.querySelector('#pdet_history_table tbody').innerHTML = histHtml;
         }
+
+        // ==================================================================
+        // MARQUER PAYÉES — PR-2, migration 095.
+        // ------------------------------------------------------------------
+        // Disbursement half of payroll. generate_month posts the accrual
+        // (Dr 661 / Cr 422); this modal posts the settlement (Dr 422 / Cr
+        // treasury) as ONE JE per treasury account, grouped by
+        // payment_method.
+        //
+        // State: { period, groups: { bank: {payslips, total}, caisse: {...} },
+        //          treasuryAccounts, selected: { bank: Set, caisse: Set } }
+        // The Set-per-group lets tick-all and total recalculation stay O(1)
+        // per checkbox instead of scanning the DOM every keystroke.
+        // ==================================================================
+        let markPaidState = {
+            period: null,
+            groups: { bank: { payslips: [], total: 0 }, caisse: { payslips: [], total: 0 } },
+            treasuryAccounts: [],
+            selected: { bank: new Set(), caisse: new Set() },
+        };
+
+        async function openMarkPaidModal() {
+            const period = document.getElementById('payroll_period').value;
+            if (!period) return LPC.modal.alert('Sélectionnez d\'abord une période de paie.');
+
+            markPaidState.period = period;
+            markPaidState.selected = { bank: new Set(), caisse: new Set() };
+            document.getElementById('mp-period-display').textContent = period;
+            document.getElementById('mp_payment_date').valueAsDate = new Date();
+            document.getElementById('mp_note').value = '';
+            document.getElementById('mp_bank_all').checked = false;
+            document.getElementById('mp_caisse_all').checked = false;
+
+            openModal('modal-mark-paid');
+
+            // Two parallel loads: treasury accounts (for both pickers) and
+            // the period's unsettled payslips (already grouped server-side).
+            try {
+                const [accRes, plRes] = await Promise.all([
+                    fetch('/api/v1/payroll_controller.php?action=list_treasury_accounts').then(r => r.json()),
+                    fetch(`/api/v1/payroll_controller.php?action=list_unsettled_payslips&period=${encodeURIComponent(period)}`).then(r => r.json()),
+                ]);
+                markPaidState.treasuryAccounts = (accRes.status === 'success') ? (accRes.data || []) : [];
+                markPaidState.groups = (plRes.status === 'success') ? (plRes.data.groups || {}) : {};
+                renderMpTreasuryPickers();
+                renderMpGroup('bank');
+                renderMpGroup('caisse');
+            } catch (e) {
+                LPC.modal.alert('Erreur de chargement.');
+            }
+        }
+        window.openMarkPaidModal = openMarkPaidModal;
+
+        function renderMpTreasuryPickers() {
+            // Sensible defaults: bank picker → first 'bank' account, caisse
+            // picker → first 'caisse' account. Matches how the AR modal picks
+            // its default; the user can override.
+            const bankSel   = document.getElementById('mp_bank_treasury');
+            const caisseSel = document.getElementById('mp_caisse_treasury');
+            const optHtml = (a) => LPC.html`<option value="${a.id}" data-balance="${a.balance}">${a.name}</option>`;
+
+            bankSel.innerHTML   = '<option value="">Choisir un compte...</option>';
+            caisseSel.innerHTML = '<option value="">Choisir un compte...</option>';
+            markPaidState.treasuryAccounts.forEach(a => {
+                bankSel.innerHTML   += optHtml(a);
+                caisseSel.innerHTML += optHtml(a);
+            });
+            const firstBank   = markPaidState.treasuryAccounts.find(a => a.type === 'bank');
+            const firstCaisse = markPaidState.treasuryAccounts.find(a => a.type === 'caisse');
+            if (firstBank)   bankSel.value   = String(firstBank.id);
+            if (firstCaisse) caisseSel.value = String(firstCaisse.id);
+        }
+
+        function renderMpGroup(groupKey) {
+            const group  = markPaidState.groups[groupKey] || { payslips: [], total: 0 };
+            const body   = document.getElementById(`mp-${groupKey}-body`);
+            const totEl  = document.getElementById(`mp-${groupKey}-total`);
+            if (!body || !totEl) return;
+
+            if (!group.payslips.length) {
+                body.innerHTML = '<div class="p-6 text-center text-xs font-bold text-gray-400 italic">Aucun bulletin en attente dans ce groupe.</div>';
+                totEl.textContent = '0 F';
+                return;
+            }
+
+            body.innerHTML = group.payslips.map(p => LPC.html`
+                <label class="flex items-center gap-4 px-6 py-2 hover:bg-gray-50 cursor-pointer">
+                    <input type="checkbox" class="mp-${groupKey}-check w-4 h-4"
+                           data-id="${p.id}" data-amount="${p.net_pay}"
+                           onchange="onMpCheck('${groupKey}', ${p.id}, ${Number(p.net_pay)}, this.checked)">
+                    <div class="flex-1 min-w-0">
+                        <p class="font-bold text-gray-900 truncate">${p.employee_name}</p>
+                        <p class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">${p.role_name || ''}</p>
+                    </div>
+                    <p class="font-black text-gray-900">${fmt(p.net_pay)} F</p>
+                </label>`).join('');
+            updateMpGroupTotal(groupKey);
+        }
+
+        function onMpCheck(groupKey, id, amount, checked) {
+            const set = markPaidState.selected[groupKey];
+            if (checked) set.add(id); else set.delete(id);
+            updateMpGroupTotal(groupKey);
+            // Keep the "tout cocher" master in sync with reality.
+            const all = markPaidState.groups[groupKey].payslips.length > 0
+                     && markPaidState.groups[groupKey].payslips.every(p => set.has(Number(p.id)));
+            document.getElementById(`mp_${groupKey}_all`).checked = all;
+        }
+        window.onMpCheck = onMpCheck;
+
+        function toggleMpGroupAll(groupKey, checked) {
+            const set = markPaidState.selected[groupKey];
+            set.clear();
+            if (checked) {
+                markPaidState.groups[groupKey].payslips.forEach(p => set.add(Number(p.id)));
+            }
+            // Re-render just this group's tickboxes to match the state.
+            document.querySelectorAll(`.mp-${groupKey}-check`).forEach(cb => {
+                cb.checked = checked;
+            });
+            updateMpGroupTotal(groupKey);
+        }
+        window.toggleMpGroupAll = toggleMpGroupAll;
+
+        function updateMpGroupTotal(groupKey) {
+            const set = markPaidState.selected[groupKey];
+            const total = markPaidState.groups[groupKey].payslips
+                .filter(p => set.has(Number(p.id)))
+                .reduce((sum, p) => sum + Number(p.net_pay), 0);
+            document.getElementById(`mp-${groupKey}-total`).textContent = fmt(total) + ' F';
+        }
+
+        // ==================================================================
+        // DÉCAISSER ACOMPTE — PR-2, migration 096.
+        // Approved advances need a disbursement step before the money is
+        // reclaimed by a payslip. This modal wraps that step.
+        // ==================================================================
+        async function openDisburseAdvanceModal(advanceId, amount, employeeName) {
+            document.getElementById('disb_advance_id').value = advanceId;
+            document.getElementById('disb-amount').textContent = fmt(amount) + ' F';
+            document.getElementById('disb-employee-name').textContent = employeeName || '';
+            document.getElementById('disb_payment_date').valueAsDate = new Date();
+            document.getElementById('disb_note').value = '';
+
+            // Load treasury accounts, default to first caisse (advances are
+            // usually paid in cash to the employee at the till).
+            const sel = document.getElementById('disb_treasury_account');
+            sel.innerHTML = '<option value="">Chargement...</option>';
+            try {
+                const res = await fetch('/api/v1/payroll_controller.php?action=list_treasury_accounts');
+                const data = await res.json();
+                if (data.status !== 'success') throw new Error(data.message || 'load failed');
+                sel.innerHTML = '<option value="">Choisir un compte...</option>';
+                (data.data || []).forEach(a => {
+                    sel.innerHTML += LPC.html`<option value="${a.id}" data-type="${a.type}">${a.name}</option>`;
+                });
+                const firstCaisse = (data.data || []).find(a => a.type === 'caisse');
+                if (firstCaisse) sel.value = String(firstCaisse.id);
+            } catch (e) {
+                sel.innerHTML = '<option value="">Erreur de chargement</option>';
+            }
+            openModal('modal-disburse-advance');
+        }
+        window.openDisburseAdvanceModal = openDisburseAdvanceModal;
+
+        async function submitDisburseAdvance() {
+            const advanceId = parseInt(document.getElementById('disb_advance_id').value, 10);
+            const treasuryId = parseInt(document.getElementById('disb_treasury_account').value, 10);
+            const paymentDate = document.getElementById('disb_payment_date').value;
+            const note = document.getElementById('disb_note').value.trim();
+
+            if (!advanceId)   return LPC.modal.alert('ID acompte manquant.');
+            if (!treasuryId)  return LPC.modal.alert('Choisissez un compte de trésorerie.');
+            if (!paymentDate) return LPC.modal.alert('Indiquez une date de décaissement.');
+
+            const result = await jsonPost({
+                action: 'disburse_advance',
+                advance_id: advanceId,
+                treasury_account_id: treasuryId,
+                payment_date: paymentDate,
+                note: note,
+            });
+
+            if (result.status === 'success') {
+                closeModal('modal-disburse-advance');
+                LPC.modal.alert(result.message || 'Acompte décaissé.');
+                fetchTabData('advances');
+            } else {
+                LPC.modal.alert('Erreur: ' + (result.message || 'décaissement impossible.'));
+            }
+        }
+        window.submitDisburseAdvance = submitDisburseAdvance;
+
+        async function submitMarkPaid(groupKey) {
+            const set = markPaidState.selected[groupKey];
+            const ids = Array.from(set);
+            if (!ids.length) return LPC.modal.alert('Cochez au moins un bulletin dans ce groupe.');
+
+            const treasuryId = parseInt(document.getElementById(`mp_${groupKey}_treasury`).value, 10);
+            if (!treasuryId) return LPC.modal.alert('Choisissez le compte de trésorerie qui paie ce groupe.');
+
+            const paymentDate = document.getElementById('mp_payment_date').value;
+            if (!paymentDate) return LPC.modal.alert('Indiquez une date de paiement.');
+
+            const note = document.getElementById('mp_note').value.trim();
+
+            const result = await jsonPost({
+                action: 'settle_payslips',
+                treasury_account_id: treasuryId,
+                payment_date: paymentDate,
+                payslip_ids: ids,
+                note: note,
+            });
+
+            if (result.status === 'success') {
+                LPC.modal.alert(result.message || 'Règlement enregistré.');
+                // Refresh the modal contents — the settled rows now vanish
+                // from the unsettled list; keep the modal open so the buyer
+                // can tackle the other group without re-entering the period.
+                await openMarkPaidModal();
+                // Also refresh the payroll grid so status pills update.
+                if (typeof loadPayrollGrid === 'function') loadPayrollGrid();
+            } else {
+                LPC.modal.alert('Erreur: ' + (result.message || 'règlement impossible.'));
+            }
+        }
+        window.submitMarkPaid = submitMarkPaid;

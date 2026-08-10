@@ -90,6 +90,21 @@ $user_role = $_SESSION['user_role'];
                 <i class="fas fa-gift"></i> <span>Ristournes</span>
             </button>
 
+            <?php /*
+                 Migration 093 · standalone Payer Fournisseur entry point.
+                 Behind the same .approve permission as PO cancellation —
+                 settling a payable moves money and hits the general ledger,
+                 which is not a "view" operation. Cash-on-delivery is still
+                 the inline path on the PO form; this button covers every
+                 PO created "Non payé (à crédit)" that needs settling later.
+            */ ?>
+            <button id="btn-pay-supplier" onclick="openPaySupplierModal()"
+                    data-perm="inventory.procurement.approve"
+                    title="Régler un ou plusieurs bons de commande impayés pour un fournisseur, depuis un compte de trésorerie."
+                    class="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 px-4 py-2.5 rounded-xl font-black text-sm shadow-sm flex items-center gap-2 shrink-0 transition-all lpc-focusable">
+                <i class="fas fa-money-bill-wave"></i> <span>Payer Fournisseur</span>
+            </button>
+
             <a id="btn-config-ristournes" href="/modules/inventory/rebate_config.php"
                class="w-11 h-11 rounded-xl border border-lpc-border bg-white text-gray-500 hover:text-amber-700 hover:border-amber-300 flex items-center justify-center shrink-0 transition-all lpc-focusable"
                title="Configurer les Ristournes — paliers par catégorie de produit et par fournisseur"
@@ -215,7 +230,7 @@ $user_role = $_SESSION['user_role'];
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-6 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                         <div>
                             <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.fournisseur_mdm')) ?></label>
-                            <select name="supplier_id" id="po_supplier" onchange="checkSupplierRebate(this)" required class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
+                            <select name="supplier_id" id="po_supplier" onchange="onSupplierChange(this)" required class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
                                 <option value=""><?= htmlspecialchars(__t('ui.x.selectionner_un_fournisseur')) ?></option>
                                 </select>
                         </div>
@@ -225,7 +240,7 @@ $user_role = $_SESSION['user_role'];
                         </div>
                         <div>
                             <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.statut_de_paiement')) ?></label>
-                            <select name="payment_status" id="po_payment_status" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
+                            <select name="payment_status" id="po_payment_status" onchange="onPaymentStatusChange()" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
                                 <option value="unpaid"><?= htmlspecialchars(__t('ui.x.non_paye_a_credit')) ?></option>
                                 <option value="paid" selected><?= htmlspecialchars(__t('ui.x.paye_cash_virement')) ?></option>
                             </select>
@@ -238,6 +253,44 @@ $user_role = $_SESSION['user_role'];
                             <select name="delivery_place_id" id="po_delivery_place" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
                                 <option value="">Non spécifié</option>
                             </select>
+                        </div>
+                    </div>
+
+                    <!--
+                        Migration 093 · treasury account picker for the "Payé"
+                        branch. Kept in its own block below the header grid so
+                        it can be shown/hidden without collapsing the 4-column
+                        layout above. Shown when payment_status='paid', hidden
+                        when 'unpaid' (à crédit) — see onPaymentStatusChange().
+
+                        Pre-selection order (onSupplierChange handles it):
+                          1. Supplier's default_payment_account_id, if set.
+                          2. First treasury account in metaData.treasury_accounts.
+                        The buyer can always override.
+                    -->
+                    <div id="po-treasury-block" class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
+                                    <i class="fas fa-wallet mr-1 text-lpc-dark"></i>
+                                    Compte de Trésorerie *
+                                </label>
+                                <select name="treasury_account_id" id="po_treasury_account" required
+                                        onchange="updateTreasuryBalanceInfo()"
+                                        class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
+                                    <option value="">Choisir un compte...</option>
+                                </select>
+                                <p class="text-[10px] font-bold text-gray-500 mt-1.5">
+                                    <i class="fas fa-info-circle mr-1"></i>
+                                    Le solde de ce compte sera débité à la réception des marchandises.
+                                </p>
+                            </div>
+                            <div class="flex items-end">
+                                <div id="po-treasury-balance-info" class="w-full bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs font-bold text-emerald-900 hidden">
+                                    <span class="uppercase tracking-widest text-[10px] text-emerald-700">Solde actuel</span><br>
+                                    <span id="po-treasury-balance-value" class="text-lg font-black">0 F</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -300,6 +353,92 @@ $user_role = $_SESSION['user_role'];
 
     <?php /* overheadModal deleted 31 July 2026. Frais Généraux moved to
              modules/accounting/expenses.php — see migration 053. */ ?>
+
+    <?php /*
+         =====================================================================
+         PAY SUPPLIER MODAL — migration 093, PR-1.
+         Opened from #btn-pay-supplier. The buyer:
+           1. picks a supplier (loads that supplier's unpaid POs);
+           2. picks a treasury account (defaults to supplier default, then
+              first active — same order as the inline PO form);
+           3. picks a payment date (defaults to today);
+           4. ticks which POs to settle in this batch;
+           5. clicks Confirmer.
+         The confirm calls settle_supplier_pos in the controller, which fires
+         JournalPoster::postSupplierPayment once per PO inside one transaction.
+         =====================================================================
+    */ ?>
+    <div id="paySupplierModal" style="z-index: 9998;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="bg-emerald-700 px-8 py-5 flex justify-between items-center shrink-0">
+                <h3 class="font-black text-white text-xl flex items-center">
+                    <i class="fas fa-money-bill-wave mr-3"></i>
+                    Régler un Fournisseur
+                </h3>
+                <button type="button" onclick="closeModal('paySupplierModal')" class="text-white/70 hover:text-white transition-colors">
+                    <i class="fas fa-times text-2xl"></i>
+                </button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-8 bg-gray-50/50 space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <div>
+                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Fournisseur *</label>
+                        <select id="pay_supplier_id" onchange="onPaySupplierChange()" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500">
+                            <option value="">Choisir un fournisseur...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Compte de Trésorerie *</label>
+                        <select id="pay_treasury_account_id" onchange="updatePayTreasuryBalance()" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500">
+                            <option value="">Choisir un compte...</option>
+                        </select>
+                        <p id="pay-treasury-balance" class="text-[10px] font-bold text-emerald-800 mt-1.5 hidden">
+                            <i class="fas fa-wallet mr-1"></i> Solde: <span id="pay-treasury-balance-value">0 F</span>
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Date de Paiement *</label>
+                        <input type="date" id="pay_payment_date" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500">
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div class="bg-gray-900 px-6 py-3 flex justify-between items-center">
+                        <h4 class="text-xs font-black text-white uppercase tracking-widest">Bons de Commande Impayés</h4>
+                        <label class="text-xs font-bold text-lpc-light cursor-pointer">
+                            <input type="checkbox" id="pay_pos_all" onchange="togglePayPosAll(this.checked)" class="mr-2 align-middle"> Tout cocher
+                        </label>
+                    </div>
+                    <div id="pay-pos-body" class="divide-y divide-gray-100">
+                        <div class="p-8 text-center text-sm font-bold text-gray-400">
+                            Sélectionnez un fournisseur pour afficher ses bons impayés.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex justify-between items-center">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-1">Montant total à régler</p>
+                        <p id="pay-summary-count" class="text-xs font-bold text-emerald-800">0 bon(s) sélectionné(s)</p>
+                    </div>
+                    <p id="pay-summary-total" class="text-2xl font-black text-emerald-900">0 F</p>
+                </div>
+
+                <div>
+                    <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Note (optionnelle)</label>
+                    <input type="text" id="pay_note" placeholder="Ex: Virement Afriland réf. TX-2608-0001" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+            </div>
+
+            <div class="bg-gray-50 px-8 py-5 border-t border-gray-200 flex justify-end gap-4 shrink-0">
+                <button type="button" onclick="closeModal('paySupplierModal')" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors">Annuler</button>
+                <button type="button" onclick="submitSupplierPayment()" class="px-8 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2">
+                    <i class="fas fa-check"></i> Confirmer le Règlement
+                </button>
+            </div>
+        </div>
+    </div>
 
     <div id="deliveryPlacesModal" style="z-index: 9999;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh]">

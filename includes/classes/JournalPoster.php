@@ -1005,6 +1005,525 @@ final class JournalPoster
     }
 
     /**
+     * Settle a supplier invoice / purchase order from a treasury account.
+     *
+     *   Debit  401x the supplier's own account   — clears the payable
+     *   Credit 5xx  chosen treasury COA          — cash actually leaves
+     *
+     * Called from two paths (see migration 093 for the full account of the hole
+     * this method closes):
+     *
+     *   1. INLINE, at PO creation, when the buyer ticked "Payé (Cash/Virement)":
+     *      procurement_controller::save_po calls postGoodsReceipt AND
+     *      postSupplierPayment in the same transaction, so the goods leg and
+     *      the payment leg either both post or neither does.
+     *
+     *   2. STANDALONE, from the Payer Fournisseur screen: the buyer picks one
+     *      or more open POs and a treasury account; this method fires once per
+     *      PO, updating purchase_orders.payment_status='paid' and stamping the
+     *      returned JE id on payment_je_id.
+     *
+     * BEFORE THIS METHOD EXISTED, every PO marked "paid" only produced the
+     * goods-receipt JE (Dr 601 / Dr 4452 / Cr 401). The payment leg was never
+     * booked — 401 stayed open on the books forever, and the caisse balance
+     * never decremented despite the cash physically leaving the till. The
+     * treasury_transactions journal carried no outgoing row for the outflow.
+     *
+     * PARTIAL PAYMENTS — deliberately not supported yet.
+     *   The migration 093 header explains why: most POs are paid in full or on
+     *   credit-then-full, and adding a purchase_order_payments child table for
+     *   the rare partial case would be dead schema in PR-1. This method throws
+     *   if $amount does not exactly clear the PO. A future migration adds the
+     *   child table and relaxes this check; the JE shape stays the same.
+     *
+     * SUPPLIER 401 SUB-ACCOUNT — resolved via coaForSupplier(), which throws
+     * if the supplier has no chart-of-accounts entry. Same posture as
+     * postGoodsReceipt: silently falling back to a shared 401 is how the AP
+     * sub-ledger got meaningless in the first place.
+     *
+     * SOURCE LINK — source_type='purchase_order_payment' (distinct from
+     * postGoodsReceipt's 'purchase_order'). A cancel_po must reverse BOTH
+     * source types; a refund/reversal of only the payment (rare) hits only
+     * this one. Keeping them separate is what lets that distinction exist.
+     *
+     * Called inside the caller's transaction. Does NOT open its own.
+     *
+     * @param int    $po_id                purchase_orders.id being settled
+     * @param int    $treasury_account_id  treasury_accounts.id paying from
+     * @param float  $amount               FCFA paid; must equal the open balance
+     * @param string $payment_date         YYYY-MM-DD; drives the JE date
+     * @param string $note                 optional free-text appended to desc
+     * @return int                         journal_entries.id of the payment JE
+     */
+    public static function postSupplierPayment(
+        int $po_id,
+        int $treasury_account_id,
+        float $amount,
+        string $payment_date,
+        string $note = ''
+    ): int {
+        $db      = Database::getInstance()->getConnection();
+        $user_id = (int) ($_SESSION['user_id'] ?? 0);
+
+        $amount = self::roundFcfa($amount);
+        if ($amount <= 0) {
+            throw new RuntimeException("JournalPoster::postSupplierPayment — non-positive amount for PO #{$po_id}.");
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $payment_date)) {
+            throw new RuntimeException("JournalPoster::postSupplierPayment — payment_date must be YYYY-MM-DD.");
+        }
+
+        // 1. Load the PO (locked) and compute the open balance.
+        //    Uses FOR UPDATE so a second concurrent Payer Fournisseur call
+        //    against the same PO cannot both pass the "clears exactly" check
+        //    and double-pay.
+        $stmt = $db->prepare("
+            SELECT id, reference, supplier_id, total_amount, payment_status, payment_je_id
+              FROM purchase_orders
+             WHERE id = ?
+             FOR UPDATE
+        ");
+        $stmt->execute([$po_id]);
+        $po = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$po) {
+            throw new RuntimeException("JournalPoster::postSupplierPayment — PO #{$po_id} not found.");
+        }
+        if ($po['payment_status'] === 'paid' || !empty($po['payment_je_id'])) {
+            throw new RuntimeException(
+                "JournalPoster::postSupplierPayment — PO #{$po_id} ({$po['reference']}) is already settled."
+            );
+        }
+        $total_owed = self::roundFcfa((float) $po['total_amount']);
+        // Both figures are already rounded to whole FCFA, but comparing
+        // rounded floats with === is superstition — use a 0.5 F epsilon,
+        // which is well under the smallest unit (FCFA has no subunits).
+        if (abs($amount - $total_owed) > 0.5) {
+            // Partial payments intentionally rejected — see method docblock.
+            throw new RuntimeException(sprintf(
+                "JournalPoster::postSupplierPayment — PO #%d owes %s FCFA but %s FCFA was tendered. "
+                . "Partial payments are not yet supported; settle the full balance or split the PO.",
+                $po_id,
+                number_format($total_owed, 0, ',', ' '),
+                number_format($amount, 0, ',', ' ')
+            ));
+        }
+
+        // 2. Resolve accounts.
+        $supplier_coa = self::coaForSupplier($db, (int) $po['supplier_id']);
+        $treasury_coa = self::coaFromTreasury($db, $treasury_account_id);
+
+        // 3. Post the JE. Journal code 'BQ' matches postInvoicePayment: any
+        //    treasury movement is BQ regardless of the underlying instrument
+        //    (bank, caisse, MoMo). The sub-ledger distinction lives in the
+        //    treasury COA the coaFromTreasury lookup returned.
+        $ref  = 'PAY-FRS-' . $po['reference'];
+        $desc = "Règlement fournisseur — PO {$po['reference']}";
+        if ($note !== '') $desc .= " · {$note}";
+
+        $je_id = self::createDraftJe(
+            $db, $ref, 'BQ', $payment_date, $desc, $user_id,
+            'purchase_order_payment', $po_id
+        );
+        self::addLine($db, $je_id, $supplier_coa, $amount, 0.0);   // Dr 401
+        self::addLine($db, $je_id, $treasury_coa, 0.0,     $amount); // Cr 5xx
+        self::post($db, $je_id, $user_id);
+
+        // 4. Treasury movement — outgoing row + balance decrement.
+        //    Migration 093 added 'out_supplier_payment' to the enum so this
+        //    can be distinguished from ad-hoc treasury expenses in reports.
+        $db->prepare("
+            INSERT INTO treasury_transactions (account_id, transaction_type, amount, reference, description, logged_by)
+            VALUES (?, 'out_supplier_payment', ?, ?, ?, ?)
+        ")->execute([$treasury_account_id, $amount, $ref, $desc, $user_id]);
+
+        $db->prepare("UPDATE treasury_accounts SET balance = balance - ? WHERE id = ?")
+           ->execute([$amount, $treasury_account_id]);
+
+        // 5. Stamp the PO. payment_je_id is what cancel_po reads to reverse
+        //    the payment leg (see procurement_controller::cancel_po after
+        //    the PR-1 wiring lands).
+        $db->prepare("
+            UPDATE purchase_orders
+               SET payment_status      = 'paid',
+                   treasury_account_id = ?,
+                   payment_date        = ?,
+                   payment_je_id       = ?
+             WHERE id = ?
+        ")->execute([$treasury_account_id, $payment_date, $je_id, $po_id]);
+
+        return $je_id;
+    }
+
+    /**
+     * Disburse an approved HR advance: cash physically handed to the
+     * employee against a treasury account.
+     *
+     *   Debit  421  Personnel — avances et acomptes    amount
+     *   Credit 5xx  chosen treasury COA                amount
+     *
+     * PR-2, migration 096. Closes the third payroll-side hole: approve_
+     * advance flipped the status to 'approved' and stopped. Nothing debited
+     * 421 to represent money the employee owes, and nothing credited the
+     * caisse for money physically handed out. The employee got the cash,
+     * the books never learned about it, and the ledger only saw the
+     * subsequent Cr 421 line inside the payslip accrual — 421 stayed at
+     * zero throughout despite genuine cash out.
+     *
+     * IDEMPOTENCY — disbursement_je_id set means already disbursed. Throw
+     * rather than double-post; the UI must gate the button on that field.
+     *
+     * SOURCE LINK — source_type='advance_disbursement'. Distinct from
+     * payslip source_types so a future "cancel advance" (reversing the
+     * disbursement before it's been deducted from a payslip) can address
+     * this JE alone.
+     *
+     * Called inside the caller's transaction.
+     *
+     * @param int    $advance_id           hr_advances.id
+     * @param int    $treasury_account_id  treasury_accounts.id paying out
+     * @param string $payment_date         YYYY-MM-DD; drives the JE date
+     * @param string $note                 optional free-text appended to desc
+     * @return int                         journal_entries.id
+     */
+    public static function postAdvanceDisbursement(
+        int $advance_id,
+        int $treasury_account_id,
+        string $payment_date,
+        string $note = ''
+    ): int {
+        $db      = Database::getInstance()->getConnection();
+        $user_id = (int) ($_SESSION['user_id'] ?? 0);
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $payment_date)) {
+            throw new RuntimeException("JournalPoster::postAdvanceDisbursement — payment_date must be YYYY-MM-DD.");
+        }
+
+        // 1. Load and lock the advance.
+        $stmt = $db->prepare("
+            SELECT a.id, a.user_id, a.amount, a.status, a.disbursement_je_id,
+                   CONCAT(u.first_name, ' ', u.last_name) AS employee_name
+              FROM hr_advances a
+              JOIN users u ON u.id = a.user_id
+             WHERE a.id = ?
+             FOR UPDATE
+        ");
+        $stmt->execute([$advance_id]);
+        $adv = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$adv) {
+            throw new RuntimeException("JournalPoster::postAdvanceDisbursement — advance #{$advance_id} not found.");
+        }
+        if ($adv['status'] !== 'approved') {
+            throw new RuntimeException(
+                "JournalPoster::postAdvanceDisbursement — advance #{$advance_id} is not in 'approved' status."
+            );
+        }
+        if (!empty($adv['disbursement_je_id'])) {
+            throw new RuntimeException(
+                "JournalPoster::postAdvanceDisbursement — advance #{$advance_id} is already disbursed."
+            );
+        }
+
+        $amount = self::roundFcfa((float) $adv['amount']);
+        if ($amount <= 0) {
+            throw new RuntimeException("JournalPoster::postAdvanceDisbursement — non-positive amount for advance #{$advance_id}.");
+        }
+
+        // 2. Resolve accounts.
+        $advance_coa = self::coaByOhada($db, '421');
+        if (!$advance_coa) {
+            throw new RuntimeException("JournalPoster::postAdvanceDisbursement — OHADA 421 not mapped.");
+        }
+        $treasury_coa = self::coaFromTreasury($db, $treasury_account_id);
+
+        // 3. Post the JE. Journal code 'BQ' — every treasury movement is BQ.
+        $ref  = 'PAY-ADV-' . $advance_id;
+        $desc = "Décaissement acompte — {$adv['employee_name']} (#{$advance_id})";
+        if ($note !== '') $desc .= " · {$note}";
+
+        $je_id = self::createDraftJe(
+            $db, $ref, 'BQ', $payment_date, $desc, $user_id,
+            'advance_disbursement', $advance_id
+        );
+        self::addLine($db, $je_id, $advance_coa,  $amount, 0.0);  // Dr 421
+        self::addLine($db, $je_id, $treasury_coa, 0.0,    $amount); // Cr 5xx
+        self::post($db, $je_id, $user_id);
+
+        // 4. Treasury outflow — 'out_advance' added by migration 096.
+        $db->prepare("
+            INSERT INTO treasury_transactions (account_id, transaction_type, amount, reference, description, logged_by)
+            VALUES (?, 'out_advance', ?, ?, ?, ?)
+        ")->execute([$treasury_account_id, $amount, $ref, $desc, $user_id]);
+        $db->prepare("UPDATE treasury_accounts SET balance = balance - ? WHERE id = ?")
+           ->execute([$amount, $treasury_account_id]);
+
+        // 5. Stamp the advance. status flips to 'disbursed'; the next
+        //    payslip's Cr 421 deduction will later flip it to 'deducted'.
+        $db->prepare("
+            UPDATE hr_advances
+               SET status              = 'disbursed',
+                   disbursement_je_id  = ?,
+                   treasury_account_id = ?,
+                   disbursed_at        = NOW()
+             WHERE id = ?
+        ")->execute([$je_id, $treasury_account_id, $advance_id]);
+
+        return $je_id;
+    }
+
+    /**
+     * Settle a group of payslips from ONE treasury account, as ONE bulk JE.
+     *
+     *   Debit  422  Personnel — rémunérations dues     sum(net_pay)
+     *   Credit 5xx  chosen treasury COA                sum(net_pay)
+     *
+     * PR-2, migration 095. Answers the payroll half of the AP-hole audit:
+     * generate_month posts the ACCRUAL (Dr 661 / Cr 422) but no settlement
+     * ever fires, so 422 balloons on the balance sheet by every month's
+     * net payroll despite the money being paid on the 5th.
+     *
+     * ONE JE PER PAY RUN, PER TREASURY ACCOUNT — deliberate.
+     *   The PR-2 questionnaire picked this shape because a single bank
+     *   transfer for the month's bank-paid staff reconciles cleanly
+     *   against ONE Cr 521 line in the JE. Booking one JE per employee
+     *   would produce 40 tiny lines to match against one transfer, which
+     *   is how bank reconciliations become impossible.
+     *
+     *   The corollary: the caller MUST group by treasury account before
+     *   calling. Mixing bank-paid and caisse-paid payslips into one call
+     *   would fold them into one JE with a single treasury credit, which
+     *   would be wrong. payroll_controller::settle_payslips does the
+     *   grouping.
+     *
+     * IDEMPOTENCY — payment_je_id set on any payslip in the list means it
+     * was already settled. The method throws rather than double-paying;
+     * the caller must filter the list.
+     *
+     * SOURCE LINK — source_type='payroll_settlement', source_id=first
+     * payslip id in the batch (chosen because there's no natural pay-run
+     * primary key). reverseSource can still find it via source_type.
+     *
+     * Called inside the caller's transaction.
+     *
+     * @param int    $treasury_account_id  treasury_accounts.id paying out
+     * @param int[]  $payslip_ids          hr_payslips.id list (single treasury)
+     * @param string $payment_date         YYYY-MM-DD; drives the JE date
+     * @param string $note                 optional (e.g., "Virement Afriland réf. …")
+     * @return int                         journal_entries.id
+     */
+    public static function postPayrollSettlement(
+        int $treasury_account_id,
+        array $payslip_ids,
+        string $payment_date,
+        string $note = ''
+    ): int {
+        $db      = Database::getInstance()->getConnection();
+        $user_id = (int) ($_SESSION['user_id'] ?? 0);
+
+        if (empty($payslip_ids)) {
+            throw new RuntimeException("JournalPoster::postPayrollSettlement — empty payslip list.");
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $payment_date)) {
+            throw new RuntimeException("JournalPoster::postPayrollSettlement — payment_date must be YYYY-MM-DD.");
+        }
+
+        // 1. Load and lock every payslip. FOR UPDATE serialises against a
+        //    concurrent "settle again" click — the second one will see the
+        //    payment_je_id set and refuse below.
+        $ids = array_values(array_unique(array_map('intval', $payslip_ids)));
+        $ids = array_filter($ids, fn($id) => $id > 0);
+        if (empty($ids)) {
+            throw new RuntimeException("JournalPoster::postPayrollSettlement — no valid payslip ids after filtering.");
+        }
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $db->prepare("
+            SELECT id, user_id, month, year, net_pay, status, payment_je_id
+              FROM hr_payslips
+             WHERE id IN ({$placeholders})
+             FOR UPDATE
+        ");
+        $stmt->execute($ids);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (count($rows) !== count($ids)) {
+            throw new RuntimeException("JournalPoster::postPayrollSettlement — some payslip ids not found.");
+        }
+
+        $total = 0.0;
+        foreach ($rows as $r) {
+            if ($r['status'] !== 'paid') {
+                // Only 'paid' payslips (accrued via generate_month) can be
+                // settled. A 'draft' or 'validated' one hasn't had its
+                // accrual JE posted yet — settling would credit a 422 that
+                // has no matching debit.
+                throw new RuntimeException(
+                    "JournalPoster::postPayrollSettlement — payslip #{$r['id']} is not in 'paid' (accrued) status."
+                );
+            }
+            if (!empty($r['payment_je_id'])) {
+                throw new RuntimeException(
+                    "JournalPoster::postPayrollSettlement — payslip #{$r['id']} is already disbursed."
+                );
+            }
+            $total += (float) $r['net_pay'];
+        }
+        $total = self::roundFcfa($total);
+        if ($total <= 0) {
+            throw new RuntimeException("JournalPoster::postPayrollSettlement — total net pay is non-positive.");
+        }
+
+        // 2. Resolve accounts.
+        $personnel_coa = self::coaByOhada($db, '422');
+        if (!$personnel_coa) {
+            throw new RuntimeException("JournalPoster::postPayrollSettlement — OHADA 422 not mapped.");
+        }
+        $treasury_coa = self::coaFromTreasury($db, $treasury_account_id);
+
+        // 3. Post the JE.
+        $first_id = $rows[0]['id'];
+        $ref  = 'PAY-SAL-' . date('ym') . '-' . $first_id;
+        $desc = sprintf("Règlement salaires (%d bulletins)", count($rows));
+        if ($note !== '') $desc .= " · {$note}";
+
+        $je_id = self::createDraftJe(
+            $db, $ref, 'BQ', $payment_date, $desc, $user_id,
+            'payroll_settlement', (int) $first_id
+        );
+        self::addLine($db, $je_id, $personnel_coa, $total, 0.0);  // Dr 422
+        self::addLine($db, $je_id, $treasury_coa,  0.0,    $total); // Cr 5xx
+        self::post($db, $je_id, $user_id);
+
+        // 4. Treasury outflow — 'out_payroll' added by migration 095.
+        $db->prepare("
+            INSERT INTO treasury_transactions (account_id, transaction_type, amount, reference, description, logged_by)
+            VALUES (?, 'out_payroll', ?, ?, ?, ?)
+        ")->execute([$treasury_account_id, $total, $ref, $desc, $user_id]);
+        $db->prepare("UPDATE treasury_accounts SET balance = balance - ? WHERE id = ?")
+           ->execute([$total, $treasury_account_id]);
+
+        // 5. Stamp every settled payslip with the JE + account + timestamp.
+        //    Doing it in ONE UPDATE keeps it atomic even if a caller
+        //    passes a very long list.
+        $update = $db->prepare("
+            UPDATE hr_payslips
+               SET payment_je_id       = ?,
+                   treasury_account_id = ?,
+                   paid_at             = NOW()
+             WHERE id IN ({$placeholders})
+        ");
+        $update->execute(array_merge([$je_id, $treasury_account_id], $ids));
+
+        return $je_id;
+    }
+
+    /**
+     * Post the sale JE + treasury movement for a recycling sale (empties
+     * sold for cash to a recycler).
+     *
+     *   Debit  5xx  chosen treasury COA        — cash physically arrives
+     *   Credit 7074 Bonis sur reprises et      — SYSCOHADA revenue account
+     *          cessions d'emballages             for empties reclamations
+     *
+     * BEFORE THIS METHOD EXISTED, cre_controller::sell_to_recycler inserted
+     * rows into recycling_sales and inventory_movements and stopped. No JE
+     * was posted, no treasury balance moved. The KPI on empties_collection.
+     * php reads recycling_sales.total_amount directly, so the panel and the
+     * P&L disagreed by the entire history of recycling.
+     *
+     * 7074 was seeded by migration 041 precisely for this purpose ("→ consigne
+     * income" in the header comment there); it was mapped and never posted
+     * to. This method is the missing writer.
+     *
+     * NO VAT SPLIT — deliberate.
+     *   Recycling sales in the field are gross-cash: the driver collects
+     *   what the recycler counts out, and total_amount is that gross figure
+     *   as the operator entered it. Splitting off output VAT here would
+     *   require knowing whether the recycler is TVA-registered (usually not,
+     *   in Cameroon) and would change the meaning of the total displayed on
+     *   the form — a UX regression. If a future audit requires TVA
+     *   collection on empties, add it in a follow-up: the JE shape stays
+     *   the same, only the credit splits.
+     *
+     * SOURCE LINK — source_type='recycling_sale'. Matches the recycling_
+     * sales.id foreign key. No cancel path exists today (recycler sales
+     * are meant to be final at the gate), but if one is ever built, it can
+     * call JournalPoster::reverseSource('recycling_sale', $sale_id).
+     *
+     * Called inside the caller's transaction. Does NOT open its own.
+     *
+     * @param int    $sale_id             recycling_sales.id
+     * @param int    $treasury_account_id treasury_accounts.id receiving the cash
+     * @param float  $amount              FCFA, gross (matches recycling_sales.total_amount)
+     * @param string $sale_date           YYYY-MM-DD; drives the JE date
+     * @param string $reference           recycling_sales.reference (REC-YYMM-NNN)
+     * @return int                        journal_entries.id
+     */
+    public static function postRecyclingSale(
+        int $sale_id,
+        int $treasury_account_id,
+        float $amount,
+        string $sale_date,
+        string $reference
+    ): int {
+        $db      = Database::getInstance()->getConnection();
+        $user_id = (int) ($_SESSION['user_id'] ?? 0);
+
+        $amount = self::roundFcfa($amount);
+        if ($amount <= 0) {
+            // A zero-value hand-off is legitimate (bad lot given to the
+            // recycler for free — see the comment in sell_to_recycler for
+            // migration 060) but there is no revenue to book. Refuse to
+            // post a zero-line JE; the caller must skip this call.
+            throw new RuntimeException("JournalPoster::postRecyclingSale — non-positive amount for sale #{$sale_id}.");
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $sale_date)) {
+            throw new RuntimeException("JournalPoster::postRecyclingSale — sale_date must be YYYY-MM-DD.");
+        }
+
+        $revenue_coa  = self::coaByOhada($db, '7074');
+        if (!$revenue_coa) {
+            throw new RuntimeException(
+                "JournalPoster::postRecyclingSale — OHADA 7074 (Bonis sur reprises et cessions "
+                . "d'emballages) is not mapped in chart_of_accounts. Apply migration 041."
+            );
+        }
+        $treasury_coa = self::coaFromTreasury($db, $treasury_account_id);
+
+        $ref  = 'REC-' . $reference;
+        $desc = "Vente recyclage — réf {$reference}";
+
+        // Journal code 'BQ' matches every other treasury-side entry (see
+        // postInvoicePayment, postSupplierPayment). The sub-ledger
+        // distinction lives in the treasury COA the coaFromTreasury lookup
+        // returned — 571 for caisse, 552 for MoMo, 521 for bank.
+        $je_id = self::createDraftJe(
+            $db, $ref, 'BQ', $sale_date, $desc, $user_id,
+            'recycling_sale', $sale_id
+        );
+        self::addLine($db, $je_id, $treasury_coa, $amount, 0.0);  // Dr 5xx
+        self::addLine($db, $je_id, $revenue_coa,  0.0,     $amount); // Cr 7074
+        self::post($db, $je_id, $user_id);
+
+        // Treasury inflow — 'in_recycling_sale' added by migration 094 so
+        // the operations dashboard can filter recycling revenue apart from
+        // ad-hoc 'in_other' cash-in.
+        $db->prepare("
+            INSERT INTO treasury_transactions (account_id, transaction_type, amount, reference, description, logged_by)
+            VALUES (?, 'in_recycling_sale', ?, ?, ?, ?)
+        ")->execute([$treasury_account_id, $amount, $ref, $desc, $user_id]);
+
+        $db->prepare("UPDATE treasury_accounts SET balance = balance + ? WHERE id = ?")
+           ->execute([$amount, $treasury_account_id]);
+
+        // Stamp the sale so idempotency + audit both work. The column is
+        // set here (not by the caller) so any writer using this method
+        // gets the linkage automatically.
+        $db->prepare("UPDATE recycling_sales SET payment_je_id = ?, treasury_account_id = ? WHERE id = ?")
+           ->execute([$je_id, $treasury_account_id, $sale_id]);
+
+        return $je_id;
+    }
+
+    /**
      * Reverse every posted entry produced by a given source document.
      *
      * Migration 004 forbids deleting a posted entry, and rightly so — the

@@ -6,6 +6,7 @@
  */
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/Paginator.php';   // Sprint 5
+require_once __DIR__ . '/../../includes/classes/JournalPoster.php'; // PR-2, migration 094
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 
@@ -235,6 +236,7 @@ $ACTION_PERMS = [
     'create_cre'            => 'operations.empties.create_cre',
     'cancel_cre'            => 'operations.empties.create_cre',
     'sell_to_recycler'      => 'operations.recycling.sell',
+    'get_treasury_accounts' => 'operations.recycling.sell',   // PR-2, migration 094
 ];
 if (!isset($ACTION_PERMS[$action])) {
     http_response_code(400);
@@ -497,6 +499,24 @@ if ($method === 'GET') {
     if ($action === 'get_empty_products') {
         try {
             sendResponse('success', 'OK', getEmptyProductsCatalog($pdo));
+        } catch (Exception $e) { sendResponse('error', 'Erreur DB: ' . $e->getMessage()); }
+    }
+
+    // --- FETCH TREASURY ACCOUNTS FOR THE RECYCLING SALE PICKER ---
+    // PR-2, migration 094 · sell_to_recycler needs to know which account
+    // received the cash so it can post the JE + treasury balance. Driver
+    // picks from this list at the recycler's gate; the default (first
+    // active 'caisse') is decided by the client for UX reasons — it
+    // matches the "Paiement Cash" chip that was hardcoded until now.
+    if ($action === 'get_treasury_accounts') {
+        try {
+            $stmt = $pdo->query("
+                SELECT id, name, type, balance
+                  FROM treasury_accounts
+                 WHERE status = 'active'
+                 ORDER BY sort_order ASC, type, name
+            ");
+            sendResponse('success', 'OK', $stmt->fetchAll(PDO::FETCH_ASSOC));
         } catch (Exception $e) { sendResponse('error', 'Erreur DB: ' . $e->getMessage()); }
     }
 
@@ -803,20 +823,55 @@ if ($method === 'POST') {
             // Force PDO to throw exceptions so we catch the exact error instead of crashing
             $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             $pdo->beginTransaction();
-            
+
             $location = trim($payload['location']);
-            $items = $payload['items']; 
-            
+            $items = $payload['items'];
+
             if (empty($location)) throw new Exception("Lieu de recyclage requis.");
-            
+
+            // PR-2, migration 094 · treasury account picker. Required, but
+            // detected against the schema so this endpoint keeps running on
+            // an install that has not applied 094 yet — the recycling sale
+            // will still record inventory + revenue-panel data, and simply
+            // skip the JE / balance update below. Once 094 lands, every new
+            // sale posts.
+            $hasTreasuryCols = (int) $pdo->query("
+                SELECT COUNT(*) FROM information_schema.columns
+                 WHERE table_schema = DATABASE()
+                   AND table_name   = 'recycling_sales'
+                   AND column_name IN ('treasury_account_id','payment_je_id')
+            ")->fetchColumn() === 2;
+
+            $treasury_account_id = !empty($payload['treasury_account_id']) ? (int) $payload['treasury_account_id'] : null;
+            if ($hasTreasuryCols) {
+                if (!$treasury_account_id) {
+                    throw new Exception("Compte de trésorerie requis.");
+                }
+                $chk = $pdo->prepare("SELECT 1 FROM treasury_accounts WHERE id = ? AND status = 'active'");
+                $chk->execute([$treasury_account_id]);
+                if (!$chk->fetchColumn()) {
+                    throw new Exception("Compte de trésorerie invalide ou inactif.");
+                }
+            } else {
+                // Pre-094 install — discard whatever the client sent so we
+                // don't try to reference a column that isn't there.
+                $treasury_account_id = null;
+            }
+
             $datePrefix = date('Ym');
             $stmtRef = $pdo->query("SELECT count(id) FROM recycling_sales WHERE DATE(created_at) = CURRENT_DATE()");
             $count = $stmtRef->fetchColumn() + 1;
             $reference = "REC-{$datePrefix}-" . str_pad($count, 3, '0', STR_PAD_LEFT);
 
-            // Create Header
-            $stmtSale = $pdo->prepare("INSERT INTO recycling_sales (reference, driver_id, recycler_location, total_amount) VALUES (?, ?, ?, 0)");
-            $stmtSale->execute([$reference, $user_id, $location]);
+            // Create Header. The treasury_account_id column is populated
+            // conditionally so old schemas keep working (see $hasTreasuryCols).
+            if ($hasTreasuryCols) {
+                $stmtSale = $pdo->prepare("INSERT INTO recycling_sales (reference, driver_id, recycler_location, total_amount, treasury_account_id) VALUES (?, ?, ?, 0, ?)");
+                $stmtSale->execute([$reference, $user_id, $location, $treasury_account_id]);
+            } else {
+                $stmtSale = $pdo->prepare("INSERT INTO recycling_sales (reference, driver_id, recycler_location, total_amount) VALUES (?, ?, ?, 0)");
+                $stmtSale->execute([$reference, $user_id, $location]);
+            }
             $sale_id = $pdo->lastInsertId();
 
             $total_amount = 0;
@@ -940,6 +995,32 @@ if ($method === 'POST') {
 
             // Update Total
             $pdo->prepare("UPDATE recycling_sales SET total_amount = ? WHERE id = ?")->execute([$total_amount, $sale_id]);
+
+            // PR-2, migration 094 · post the sale JE + treasury movement.
+            //
+            //   Dr <treasury COA>   total_amount      cash arrives
+            //   Cr 7074             total_amount      empties revenue
+            //
+            // Skipped when:
+            //   · $total_amount === 0 — a free hand-off (bad lot to the
+            //     recycler, see migration 060). No revenue to book; the
+            //     stock movements above are the whole record.
+            //   · treasury schema absent — pre-094 install. The check above
+            //     already set $treasury_account_id to null in that case.
+            //
+            // Same transaction as the sale INSERTs, so a JE-posting failure
+            // (missing 7074 mapping, closed period, etc.) rolls back the
+            // whole sale rather than leaving revenue booked in the
+            // recycling_sales table with no ledger entry to match.
+            if ($hasTreasuryCols && $treasury_account_id && $total_amount > 0) {
+                JournalPoster::postRecyclingSale(
+                    (int) $sale_id,
+                    $treasury_account_id,
+                    (float) $total_amount,
+                    date('Y-m-d'),
+                    $reference
+                );
+            }
 
             $operator_name = $_SESSION['user_name'] ?? 'Un Opérateur';
             $msg = "$operator_name a vendu des emballages vides à '$location'.\nArticles:\n" . implode("\n", $details_notif) . "\n\nMontant Cash Attendu : " . number_format($total_amount, 0, ',', ' ') . " FCFA.";

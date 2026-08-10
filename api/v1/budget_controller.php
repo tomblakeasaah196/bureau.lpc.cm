@@ -3,14 +3,39 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 Rbac::requirePermission('accounting.budgets.view');
-/**
- * CONTROLLER: Contrôle de Gestion (Budget & Performance)
- * DESCRIPTION: Handles Budget generation, Variance analysis, KPIs, and Emergency Transfers.
- */
-header('Content-Type: application/json; charset=utf-8');
 
-// Strict RBAC: Admin and Finance ONLY
-$user_id = $_SESSION['user_id'];
+/**
+ * CONTROLLER: Budget & Performance — MD-first (migration 091).
+ *
+ * Endpoints are now organised around the 8 buckets, not the OHADA tree.
+ * Compared to the pre-091 controller, the following were removed on the MD's
+ * explicit request (see the scoping questions answered on 2026-08-10):
+ *
+ *   · tab=budget_lines           — the 12-month × 40-line OHADA matrix.
+ *   · tab=performance            — the B2B/B2C revenue split (data quality
+ *                                  problem on clients.type — the split was
+ *                                  effectively fabricated).
+ *   · tab=performance_targets    — the write path was here; the modal it
+ *                                  fed lived on the removed tab.
+ *   · action=simulate_budget     — the "Générateur Smart" simulation.
+ *   · action=save_generated_budget
+ *   · action=emergency_transfer  — direct MD-side transfer. Replaced by
+ *                                  the two-step request/approve flow.
+ *   · action=get_transfer_prep
+ *
+ * What survives, in order:
+ *   1. getActualsByAccountAndMonth() — unchanged. Same journal-fed aggregator
+ *      Finance and Dépenses both use. Never rebuild this; anything that
+ *      double-counts here corrupts both modules.
+ *   2. tab=overview          — three KPI cards + eight bucket cards + chart.
+ *   3. tab=targets           — the eight rows + their pending values.
+ *   4. tab=alerts            — the same eight rows, sorted by variance.
+ *   5. tab=transfer_requests — pending requests card list.
+ *   6. action=save_targets   — bulk write to budget_bucket_targets.
+ *   7. action=request_transfer  — Finance-side.
+ *   8. action=decide_transfer   — MD-side (approve / reject).
+ */
+$user_id   = $_SESSION['user_id'];
 $user_role = $_SESSION['user_role'];
 
 // Database Connection
@@ -24,34 +49,6 @@ try {
     exit;
 }
 
-/**
- * Which budget row do performance_targets hang off for a given year?
- *
- *     the ACTIVE budget for the year, else the highest version.
- *
- * This is duplicated verbatim in api/v1/sales_dashboard_controller.php. The two
- * MUST agree: if the targets modal writes to one budget row while the sales
- * dashboard reads another, a user who has just saved twelve targets still sees
- * "Objectif non défini" and nothing on screen explains why.
- *
- * Deliberately NOT the same as the `$budget_id` resolved at the top of the GET
- * block (plain "highest version"). That one drives the variance and transfer
- * tabs and is left exactly as it was — this helper is scoped to targets only,
- * so aligning targets does not quietly change the numbers finance already reads
- * on the other three tabs.
- */
-function resolveTargetBudgetId(PDO $pdo, int $year): ?int {
-    $stmt = $pdo->prepare("
-        SELECT id FROM budgets
-         WHERE fiscal_year = ?
-         ORDER BY (status = 'active') DESC, version DESC
-         LIMIT 1
-    ");
-    $stmt->execute([$year]);
-    $id = $stmt->fetchColumn();
-    return $id === false ? null : (int)$id;
-}
-
 function sendResponse($status, $message, $data = null) {
     $response = ['status' => $status, 'message' => $message];
     if ($data !== null) $response['data'] = $data;
@@ -59,21 +56,11 @@ function sendResponse($status, $message, $data = null) {
     exit;
 }
 
-// ------------------------------------------------------------------
-// HELPER: Dynamic Actuals Aggregator (Engagé)
-// Pulls real data from Fleet, Sales, and the Expenses module (migration
-// 053), grouped by OHADA account.
-//
-// EDITED 31 July 2026 — the Dépenses module (modules/accounting/expenses.php)
-// is now the durable source for every operating charge that isn't
-// carburant/maintenance/goods-received. Before this edit the budget's
-// "Total Engagé" column ignored it entirely, so any budget line for e.g.
-// 6132 (Loyer) or 6231 (Publicité) would show 0 no matter how many
-// expenses were posted. This function now unions the expenses table in,
-// grouped by the OHADA account_number the expense's category is mapped
-// to. Categories with no mapping contribute nothing (their expenses
-// still exist; they just cannot be attributed to a budget line).
-// ------------------------------------------------------------------
+/**
+ * The same aggregator as before, unchanged. Kept verbatim so no franc moves
+ * between the MD view and the ledger / Dépenses module. If this ever needs
+ * changing, change it in ONE place — search callers before you do.
+ */
 function getActualsByAccountAndMonth($pdo, $year) {
     $actuals = [];
     for ($m = 1; $m <= 12; $m++) $actuals[$m] = [];
@@ -81,24 +68,21 @@ function getActualsByAccountAndMonth($pdo, $year) {
     // 1. Account 605: Carburant (From Fleet)
     $stmt = $pdo->prepare("SELECT MONTH(date) as m, SUM(total_cost) as total FROM fuel_logs WHERE YEAR(date) = ? GROUP BY MONTH(date)");
     $stmt->execute([$year]);
-    while($row = $stmt->fetch()) $actuals[$row['m']]['605'] = (float)$row['total'];
+    while ($row = $stmt->fetch()) $actuals[$row['m']]['605'] = (float)$row['total'];
 
     // 2. Account 615: Maintenance (From Fleet)
     $stmt = $pdo->prepare("SELECT MONTH(service_date) as m, SUM(total_cost) as total FROM vehicle_maintenance WHERE YEAR(service_date) = ? GROUP BY MONTH(service_date)");
     $stmt->execute([$year]);
-    while($row = $stmt->fetch()) $actuals[$row['m']]['615'] = (float)$row['total'];
+    while ($row = $stmt->fetch()) $actuals[$row['m']]['615'] = (float)$row['total'];
 
     // 3. Account 701: Ventes (From Invoices - Accrual basis)
     $stmt = $pdo->prepare("SELECT MONTH(date) as m, SUM(subtotal) as total FROM invoices WHERE YEAR(date) = ? GROUP BY MONTH(date)");
     $stmt->execute([$year]);
-    while($row = $stmt->fetch()) $actuals[$row['m']]['701'] = (float)$row['total'];
+    while ($row = $stmt->fetch()) $actuals[$row['m']]['701'] = (float)$row['total'];
 
-    // 4. Expenses module (migration 053). Guarded by information_schema so
-    //    installs where the module hasn't been rolled out yet see the same
-    //    numbers they did before. Sum overlays additively — if a category
-    //    maps to 605 the fuel_logs total for 605 and any 'Carburant' expense
-    //    for 605 both count, which is correct: they are both charges.
-    $has = (int) $pdo->query("
+    // 4. Expenses module — guarded by information_schema so early installs
+    //    without migration 053 see the same numbers they did before.
+    $has = (int)$pdo->query("
         SELECT COUNT(*) FROM information_schema.tables
          WHERE table_schema = DATABASE() AND table_name = 'expenses'
     ")->fetchColumn();
@@ -117,8 +101,8 @@ function getActualsByAccountAndMonth($pdo, $year) {
         ");
         $stmt->execute([$year]);
         while ($row = $stmt->fetch()) {
-            $m   = (int) $row['m'];
-            $acc = (string) $row['acc'];
+            $m   = (int)$row['m'];
+            $acc = (string)$row['acc'];
             $actuals[$m][$acc] = (float)($actuals[$m][$acc] ?? 0) + (float)$row['total'];
         }
     }
@@ -126,439 +110,349 @@ function getActualsByAccountAndMonth($pdo, $year) {
     return $actuals;
 }
 
-$method = $_SERVER['REQUEST_METHOD'];
-$action = $_REQUEST['action'] ?? null;
+/**
+ * Load the 8 buckets with their mapped OHADA account numbers.
+ * Rows unmapped in budget_bucket_accounts are collected into 'other_opex' at
+ * rollup time by rollupActualsByBucket() — that fallback is what lets Finance
+ * add a new OHADA account without breaking the MD view.
+ *
+ *   [ bucket_id => [
+ *        'key'          => 'payroll',
+ *        'label_fr'     => 'Salaires & charges',
+ *        'label_en'     => 'Payroll',
+ *        'is_revenue'   => 0|1,
+ *        'is_emergency' => 0|1,
+ *        'icon'         => 'fa-…', 'color' => '…', 'sort' => 20,
+ *        'accounts'     => ['6411','6412', …]   // ohada.account_number
+ *   ], … ]
+ */
+function loadBuckets(PDO $pdo): array {
+    $rows = $pdo->query("
+        SELECT b.id, b.bucket_key, b.label_fr, b.label_en, b.is_revenue,
+               b.is_emergency, b.icon, b.color, b.sort_order,
+               o.account_number
+          FROM budget_buckets b
+     LEFT JOIN budget_bucket_accounts bba ON bba.bucket_id = b.id
+     LEFT JOIN ohada_accounts o           ON o.id = bba.ohada_account_id
+      ORDER BY b.sort_order ASC, b.id ASC
+    ")->fetchAll();
+
+    $out = [];
+    foreach ($rows as $r) {
+        $bid = (int)$r['id'];
+        if (!isset($out[$bid])) {
+            $out[$bid] = [
+                'id'           => $bid,
+                'key'          => $r['bucket_key'],
+                'label_fr'     => $r['label_fr'],
+                'label_en'     => $r['label_en'],
+                'is_revenue'   => (int)$r['is_revenue'],
+                'is_emergency' => (int)$r['is_emergency'],
+                'icon'         => $r['icon'],
+                'color'        => $r['color'],
+                'sort'         => (int)$r['sort_order'],
+                'accounts'     => [],
+            ];
+        }
+        if ($r['account_number'] !== null) {
+            $out[$bid]['accounts'][] = (string)$r['account_number'];
+        }
+    }
+    return $out;
+}
+
+/**
+ * Roll up the per-month, per-account actuals into per-month, per-bucket
+ * totals. Any account_number that is not mapped by budget_bucket_accounts
+ * lands in 'other_opex' as a fallback — never dropped silently.
+ *
+ * Returns:
+ *   [ bucket_id => [
+ *       'monthly'   => [1..12 => float],
+ *       'ytd'       => float,
+ *   ] ]
+ */
+function rollupActualsByBucket(array $buckets, array $actuals): array {
+    $accToBucket = [];
+    $otherOpexId = null;
+    foreach ($buckets as $bid => $b) {
+        if ($b['key'] === 'other_opex') $otherOpexId = $bid;
+        foreach ($b['accounts'] as $acc) {
+            $accToBucket[$acc] = $bid;
+        }
+    }
+
+    $out = [];
+    foreach ($buckets as $bid => $b) {
+        $out[$bid] = ['monthly' => array_fill(1, 12, 0.0), 'ytd' => 0.0];
+    }
+
+    for ($m = 1; $m <= 12; $m++) {
+        foreach (($actuals[$m] ?? []) as $acc => $val) {
+            $bid = $accToBucket[$acc] ?? null;
+            // Revenue accounts (7xxx) that were not explicitly mapped must
+            // NOT fall into other_opex — that would show revenue as an
+            // expense. Drop them silently instead: they are already reported
+            // via the top-line KPI, and the MD does not need to see every
+            // stray 7xxx sub-account.
+            if ($bid === null) {
+                $isRev = strlen($acc) > 0 && $acc[0] === '7';
+                if ($isRev) continue;
+                $bid = $otherOpexId;
+                if ($bid === null) continue;
+            }
+            $out[$bid]['monthly'][$m] += (float)$val;
+            $out[$bid]['ytd']         += (float)$val;
+        }
+    }
+    return $out;
+}
+
+/**
+ * Load bucket targets for a fiscal year. Returns [ bucket_id => row | null ].
+ * A null value means "no target set for this year". The controller callers
+ * distinguish null from zero — a target of zero and an absent target must
+ * not look identical (README §5.8 rule Finance learned the hard way with
+ * the old performance_targets tab).
+ */
+function loadBucketTargets(PDO $pdo, int $year, array $buckets): array {
+    $out = [];
+    foreach ($buckets as $bid => $_) $out[$bid] = null;
+
+    $stmt = $pdo->prepare("
+        SELECT bucket_id, annual_amount,
+               m01, m02, m03, m04, m05, m06, m07, m08, m09, m10, m11, m12,
+               updated_at
+          FROM budget_bucket_targets
+         WHERE fiscal_year = ?
+    ");
+    $stmt->execute([$year]);
+    foreach ($stmt->fetchAll() as $r) {
+        $out[(int)$r['bucket_id']] = [
+            'annual'  => (float)$r['annual_amount'],
+            'monthly' => [
+                1  => (float)$r['m01'], 2 => (float)$r['m02'], 3 => (float)$r['m03'],
+                4  => (float)$r['m04'], 5 => (float)$r['m05'], 6 => (float)$r['m06'],
+                7  => (float)$r['m07'], 8 => (float)$r['m08'], 9 => (float)$r['m09'],
+                10 => (float)$r['m10'], 11=> (float)$r['m11'], 12=> (float)$r['m12'],
+            ],
+            'updated_at' => $r['updated_at'],
+        ];
+    }
+    return $out;
+}
+
+/**
+ * Three-state pro-rata classification (answer #6 in the MD scoping call).
+ *   · '-'    : no target set for this bucket.
+ *   · 'ok'   : consumption < 90% of time-of-year pace.
+ *   · 'warn' : 90-100% of pace.
+ *   · 'bad'  : > 100% of pace (or overrun in absolute terms).
+ *
+ * Revenue polarity is flipped: for a revenue bucket, "bad" is UNDER-earning
+ * relative to pace, not over.
+ */
+function classifyBucket(?array $target, float $actualYtd, float $timePct, bool $isRevenue): string {
+    if ($target === null || (float)$target['annual'] <= 0) return '-';
+
+    // Consumed / earned as a % of the annual figure.
+    $pct = ($actualYtd / $target['annual']) * 100.0;
+
+    if ($isRevenue) {
+        // Revenue: OK if we are at or ahead of pace, warn if slightly under,
+        // bad if visibly behind.
+        if ($pct >= $timePct)             return 'ok';
+        if ($pct >= ($timePct * 0.9))     return 'warn';
+        return 'bad';
+    }
+
+    // Expense: OK if under pace, warn if approaching it, bad if past.
+    if ($pct < ($timePct * 0.9))          return 'ok';
+    if ($pct <= $timePct)                 return 'warn';
+    return 'bad';
+}
 
 // ==========================================
 // [GET] READ OPERATIONS
 // ==========================================
+$method = $_SERVER['REQUEST_METHOD'];
+
 if ($method === 'GET') {
-    $tab = $_GET['tab'] ?? null;
+    $tab  = $_GET['tab'] ?? 'overview';
     $year = (int)($_GET['year'] ?? date('Y'));
 
     try {
-        // Find Active Budget for the Year
-        $stmtBud = $pdo->prepare("SELECT id, version, status FROM budgets WHERE fiscal_year = ? ORDER BY version DESC LIMIT 1");
-        $stmtBud->execute([$year]);
-        $budget = $stmtBud->fetch();
-        $budget_id = $budget ? $budget['id'] : null;
+        $buckets   = loadBuckets($pdo);
+        $actuals   = getActualsByAccountAndMonth($pdo, $year);
+        $rollup    = rollupActualsByBucket($buckets, $actuals);
+        $targets   = loadBucketTargets($pdo, $year, $buckets);
 
-        $actuals = getActualsByAccountAndMonth($pdo, $year);
+        // Time-of-year, day-precision. Used to classify buckets by pace.
+        $dayOfYear   = (int)date('z') + 1;
+        $daysInYear  = ((int)date('L')) ? 366 : 365;
+        $timePct     = round(($dayOfYear / $daysInYear) * 100.0, 1);
 
         switch ($tab) {
-            case 'dashboard':
-                $kpis = ['gross_margin' => 0, 'rev_actual' => 0, 'rev_target' => 0, 'exp_actual' => 0, 'exp_target' => 0, 'emergency_left' => 0];
-                $chart = ['budgeted' => array_fill(0, 12, 0), 'actuals' => array_fill(0, 12, 0)];
-                $alerts = [];
+            // -----------------------------------------------------------------
+            // OVERVIEW — three KPIs, eight bucket cards, monthly chart.
+            // -----------------------------------------------------------------
+            case 'overview': {
+                $rev_actual = 0.0; $rev_target = 0.0;
+                $exp_actual = 0.0; $exp_target = 0.0;
+                $emergency_available = 0.0;
 
-                if ($budget_id) {
-                    // Fetch Limits
-                    $stmtLines = $pdo->prepare("SELECT l.*, o.type, o.is_emergency, o.account_number, o.name FROM budget_lines l JOIN ohada_accounts o ON l.ohada_account_id = o.id WHERE l.budget_id = ?");
-                    $stmtLines->execute([$budget_id]);
-                    $lines = $stmtLines->fetchAll();
+                $cards = [];
+                $chartBudgeted = array_fill(0, 12, 0.0);
+                $chartActuals  = array_fill(0, 12, 0.0);
 
-                    $currentMonth = (int)date('n');
-                    $currentDay = (int)date('j');
-                    $daysInMonth = (int)date('t');
-                    $timeProgress = round(($currentDay / $daysInMonth) * 100);
+                foreach ($buckets as $bid => $b) {
+                    $t          = $targets[$bid];
+                    $actualYtd  = $rollup[$bid]['ytd'];
 
-                    foreach ($lines as $l) {
-                        $acc_num = $l['account_number'];
-                        
-                        // Calculate Yearly Actuals for this account
-                        $acc_actual_year = 0;
+                    if ($b['is_revenue']) {
+                        $rev_actual += $actualYtd;
+                        if ($t !== null) $rev_target += $t['annual'];
+                    } elseif ($b['is_emergency']) {
+                        $emergency_available = ($t !== null) ? $t['annual'] : 0.0;
+                    } else {
+                        $exp_actual += $actualYtd;
+                        if ($t !== null) $exp_target += $t['annual'];
+
+                        // Only NON-emergency EXPENSE buckets feed the monthly
+                        // consumption chart. Revenue and emergency have
+                        // different scales and would swamp the visualisation.
                         for ($m = 1; $m <= 12; $m++) {
-                            $val = $actuals[$m][$acc_num] ?? 0;
-                            $acc_actual_year += $val;
-                            
-                            // Fill Chart (Expenses only for the chart)
-                            if ($l['type'] === 'expense' && !$l['is_emergency']) {
-                                $month_col = 'm' . str_pad($m, 2, '0', STR_PAD_LEFT);
-                                $chart['budgeted'][$m-1] += (float)$l[$month_col];
-                                $chart['actuals'][$m-1] += $val;
-                            }
-                        }
-
-                        if ($l['type'] === 'revenue') {
-                            $kpis['rev_target'] += (float)$l['annual_amount'];
-                            $kpis['rev_actual'] += $acc_actual_year;
-                        } else {
-                            if ($l['is_emergency']) {
-                                $kpis['emergency_left'] = (float)$l['annual_amount']; // Simplified, should subtract transfers
-                            } else {
-                                $kpis['exp_target'] += (float)$l['annual_amount'];
-                                $kpis['exp_actual'] += $acc_actual_year;
-                            }
-                        }
-
-                        // Intelligent Pace Alert (If we are in current month and it's an expense)
-                        if ($l['type'] === 'expense' && !$l['is_emergency']) {
-                            $current_month_col = 'm' . str_pad($currentMonth, 2, '0', STR_PAD_LEFT);
-                            $month_limit = (float)$l[$current_month_col];
-                            $month_actual = $actuals[$currentMonth][$acc_num] ?? 0;
-
-                            if ($month_limit > 0) {
-                                $pct_consumed = round(($month_actual / $month_limit) * 100);
-                                // Trigger if consumed is 20% higher than time progress, or > 90%
-                                if ($pct_consumed > 90 || ($pct_consumed > ($timeProgress + 20))) {
-                                    $alerts[] = [
-                                        'account_name' => "[$acc_num] {$l['name']}",
-                                        'pct_consumed' => $pct_consumed,
-                                        'month_progress' => $timeProgress
-                                    ];
-                                }
-                            }
+                            $chartActuals[$m - 1]  += $rollup[$bid]['monthly'][$m];
+                            $chartBudgeted[$m - 1] += ($t !== null) ? $t['monthly'][$m] : 0.0;
                         }
                     }
-                    
-                    // Approximate Gross Margin (Revenues - Direct Costs 601, 602, 605)
-                    $direct_costs = 0;
-                    for ($m = 1; $m <= 12; $m++) {
-                        $direct_costs += ($actuals[$m]['601'] ?? 0) + ($actuals[$m]['602'] ?? 0) + ($actuals[$m]['605'] ?? 0);
-                    }
-                    $kpis['gross_margin'] = $kpis['rev_actual'] - $direct_costs;
-                }
 
-                sendResponse('success', 'Dashboard loaded', [
-                    'kpis' => $kpis,
-                    'chart' => $chart,
-                    'alerts' => $alerts
-                ]);
-                break;
-
-            case 'budget_lines':
-                // ------------------------------------------------------------
-                // SPRINT 7A · D3 — advanced filter.
-                // Accepts optional GET params:
-                //   quarter (1-4), month (1-12), ohada_prefix, category
-                //   (revenue|expense), min_amount, max_amount, filter_clear.
-                // Filter is persisted per-year in $_SESSION['budgets_filter'].
-                // ------------------------------------------------------------
-                if (!isset($_SESSION['budgets_filter']) || !is_array($_SESSION['budgets_filter'])) {
-                    $_SESSION['budgets_filter'] = [];
-                }
-                $current = $_SESSION['budgets_filter'][$year] ?? [];
-                if (!empty($_GET['filter_clear'])) {
-                    $current = [];
-                }
-                $incoming_keys = ['quarter', 'month', 'ohada_prefix', 'category', 'min_amount', 'max_amount'];
-                $applied = false;
-                foreach ($incoming_keys as $k) {
-                    if (array_key_exists($k, $_GET)) {
-                        $applied = true;
-                        $v = trim((string)$_GET[$k]);
-                        if ($v === '') { unset($current[$k]); }
-                        else           { $current[$k] = $v; }
-                    }
-                }
-                if ($applied || !empty($_GET['filter_clear'])) {
-                    $_SESSION['budgets_filter'][$year] = $current;
-                }
-                $filter = $current;
-
-                $params_lines = [':bud' => $budget_id];
-                $extra_where  = '';
-                if (!empty($filter['ohada_prefix'])) {
-                    $extra_where .= ' AND o.account_number LIKE :prefix';
-                    $params_lines[':prefix'] = $filter['ohada_prefix'] . '%';
-                }
-                if (!empty($filter['category']) && in_array($filter['category'], ['revenue','expense'], true)) {
-                    $extra_where .= ' AND o.type = :cat';
-                    $params_lines[':cat'] = $filter['category'];
-                }
-                if (isset($filter['min_amount']) && $filter['min_amount'] !== '' && is_numeric($filter['min_amount'])) {
-                    $extra_where .= ' AND l.annual_amount >= :minamt';
-                    $params_lines[':minamt'] = (float)$filter['min_amount'];
-                }
-                if (isset($filter['max_amount']) && $filter['max_amount'] !== '' && is_numeric($filter['max_amount'])) {
-                    $extra_where .= ' AND l.annual_amount <= :maxamt';
-                    $params_lines[':maxamt'] = (float)$filter['max_amount'];
-                }
-
-                $lines_data = [];
-                if ($budget_id) {
-                    $sql = "SELECT l.*, o.account_number, o.name, o.type
-                              FROM budget_lines l
-                              JOIN ohada_accounts o ON l.ohada_account_id = o.id
-                             WHERE l.budget_id = :bud" . $extra_where . "
-                             ORDER BY o.account_number ASC";
-                    $stmtLines = $pdo->prepare($sql);
-                    $stmtLines->execute($params_lines);
-                    $lines = $stmtLines->fetchAll();
-
-                    // Time-slice mask: months included in totals when quarter/month is set.
-                    $months_active = range(1, 12);
-                    if (isset($filter['quarter']) && ctype_digit((string)$filter['quarter'])) {
-                        $q = (int)$filter['quarter'];
-                        if ($q >= 1 && $q <= 4) {
-                            $months_active = range(($q - 1) * 3 + 1, ($q - 1) * 3 + 3);
-                        }
-                    }
-                    if (isset($filter['month']) && ctype_digit((string)$filter['month'])) {
-                        $m = (int)$filter['month'];
-                        if ($m >= 1 && $m <= 12) $months_active = [$m];
-                    }
-
-                    foreach ($lines as $l) {
-                        $total_actual = 0;
-                        foreach ($months_active as $m) {
-                            $total_actual += ($actuals[$m][$l['account_number']] ?? 0);
-                        }
-                        // When a slice is active, the "annual" budget is likewise
-                        // reduced to the selected months so variance stays honest.
-                        $sliced_budget = (float)$l['annual_amount'];
-                        if (count($months_active) < 12) {
-                            $sliced_budget = 0.0;
-                            foreach ($months_active as $m) {
-                                $col = 'm' . str_pad((string)$m, 2, '0', STR_PAD_LEFT);
-                                $sliced_budget += (float)($l[$col] ?? 0);
-                            }
-                        }
-
-                        // Variance: For expenses, negative is bad (spent > budget). For revenue, negative is bad (earned < budget).
-                        $variance = ($l['type'] === 'revenue') ? ($total_actual - $sliced_budget) : ($sliced_budget - $total_actual);
-
-                        $lines_data[] = [
-                            'account_number' => $l['account_number'],
-                            'account_name' => $l['name'],
-                            'type' => $l['type'],
-                            'annual_amount' => $sliced_budget,
-                            'total_actual' => $total_actual,
-                            'variance' => $variance,
-                            'm01' => $l['m01'], 'm02' => $l['m02'], 'm03' => $l['m03'], 'm04' => $l['m04'],
-                            'm05' => $l['m05'], 'm06' => $l['m06'], 'm07' => $l['m07'], 'm08' => $l['m08'],
-                            'm09' => $l['m09'], 'm10' => $l['m10'], 'm11' => $l['m11'], 'm12' => $l['m12']
-                        ];
-                    }
-                }
-                sendResponse('success', 'Lines loaded', [
-                    'version' => $budget ? $budget['version'] : 0,
-                    'status'  => $budget ? strtoupper($budget['status']) : 'INEXISTANT',
-                    'lines'   => $lines_data,
-                    'filter'  => (object)$filter,   // echo back so the UI can render the "filter active" badge.
-                ]);
-                break;
-
-            case 'performance':
-                // -------------------------------------------------------------
-                // Was entirely fabricated until 29 July 2026. Every one of the
-                // six numbers this block returns was invented:
-                //
-                //   b2c_actual          = total_rev * 0.7   ("assuming 70% B2C")
-                //   b2b_actual          = total_rev * 0.3
-                //   b2c_target          = 50000000          (hardcoded constant)
-                //   b2b_target          = 20000000          (hardcoded constant)
-                //   empties_return_rate = 96.5              (hardcoded constant)
-                //   vol_20l_sold        = total_rev / 1500  ("rough approximation")
-                //
-                // The comment above them said "in a full DB you'd join
-                // performance_targets" — so the fiction was known, but the tab
-                // rendered it with the same confidence as a real figure, which
-                // is the exact failure mode README §5.8 exists to prevent.
-                //
-                // All six are now queried. Targets come from performance_targets
-                // and are NULL when no row exists — the table is empty on the
-                // live database, so "Non défini" is the expected, correct
-                // rendering until finance saves targets via the modal on this
-                // page. NULL is never coalesced to 0: a target of zero and a
-                // missing target must not look the same.
-                // -------------------------------------------------------------
-
-                // --- Actual revenue by segment -------------------------------
-                // subtotal, not total_amount, to match account 701 in
-                // getActualsByAccountAndMonth() — otherwise this tab and the
-                // variance tab would disagree by the TVA.
-                //
-                // Segment comes from clients.type. That column is a free-text
-                // VARCHAR and on live data it holds the client's COMPANY NAME
-                // (copied from clients.name at data entry), not a segment — so
-                // in practice almost everything currently lands in
-                // 'non_classe'. That is reported rather than hidden; the number
-                // finance sees should reveal the data problem, not mask it.
-                $stmtSeg = $pdo->prepare("
-                    SELECT CASE
-                               WHEN UPPER(TRIM(c.type)) = 'B2B' THEN 'b2b'
-                               WHEN UPPER(TRIM(c.type)) = 'B2C' THEN 'b2c'
-                               ELSE 'non_classe'
-                           END                              AS segment,
-                           COALESCE(SUM(i.subtotal), 0)     AS revenue
-                      FROM invoices i
-                      JOIN clients  c ON c.id = i.client_id
-                     WHERE YEAR(i.date) = ?
-                     GROUP BY segment
-                ");
-                $stmtSeg->execute([$year]);
-                $seg_actual = ['b2b' => 0.0, 'b2c' => 0.0, 'non_classe' => 0.0];
-                foreach ($stmtSeg->fetchAll() as $row) {
-                    $seg_actual[$row['segment']] = (float)$row['revenue'];
-                }
-
-                // --- Targets by segment --------------------------------------
-                // COUNT(*) is selected so a missing row is distinguishable from
-                // a stored zero. SUM() over zero rows is NULL, and coalescing
-                // it here would destroy exactly that distinction.
-                $seg_target   = ['b2b' => null, 'b2c' => null];
-                $target_20l   = null;
-                $max_debt_rate = null;
-
-                // Targets use the shared resolution rule, not the plain
-                // highest-version $budget_id above — see resolveTargetBudgetId().
-                $target_budget = resolveTargetBudgetId($pdo, $year);
-
-                if ($target_budget) {
-                    $stmtTarg = $pdo->prepare("
-                        SELECT pt.segment,
-                               COUNT(*)                     AS n_rows,
-                               SUM(pt.target_revenue_fcfa)  AS target_revenue,
-                               SUM(pt.target_volume_20l)    AS target_volume_20l,
-                               MIN(pt.max_return_debt_rate) AS max_return_debt_rate
-                          FROM performance_targets pt
-                         WHERE pt.budget_id = ?
-                         GROUP BY pt.segment
-                    ");
-                    $stmtTarg->execute([$target_budget]);
-
-                    foreach ($stmtTarg->fetchAll() as $row) {
-                        $key = strtolower($row['segment']);            // 'B2B' -> 'b2b'
-                        if (!array_key_exists($key, $seg_target)) continue;
-                        $seg_target[$key] = (float)$row['target_revenue'];
-
-                        $target_20l = (int)$target_20l + (int)$row['target_volume_20l'];
-                        // Ceiling, so the strictest segment binds.
-                        $rate = (float)$row['max_return_debt_rate'];
-                        $max_debt_rate = ($max_debt_rate === null) ? $rate : min($max_debt_rate, $rate);
-                    }
-                }
-
-                // --- Empties RETURN rate (real, from the ledger) -------------
-                // Named "return rate", so it is in / out — the complement of the
-                // debt rate. cre_controller.php maintains this ledger; using it
-                // means this KPI and the Gestion des Vides page cannot diverge.
-                // NULL when nothing has ever gone out: an empty ledger and a
-                // perfect return record must not both render "96.5%".
-                $stmtEmp = $pdo->query("
-                    SELECT COALESCE(SUM(total_out), 0) AS total_out,
-                           COALESCE(SUM(total_in),  0) AS total_in
-                      FROM client_empties_ledger
-                ");
-                $emp = $stmtEmp->fetch();
-                $empties_out = (int)($emp['total_out'] ?? 0);
-                $empties_in  = (int)($emp['total_in']  ?? 0);
-                $return_rate = $empties_out > 0
-                    ? round(($empties_in / $empties_out) * 100, 1)
-                    : null;
-
-                // --- 20L bottles actually sold this year ---------------------
-                // products.format is unreliable (the 20L SKU has format NULL),
-                // so `code` is the primary discriminator with format as backup.
-                $stmtVol = $pdo->prepare("
-                    SELECT COALESCE(SUM(soi.quantity), 0) AS vol
-                      FROM sales_order_items soi
-                      JOIN sales_orders so ON so.id = soi.sales_order_id
-                      JOIN products      p ON p.id  = soi.product_id
-                     WHERE YEAR(so.date) = ?
-                       AND so.status <> 'cancelled'
-                       AND p.category = 'Eau'
-                       AND (p.code LIKE '%-20L-%' OR p.format = '20L')
-                ");
-                $stmtVol->execute([$year]);
-                $vol_20l_sold = (int)$stmtVol->fetchColumn();
-
-                sendResponse('success', 'Performance loaded', [
-                    'targets' => [
-                        'b2c_actual'      => $seg_actual['b2c'],
-                        'b2c_target'      => $seg_target['b2c'],      // null = non défini
-                        'b2b_actual'      => $seg_actual['b2b'],
-                        'b2b_target'      => $seg_target['b2b'],      // null = non défini
-                        // New: surfaced so the tab can show how much revenue
-                        // could not be attributed to either segment.
-                        'unclassified_actual' => $seg_actual['non_classe'],
-                    ],
-                    'kpis' => [
-                        'empties_return_rate' => $return_rate,        // null = non calculable
-                        'vol_20l_sold'        => $vol_20l_sold,
-                        'vol_20l_target'      => $target_20l,         // null = non défini
-                        'max_return_debt_rate'=> $max_debt_rate,      // null = non défini
-                    ]
-                ]);
-                break;
-
-            case 'transfers':
-                if (!$budget_id) sendResponse('success', '', []);
-                $stmt = $pdo->prepare("
-                    SELECT t.*, o1.name as from_acc, o2.name as to_acc, u.first_name as auth_by 
-                    FROM budget_transfers t
-                    JOIN ohada_accounts o1 ON t.from_account_id = o1.id
-                    JOIN ohada_accounts o2 ON t.to_account_id = o2.id
-                    JOIN users u ON t.authorized_by = u.id
-                    WHERE t.budget_id = ? ORDER BY t.transfer_date DESC
-                ");
-                $stmt->execute([$budget_id]);
-                sendResponse('success', 'Transfers', $stmt->fetchAll());
-                break;
-
-            case 'get_transfer_prep':
-                if (!$budget_id) sendResponse('error', 'Aucun budget actif pour cette année.');
-                // Get Emergency Fund limit
-                $stmt = $pdo->prepare("SELECT l.annual_amount, l.ohada_account_id FROM budget_lines l JOIN ohada_accounts o ON l.ohada_account_id = o.id WHERE l.budget_id = ? AND o.is_emergency = 1");
-                $stmt->execute([$budget_id]);
-                $emer = $stmt->fetch();
-                if(!$emer) sendResponse('error', 'Aucun fonds d\'imprévus configuré.');
-
-                // Get valid accounts to transfer to
-                $stmt = $pdo->query("SELECT id, account_number as number, name FROM ohada_accounts WHERE type = 'expense' AND is_emergency = 0");
-                sendResponse('success', '', ['available' => $emer['annual_amount'], 'accounts' => $stmt->fetchAll()]);
-                break;
-
-            case 'performance_targets':
-                // Feeds the "Définir les objectifs" modal. Returns the 12 rows
-                // for one segment, with zeros where no row exists yet so the
-                // form always renders 12 inputs.
-                $segment = strtoupper((string)($_GET['segment'] ?? 'B2C'));
-                if (!in_array($segment, ['B2B', 'B2C'], true)) $segment = 'B2C';
-
-                $rows = [];
-                for ($m = 1; $m <= 12; $m++) {
-                    $rows[$m] = [
-                        'month' => $m, 'target_revenue_fcfa' => null,
-                        'target_volume_20l' => null, 'target_volume_1_5l' => null,
-                        'max_return_debt_rate' => null,
+                    $cards[] = [
+                        'id'           => $bid,
+                        'key'          => $b['key'],
+                        'label_fr'     => $b['label_fr'],
+                        'label_en'     => $b['label_en'],
+                        'icon'         => $b['icon'],
+                        'color'        => $b['color'],
+                        'is_revenue'   => $b['is_revenue'],
+                        'is_emergency' => $b['is_emergency'],
+                        'annual_target'=> $t ? $t['annual'] : null,
+                        'ytd_actual'   => $actualYtd,
+                        'status'       => classifyBucket($t, $actualYtd, $timePct, (bool)$b['is_revenue']),
                     ];
                 }
 
-                // Same resolution the save action and the sales dashboard use.
-                $tgt_budget_id = resolveTargetBudgetId($pdo, $year);
+                sendResponse('success', 'Overview loaded', [
+                    'kpis' => [
+                        'rev_actual'          => $rev_actual,
+                        'rev_target'          => $rev_target,
+                        'exp_actual'          => $exp_actual,
+                        'exp_target'          => $exp_target,
+                        'emergency_available' => $emergency_available,
+                    ],
+                    'buckets'  => $cards,
+                    'chart'    => ['budgeted' => $chartBudgeted, 'actuals' => $chartActuals],
+                    'time_pct' => $timePct,
+                ]);
+            } break;
 
-                if ($tgt_budget_id) {
-                    $stmtPT = $pdo->prepare("
-                        SELECT month, target_revenue_fcfa, target_volume_20l,
-                               target_volume_1_5l, max_return_debt_rate
-                          FROM performance_targets
-                         WHERE budget_id = ? AND segment = ?
-                    ");
-                    $stmtPT->execute([$tgt_budget_id, $segment]);
-                    foreach ($stmtPT->fetchAll() as $r) {
-                        $m = (int)$r['month'];
-                        if ($m >= 1 && $m <= 12) $rows[$m] = $r;
+            // -----------------------------------------------------------------
+            // TARGETS — the eight rows in edit form. Each row carries the
+            // current annual, the 12 monthly cells (in case an override
+            // exists), and the YTD actual (so the MD can see the pressure
+            // while typing).
+            // -----------------------------------------------------------------
+            case 'targets': {
+                $rows = [];
+                foreach ($buckets as $bid => $b) {
+                    $t         = $targets[$bid];
+                    $actualYtd = $rollup[$bid]['ytd'];
+                    $rows[] = [
+                        'id'          => $bid,
+                        'key'         => $b['key'],
+                        'label_fr'    => $b['label_fr'],
+                        'label_en'    => $b['label_en'],
+                        'icon'        => $b['icon'],
+                        'color'       => $b['color'],
+                        'is_revenue'  => $b['is_revenue'],
+                        'is_emergency'=> $b['is_emergency'],
+                        'annual'      => $t ? $t['annual']  : null,
+                        'monthly'     => $t ? array_values($t['monthly']) : null,
+                        'ytd_actual'  => $actualYtd,
+                        'status'      => classifyBucket($t, $actualYtd, $timePct, (bool)$b['is_revenue']),
+                        'updated_at'  => $t['updated_at'] ?? null,
+                    ];
+                }
+                sendResponse('success', 'Targets loaded', [
+                    'rows'     => $rows,
+                    'time_pct' => $timePct,
+                ]);
+            } break;
+
+            // -----------------------------------------------------------------
+            // ALERTS — only warn and bad buckets. Bad first, then warn.
+            // If everything is green, the tab returns an empty list — the JS
+            // renders a friendly "no alerts" state instead.
+            // -----------------------------------------------------------------
+            case 'alerts': {
+                $alerts = [];
+                foreach ($buckets as $bid => $b) {
+                    $t         = $targets[$bid];
+                    $actualYtd = $rollup[$bid]['ytd'];
+                    $status    = classifyBucket($t, $actualYtd, $timePct, (bool)$b['is_revenue']);
+                    if ($status !== 'ok' && $status !== '-') {
+                        $alerts[] = [
+                            'id'         => $bid,
+                            'key'        => $b['key'],
+                            'label_fr'   => $b['label_fr'],
+                            'label_en'   => $b['label_en'],
+                            'icon'       => $b['icon'],
+                            'color'      => $b['color'],
+                            'is_revenue' => $b['is_revenue'],
+                            'annual'     => $t ? $t['annual'] : null,
+                            'ytd_actual' => $actualYtd,
+                            'status'     => $status,
+                        ];
                     }
                 }
-
-                sendResponse('success', 'Objectifs chargés', [
-                    'budget_id' => $tgt_budget_id,
-                    'segment'   => $segment,
-                    'rows'      => array_values($rows),
+                // Bad first, then warn.
+                usort($alerts, function($a, $b) {
+                    $order = ['bad' => 0, 'warn' => 1];
+                    return ($order[$a['status']] ?? 9) - ($order[$b['status']] ?? 9);
+                });
+                sendResponse('success', 'Alerts loaded', [
+                    'alerts'   => $alerts,
+                    'time_pct' => $timePct,
                 ]);
-                break;
+            } break;
+
+            // -----------------------------------------------------------------
+            // TRANSFER REQUESTS — pending only. The MD's Overview card list
+            // pulls from this. Approved and rejected requests stay in-table
+            // for audit but are not returned here.
+            // -----------------------------------------------------------------
+            case 'transfer_requests': {
+                $stmt = $pdo->prepare("
+                    SELECT r.id, r.fiscal_year, r.amount, r.reason, r.status,
+                           r.requested_at,
+                           bf.label_fr AS from_label_fr, bf.label_en AS from_label_en,
+                           bt.label_fr AS to_label_fr,   bt.label_en AS to_label_en,
+                           u.first_name AS requested_by_name
+                      FROM budget_transfer_requests r
+                      JOIN budget_buckets bf ON bf.id = r.from_bucket_id
+                      JOIN budget_buckets bt ON bt.id = r.to_bucket_id
+                      JOIN users u           ON u.id  = r.requested_by
+                     WHERE r.fiscal_year = ? AND r.status = 'pending'
+                     ORDER BY r.requested_at ASC
+                ");
+                $stmt->execute([$year]);
+                sendResponse('success', 'Transfer requests', $stmt->fetchAll());
+            } break;
 
             default:
                 sendResponse('error', 'Onglet inconnu.');
         }
-
     } catch (PDOException $e) {
-        // README §6 rule 3 — a database error message can carry table names,
-        // column names and fragments of the query. Log it, return a generic
-        // message. (This line used to echo $e->getMessage() straight to the
-        // client; fixed 29 July 2026 alongside the performance-tab rewrite.)
         error_log('budget_controller GET: ' . $e->getMessage());
         sendResponse('error', 'Erreur base de données. Veuillez réessayer.');
     }
@@ -576,191 +470,221 @@ else if ($method === 'POST') {
     try {
         $pdo->beginTransaction();
 
-        if ($action === 'save_performance_targets') {
-            // ---------------------------------------------------------------
-            // The write path performance_targets never had.
-            //
-            // Until now nothing in the application could put a row in this
-            // table — no page, no controller, no migration seeded it. That is
-            // why it is empty on the live database, and why the Performance tab
-            // and the sales dashboard both had to invent or omit their targets.
-            //
-            // Gated on accounting.budgets.create rather than a new permission
-            // key: setting the year's commercial targets is the same act, by
-            // the same people, as building the budget those targets hang off —
-            // and reusing it means no migration and no new grant to deploy.
-            // ---------------------------------------------------------------
+        // -----------------------------------------------------------------
+        // save_targets — bulk write for the MD's Targets tab. Payload:
+        //   { action: 'save_targets', fiscal_year: 2026, rows: [
+        //       { bucket_id: 3, annual: 12000000,
+        //         monthly: [1_000_000, 1_000_000, …] | null } , … ] }
+        //
+        //   · If monthly is null OR annual has changed since last save,
+        //     the server auto-splits annual/12 into m01..m12 (rounded to
+        //     the nearest 1000 FCFA, remainder pushed into m12 so the
+        //     total exactly equals annual — otherwise the Overview KPI
+        //     would show a variance the MD never asked for).
+        //   · If monthly is a 12-element array, it is stored as-is and the
+        //     server checks the sum matches annual within 12 FCFA (one
+        //     franc per month rounding). Otherwise the payload is refused
+        //     rather than silently rewritten — a bug the pre-091 controller
+        //     would have hidden.
+        // -----------------------------------------------------------------
+        if ($action === 'save_targets') {
             Rbac::requirePermission('accounting.budgets.create');
 
-            $t_year   = (int)($payload['fiscal_year'] ?? 0);
-            $segment  = strtoupper((string)($payload['segment'] ?? ''));
-            $rows     = $payload['rows'] ?? null;
+            $t_year = (int)($payload['fiscal_year'] ?? 0);
+            $rows   = $payload['rows'] ?? null;
 
-            if ($t_year < 2000 || $t_year > 2100)          throw new Exception("Exercice invalide.");
-            if (!in_array($segment, ['B2B', 'B2C'], true)) throw new Exception("Segment invalide.");
-            if (!is_array($rows) || count($rows) === 0)    throw new Exception("Aucun objectif à enregistrer.");
+            if ($t_year < 2000 || $t_year > 2100)     throw new Exception("Exercice invalide.");
+            if (!is_array($rows) || count($rows) === 0) throw new Exception("Aucun objectif à enregistrer.");
 
-            // Targets belong to a budget. Resolve the same way the GET side
-            // does — latest version for the year — so the modal and the tab can
-            // never point at different budget rows.
-            $target_budget_id = resolveTargetBudgetId($pdo, $t_year);
-            if (!$target_budget_id) {
-                throw new Exception("Aucun budget n'existe pour l'exercice $t_year. Créez le budget avant de saisir les objectifs.");
-            }
+            // Preload valid bucket IDs to reject spoofed payloads early.
+            $validIds = array_map('intval', $pdo->query("SELECT id FROM budget_buckets")->fetchAll(PDO::FETCH_COLUMN));
 
-            // Idempotent per (budget, month, segment) — that triple is the
-            // table's UNIQUE key, so re-saving edits rather than duplicating.
-            $stmtUp = $pdo->prepare("
-                INSERT INTO performance_targets
-                    (budget_id, month, segment, target_revenue_fcfa,
-                     target_volume_20l, target_volume_1_5l, max_return_debt_rate)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+            $stmt = $pdo->prepare("
+                INSERT INTO budget_bucket_targets
+                    (fiscal_year, bucket_id, annual_amount,
+                     m01,m02,m03,m04,m05,m06,m07,m08,m09,m10,m11,m12,
+                     updated_by)
+                VALUES (?, ?, ?, ?,?,?,?,?,?,?,?,?,?,?,?, ?)
                 ON DUPLICATE KEY UPDATE
-                    target_revenue_fcfa  = VALUES(target_revenue_fcfa),
-                    target_volume_20l    = VALUES(target_volume_20l),
-                    target_volume_1_5l   = VALUES(target_volume_1_5l),
-                    max_return_debt_rate = VALUES(max_return_debt_rate)
+                    annual_amount = VALUES(annual_amount),
+                    m01=VALUES(m01), m02=VALUES(m02), m03=VALUES(m03),
+                    m04=VALUES(m04), m05=VALUES(m05), m06=VALUES(m06),
+                    m07=VALUES(m07), m08=VALUES(m08), m09=VALUES(m09),
+                    m10=VALUES(m10), m11=VALUES(m11), m12=VALUES(m12),
+                    updated_by    = VALUES(updated_by)
             ");
 
             $saved = 0;
             foreach ($rows as $r) {
-                $m = (int)($r['month'] ?? 0);
-                if ($m < 1 || $m > 12) continue;
+                $bid    = (int)($r['bucket_id'] ?? 0);
+                $annual = max(0.0, (float)($r['annual'] ?? 0));
+                if (!in_array($bid, $validIds, true)) continue;
 
-                // Money binds as string — DECIMAL(15,2), never a float
-                // (README §5.1).
-                $rev  = (string)round((float)($r['target_revenue_fcfa'] ?? 0), 2);
-                $v20  = max(0, (int)($r['target_volume_20l'] ?? 0));
-                $v15  = max(0, (int)($r['target_volume_1_5l'] ?? 0));
-                $rate = (float)($r['max_return_debt_rate'] ?? 5);
-                if ($rate < 0 || $rate > 100) $rate = 5.0;
+                $monthly = $r['monthly'] ?? null;
+                if (!is_array($monthly) || count($monthly) !== 12) {
+                    // Auto-split, remainder to m12.
+                    $per = floor($annual / 12000) * 1000;   // round down to 1000
+                    $months = array_fill(0, 12, $per);
+                    $months[11] = $annual - ($per * 11);    // exact residue
+                } else {
+                    // MD supplied 12 cells. Sum must match annual within 12
+                    // FCFA. If not, refuse — a silent rewrite is what caused
+                    // Finance to distrust the pre-091 module.
+                    $months = array_map(function($v) {
+                        return max(0.0, (float)$v);
+                    }, array_values($monthly));
+                    $sum = array_sum($months);
+                    if (abs($sum - $annual) > 12) {
+                        throw new Exception(
+                            "Somme des mois ($sum) différente de l'objectif annuel ($annual).");
+                    }
+                }
 
-                $stmtUp->execute([$target_budget_id, $m, $segment, $rev, $v20, $v15, (string)$rate]);
+                // DECIMAL(15,2) — bind as strings, never floats (README §5.1).
+                $bind = [
+                    $t_year, $bid, (string)round($annual, 2),
+                ];
+                foreach ($months as $mv) $bind[] = (string)round((float)$mv, 2);
+                $bind[] = $user_id;
+
+                $stmt->execute($bind);
                 $saved++;
             }
 
             $pdo->commit();
-            sendResponse('success', "$saved objectif(s) $segment enregistré(s) pour $t_year.");
+            sendResponse('success', "$saved objectif(s) enregistré(s) pour $t_year.");
         }
 
-        if ($action === 'simulate_budget') {
-            $baseYear = (int)$payload['baseYear'];
-            $targetYear = (int)$payload['targetYear'];
-            $adjPct = (float)$payload['adjPct'];
-            $modifier = ($payload['adjType'] === 'increase') ? (1 + ($adjPct / 100)) : (1 - ($adjPct / 100));
-
-            $actuals = getActualsByAccountAndMonth($pdo, $baseYear);
-            $accounts = $pdo->query("SELECT * FROM ohada_accounts")->fetchAll();
-
-            $lines = [];
-            foreach ($accounts as $acc) {
-                // Sum actuals for the base year
-                $total_actual = 0;
-                for ($m = 1; $m <= 12; $m++) $total_actual += ($actuals[$m][$acc['account_number']] ?? 0);
-
-                // If no actuals exist (e.g. fresh system), assign a dummy base to simulate
-                if ($total_actual == 0) $total_actual = ($acc['type'] == 'revenue') ? 50000000 : 10000000;
-
-                $new_annual = $total_actual * $modifier;
-                // Round to nearest 1000 FCFA for clean numbers
-                $new_annual = round($new_annual / 1000) * 1000;
-                $new_monthly = round(($new_annual / 12) / 1000) * 1000;
-
-                $lines[] = [
-                    'acc_id' => $acc['id'],
-                    'acc_number' => $acc['account_number'],
-                    'acc_name' => $acc['name'],
-                    'base_actual' => $total_actual,
-                    'new_annual' => $new_annual,
-                    'new_monthly' => $new_monthly
-                ];
+        // -----------------------------------------------------------------
+        // request_transfer — Finance drafts a transfer proposal. The MD
+        // sees it as a card on the Overview tab and clicks Approve/Reject.
+        // -----------------------------------------------------------------
+        if ($action === 'request_transfer') {
+            if (!Rbac::hasPermission('accounting.budgets.request_transfer')
+                && !Rbac::hasPermission('accounting.budgets.transfer')) {
+                throw new Exception("Permission insuffisante pour demander un transfert.");
             }
 
-            $pdo->rollBack(); // No save yet
-            sendResponse('success', 'Simulation terminée', ['target_year' => $targetYear, 'lines' => $lines]);
+            $year   = (int)($payload['fiscal_year'] ?? date('Y'));
+            $from   = (int)($payload['from_bucket_id'] ?? 0);
+            $to     = (int)($payload['to_bucket_id']   ?? 0);
+            $amount = (float)($payload['amount'] ?? 0);
+            $reason = trim((string)($payload['reason'] ?? ''));
+
+            if ($from <= 0 || $to <= 0)   throw new Exception("Lignes source et cible requises.");
+            if ($from === $to)            throw new Exception("La source et la cible doivent être différentes.");
+            if ($amount <= 0)             throw new Exception("Montant invalide.");
+            if ($reason === '')           throw new Exception("Un motif est requis.");
+
+            $stmt = $pdo->prepare("
+                INSERT INTO budget_transfer_requests
+                    (fiscal_year, from_bucket_id, to_bucket_id, amount, reason,
+                     status, requested_by)
+                VALUES (?, ?, ?, ?, ?, 'pending', ?)
+            ");
+            $stmt->execute([$year, $from, $to, (string)round($amount, 2), $reason, $user_id]);
+
+            $pdo->commit();
+            sendResponse('success', "Demande de transfert créée. En attente de validation.");
         }
 
-        if ($action === 'save_generated_budget') {
-            if ($user_role !== 'admin') throw new Exception("Seul l'Admin peut valider un budget.");
-            $data = $payload['data'];
-            $targetYear = (int)$data['target_year'];
-
-            // Check if budget exists, increment version
-            $stmt = $pdo->prepare("SELECT version FROM budgets WHERE fiscal_year = ? ORDER BY version DESC LIMIT 1");
-            $stmt->execute([$targetYear]);
-            $last_ver = $stmt->fetchColumn();
-            $new_ver = $last_ver ? $last_ver + 1 : 1;
-
-            $stmt = $pdo->prepare("INSERT INTO budgets (fiscal_year, version, status, created_by, approved_by) VALUES (?, ?, 'active', ?, ?)");
-            $stmt->execute([$targetYear, $new_ver, $user_id, $user_id]);
-            $new_budget_id = $pdo->lastInsertId();
-
-            $stmtLine = $pdo->prepare("INSERT INTO budget_lines (budget_id, ohada_account_id, annual_amount, m01, m02, m03, m04, m05, m06, m07, m08, m09, m10, m11, m12) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            
-            foreach ($data['lines'] as $l) {
-                $m = $l['new_monthly'];
-                $stmtLine->execute([$new_budget_id, $l['acc_id'], $l['new_annual'], $m, $m, $m, $m, $m, $m, $m, $m, $m, $m, $m, $m]);
+        // -----------------------------------------------------------------
+        // decide_transfer — MD approves or rejects. On approve, the two
+        // bucket targets are adjusted (source − amount, destination + amount)
+        // in the same transaction so the Overview KPI reflects the move
+        // immediately. Nothing is written to the legacy `budget_transfers`
+        // table — that table is the Finance detailed view's concern.
+        // -----------------------------------------------------------------
+        if ($action === 'decide_transfer') {
+            if (!Rbac::hasPermission('accounting.budgets.approve_transfer')
+                && $user_role !== 'admin') {
+                throw new Exception("Permission insuffisante pour valider un transfert.");
             }
 
+            $req_id   = (int)($payload['request_id'] ?? 0);
+            $decision = (string)($payload['decision'] ?? '');   // 'approved' | 'rejected'
+            $note     = trim((string)($payload['note'] ?? ''));
+
+            if (!in_array($decision, ['approved', 'rejected'], true)) {
+                throw new Exception("Décision invalide.");
+            }
+
+            $stmt = $pdo->prepare("
+                SELECT id, fiscal_year, from_bucket_id, to_bucket_id, amount, status
+                  FROM budget_transfer_requests
+                 WHERE id = ?
+                 FOR UPDATE
+            ");
+            $stmt->execute([$req_id]);
+            $req = $stmt->fetch();
+            if (!$req)                             throw new Exception("Demande introuvable.");
+            if ($req['status'] !== 'pending')      throw new Exception("Cette demande a déjà été traitée.");
+
+            if ($decision === 'approved') {
+                // Verify source bucket has enough remaining.
+                $stmtSrc = $pdo->prepare("
+                    SELECT annual_amount FROM budget_bucket_targets
+                     WHERE fiscal_year = ? AND bucket_id = ?
+                     FOR UPDATE
+                ");
+                $stmtSrc->execute([$req['fiscal_year'], $req['from_bucket_id']]);
+                $srcAnnual = $stmtSrc->fetchColumn();
+                if ($srcAnnual === false)          throw new Exception("La ligne source n'a pas d'objectif défini.");
+                if ((float)$srcAnnual < (float)$req['amount']) {
+                    throw new Exception("Fonds insuffisants sur la ligne source.");
+                }
+
+                // Move the money. Annual − amount / m12 − amount on source,
+                // annual + amount / m12 + amount on target (m12 chosen because
+                // a mid-year reallocation is expected to spend the extra
+                // budget in the remaining months; landing it in m12 keeps
+                // the auto-split invariant intact — sum(m01..m12) = annual).
+                $pdo->prepare("
+                    UPDATE budget_bucket_targets
+                       SET annual_amount = annual_amount - ?,
+                           m12           = m12           - ?
+                     WHERE fiscal_year = ? AND bucket_id = ?
+                ")->execute([$req['amount'], $req['amount'],
+                             $req['fiscal_year'], $req['from_bucket_id']]);
+
+                // The destination row may not exist yet — create it at zero
+                // then add the amount, all in one INSERT … ON DUPLICATE KEY.
+                $pdo->prepare("
+                    INSERT INTO budget_bucket_targets
+                        (fiscal_year, bucket_id, annual_amount, m12, updated_by)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        annual_amount = annual_amount + VALUES(annual_amount),
+                        m12           = m12           + VALUES(m12),
+                        updated_by    = VALUES(updated_by)
+                ")->execute([$req['fiscal_year'], $req['to_bucket_id'],
+                             $req['amount'], $req['amount'], $user_id]);
+            }
+
+            // Record the decision either way.
+            $pdo->prepare("
+                UPDATE budget_transfer_requests
+                   SET status = ?, decided_by = ?, decided_at = NOW(), decision_note = ?
+                 WHERE id = ?
+            ")->execute([$decision, $user_id, ($note === '' ? null : $note), $req_id]);
+
             $pdo->commit();
-            sendResponse('success', "Budget V{$new_ver} enregistré et activé.");
+            sendResponse('success',
+                $decision === 'approved'
+                    ? "Transfert approuvé et appliqué."
+                    : "Demande refusée.");
         }
 
-        if ($action === 'emergency_transfer') {
-            if ($user_role !== 'admin') throw new Exception("Action requiert des droits Administrateur.");
-            
-            $year = (int)$payload['year'];
-            $to_acc_id = (int)$payload['to_account_id'];
-            $amount = (float)$payload['amount'];
-            $reason = trim($payload['reason']);
-
-            // Find Active Budget
-            $stmtBud = $pdo->prepare("SELECT id FROM budgets WHERE fiscal_year = ? ORDER BY version DESC LIMIT 1");
-            $stmtBud->execute([$year]);
-            $budget_id = $stmtBud->fetchColumn();
-            if (!$budget_id) throw new Exception("Aucun budget actif.");
-
-            // Find Imprévus Line
-            $stmtFrom = $pdo->prepare("SELECT l.id, l.annual_amount, l.ohada_account_id FROM budget_lines l JOIN ohada_accounts o ON l.ohada_account_id = o.id WHERE l.budget_id = ? AND o.is_emergency = 1 FOR UPDATE");
-            $stmtFrom->execute([$budget_id]);
-            $from_line = $stmtFrom->fetch();
-            if (!$from_line || $from_line['annual_amount'] < $amount) throw new Exception("Fonds d'imprévus insuffisants.");
-
-            // Find Target Line
-            $stmtTo = $pdo->prepare("SELECT id FROM budget_lines WHERE budget_id = ? AND ohada_account_id = ? FOR UPDATE");
-            $stmtTo->execute([$budget_id, $to_acc_id]);
-            $to_line_id = $stmtTo->fetchColumn();
-            if (!$to_line_id) throw new Exception("Ligne budgétaire cible introuvable.");
-
-            // 1. Log Transfer
-            $stmtT = $pdo->prepare("INSERT INTO budget_transfers (budget_id, from_account_id, to_account_id, amount, reason, authorized_by) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmtT->execute([$budget_id, $from_line['ohada_account_id'], $to_acc_id, $amount, $reason, $user_id]);
-
-            // 2. Adjust Limits (Subtract from Emergency, add evenly to remaining months of Target)
-            $stmtUpdateFrom = $pdo->prepare("UPDATE budget_lines SET annual_amount = annual_amount - ? WHERE id = ?");
-            $stmtUpdateFrom->execute([$amount, $from_line['id']]);
-
-            $stmtUpdateTo = $pdo->prepare("UPDATE budget_lines SET annual_amount = annual_amount + ?, m12 = m12 + ? WHERE id = ?"); // Added to m12 to balance math simply
-            $stmtUpdateTo->execute([$amount, $amount, $to_line_id]);
-
-            $pdo->commit();
-            sendResponse('success', "Transfert de " . number_format($amount, 0, ',', ' ') . " FCFA effectué avec succès.");
-        }
+        // Fallthrough — unrecognised action.
+        $pdo->rollBack();
+        sendResponse('error', 'Action inconnue.');
 
     } catch (PDOException $e) {
-        // Split from the generic Exception handler below on purpose: the
-        // `throw new Exception("...")` calls in this block carry deliberate,
-        // user-facing French business messages and are safe to echo. A
-        // PDOException is not — it can leak schema. Log, generic message.
-        if (isset($pdo) && $pdo->inTransaction()) {
-            $pdo->rollBack();
-        }
+        if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
         error_log('budget_controller POST: ' . $e->getMessage());
         sendResponse('error', 'Erreur base de données. Veuillez réessayer.');
     } catch (Exception $e) {
-        if (isset($pdo) && $pdo->inTransaction()) {
-            $pdo->rollBack();
-        }
+        if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
         sendResponse('error', $e->getMessage());
     }
 } else {

@@ -404,7 +404,18 @@ try {
 
             if (empty($items)) throw new UserFacingException("Aucun article à recevoir.");
 
-            $stmtPO = $db->prepare("SELECT reference, supplier_id, subtotal, date, status FROM purchase_orders WHERE id = ? FOR UPDATE");
+            // Migration 093 · payment_status / treasury_account_id / payment_je_id
+            // added the AP-settlement leg the module has been missing since
+            // day one. Selected conditionally so this endpoint keeps running
+            // on installs that have not applied 093 yet — before those
+            // columns exist, the payment JE simply cannot fire, which is the
+            // pre-093 behaviour.
+            require_once __DIR__ . '/../../includes/functions/procurement.php';
+            $po_has_pay_cols = lpc_po_has_payment_columns($db);
+            $po_cols = "reference, supplier_id, subtotal, date, status, payment_status, total_amount"
+                     . ($po_has_pay_cols ? ", treasury_account_id, payment_je_id" : ", NULL AS treasury_account_id, NULL AS payment_je_id");
+
+            $stmtPO = $db->prepare("SELECT {$po_cols} FROM purchase_orders WHERE id = ? FOR UPDATE");
             $stmtPO->execute([$po_id]);
             $po = $stmtPO->fetch(PDO::FETCH_ASSOC);
             if (!$po) throw new UserFacingException("Bon de commande introuvable.");
@@ -739,6 +750,43 @@ try {
                     // evaporating.
                     (float) ($detail['vat_withheld'] ?? 0),
                     (float) ($detail['precompte_withheld'] ?? 0)
+                );
+            }
+
+            // ==========================================
+            // 7. SUPPLIER PAYMENT — PR-1 (migration 093).
+            //
+            // If the PO was created "Payé (Cash/Virement)" with a treasury
+            // account chosen, the money physically changes hands at reception
+            // — the delivery driver is standing at the counter. Post the
+            // settlement JE and decrement the treasury balance NOW, in the
+            // same transaction as the goods receipt, so the two either both
+            // land or neither does.
+            //
+            // Idempotent guard: payment_je_id set means a prior reception
+            // already posted the payment. A partial reception path (not yet
+            // built) will only clear the balance on the final reception; for
+            // now, a fully-received PO is the only case that reaches here.
+            //
+            // Skipped when:
+            //   · payment_status='unpaid' — settlement happens later, from
+            //     the Payer Fournisseur screen; the payable stays open.
+            //   · treasury_account_id NULL — the payment path is disabled
+            //     (save_po requires it; NULL means either à crédit or an
+            //     old row from before 093 was seeded).
+            //   · payment_je_id already set — payment already posted.
+            //   · migration 093 not applied — columns don't exist, so the
+            //     select above coerced them to NULL and this branch is skipped.
+            if ($po_has_pay_cols
+                && $po['payment_status'] === 'paid'
+                && !empty($po['treasury_account_id'])
+                && empty($po['payment_je_id'])) {
+                JournalPoster::postSupplierPayment(
+                    $po_id,
+                    (int) $po['treasury_account_id'],
+                    (float) $po['total_amount'],
+                    date('Y-m-d'),
+                    "Règlement à la réception"
                 );
             }
 

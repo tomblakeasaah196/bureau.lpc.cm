@@ -172,14 +172,188 @@ $user_role = $_SESSION['user_role'];
                     </div>
                     <div class="bg-gray-50 px-6 py-4 border-t border-gray-200 flex justify-between items-center shrink-0">
                         <p class="text-[10px] font-bold text-gray-500"><i class="fas fa-info-circle mr-1"></i> <?= htmlspecialchars(__t('ui.x.la_validation_generera_automatiquement_l')) ?></p>
-                        <button type="button" id="btn_generate_payroll" onclick="submitPayroll()" disabled class="bg-gray-300 text-gray-500 px-8 py-3 rounded-xl font-black text-sm transition-all shadow-md cursor-not-allowed flex items-center gap-2">
-                            <i class="fas fa-magic"></i> Calculer & Valider Paie
-                        </button>
+                        <div class="flex items-center gap-3">
+                            <?php /*
+                                PR-2, migration 095 · Marquer Payées.
+                                Distinct from "Calculer & Valider Paie" which
+                                posts the accrual (Dr 661/Cr 422). This one
+                                posts the DISBURSEMENT (Dr 422/Cr treasury),
+                                grouped per treasury account, once per pay run.
+                                Enabled only when at least one payslip in the
+                                current period is accrued-but-not-disbursed.
+                            */ ?>
+                            <button type="button" id="btn_mark_paid" onclick="openMarkPaidModal()"
+                                    class="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-black text-sm transition-all shadow-md flex items-center gap-2">
+                                <i class="fas fa-money-bill-wave"></i> Marquer Payées
+                            </button>
+                            <button type="button" id="btn_generate_payroll" onclick="submitPayroll()" disabled class="bg-gray-300 text-gray-500 px-8 py-3 rounded-xl font-black text-sm transition-all shadow-md cursor-not-allowed flex items-center gap-2">
+                                <i class="fas fa-magic"></i> Calculer & Valider Paie
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
 
         </main>
+    </div>
+
+    <?php /*
+         =====================================================================
+         DÉCAISSER ACOMPTE — PR-2, migration 096.
+         Opens per-row from the advances tab (Décaisser button on approved
+         rows). Posts Dr 421 / Cr treasury when confirmed.
+         =====================================================================
+    */ ?>
+    <div id="modal-disburse-advance" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col">
+            <div class="bg-emerald-700 px-6 py-4 flex justify-between items-center shrink-0">
+                <h3 class="font-black text-white text-lg flex items-center">
+                    <i class="fas fa-money-bill-wave mr-2"></i> Décaisser l'Acompte
+                </h3>
+                <button type="button" onclick="closeModal('modal-disburse-advance')" class="text-white/70 hover:text-white">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+                    <p class="text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-1">Bénéficiaire</p>
+                    <p id="disb-employee-name" class="text-lg font-black text-emerald-900">—</p>
+                    <p class="text-[10px] font-black uppercase tracking-widest text-emerald-700 mt-3 mb-1">Montant</p>
+                    <p id="disb-amount" class="text-2xl font-black text-emerald-900">0 F</p>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Compte de Trésorerie *</label>
+                    <select id="disb_treasury_account" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500">
+                        <option value="">Choisir un compte...</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Date de Décaissement *</label>
+                    <input type="date" id="disb_payment_date" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Note (optionnelle)</label>
+                    <input type="text" id="disb_note" placeholder="Ex: espèces remises au chauffeur" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+                <input type="hidden" id="disb_advance_id" value="">
+            </div>
+            <div class="bg-gray-50 px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+                <button type="button" onclick="closeModal('modal-disburse-advance')" class="px-4 py-2 text-sm font-bold text-gray-500 hover:text-gray-900">Annuler</button>
+                <button type="button" onclick="submitDisburseAdvance()" class="px-6 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-bold text-sm shadow-md">
+                    <i class="fas fa-check"></i> Confirmer
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <?php /*
+         =====================================================================
+         MARQUER PAYÉES — PR-2, migration 095.
+         Opens on Marquer Payées. Shows the period's unsettled payslips
+         grouped into two panels (bank vs caisse). Each panel has its own
+         treasury account picker; Confirmer posts ONE JE per panel that has
+         payslips selected.
+         =====================================================================
+    */ ?>
+    <div id="modal-mark-paid" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="bg-emerald-700 px-8 py-5 flex justify-between items-center shrink-0">
+                <h3 class="font-black text-white text-xl flex items-center">
+                    <i class="fas fa-money-bill-wave mr-3"></i>
+                    Marquer les Salaires Payés
+                </h3>
+                <button type="button" onclick="closeModal('modal-mark-paid')" class="text-white/70 hover:text-white transition-colors">
+                    <i class="fas fa-times text-2xl"></i>
+                </button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-8 bg-gray-50/50 space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <div>
+                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Période</label>
+                        <p id="mp-period-display" class="text-lg font-black text-gray-900">—</p>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Date de Paiement *</label>
+                        <input type="date" id="mp_payment_date" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500">
+                    </div>
+                </div>
+
+                <?php /*
+                    Two panels — one per payment_method value. Each has its
+                    own treasury picker + tick-all + running total, because
+                    the JE per treasury account rule (see JournalPoster::
+                    postPayrollSettlement docblock) requires one Confirmer
+                    action per group.
+                */ ?>
+                <div id="mp-group-bank" class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div class="bg-sky-700 px-6 py-3 flex justify-between items-center">
+                        <h4 class="text-xs font-black text-white uppercase tracking-widest">
+                            <i class="fas fa-university mr-2"></i> Employés payés par Banque/MoMo
+                        </h4>
+                        <label class="text-xs font-bold text-white cursor-pointer">
+                            <input type="checkbox" id="mp_bank_all" onchange="toggleMpGroupAll('bank', this.checked)" class="mr-2 align-middle"> Tout cocher
+                        </label>
+                    </div>
+                    <div class="px-6 py-3 border-b border-gray-100 grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                        <div class="md:col-span-2">
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Compte de Trésorerie *</label>
+                            <select id="mp_bank_treasury" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-sky-500">
+                                <option value="">Choisir un compte...</option>
+                            </select>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-[10px] font-black uppercase tracking-widest text-gray-500">Total sélectionné</p>
+                            <p id="mp-bank-total" class="text-lg font-black text-sky-900">0 F</p>
+                        </div>
+                    </div>
+                    <div id="mp-bank-body" class="divide-y divide-gray-100 text-sm max-h-64 overflow-y-auto"></div>
+                    <div class="px-6 py-3 bg-gray-50 text-right">
+                        <button type="button" onclick="submitMarkPaid('bank')" class="bg-sky-600 hover:bg-sky-700 text-white px-6 py-2 rounded-lg font-bold text-sm shadow-md transition-all">
+                            <i class="fas fa-check"></i> Régler le Groupe Banque
+                        </button>
+                    </div>
+                </div>
+
+                <div id="mp-group-caisse" class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div class="bg-amber-700 px-6 py-3 flex justify-between items-center">
+                        <h4 class="text-xs font-black text-white uppercase tracking-widest">
+                            <i class="fas fa-wallet mr-2"></i> Employés payés en Caisse
+                        </h4>
+                        <label class="text-xs font-bold text-white cursor-pointer">
+                            <input type="checkbox" id="mp_caisse_all" onchange="toggleMpGroupAll('caisse', this.checked)" class="mr-2 align-middle"> Tout cocher
+                        </label>
+                    </div>
+                    <div class="px-6 py-3 border-b border-gray-100 grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                        <div class="md:col-span-2">
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Compte de Trésorerie *</label>
+                            <select id="mp_caisse_treasury" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-amber-500">
+                                <option value="">Choisir un compte...</option>
+                            </select>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-[10px] font-black uppercase tracking-widest text-gray-500">Total sélectionné</p>
+                            <p id="mp-caisse-total" class="text-lg font-black text-amber-900">0 F</p>
+                        </div>
+                    </div>
+                    <div id="mp-caisse-body" class="divide-y divide-gray-100 text-sm max-h-64 overflow-y-auto"></div>
+                    <div class="px-6 py-3 bg-gray-50 text-right">
+                        <button type="button" onclick="submitMarkPaid('caisse')" class="bg-amber-600 hover:bg-amber-700 text-white px-6 py-2 rounded-lg font-bold text-sm shadow-md transition-all">
+                            <i class="fas fa-check"></i> Régler le Groupe Caisse
+                        </button>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Note (optionnelle, appliquée aux deux groupes)</label>
+                    <input type="text" id="mp_note" placeholder="Ex: Virement Afriland du 05/09 – réf. TX-1234" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+            </div>
+
+            <div class="bg-gray-50 px-8 py-5 border-t border-gray-200 flex justify-end gap-4 shrink-0">
+                <button type="button" onclick="closeModal('modal-mark-paid')" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors">Fermer</button>
+            </div>
+        </div>
     </div>
 
     <div id="modal-contract" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">

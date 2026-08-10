@@ -51,9 +51,35 @@ try {
         // ACTION: FETCH DROPDOWN METADATA
         // ==========================================
         case 'fetch_metadata':
-            $suppliers = $db->query("SELECT id, name FROM suppliers ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+            // suppliers.default_payment_account_id — migration 093. Detected
+            // rather than assumed so the metadata call still returns on an
+            // install that has not run 093 yet; the picker in the PO form
+            // will simply have no pre-selection until the migration lands.
+            $has_default = (int) $db->query("
+                SELECT COUNT(*) FROM information_schema.columns
+                 WHERE table_schema = DATABASE()
+                   AND table_name = 'suppliers'
+                   AND column_name = 'default_payment_account_id'
+            ")->fetchColumn() > 0;
+
+            $supplier_cols = $has_default
+                ? "id, name, default_payment_account_id"
+                : "id, name, NULL AS default_payment_account_id";
+            $suppliers = $db->query("SELECT {$supplier_cols} FROM suppliers ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+
             $products = $db->query("SELECT id, name, format, base_price FROM products WHERE category != 'Emballage' ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
             $delivery_places = $db->query("SELECT id, name FROM delivery_places WHERE is_active = 1 ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+
+            // Migration 093 · treasury_accounts for the "Payé" branch of the
+            // PO form. Same shape as expenses_controller::form_meta returns —
+            // the picker in modules/inventory/procurement.php reuses the
+            // dropdown behaviour already familiar from Gestion des Dépenses.
+            $treasury_accounts = $db->query("
+                SELECT id, name, type, balance
+                  FROM treasury_accounts
+                 WHERE status = 'active'
+                 ORDER BY sort_order ASC, type, name
+            ")->fetchAll(PDO::FETCH_ASSOC);
 
             // Suppliers with at least one active, non-zero ladder tier — used
             // by the Ristournes modal to default to a supplier that actually
@@ -73,8 +99,172 @@ try {
                     'suppliers' => $suppliers,
                     'products' => $products,
                     'delivery_places' => $delivery_places,
+                    'treasury_accounts' => $treasury_accounts,
                     'suppliers_with_ladder' => array_map('intval', $suppliers_with_ladder)
                 ]
+            ]);
+            break;
+
+        // ==========================================
+        // ACTION: LIST UNPAID POs BY SUPPLIER (PR-1, migration 093)
+        // ------------------------------------------------------------------
+        // Drives the Payer Fournisseur modal on modules/inventory/
+        // procurement.php. Returns non-cancelled POs with payment_status =
+        // 'unpaid', newest first, so the buyer can tick which to settle in
+        // one go against a chosen treasury account.
+        //
+        // Cancelled orders are excluded — their payable has already been
+        // reversed by JournalPoster::reverseSource('purchase_order', …) and
+        // there is nothing to pay.
+        //
+        // Partial receptions are still listed at their total_amount. The
+        // JE fires at settlement, not at reception, so what we owe the
+        // supplier is what the order committed to — a partial reception
+        // does not reduce the payable, only the goods received. This is
+        // also consistent with what the goods-receipt JE credits to 401.
+        // ==========================================
+        case 'list_unpaid_pos_by_supplier':
+            Rbac::requirePermission('inventory.procurement.view');
+            $supplier_id = (int)($_GET['supplier_id'] ?? 0);
+            if ($supplier_id <= 0) throw new UserFacingException("Fournisseur non spécifié.");
+
+            $stmt = $db->prepare("
+                SELECT id, reference, date, total_amount, status
+                  FROM purchase_orders
+                 WHERE supplier_id = ?
+                   AND payment_status = 'unpaid'
+                   AND status <> 'cancelled'
+                 ORDER BY date DESC, id DESC
+            ");
+            $stmt->execute([$supplier_id]);
+            $pos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            echo json_encode([
+                'status' => 'success',
+                'data'   => [
+                    'pos'         => $pos,
+                    'grand_total' => array_sum(array_map(fn($p) => (float)$p['total_amount'], $pos)),
+                ],
+            ]);
+            break;
+
+        // ==========================================
+        // ACTION: SETTLE ONE OR MORE UNPAID POs (PR-1, migration 093)
+        // ------------------------------------------------------------------
+        // The standalone Payer Fournisseur path. Given a supplier, a
+        // treasury account, a payment date, and a list of PO ids, this
+        // action fires JournalPoster::postSupplierPayment once per PO in
+        // ONE transaction. Either every JE posts and every treasury row
+        // updates, or the whole batch rolls back — no partial state.
+        //
+        // The JE per PO (not one bulk JE for the batch) is deliberate: it
+        // matches the AR-side convention (one JE per invoice payment), it
+        // preserves the source_type/source_id link that cancel_po relies
+        // on to reverse the payment, and it keeps the treasury journal
+        // readable ("PAY-FRS-PO-2608-… 200 000" instead of an opaque
+        // "Batch règlement 4 factures 800 000").
+        //
+        // Permission gate: only .approve, mirroring cancel — settling
+        // multiple POs at once has the same authority requirement as any
+        // other ledger-changing operation on the payable side.
+        // ==========================================
+        case 'settle_supplier_pos':
+            Rbac::requirePermission('inventory.procurement.approve');
+
+            $supplier_id         = (int)($jsonData['supplier_id'] ?? 0);
+            $treasury_account_id = (int)($jsonData['treasury_account_id'] ?? 0);
+            $payment_date        = trim((string)($jsonData['payment_date'] ?? ''));
+            $po_ids              = $jsonData['po_ids'] ?? [];
+            $note                = trim((string)($jsonData['note'] ?? ''));
+
+            if ($supplier_id <= 0)         throw new UserFacingException("Fournisseur non spécifié.");
+            if ($treasury_account_id <= 0) throw new UserFacingException("Compte de trésorerie non spécifié.");
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $payment_date)) {
+                throw new UserFacingException("Date de paiement invalide.");
+            }
+            if (!is_array($po_ids) || empty($po_ids)) {
+                throw new UserFacingException("Aucun bon de commande sélectionné.");
+            }
+
+            // Migration 093 must have run for postSupplierPayment to have
+            // anywhere to stamp payment_je_id. Fail loudly before opening a
+            // transaction rather than half-way through, so nothing partial.
+            if (!lpc_po_has_payment_columns($db)) {
+                throw new UserFacingException(
+                    "La migration 093 n'a pas été appliquée. Contactez l'administrateur."
+                );
+            }
+
+            // Verify the treasury account is active before we start (same
+            // check save_po uses).
+            $chk = $db->prepare("SELECT 1 FROM treasury_accounts WHERE id = ? AND status = 'active'");
+            $chk->execute([$treasury_account_id]);
+            if (!$chk->fetchColumn()) {
+                throw new UserFacingException("Compte de trésorerie invalide ou inactif.");
+            }
+
+            $db->beginTransaction();
+
+            // Re-fetch each PO INSIDE the transaction. Two reasons: (1) the
+            // client payload cannot be trusted for amounts — the amount to
+            // pay comes from purchase_orders.total_amount, not from the
+            // browser; (2) FOR UPDATE (inside postSupplierPayment) serialises
+            // against a concurrent Payer Fournisseur click on the same PO.
+            $verify = $db->prepare("
+                SELECT id, reference, supplier_id, payment_status, total_amount
+                  FROM purchase_orders
+                 WHERE id = ? AND status <> 'cancelled'
+            ");
+
+            $posted     = [];
+            $grand_paid = 0.0;
+            foreach ($po_ids as $raw_id) {
+                $po_id = (int) $raw_id;
+                if ($po_id <= 0) continue;
+
+                $verify->execute([$po_id]);
+                $po = $verify->fetch(PDO::FETCH_ASSOC);
+                if (!$po) {
+                    throw new UserFacingException("Bon de commande #{$po_id} introuvable ou annulé.");
+                }
+                if ((int) $po['supplier_id'] !== $supplier_id) {
+                    // The picker is scoped by supplier; a mismatch means
+                    // either payload tampering or a UI bug. Refuse either way.
+                    throw new UserFacingException(
+                        "Le bon de commande {$po['reference']} n'appartient pas à ce fournisseur."
+                    );
+                }
+                if ($po['payment_status'] === 'paid') {
+                    // Somebody else settled it between the list and the
+                    // click. Roll back and let the buyer refresh, rather
+                    // than silently skipping one PO out of the batch.
+                    throw new UserFacingException(
+                        "Le bon de commande {$po['reference']} est déjà payé. Rafraîchissez la liste."
+                    );
+                }
+
+                $je_id = JournalPoster::postSupplierPayment(
+                    $po_id,
+                    $treasury_account_id,
+                    (float) $po['total_amount'],
+                    $payment_date,
+                    $note
+                );
+
+                $posted[]    = ['po_id' => $po_id, 'reference' => $po['reference'], 'je_id' => $je_id, 'amount' => (float)$po['total_amount']];
+                $grand_paid += (float) $po['total_amount'];
+            }
+
+            $db->commit();
+
+            echo json_encode([
+                'status'  => 'success',
+                'message' => sprintf(
+                    'Règlement de %d bon(s) de commande effectué (%s FCFA).',
+                    count($posted),
+                    number_format($grand_paid, 0, ',', ' ')
+                ),
+                'data'    => ['posted' => $posted, 'grand_paid' => $grand_paid],
             ]);
             break;
 
@@ -548,6 +738,7 @@ try {
             $discount_amount = (float)($jsonData['discount_amount'] ?? 0);
             $discount_note = trim($jsonData['discount_note'] ?? '');
             $delivery_place_id = (int)($jsonData['delivery_place_id'] ?? 0) ?: null;
+            $treasury_account_id = !empty($jsonData['treasury_account_id']) ? (int) $jsonData['treasury_account_id'] : null;
             $items = $jsonData['items'] ?? [];
 
             if (empty($supplier_id) || empty($items)) {
@@ -561,6 +752,36 @@ try {
             }
             if (!in_array($payment_status, ['paid', 'unpaid'], true)) {
                 throw new UserFacingException("Statut de paiement invalide.");
+            }
+
+            // Migration 093 — a PO created "Payé" must name the treasury
+            // account the money is coming from, so the payment JE posted at
+            // reception (inventory_controller::receive_po) can debit 401 and
+            // credit the right sub-ledger (571 Caisse vs 521 Banques vs 552
+            // MoMo). Without this, the payment JE either can't post or has
+            // to guess an account — the whole reason this hole existed.
+            //
+            // "Non payé" (à crédit) legitimately has no account yet — the
+            // Payer Fournisseur screen fills it in when the settlement
+            // happens later. The picker is only required on the paid path.
+            if ($payment_status === 'paid') {
+                if (!$treasury_account_id) {
+                    throw new UserFacingException("Compte de trésorerie requis pour un achat payé.");
+                }
+                // Verify the account exists and is active. Detected rather
+                // than assumed, so a badly-formed payload from an old client
+                // still surfaces as a UserFacingException instead of a raw
+                // FK violation later.
+                $chk = $db->prepare("SELECT 1 FROM treasury_accounts WHERE id = ? AND status = 'active'");
+                $chk->execute([$treasury_account_id]);
+                if (!$chk->fetchColumn()) {
+                    throw new UserFacingException("Compte de trésorerie invalide ou inactif.");
+                }
+            } else {
+                // Discard any account the client sent — a PO à crédit stores
+                // NULL and the standalone Payer Fournisseur screen picks the
+                // account at settlement time.
+                $treasury_account_id = null;
             }
 
             // The TVA rate in force right now, resolved once and frozen onto the
@@ -792,29 +1013,62 @@ try {
             $po_subtotal_ht = ($po_vat_rate > 0) ? round($subtotal / (1 + $po_vat_rate), 2) : $subtotal;
             $po_vat_amount  = round($subtotal - $po_subtotal_ht, 2);
 
+            // Migration 093 · treasury_account_id captures the ACCOUNT this PO
+            // is (or will be) paid from. Detected the same way vat_columns is,
+            // so the code keeps working before the migration lands — the
+            // payment JE at reception simply can't post until 093 is applied,
+            // and the picker gate above guarantees no "paid" PO gets there
+            // without an account.
+            $has_pay_cols = lpc_po_has_payment_columns($db);
             if (lpc_po_has_vat_columns($db)) {
-                $stmtPO = $db->prepare("
-                    INSERT INTO purchase_orders
-                    (reference, supplier_id, delivery_place_id, date, status, subtotal, discount_amount, discount_note, total_amount, payment_status, token, created_by,
-                     vat_rate, subtotal_ht, vat_amount, vat_recoverable)
-                    VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ");
-                $stmtPO->execute([
-                    $reference, $supplier_id, $delivery_place_id, $date, $subtotal, $discount_amount, $discount_note, $total_amount, $payment_status, $token, $user_id,
-                    $po_vat_rate, $po_subtotal_ht, $po_vat_amount, $vat_recoverable,
-                ]);
+                if ($has_pay_cols) {
+                    $stmtPO = $db->prepare("
+                        INSERT INTO purchase_orders
+                        (reference, supplier_id, delivery_place_id, date, status, subtotal, discount_amount, discount_note, total_amount, payment_status, token, created_by,
+                         vat_rate, subtotal_ht, vat_amount, vat_recoverable,
+                         treasury_account_id)
+                        VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    $stmtPO->execute([
+                        $reference, $supplier_id, $delivery_place_id, $date, $subtotal, $discount_amount, $discount_note, $total_amount, $payment_status, $token, $user_id,
+                        $po_vat_rate, $po_subtotal_ht, $po_vat_amount, $vat_recoverable,
+                        $treasury_account_id,
+                    ]);
+                } else {
+                    $stmtPO = $db->prepare("
+                        INSERT INTO purchase_orders
+                        (reference, supplier_id, delivery_place_id, date, status, subtotal, discount_amount, discount_note, total_amount, payment_status, token, created_by,
+                         vat_rate, subtotal_ht, vat_amount, vat_recoverable)
+                        VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    $stmtPO->execute([
+                        $reference, $supplier_id, $delivery_place_id, $date, $subtotal, $discount_amount, $discount_note, $total_amount, $payment_status, $token, $user_id,
+                        $po_vat_rate, $po_subtotal_ht, $po_vat_amount, $vat_recoverable,
+                    ]);
+                }
             } else {
                 // Migration 065 not applied yet. Post exactly as before —
                 // reception falls back to the current setting and the entry
                 // degrades to the single 601 line it has always been.
-                $stmtPO = $db->prepare("
-                    INSERT INTO purchase_orders
-                    (reference, supplier_id, delivery_place_id, date, status, subtotal, discount_amount, discount_note, total_amount, payment_status, token, created_by)
-                    VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
-                ");
-                $stmtPO->execute([
-                    $reference, $supplier_id, $delivery_place_id, $date, $subtotal, $discount_amount, $discount_note, $total_amount, $payment_status, $token, $user_id
-                ]);
+                if ($has_pay_cols) {
+                    $stmtPO = $db->prepare("
+                        INSERT INTO purchase_orders
+                        (reference, supplier_id, delivery_place_id, date, status, subtotal, discount_amount, discount_note, total_amount, payment_status, token, created_by, treasury_account_id)
+                        VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    $stmtPO->execute([
+                        $reference, $supplier_id, $delivery_place_id, $date, $subtotal, $discount_amount, $discount_note, $total_amount, $payment_status, $token, $user_id, $treasury_account_id
+                    ]);
+                } else {
+                    $stmtPO = $db->prepare("
+                        INSERT INTO purchase_orders
+                        (reference, supplier_id, delivery_place_id, date, status, subtotal, discount_amount, discount_note, total_amount, payment_status, token, created_by)
+                        VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    $stmtPO->execute([
+                        $reference, $supplier_id, $delivery_place_id, $date, $subtotal, $discount_amount, $discount_note, $total_amount, $payment_status, $token, $user_id
+                    ]);
+                }
             }
             $po_id = $db->lastInsertId();
 
@@ -1073,11 +1327,63 @@ try {
             //    goods receipt, rebate accrual and rebate usage each get an
             //    opposing entry dated today. JournalPoster skips anything
             //    already reversed, so re-running is harmless.
+            //
+            // 'purchase_order_payment' — migration 093. If the PO was paid at
+            // reception (postSupplierPayment fired), cancellation must reverse
+            // the payment JE too. Otherwise the Dr 601 / Cr 401 gets reversed
+            // but the Dr 401 / Cr treasury stays, leaving 401 with a debit
+            // balance the size of the cancelled purchase — the same imbalance
+            // in the opposite direction. The reversing entry mirrors the
+            // debits and credits, so it Debits the treasury account (re-adding
+            // the cash) and Credits 401 (removing the payment claim).
             $reversals = array_merge(
-                JournalPoster::reverseSource('purchase_order', $po_id, $reason),
-                JournalPoster::reverseSource('rebate_accrual', $po_id, $reason),
-                JournalPoster::reverseSource('rebate_usage',   $po_id, $reason)
+                JournalPoster::reverseSource('purchase_order',         $po_id, $reason),
+                JournalPoster::reverseSource('purchase_order_payment', $po_id, $reason),
+                JournalPoster::reverseSource('rebate_accrual',         $po_id, $reason),
+                JournalPoster::reverseSource('rebate_usage',           $po_id, $reason)
             );
+
+            // The reversal above corrected the GENERAL LEDGER. It does NOT
+            // touch the operational treasury_accounts.balance column, because
+            // reverseSource only knows about journal_entries. If a payment JE
+            // was reversed, hand the cash back to the treasury account it
+            // came out of AND stamp a compensating treasury_transactions row
+            // so the audit trail on the Trésorerie page shows both sides.
+            if (lpc_po_has_payment_columns($db)) {
+                $pay_row = $db->prepare("
+                    SELECT treasury_account_id, total_amount, payment_je_id
+                      FROM purchase_orders
+                     WHERE id = ? AND treasury_account_id IS NOT NULL AND payment_je_id IS NOT NULL
+                ");
+                $pay_row->execute([$po_id]);
+                if ($pay = $pay_row->fetch(PDO::FETCH_ASSOC)) {
+                    $refund_amount = (float) $pay['total_amount'];
+                    $refund_desc   = "Extourne règlement — annulation {$po['reference']}"
+                                   . ($reason !== '' ? " · {$reason}" : '');
+                    $db->prepare("
+                        INSERT INTO treasury_transactions
+                          (account_id, transaction_type, amount, reference, description, logged_by)
+                        VALUES (?, 'in_other', ?, ?, ?, ?)
+                    ")->execute([
+                        (int) $pay['treasury_account_id'],
+                        $refund_amount,
+                        "REV-PAY-FRS-{$po['reference']}",
+                        $refund_desc,
+                        $user_id,
+                    ]);
+                    $db->prepare("UPDATE treasury_accounts SET balance = balance + ? WHERE id = ?")
+                       ->execute([$refund_amount, (int) $pay['treasury_account_id']]);
+                    // Null the payment linkage on the PO so a re-run of
+                    // cancellation is a no-op instead of double-refunding.
+                    $db->prepare("
+                        UPDATE purchase_orders
+                           SET payment_status = 'unpaid',
+                               payment_je_id  = NULL,
+                               payment_date   = NULL
+                         WHERE id = ?
+                    ")->execute([$po_id]);
+                }
+            }
 
             // 3. Claw back the operational rebate ledger to match. Each live row
             //    for this order gets an opposing row and is flagged reversed, so

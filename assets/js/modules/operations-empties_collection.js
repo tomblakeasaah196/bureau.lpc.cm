@@ -73,6 +73,12 @@
         loadOwedEmpties();
         loadEmptiesKPIs();
         setupHistoryPager();
+
+        // PR-2, migration 094 · seed the treasury picker on the recycling
+        // form. Fire-and-forget: if it fails, the picker shows the loader
+        // and the driver sees the network error on submit — matches how
+        // loadClients / loadEmptyCatalog handle their own failures.
+        loadTreasuryAccountsForRecycling();
         // Toolbar déclutter (Sprint 9) — le sélecteur de période vit
         // maintenant dans l'onglet Revenus, donc plus rien à masquer/afficher
         // côté toolbar au chargement.
@@ -1021,10 +1027,47 @@
     }
     window.calcRecycleTotal = calcRecycleTotal;
 
+    // PR-2, migration 094 · load the treasury accounts and pre-select the
+    // first active caisse. That default matches the "Paiement Cash" chip
+    // that used to be hardcoded, so the common case stays one-click; the
+    // driver overrides only when a recycler pays by MoMo or transfer.
+    async function loadTreasuryAccountsForRecycling() {
+        const sel = document.getElementById('rec_treasury_account');
+        if (!sel) return;
+        try {
+            const res = await fetch('/api/v1/cre_controller.php?action=get_treasury_accounts');
+            const result = await res.json();
+            if (result.status !== 'success' || !Array.isArray(result.data)) {
+                sel.innerHTML = '<option value="">Aucun compte disponible</option>';
+                return;
+            }
+            sel.innerHTML = '<option value="">Choisir un compte...</option>';
+            result.data.forEach(function (a) {
+                sel.innerHTML += LPC.html`<option value="${a.id}" data-type="${a.type}">${a.name}</option>`;
+            });
+            // Default: first 'caisse'-type account. Falls back to whatever
+            // sorted first if no caisse is configured — matches how the
+            // AR encaissement modal picks its default.
+            const firstCaisse = result.data.find(function (a) { return a.type === 'caisse'; });
+            if (firstCaisse) {
+                sel.value = String(firstCaisse.id);
+            } else if (result.data.length > 0) {
+                sel.value = String(result.data[0].id);
+            }
+        } catch (e) {
+            sel.innerHTML = '<option value="">Erreur de chargement</option>';
+        }
+    }
+    window.loadTreasuryAccountsForRecycling = loadTreasuryAccountsForRecycling;
+
     async function submitRecycling() {
         if (!canSellRecycler) return LPC.modal.alert(LPC.t ? LPC.t('ui.x.non_autorise') : 'Non autorisé.');
         const location = document.getElementById('recycler_location').value.trim();
         if (!location) return LPC.modal.alert('Veuillez saisir le lieu de recyclage.');
+
+        // PR-2, migration 094 · treasury account is required.
+        const treasuryAccountId = document.getElementById('rec_treasury_account').value;
+        if (!treasuryAccountId) return LPC.modal.alert('Veuillez sélectionner le compte de trésorerie qui reçoit le cash.');
 
         const itemsToSell = [];
         let overridesInSale = 0;
@@ -1074,7 +1117,12 @@
             const res = await fetch('/api/v1/cre_controller.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'sell_to_recycler', location: location, items: itemsToSell }),
+                body: JSON.stringify({
+                    action: 'sell_to_recycler',
+                    location: location,
+                    treasury_account_id: treasuryAccountId,
+                    items: itemsToSell,
+                }),
             });
             const result = await res.json();
             if (result.status === 'success') {
@@ -1087,6 +1135,12 @@
                 renderRecyclingGrid();
                 calcRecycleTotal();
                 loadEmptiesKPIs();
+                // Re-seed the treasury picker — form.reset() blanks it back
+                // to the first option ("Choisir..."), which would make the
+                // next sale fail the required-picker check. Also refreshes
+                // the balance figures so a series of sales shows the
+                // running caisse total.
+                loadTreasuryAccountsForRecycling();
             } else {
                 LPC.modal.alert('Erreur: ' + result.message);
             }

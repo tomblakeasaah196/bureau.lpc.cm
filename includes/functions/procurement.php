@@ -158,6 +158,31 @@ function lpc_po_has_vat_columns(PDO $db): bool
 }
 
 /**
+ * True once migration 093 has added the supplier-payment linkage columns.
+ * Cached per request.
+ *
+ * The AP hole closed by 093 turned every "Payé (Cash/Virement)" purchase into
+ * a permanently open 401 balance, because postGoodsReceipt booked the
+ * payable but nothing ever settled it. Detection here lets the controller keep
+ * running against a database that has not been migrated yet — the payment JE
+ * simply cannot post until the columns exist, and the save_po picker gate
+ * (which is unconditional) guarantees no "paid" PO reaches reception without
+ * an account chosen.
+ */
+function lpc_po_has_payment_columns(PDO $db): bool
+{
+    static $has = null;
+    if ($has !== null) return $has;
+
+    return $has = ((int) $db->query("
+        SELECT COUNT(*) FROM information_schema.columns
+         WHERE table_schema = DATABASE()
+           AND table_name   = 'purchase_orders'
+           AND column_name IN ('treasury_account_id','payment_date','payment_je_id')
+    ")->fetchColumn() === 3);
+}
+
+/**
  * The unit cost a received item should carry into stock, from its TTC price.
  *
  * Recoverable VAT is not a cost — it is a receivable against the State, and

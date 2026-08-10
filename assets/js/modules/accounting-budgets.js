@@ -1,670 +1,701 @@
 /**
  * assets/js/modules/accounting-budgets.js
  * -----------------------------------------------------------------------------
- * Bureau LPC ERP — extracted from modules/accounting/budgets.php (Sprint 6 D2).
+ * Bureau LPC ERP — MD-first Budget & Performance (post-migration 091).
  *
- * Original block was ~17,326 chars inline. Moved here so the CSP
- * `script-src` can drop 'unsafe-inline'. Any SP5-tagged lines from the
- * Sprint 5 concurrency stream are preserved verbatim.
+ * Rewritten in one pass. The pre-091 version was 670 lines wired to a
+ * five-tab UI (Vision Globale, Lignes Budgétaires, Performance & KPI,
+ * Transferts, Générateur Smart) and its dependent OHADA modal — all of
+ * which were removed on the MD's request. What remains:
  *
- * Sprint 7A · D3 — added the advanced-filter modal for Lignes Budgétaires
- *                  (previously an LPC.modal.alert placeholder).
- * -----------------------------------------------------------------------------
+ *   · switchTab(overview | targets | alerts) with an lpc:tabchange hook.
+ *   · Three fetch/render pairs, one per tab.
+ *   · saveBucketTargets() bulk write.
+ *   · openMonthsModal / applyMonthsFromModal — per-bucket month overrides.
+ *   · decideTransfer / renderPendingRequests — the MD's approve/reject UX.
+ *   · generateReportPDF — MD-friendly one-page summary (not the dense
+ *     multi-page dump the pre-091 button produced).
+ *
+ * Assumes window.LPC_BUDGET_MD is set by budgets.php with the flags
+ * `canEditTargets`, `canApproveTransfers`, `canRequestTransfers`, `lang`.
+ * =============================================================================
  */
-        let currentTab = 'dashboard';
-        let globalData = {};
-        let charts = {};
-        const fmt = (num) => LPC.fmt.int(num || 0);
 
-        window.onload = () => {
-            // Honour a #hash so other pages can deep-link to a tab — the sales
-            // dashboard's "aucun objectif défini" banner links here as
-            // budgets.php#performance. Whitelisted, so an arbitrary fragment
-            // can never reach switchTab.
-            const VALID_TABS = ['dashboard', 'budget_lines', 'performance', 'transfers', 'generator'];
-            const hash = (window.location.hash || '').replace('#', '');
-            switchTab(VALID_TABS.includes(hash) ? hash : 'dashboard');
-        };
+(function () {
+    'use strict';
 
-        // Sprint (WCAG pass) — the tab nav now carries role="tablist"/"tab".
-        // assets/js/lpc-a11y.js already provides arrow-key/Home/End roving
-        // tabindex for any [role="tablist"] and fires an `lpc:tabchange`
-        // CustomEvent on the tablist whenever a tab becomes active (click OR
-        // keyboard). We hook that single event to the real tab-switching
-        // logic below instead of duplicating click handling, so keyboard
-        // navigation actually fetches/renders data instead of just moving
-        // focus.
-        document.addEventListener('DOMContentLoaded', () => {
-            const tablist = document.getElementById('budgets-tablist');
-            if (tablist) {
-                tablist.addEventListener('lpc:tabchange', (e) => {
-                    const tabId = e.detail && e.detail.tab && e.detail.tab.id;
-                    if (tabId) switchTab(tabId.replace(/^tab-/, ''));
-                });
-            }
-        });
+    const flags = window.LPC_BUDGET_MD || {
+        canEditTargets: false, canApproveTransfers: false,
+        canRequestTransfers: false, lang: 'fr'
+    };
 
-        function refreshAllTabs() {
-            // Re-fetch the current tab to apply the new Year filter instantly
-            fetchTabData(currentTab);
-        }
+    let currentTab = 'overview';
+    let cache = {};                 // per-tab last fetch, for the PDF export
+    let charts = {};
+    let editState = {};             // bucket_id → { annual, monthly[12] }
 
-        async function switchTab(tab) {
-            currentTab = tab;
+    /* --------------------------------------------------------------------- */
+    /* Formatting                                                            */
+    /* --------------------------------------------------------------------- */
 
-            document.querySelectorAll('.tab-link').forEach(el => {
-                el.classList.remove('border-finance-highlight', 'text-finance-dark', 'font-black');
-                el.classList.add('border-transparent', 'text-gray-500', 'font-bold');
-                el.setAttribute('aria-selected', 'false');
-                el.tabIndex = -1;
+    // Full digits, thousands separator, no decimals (FCFA has no cents in
+    // practice; DECIMAL(15,2) is kept for the ledger but hidden here).
+    const fmtFull = (n) => {
+        if (n === null || n === undefined || Number.isNaN(Number(n))) return '—';
+        return Math.round(Number(n)).toLocaleString(flags.lang === 'en' ? 'en-US' : 'fr-FR');
+    };
+
+    // Millions with 1 decimal — the KPI-card and Overview format
+    // (answer #5 in the scoping call).
+    const fmtMillions = (n) => {
+        if (n === null || n === undefined || Number.isNaN(Number(n))) return '—';
+        const v = Number(n) / 1_000_000;
+        const decimals = Math.abs(v) >= 100 ? 0 : 1;
+        return v.toLocaleString(flags.lang === 'en' ? 'en-US' : 'fr-FR', {
+            minimumFractionDigits: decimals, maximumFractionDigits: decimals
+        }) + ' M';
+    };
+
+    const t = (fr, en) => flags.lang === 'en' ? en : fr;
+
+    /* --------------------------------------------------------------------- */
+    /* Tab plumbing                                                          */
+    /* --------------------------------------------------------------------- */
+
+    const VALID_TABS = ['overview', 'targets', 'alerts'];
+
+    window.addEventListener('load', () => {
+        const hash = (window.location.hash || '').replace('#', '');
+        switchTab(VALID_TABS.includes(hash) ? hash : 'overview');
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const tablist = document.getElementById('budgets-tablist');
+        if (tablist) {
+            tablist.addEventListener('lpc:tabchange', (e) => {
+                const tabId = e.detail && e.detail.tab && e.detail.tab.id;
+                if (tabId) switchTab(tabId.replace(/^tab-/, ''));
             });
-            const activeTabEl = document.getElementById(`tab-${tab}`);
+        }
+    });
+
+    function refreshAllTabs() {
+        // Only the current tab needs a real re-fetch; the others are lazy.
+        cache = {};
+        fetchTab(currentTab);
+    }
+    window.refreshAllTabs = refreshAllTabs;
+
+    async function switchTab(tab) {
+        if (!VALID_TABS.includes(tab)) tab = 'overview';
+        currentTab = tab;
+
+        document.querySelectorAll('.tab-link').forEach(el => {
+            el.classList.remove('border-finance-highlight', 'text-finance-dark', 'font-black');
+            el.classList.add('border-transparent', 'text-gray-500', 'font-bold');
+            el.setAttribute('aria-selected', 'false');
+            el.tabIndex = -1;
+        });
+        const activeTabEl = document.getElementById(`tab-${tab}`);
+        if (activeTabEl) {
             activeTabEl.classList.remove('border-transparent', 'text-gray-500', 'font-bold');
             activeTabEl.classList.add('border-finance-highlight', 'text-finance-dark', 'font-black');
             activeTabEl.setAttribute('aria-selected', 'true');
             activeTabEl.tabIndex = 0;
-
-            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-            document.getElementById(`content-${tab}`).classList.add('active');
-
-            await fetchTabData(tab);
         }
 
-        // Sprint 7A D3 — active advanced filter for the Lignes Budgétaires tab.
-        // The server persists this in $_SESSION['budgets_filter'][year] as soon
-        // as any filter key is present in the query string.
-        let activeBudgetFilter = {};
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        const contentEl = document.getElementById(`content-${tab}`);
+        if (contentEl) contentEl.classList.add('active');
 
-        async function fetchTabData(tab, extraParams) {
-            const year = document.getElementById('global_year_filter').value;
-            const url = new URL(`/api/v1/budget_controller.php`, window.location.origin);
-            url.searchParams.set('action', 'read');
-            url.searchParams.set('tab',    tab);
-            url.searchParams.set('year',   year);
-            if (extraParams) {
-                Object.keys(extraParams).forEach(k => {
-                    const v = extraParams[k];
-                    if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
-                });
-            }
-            try {
-                const response = await fetch(url.toString(), { credentials: 'same-origin' });
-                
-                if (!response.ok) throw new Error("Erreur HTTP");
-                const result = await response.json();
+        await fetchTab(tab);
+    }
+    window.switchTab = switchTab;
 
-                if (result.status === 'success') {
-                    globalData[tab] = result.data;
-                    
-                    if(tab === 'dashboard') renderDashboard(result.data);
-                    if(tab === 'budget_lines') renderBudgetLines(result.data);
-                    if(tab === 'performance') renderPerformance(result.data);
-                    if(tab === 'transfers') renderTransfers(result.data);
-                    
-                } else {
-                    LPC.modal.alert(result.message);
-                }
-            } catch(e) { 
-                console.error("Fetch Error:", e); 
+    async function fetchTab(tab) {
+        const year = document.getElementById('global_year_filter').value;
+        const url  = `/api/v1/budget_controller.php?tab=${encodeURIComponent(tab)}&year=${encodeURIComponent(year)}`;
+        try {
+            const res = await fetch(url, { credentials: 'same-origin' });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const json = await res.json();
+            if (json.status !== 'success') {
+                console.error('[budgets] server error:', json.message);
+                return;
             }
+            cache[tab] = json.data;
+            if (tab === 'overview') renderOverview(json.data);
+            if (tab === 'targets')  renderTargets(json.data);
+            if (tab === 'alerts')   renderAlerts(json.data);
+
+            // Overview also renders the pending-transfer cards. Fetch them
+            // opportunistically here so the MD sees them without visiting
+            // another screen. (Approve/reject lives in transfer_requests
+            // but the CARDS live inside Overview.)
+            if (tab === 'overview' && flags.canApproveTransfers) {
+                await fetchPendingRequests();
+            }
+        } catch (e) {
+            console.error('[budgets] fetch failed:', e);
         }
+    }
 
-        // --- RENDERERS ---
+    /* --------------------------------------------------------------------- */
+    /* OVERVIEW                                                              */
+    /* --------------------------------------------------------------------- */
 
-        function renderDashboard(data) {
-            // 1. Fill KPIs
-            document.getElementById('kpi_gross_margin').innerText = LPC.fmt.fcfa(data.kpis.gross_margin);
-            
-            const revPct = data.kpis.rev_target > 0 ? Math.min(100, Math.round((data.kpis.rev_actual / data.kpis.rev_target) * 100)) : 0;
-            document.getElementById('kpi_rev_actual').innerText = LPC.fmt.fcfa(data.kpis.rev_actual);
-            document.getElementById('lbl_rev_target').innerText = LPC.fmt.fcfa(data.kpis.rev_target);
-            document.getElementById('lbl_rev_pct').innerText = revPct;
-            document.getElementById('bar_rev').style.width = revPct + '%';
-            document.getElementById('bar_rev').setAttribute('aria-valuenow', String(revPct));
+    function pillHtml(status) {
+        if (status === 'ok')   return `<span class="lpc-pill lpc-pill-ok"><i class="fas fa-check-circle"></i>${t('Sur objectif','On track')}</span>`;
+        if (status === 'warn') return `<span class="lpc-pill lpc-pill-warn"><i class="fas fa-exclamation-triangle"></i>${t('À surveiller','Watch')}</span>`;
+        if (status === 'bad')  return `<span class="lpc-pill lpc-pill-bad"><i class="fas fa-fire"></i>${t('Dépassement','Over')}</span>`;
+        return `<span class="lpc-pill lpc-pill-none">${t('Non défini','Not set')}</span>`;
+    }
 
-            const expPct = data.kpis.exp_target > 0 ? Math.min(100, Math.round((data.kpis.exp_actual / data.kpis.exp_target) * 100)) : 0;
-            document.getElementById('kpi_exp_actual').innerText = LPC.fmt.fcfa(data.kpis.exp_actual);
-            document.getElementById('lbl_exp_target').innerText = LPC.fmt.fcfa(data.kpis.exp_target);
-            document.getElementById('lbl_exp_pct').innerText = expPct;
-            document.getElementById('bar_exp').style.width = expPct + '%';
-            document.getElementById('bar_exp').setAttribute('aria-valuenow', String(expPct));
-            if(expPct > 90) document.getElementById('bar_exp').classList.add('bg-red-600');
+    function renderOverview(data) {
+        // KPI cards
+        const revPct = data.kpis.rev_target > 0
+            ? Math.min(999, Math.round((data.kpis.rev_actual / data.kpis.rev_target) * 100)) : 0;
+        const expPct = data.kpis.exp_target > 0
+            ? Math.min(999, Math.round((data.kpis.exp_actual / data.kpis.exp_target) * 100)) : 0;
 
-            document.getElementById('kpi_emergency_left').innerText = LPC.fmt.fcfa(data.kpis.emergency_left);
+        document.getElementById('kpi_rev_actual').innerText = fmtMillions(data.kpis.rev_actual);
+        document.getElementById('lbl_rev_target').innerText = fmtMillions(data.kpis.rev_target);
+        document.getElementById('lbl_rev_pct').innerText    = revPct;
+        setBar('bar_rev', Math.min(100, revPct));
 
-            // 2. Alert Table (Pace checks)
-            const alertsBody = document.getElementById('dash-alerts-body');
-            alertsBody.innerHTML = '';
-            if(!data.alerts || data.alerts.length === 0) {
-                alertsBody.innerHTML = LPC.html`<tr><td class="py-4 px-6 text-gray-500 italic">Aucune alerte de rythme. Consommation nominale.</td></tr>`;
-            } else {
-                data.alerts.forEach(a => {
-                    alertsBody.innerHTML += LPC.html`
-                        <tr class="hover:bg-rose-50/50">
-                            <td class="py-3 px-6 font-black text-gray-800">${a.account_name}</td>
-                            <td class="py-3 px-6 text-right text-xs font-bold">Consommé: <span class="text-rose-600">${a.pct_consumed}%</span></td>
-                            <td class="py-3 px-6 text-right text-xs text-gray-500">Mois: ${a.month_progress}%</td>
-                        </tr>`;
-                });
-            }
+        document.getElementById('kpi_exp_actual').innerText = fmtMillions(data.kpis.exp_actual);
+        document.getElementById('lbl_exp_target').innerText = fmtMillions(data.kpis.exp_target);
+        document.getElementById('lbl_exp_pct').innerText    = expPct;
+        setBar('bar_exp', Math.min(100, expPct));
+        // Turn red if spending is at or past pace.
+        const expBar = document.getElementById('bar_exp');
+        expBar.classList.toggle('bg-rose-600', expPct >= data.time_pct);
+        expBar.classList.toggle('bg-rose-500', expPct <  data.time_pct);
 
-            // 3. Chart.js (Budget vs Actual by Month)
-            if(charts.exec) charts.exec.destroy();
-            const ctx = document.getElementById('executionChart').getContext('2d');
-            charts.exec = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: ['Jan', 'Fev', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aou', 'Sep', 'Oct', 'Nov', 'Dec'],
-                    datasets: [
-                        { label: 'Budget Mensuel Alloué', data: data.chart.budgeted, backgroundColor: '#E2E8F0', borderRadius: 4 },
-                        { label: 'Dépenses Engagées (Réel)', data: data.chart.actuals, backgroundColor: '#EF4444', borderRadius: 4 }
-                    ]
+        document.getElementById('kpi_emergency_left').innerText = fmtMillions(data.kpis.emergency_available);
+
+        // Bucket cards — one per non-KPI line. Ordered by sort (server-side).
+        const cards = document.getElementById('overview-bucket-cards');
+        cards.innerHTML = '';
+        data.buckets
+            .filter(b => !b.is_emergency)   // emergency is already the third KPI
+            .forEach(b => {
+                const label = flags.lang === 'en' ? b.label_en : b.label_fr;
+                const targetTxt = b.annual_target === null
+                    ? `<span class="text-gray-400 italic">${t('Objectif non défini','No target')}</span>`
+                    : `${fmtMillions(b.ytd_actual)} / ${fmtMillions(b.annual_target)}`;
+
+                cards.insertAdjacentHTML('beforeend', `
+                    <div class="lpc-bucket-card bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-col gap-2">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2 text-sm font-black text-gray-800">
+                                <i class="fas ${escAttr(b.icon || 'fa-square')} text-${escAttr(b.color || 'gray')}-500" aria-hidden="true"></i>
+                                <span>${esc(label)}</span>
+                            </div>
+                            ${pillHtml(b.status)}
+                        </div>
+                        <div class="text-xs text-gray-600 font-medium">${targetTxt}</div>
+                    </div>
+                `);
+            });
+
+        // Monthly-consumption chart. Same 12 bars as before but the labels
+        // are pulled from a small local dictionary so English works too.
+        const labels = flags.lang === 'en'
+            ? ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+            : ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Aoû','Sep','Oct','Nov','Déc'];
+        if (charts.exec) charts.exec.destroy();
+        const ctx = document.getElementById('executionChart').getContext('2d');
+        charts.exec = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: t('Budget mensuel','Monthly budget'), data: data.chart.budgeted, backgroundColor: '#E2E8F0', borderRadius: 4 },
+                    { label: t('Dépensé','Spent'),                 data: data.chart.actuals,  backgroundColor: '#EF4444', borderRadius: 4 }
+                ]
+            },
+            options: {
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        // Compact millions on the y-axis; the tooltip below
+                        // still shows the full number.
+                        ticks: {
+                            callback: (v) => (v === 0) ? '0' : fmtMillions(v)
+                        }
+                    }
                 },
-                options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
-            });
-        }
-
-        function renderBudgetLines(data) {
-            document.getElementById('matrix_version_badge').innerText = `Version: V${data.version} (${data.status})`;
-
-            // Sync the active filter badge with the server-side session state.
-            activeBudgetFilter = (data.filter && typeof data.filter === 'object') ? data.filter : {};
-            const badge = document.getElementById('budget_filter_badge');
-            const hasFilter = Object.keys(activeBudgetFilter).length > 0;
-            if (badge) badge.classList.toggle('hidden', !hasFilter);
-
-            const tbody = document.getElementById('table-body-matrix');
-            tbody.innerHTML = '';
-
-            data.lines.forEach(l => {
-                const isOver = l.variance < 0;
-                const varianceHtml = `<span class="${isOver ? 'text-red-600 bg-red-50' : 'text-emerald-600 bg-emerald-50'} px-2 py-1 rounded-md font-black">${isOver ? '' : '+'}${fmt(l.variance)}</span>`;
-                
-                let trClass = l.type === 'revenue' ? 'bg-blue-50/30' : 'hover:bg-gray-50';
-
-                tbody.innerHTML += LPC.html`
-                    <tr class="${trClass} border-b border-gray-100">
-                        <th scope="row" class="py-3 px-4 sticky-col text-left font-black text-gray-800 border-r border-gray-200">
-                            <span class="text-[9px] bg-gray-900 text-white px-1.5 py-0.5 rounded mr-2">${l.account_number}</span> ${l.account_name}
-                        </th>
-                        <td class="py-3 px-4 text-right font-black border-r border-gray-200 bg-gray-50/50">${fmt(l.annual_amount)}</td>
-                        <td class="py-3 px-4 text-right font-black border-r border-gray-200 text-finance-dark bg-finance-highlight/5">${fmt(l.total_actual)}</td>
-                        <td class="py-3 px-4 text-right border-r border-gray-200">${LPC.raw(varianceHtml)}</td>
-                        <td class="py-3 px-4 text-center border-r border-gray-100">${fmt(l.m01)}</td>
-                        <td class="py-3 px-4 text-center border-r border-gray-100">${fmt(l.m02)}</td>
-                        <td class="py-3 px-4 text-center border-r border-gray-100">${fmt(l.m03)}</td>
-                        <td class="py-3 px-4 text-center border-r border-gray-100">${fmt(l.m04)}</td>
-                        <td class="py-3 px-4 text-center border-r border-gray-100">${fmt(l.m05)}</td>
-                        <td class="py-3 px-4 text-center border-r border-gray-100">${fmt(l.m06)}</td>
-                        <td class="py-3 px-4 text-center border-r border-gray-100">${fmt(l.m07)}</td>
-                        <td class="py-3 px-4 text-center border-r border-gray-100">${fmt(l.m08)}</td>
-                        <td class="py-3 px-4 text-center border-r border-gray-100">${fmt(l.m09)}</td>
-                        <td class="py-3 px-4 text-center border-r border-gray-100">${fmt(l.m10)}</td>
-                        <td class="py-3 px-4 text-center border-r border-gray-100">${fmt(l.m11)}</td>
-                        <td class="py-3 px-4 text-center border-r border-gray-100">${fmt(l.m12)}</td>
-                    </tr>`;
-            });
-        }
-
-        function renderPerformance(data) {
-            /* Every target here can legitimately be null — performance_targets
-               is empty until finance saves one (see the modal on this tab).
-               null renders as "Non défini", never as 0 and never as NaN: a
-               target of zero and an absent target must not look identical
-               (README §5.8). Before 29 July 2026 all six of these numbers were
-               hardcoded constants in budget_controller.php. */
-            const NOT_SET = 'Non défini';
-            const isSet = v => v !== null && v !== undefined && v !== '';
-
-            // B2C vs B2B. A bar with no target behind it stays empty rather
-            // than filling to an imaginary denominator.
-            const pctC = isSet(data.targets.b2c_target) && data.targets.b2c_target > 0
-                ? (data.targets.b2c_actual / data.targets.b2c_target) * 100 : 0;
-            const pctB = isSet(data.targets.b2b_target) && data.targets.b2b_target > 0
-                ? (data.targets.b2b_actual / data.targets.b2b_target) * 100 : 0;
-
-            document.getElementById('perf_b2c_actual').innerText = fmt(data.targets.b2c_actual);
-            document.getElementById('perf_b2c_target').innerText = isSet(data.targets.b2c_target) ? fmt(data.targets.b2c_target) : NOT_SET;
-            document.getElementById('bar_perf_b2c').style.width = Math.min(100, pctC) + '%';
-            document.getElementById('bar_perf_b2c').setAttribute('aria-valuenow', String(Math.round(Math.min(100, pctC))));
-
-            document.getElementById('perf_b2b_actual').innerText = fmt(data.targets.b2b_actual);
-            document.getElementById('perf_b2b_target').innerText = isSet(data.targets.b2b_target) ? fmt(data.targets.b2b_target) : NOT_SET;
-            document.getElementById('bar_perf_b2b').style.width = Math.min(100, pctB) + '%';
-            document.getElementById('bar_perf_b2b').setAttribute('aria-valuenow', String(Math.round(Math.min(100, pctB))));
-
-            /* Revenue that matched neither B2B nor B2C. On current live data
-               this is most of it, because clients.type holds company names
-               rather than segments. Showing it is the point — a split that
-               silently drops two thirds of the revenue is worse than no split. */
-            const unclEl = document.getElementById('perf_unclassified');
-            if (unclEl) {
-                const u = Number(data.targets.unclassified_actual || 0);
-                unclEl.textContent = u > 0
-                    ? `Non segmenté : ${fmt(u)} F — le champ « type » de ces clients ne contient ni B2B ni B2C.`
-                    : '';
-                unclEl.classList.toggle('hidden', u <= 0);
-            }
-
-            // KPI — empties return rate. null means nothing ever went out, so
-            // the ratio is undefined; it must not render as a green 0%.
-            const rEl = document.getElementById('kpi_return_rate');
-            if (isSet(data.kpis.empties_return_rate)) {
-                const returnRate = parseFloat(data.kpis.empties_return_rate);
-                const ceiling = isSet(data.kpis.max_return_debt_rate)
-                    ? 100 - parseFloat(data.kpis.max_return_debt_rate)   // debt ceiling -> return floor
-                    : 95;
-                rEl.innerText = returnRate + '%';
-                rEl.className = `text-2xl font-black ${returnRate < ceiling ? 'text-red-500' : 'text-emerald-500'}`;
-            } else {
-                rEl.innerText = '—';
-                rEl.className = 'text-2xl font-black text-gray-500';
-            }
-
-            const volTarget = data.kpis.vol_20l_target;
-            document.getElementById('kpi_vol_20l').innerText =
-                fmt(data.kpis.vol_20l_sold) + ' Btls' +
-                (isSet(volTarget) ? ` / ${fmt(volTarget)}` : '');
-        }
-
-        function renderTransfers(data) {
-            const tbody = document.getElementById('table-body-transfers');
-            tbody.innerHTML = '';
-            
-            if(data.length === 0) return tbody.innerHTML = LPC.html`<tr><td colspan="6" class="py-8 text-center text-gray-500 italic">Aucun transfert d'urgence enregistré.</td></tr>`;
-
-            data.forEach(t => {
-                tbody.innerHTML += LPC.html`
-                    <tr class="hover:bg-gray-50 border-b border-gray-100">
-                        <td class="py-4 px-6 text-xs font-bold text-gray-500">${t.transfer_date}</td>
-                        <td class="py-4 px-6 text-xs font-black text-gray-900">${t.from_acc}</td>
-                        <td class="py-4 px-6 text-xs font-black text-gray-900">${t.to_acc}</td>
-                        <td class="py-4 px-6 text-right font-black text-amber-600">${fmt(t.amount)} F</td>
-                        <td class="py-4 px-6 text-xs text-gray-600 truncate max-w-[200px]">${t.reason}</td>
-                        <td class="py-4 px-6 text-center text-[10px] font-bold text-gray-500 uppercase tracking-widest">${t.auth_by}</td>
-                    </tr>`;
-            });
-        }
-
-        // --- GENERATOR LOGIC ---
-        let generatedPayload = null;
-
-        async function simulateBudget() {
-            const baseYear = document.getElementById('gen_base_year').value;
-            const targetYear = document.getElementById('gen_target_year').value;
-            const adjType = document.getElementById('gen_adj_type').value;
-            const adjPct = parseFloat(document.getElementById('gen_adj_pct').value) || 0;
-
-            try {
-                // Request simulation from backend
-                const response = await fetch('/api/v1/budget_controller.php', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ action: 'simulate_budget', baseYear, targetYear, adjType, adjPct })
-                });
-                const result = await response.json();
-
-                if (result.status === 'success') {
-                    generatedPayload = result.data; // Store for saving
-                    document.getElementById('gen_preview_container').classList.remove('hidden');
-                    
-                    const tbody = document.getElementById('table-body-preview');
-                    tbody.innerHTML = '';
-                    result.data.lines.forEach(l => {
-                        tbody.innerHTML += LPC.html`
-                            <tr class="border-b border-gray-100 hover:bg-white">
-                                <th scope="row" class="py-3 px-6 text-left font-bold text-gray-800 text-xs">${l.acc_name}</th>
-                                <td class="py-3 px-6 text-right text-gray-500 text-xs">${fmt(l.base_actual)}</td>
-                                <td class="py-3 px-6 text-right font-black text-finance-dark">${fmt(l.new_annual)}</td>
-                                <td class="py-3 px-6 text-right font-bold text-gray-500 text-xs">${fmt(l.new_monthly)} /mois</td>
-                            </tr>`;
-                    });
-                } else LPC.modal.alert(result.message);
-            } catch(e) { LPC.modal.alert("Erreur Serveur."); }
-        }
-
-        async function saveGeneratedBudget() {
-            if(!generatedPayload) return;
-            if(!(await LPC.modal.confirm("Ceci va créer la Version 1 du budget de l'année cible. Continuer ?"))) return;
-
-            try {
-                const response = await fetch('/api/v1/budget_controller.php', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ action: 'save_generated_budget', data: generatedPayload })
-                });
-                const result = await response.json();
-                
-                if (result.status === 'success') {
-                    LPC.modal.alert("Budget V1 généré avec succès !");
-                    document.getElementById('global_year_filter').value = generatedPayload.target_year;
-                    switchTab('budget_lines'); // Jump to matrix
-                } else LPC.modal.alert(result.message);
-            } catch(e) { LPC.modal.alert("Erreur."); }
-        }
-
-        // --- TRANSFERS MODAL ---
-        function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
-        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-
-        async function openTransferModal() {
-            // Need to fetch current Emergency fund balance and exhaustible accounts
-            document.getElementById('form-transfer').reset();
-            try {
-                const res = await fetch(`/api/v1/budget_controller.php?action=get_transfer_prep&year=${document.getElementById('global_year_filter').value}`);
-                const data = await res.json();
-                if(data.status === 'success') {
-                    document.getElementById('tr_available').innerText = LPC.fmt.fcfa(data.data.available);
-                    const sel = document.getElementById('tr_to_account');
-                    sel.innerHTML = '<option value="">-- Compte à renflouer --</option>';
-                    data.data.accounts.forEach(a => sel.innerHTML += LPC.html`<option value="${a.id}">${a.number} - ${a.name}</option>`);
-                    openModal('modal-transfer');
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: (item) => `${item.dataset.label}: ${fmtFull(item.raw)} FCFA`
+                        }
+                    }
                 }
-            } catch(e) {}
-        }
+            }
+        });
+    }
 
-        async function submitTransfer() {
-            if(!document.getElementById('form-transfer').checkValidity()) return document.getElementById('form-transfer').reportValidity();
+    function setBar(id, pct) {
+        const bar = document.getElementById(id);
+        if (!bar) return;
+        bar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+        bar.setAttribute('aria-valuenow', String(Math.round(pct)));
+    }
 
-            const payload = {
-                action: 'emergency_transfer',
-                year: document.getElementById('global_year_filter').value,
-                to_account_id: document.getElementById('tr_to_account').value,
-                amount: document.getElementById('tr_amount').value,
-                reason: document.getElementById('tr_reason').value
+    /* --------------------------------------------------------------------- */
+    /* TARGETS                                                               */
+    /* --------------------------------------------------------------------- */
+
+    function renderTargets(data) {
+        const body = document.getElementById('targets-rows');
+        body.innerHTML = '';
+        editState = {};
+
+        data.rows.forEach(row => {
+            const label = flags.lang === 'en' ? row.label_en : row.label_fr;
+            const canEdit = flags.canEditTargets;
+
+            // Populate the edit state used by saveBucketTargets/openMonthsModal.
+            editState[row.id] = {
+                annual:  row.annual,
+                monthly: Array.isArray(row.monthly) ? row.monthly.slice() : null,
+                is_revenue: row.is_revenue,
+                label
             };
 
-            try {
-                const response = await fetch('/api/v1/budget_controller.php', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
-                });
-                const result = await response.json();
-                if(result.status === 'success') {
-                    closeModal('modal-transfer');
-                    fetchTabData('transfers'); // Refresh
-                } else LPC.modal.alert(result.message);
-            } catch(e) { LPC.modal.alert("Erreur"); }
-        }
+            const readonlyAttr = canEdit ? '' : 'readonly';
 
-        // =========================================================
-        // SPRINT 7A · D3 — Advanced-filter modal for Lignes Budgétaires
-        // ---------------------------------------------------------
-        // Fields: quarter, month, OHADA prefix, category, min/max amount.
-        // Submitting re-fetches the tab with URL-encoded params; the server
-        // both applies the filter and persists it in $_SESSION so the filter
-        // survives a page reload.
-        // =========================================================
-        async function openBudgetFilter() {
-            const f = activeBudgetFilter || {};
-            const esc = (window.LPC && LPC.escapeHtml) ? LPC.escapeHtml : (s) => String(s || '');
-            const t   = (window.LPC && LPC.t) ? LPC.t : ((k, fb) => fb);
-            const opt = (val, label, selected) =>
-                `<option value="${esc(val)}"${(String(selected) === String(val)) ? ' selected' : ''}>${esc(label)}</option>`;
-
-            const bodyHtml =
-                '<form id="lpc-budget-filter-form" class="p-5 space-y-4 min-w-[420px]">' +
-                    '<div class="grid grid-cols-2 gap-3">' +
-                        '<label class="flex flex-col text-xs font-black uppercase tracking-widest text-gray-500">' +
-                            t('accounting.budgets.filter.quarter', 'Trimestre') +
-                            '<select name="quarter" class="lpc-focusable mt-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-900">' +
-                                opt('', '— Tous —', f.quarter) +
-                                opt('1', 'Q1 (Jan–Mar)', f.quarter) +
-                                opt('2', 'Q2 (Avr–Jun)', f.quarter) +
-                                opt('3', 'Q3 (Juil–Sep)', f.quarter) +
-                                opt('4', 'Q4 (Oct–Dec)', f.quarter) +
-                            '</select>' +
-                        '</label>' +
-                        '<label class="flex flex-col text-xs font-black uppercase tracking-widest text-gray-500">' +
-                            t('accounting.budgets.filter.month', 'Mois') +
-                            '<select name="month" class="lpc-focusable mt-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-900">' +
-                                ['','1','2','3','4','5','6','7','8','9','10','11','12'].map(v =>
-                                    opt(v, v === '' ? '— Tous —' : v, f.month)
-                                ).join('') +
-                            '</select>' +
-                        '</label>' +
-                    '</div>' +
-
-                    '<div class="grid grid-cols-2 gap-3">' +
-                        '<label class="flex flex-col text-xs font-black uppercase tracking-widest text-gray-500">' +
-                            t('accounting.budgets.filter.ohada_prefix', 'Préfixe OHADA') +
-                            `<input name="ohada_prefix" type="text" value="${esc(f.ohada_prefix || '')}" ` +
-                                'placeholder="ex. 60, 61, 70" ' +
-                                'class="lpc-focusable mt-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono text-gray-900">' +
-                        '</label>' +
-                        '<label class="flex flex-col text-xs font-black uppercase tracking-widest text-gray-500">' +
-                            t('accounting.budgets.filter.category', 'Catégorie') +
-                            '<select name="category" class="lpc-focusable mt-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-900">' +
-                                opt('',        '— Toutes —', f.category) +
-                                opt('revenue', 'Produits (7)', f.category) +
-                                opt('expense', 'Charges (6)',  f.category) +
-                            '</select>' +
-                        '</label>' +
-                    '</div>' +
-
-                    '<div class="grid grid-cols-2 gap-3">' +
-                        '<label class="flex flex-col text-xs font-black uppercase tracking-widest text-gray-500">' +
-                            t('accounting.budgets.filter.min_amount', 'Montant min. FCFA') +
-                            `<input name="min_amount" type="number" min="0" step="1000" value="${esc(f.min_amount || '')}" ` +
-                                'class="lpc-focusable mt-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-right text-gray-900">' +
-                        '</label>' +
-                        '<label class="flex flex-col text-xs font-black uppercase tracking-widest text-gray-500">' +
-                            t('accounting.budgets.filter.max_amount', 'Montant max. FCFA') +
-                            `<input name="max_amount" type="number" min="0" step="1000" value="${esc(f.max_amount || '')}" ` +
-                                'class="lpc-focusable mt-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-right text-gray-900">' +
-                        '</label>' +
-                    '</div>' +
-
-                    '<div class="flex items-center justify-between pt-3 border-t border-gray-100">' +
-                        `<button type="button" id="lpc-budget-filter-reset" class="lpc-focusable text-xs font-bold text-rose-600 hover:text-rose-800">` +
-                            `<i class="fas fa-times-circle mr-1" aria-hidden="true"></i>` + t('accounting.budgets.filter.reset', 'Réinitialiser') +
-                        '</button>' +
-                        `<button type="submit" id="lpc-budget-filter-apply" class="lpc-focusable bg-finance-dark hover:bg-black text-white text-xs font-black uppercase tracking-widest px-4 py-2 rounded-lg shadow-sm">` +
-                            `<i class="fas fa-check mr-1" aria-hidden="true"></i>` + t('accounting.budgets.filter.apply', 'Appliquer') +
-                        '</button>' +
-                    '</div>' +
-                '</form>';
-
-            const modalPromise = LPC.modal.custom({
-                title: t('accounting.budgets.filter.title', 'Filtre avancé — Lignes budgétaires'),
-                bodyHtml: bodyHtml,
-                buttons: [{ label: t('common.close', 'Fermer'), value: null, primary: true }],
-                dismissable: true,
-            });
-
-            const form  = document.getElementById('lpc-budget-filter-form');
-            const reset = document.getElementById('lpc-budget-filter-reset');
-            const closeBtn = document.querySelector('.lpc-modal .lpc-modal-btn');
-
-            if (form) {
-                form.addEventListener('submit', async (ev) => {
-                    ev.preventDefault();
-                    const fd = new FormData(form);
-                    const params = {};
-                    for (const [k, v] of fd.entries()) params[k] = v;
-                    await fetchTabData('budget_lines', params);
-                    if (closeBtn) closeBtn.click();
-                });
-            }
-            if (reset) {
-                reset.addEventListener('click', async () => {
-                    await fetchTabData('budget_lines', { filter_clear: 1 });
-                    if (closeBtn) closeBtn.click();
-                });
-            }
-            await modalPromise;
-        }
-
-        async function resetBudgetFilter() {
-            await fetchTabData('budget_lines', { filter_clear: 1 });
-        }
-
-        // Expose to inline onclick handlers.
-        window.openBudgetFilter  = openBudgetFilter;
-        window.resetBudgetFilter = resetBudgetFilter;
-
-        async function generateReportPDF() {
-            // Basic implementation: Captures the main container
-            const btn = event.currentTarget;
-            btn.innerHTML = LPC.html`<i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Export en cours...`;
-            const element = document.getElementById('report-container');
-            
-            try {
-                const canvas = await html2canvas(element, { scale: 1.5, backgroundColor: '#f8fafc' });
-                const imgData = canvas.toDataURL('image/jpeg', 1.0);
-                const pdf = new jspdf.jsPDF('l', 'mm', 'a4'); // Landscape for dashboards
-                
-                const pdfW = pdf.internal.pageSize.getWidth();
-                const pdfH = (canvas.height * pdfW) / canvas.width;
-                
-                pdf.addImage(imgData, 'JPEG', 0, 0, pdfW, pdfH);
-                pdf.save(`LPC_Rapport_Gestion_${document.getElementById('global_year_filter').value}.pdf`);
-            } catch(e) { LPC.modal.alert("Erreur export PDF."); }
-            
-            btn.innerHTML = LPC.html`<i class="fas fa-file-pdf" aria-hidden="true"></i> Exporter Rapport`;
-        }
-    
-        /* =====================================================================
-           OBJECTIFS DE PERFORMANCE (performance_targets)
-           ---------------------------------------------------------------------
-           The write path this table never had. Before 29 July 2026 nothing in
-           the application could insert a performance_targets row, so the table
-           was empty in production — which is why the Performance tab shipped
-           with `'b2c_target' => 50000000` hardcoded in budget_controller.php,
-           and why modules/dashboard/views/sales_dashboard.php has to render
-           "Objectif non défini" until a target is saved here.
-
-           Targets hang off `budgets.id`, so the exercise year comes from the
-           page's global year filter and the server resolves the budget itself.
-           ===================================================================== */
-
-        const TG_MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin',
-                           'Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-
-        function tgYear() { return document.getElementById('global_year_filter').value; }
-
-        function tgFeedback(msg, ok) {
-            const el = document.getElementById('tg_feedback');
-            if (!el) return;
-            el.textContent = msg || '';
-            el.className = 'text-xs font-bold ' + (ok ? 'text-emerald-600' : 'text-red-600');
-        }
-
-        /** Render the 12 month rows, pre-filled from whatever is already stored. */
-        function renderTargetRows(rows) {
-            const tbody = document.getElementById('tg_rows');
-            tbody.innerHTML = rows.map((r, i) => LPC.html`
-                <tr>
-                    <td class="py-2 pr-4 font-bold text-gray-700">${TG_MONTHS[i]}</td>
-                    <td class="py-2 px-2">
-                        <label class="sr-only" for="tg_rev_${i}">CA cible ${TG_MONTHS[i]}</label>
-                        <input id="tg_rev_${i}" type="number" min="0" step="1000" value="${r.target_revenue_fcfa ?? ''}"
-                               class="w-40 bg-white border border-gray-200 rounded-lg p-2 text-sm text-right font-bold outline-none focus:ring-2 focus:ring-lpc-light">
+            body.insertAdjacentHTML('beforeend', `
+                <tr class="hover:bg-gray-50" data-bucket-id="${row.id}">
+                    <th scope="row" class="py-3 px-6 font-black text-gray-800 border-r border-gray-100 align-middle">
+                        <div class="flex items-center gap-2">
+                            <i class="fas ${escAttr(row.icon || 'fa-square')} text-${escAttr(row.color || 'gray')}-500" aria-hidden="true"></i>
+                            <span>${esc(label)}</span>
+                        </div>
+                        ${canEdit ? `
+                          <button type="button" onclick="openMonthsModal(${row.id})"
+                                  class="text-[10px] font-bold text-lpc-dark hover:underline mt-1 flex items-center gap-1">
+                              <i class="fas fa-calendar-alt" aria-hidden="true"></i>
+                              ${t('Ajuster par mois','Adjust by month')}
+                          </button>` : ''}
+                    </th>
+                    <td class="py-3 px-6 text-right border-r border-gray-100 align-middle">
+                        <input type="number" min="0" step="1000" ${readonlyAttr}
+                               value="${row.annual === null ? '' : Math.round(row.annual)}"
+                               data-annual-for="${row.id}"
+                               oninput="onAnnualInput(${row.id})"
+                               class="w-40 bg-gray-50 border border-gray-200 rounded-lg p-2 text-sm text-right font-black text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light"
+                               placeholder="—">
                     </td>
-                    <td class="py-2 px-2">
-                        <label class="sr-only" for="tg_v20_${i}">Volume 20L ${TG_MONTHS[i]}</label>
-                        <input id="tg_v20_${i}" type="number" min="0" value="${r.target_volume_20l ?? ''}"
-                               class="w-24 bg-white border border-gray-200 rounded-lg p-2 text-sm text-right outline-none focus:ring-2 focus:ring-lpc-light">
+                    <td class="py-3 px-6 text-right font-bold border-r border-gray-100 text-gray-700 align-middle">
+                        ${fmtFull(row.ytd_actual)}
                     </td>
-                    <td class="py-2 px-2">
-                        <label class="sr-only" for="tg_v15_${i}">Volume 1,5L ${TG_MONTHS[i]}</label>
-                        <input id="tg_v15_${i}" type="number" min="0" value="${r.target_volume_1_5l ?? ''}"
-                               class="w-24 bg-white border border-gray-200 rounded-lg p-2 text-sm text-right outline-none focus:ring-2 focus:ring-lpc-light">
-                    </td>
-                    <td class="py-2 pl-2">
-                        <label class="sr-only" for="tg_rate_${i}">Dette vides max ${TG_MONTHS[i]}</label>
-                        <input id="tg_rate_${i}" type="number" min="0" max="100" step="0.5" value="${r.max_return_debt_rate ?? '5'}"
-                               class="w-20 bg-white border border-gray-200 rounded-lg p-2 text-sm text-right outline-none focus:ring-2 focus:ring-lpc-light">
-                    </td>
-                </tr>`).join('');
-        }
-
-        async function loadTargets() {
-            const seg = document.getElementById('tg_segment').value;
-            tgFeedback('', true);
-            try {
-                const res = await fetch(`/api/v1/budget_controller.php?tab=performance_targets&year=${encodeURIComponent(tgYear())}&segment=${encodeURIComponent(seg)}`);
-                const data = await res.json();
-                if (data.status !== 'success') { tgFeedback(data.message || 'Chargement impossible.', false); return; }
-                if (!data.data.budget_id) {
-                    tgFeedback(`Aucun budget pour l'exercice ${tgYear()} — créez-le d'abord.`, false);
-                }
-                renderTargetRows(data.data.rows);
-            } catch (e) {
-                console.error('[budgets] loadTargets', e);
-                tgFeedback('Erreur réseau.', false);
-            }
-        }
-
-        async function openTargetsModal() {
-            document.getElementById('tg_year_label').textContent = tgYear();
-            openModal('modal-targets');
-            await loadTargets();
-        }
-
-        /** Split an annual total evenly across the 12 monthly CA inputs. */
-        async function fillTargetsEvenly() {
-            // LPC.modal.prompt(message, opts) — the second argument is an
-            // options object, not a default value. Resolves to null on cancel.
-            const total = await LPC.modal.prompt(
-                'Total annuel du CA cible pour ce segment (FCFA) :',
-                { inputType: 'number', title: 'Répartir un total annuel' });
-            if (total === null) return;
-            const n = Number(total);
-            if (!Number.isFinite(n) || n <= 0) return;
-            const per = Math.round(n / 12);
-            for (let i = 0; i < 12; i++) {
-                document.getElementById(`tg_rev_${i}`).value = per;
-            }
-            tgFeedback(`Réparti : ${LPC.fmt.fcfa(per)} par mois.`, true);
-        }
-
-        async function saveTargets() {
-            const btn = document.getElementById('tg_save');
-            const seg = document.getElementById('tg_segment').value;
-
-            const rows = [];
-            for (let i = 0; i < 12; i++) {
-                rows.push({
-                    month:                 i + 1,
-                    target_revenue_fcfa:   Number(document.getElementById(`tg_rev_${i}`).value  || 0),
-                    target_volume_20l:     Number(document.getElementById(`tg_v20_${i}`).value  || 0),
-                    target_volume_1_5l:    Number(document.getElementById(`tg_v15_${i}`).value  || 0),
-                    max_return_debt_rate:  Number(document.getElementById(`tg_rate_${i}`).value || 5)
-                });
-            }
-
-            btn.disabled = true;
-            tgFeedback('Enregistrement…', true);
-            try {
-                const res = await fetch('/api/v1/budget_controller.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action:      'save_performance_targets',
-                        fiscal_year: Number(tgYear()),
-                        segment:     seg,
-                        rows:        rows
-                    })
-                });
-                const data = await res.json();
-                if (data.status === 'success') {
-                    tgFeedback(data.message, true);
-                    // Refresh the tab so the bars reflect the new targets at once.
-                    fetchTabData('performance');
-                } else {
-                    tgFeedback(data.message || 'Enregistrement refusé.', false);
-                }
-            } catch (e) {
-                console.error('[budgets] saveTargets', e);
-                tgFeedback('Erreur réseau.', false);
-            } finally {
-                btn.disabled = false;
-            }
-        }
-
-        // Exposed for the inline onclick handlers in budgets.php.
-        window.openTargetsModal  = openTargetsModal;
-        window.fillTargetsEvenly = fillTargetsEvenly;
-        window.saveTargets       = saveTargets;
-        document.addEventListener('DOMContentLoaded', function () {
-            const seg = document.getElementById('tg_segment');
-            if (seg) seg.addEventListener('change', loadTargets);
+                    <td class="py-3 px-6 text-center align-middle">${pillHtml(row.status)}</td>
+                </tr>
+            `);
         });
+    }
+
+    // When the MD edits the annual value, drop any custom monthly override —
+    // saving with an untouched monthly array under a new annual would refuse
+    // (server-side sum check), so a fresh auto-split is the safer default.
+    function onAnnualInput(bucketId) {
+        const el = document.querySelector(`[data-annual-for="${bucketId}"]`);
+        if (!el) return;
+        const v = parseFloat(el.value || '0') || 0;
+        editState[bucketId].annual  = v;
+        editState[bucketId].monthly = null;  // let server auto-split
+    }
+    window.onAnnualInput = onAnnualInput;
+
+    async function saveBucketTargets() {
+        if (!flags.canEditTargets) return;
+
+        const year = document.getElementById('global_year_filter').value;
+        const rows = Object.keys(editState).map(id => ({
+            bucket_id: Number(id),
+            annual:    Number(editState[id].annual || 0),
+            monthly:   editState[id].monthly     // null OR 12 numbers
+        }));
+
+        const btn = document.getElementById('targets-save-btn');
+        const fb  = document.getElementById('targets-feedback');
+        btn.disabled = true;
+        fb.textContent = t('Enregistrement…','Saving…');
+        fb.className = 'text-xs font-bold text-gray-500';
+
+        try {
+            const res = await fetch('/api/v1/budget_controller.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({
+                    action: 'save_targets',
+                    fiscal_year: Number(year),
+                    rows
+                })
+            });
+            const json = await res.json();
+            if (json.status === 'success') {
+                fb.textContent = json.message;
+                fb.className = 'text-xs font-bold text-emerald-600';
+                // Re-fetch so the Statut pills refresh with the new totals.
+                cache = {};
+                await fetchTab('targets');
+            } else {
+                fb.textContent = json.message || t('Échec.','Failed.');
+                fb.className = 'text-xs font-bold text-rose-600';
+            }
+        } catch (e) {
+            console.error('[budgets] save error:', e);
+            fb.textContent = t('Erreur réseau.','Network error.');
+            fb.className = 'text-xs font-bold text-rose-600';
+        } finally {
+            btn.disabled = false;
+        }
+    }
+    window.saveBucketTargets = saveBucketTargets;
+
+    /* -- Per-bucket month override modal ---------------------------------- */
+    let monthsModalBucketId = null;
+
+    function openMonthsModal(bucketId) {
+        if (!flags.canEditTargets) return;
+        const st = editState[bucketId];
+        if (!st) return;
+
+        monthsModalBucketId = bucketId;
+        document.getElementById('modal-months-title').innerText =
+            `${t('Répartition mensuelle','Monthly split')} — ${st.label}`;
+        document.getElementById('modal-months-annual').innerText = fmtFull(st.annual);
+
+        // Seed the 12 inputs. If no custom monthly exists yet, prefill with
+        // annual/12 so the MD can start from a sensible baseline.
+        const per = Math.round((st.annual || 0) / 12);
+        const monthly = st.monthly && st.monthly.length === 12
+            ? st.monthly.slice()
+            : Array(12).fill(per);
+
+        const labels = flags.lang === 'en'
+            ? ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+            : ['Janv.','Févr.','Mars','Avril','Mai','Juin','Juil.','Août','Sept.','Oct.','Nov.','Déc.'];
+
+        const container = document.getElementById('modal-months-inputs');
+        container.innerHTML = '';
+        monthly.forEach((v, i) => {
+            container.insertAdjacentHTML('beforeend', `
+                <label class="flex flex-col text-[10px] font-black uppercase tracking-widest text-gray-500">
+                    ${labels[i]}
+                    <input type="number" min="0" step="1000" value="${Math.round(v)}"
+                           data-month-idx="${i}"
+                           oninput="onMonthsSumRefresh()"
+                           class="mt-1 bg-gray-50 border border-gray-200 rounded-lg p-2 text-sm text-right font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
+                </label>
+            `);
+        });
+
+        onMonthsSumRefresh();
+        document.getElementById('modal-months').classList.remove('hidden');
+    }
+    window.openMonthsModal = openMonthsModal;
+
+    function onMonthsSumRefresh() {
+        const inputs = document.querySelectorAll('#modal-months-inputs input[data-month-idx]');
+        let sum = 0;
+        inputs.forEach(el => { sum += parseFloat(el.value || '0') || 0; });
+        const el = document.getElementById('modal-months-sum');
+        el.innerText = fmtFull(sum) + ' FCFA';
+
+        // Highlight the sum in red if it does not match the annual — the
+        // server will reject it on save.
+        const st = editState[monthsModalBucketId] || { annual: 0 };
+        const off = Math.abs(sum - (st.annual || 0)) > 12;
+        el.className = 'font-black ' + (off ? 'text-rose-600' : 'text-emerald-600');
+    }
+    window.onMonthsSumRefresh = onMonthsSumRefresh;
+
+    function applyMonthsFromModal() {
+        const inputs = document.querySelectorAll('#modal-months-inputs input[data-month-idx]');
+        const arr = Array(12).fill(0);
+        inputs.forEach(el => {
+            const i = parseInt(el.dataset.monthIdx, 10);
+            arr[i] = parseFloat(el.value || '0') || 0;
+        });
+        const sum = arr.reduce((a, b) => a + b, 0);
+        const st = editState[monthsModalBucketId] || {};
+        // Also snap the annual to the new sum — the MD is expressing
+        // intent via the 12 cells, and a mismatch on save would be
+        // rejected server-side.
+        st.annual  = sum;
+        st.monthly = arr;
+
+        // Reflect the new annual back into the row input.
+        const inp = document.querySelector(`[data-annual-for="${monthsModalBucketId}"]`);
+        if (inp) inp.value = Math.round(sum);
+
+        closeMonthsModal();
+    }
+    window.applyMonthsFromModal = applyMonthsFromModal;
+
+    function closeMonthsModal() {
+        document.getElementById('modal-months').classList.add('hidden');
+        monthsModalBucketId = null;
+    }
+    window.closeMonthsModal = closeMonthsModal;
+
+    /* --------------------------------------------------------------------- */
+    /* ALERTS                                                                */
+    /* --------------------------------------------------------------------- */
+
+    function renderAlerts(data) {
+        const body = document.getElementById('alerts-body');
+        const badge = document.getElementById('alerts-count-badge');
+        body.innerHTML = '';
+
+        if (!data.alerts || data.alerts.length === 0) {
+            badge.classList.add('hidden');
+            body.innerHTML = `
+                <div class="text-center py-12 text-emerald-600">
+                    <i class="fas fa-check-circle text-4xl mb-3"></i>
+                    <p class="font-black text-lg">${t('Aucune alerte.','No alerts.')}</p>
+                    <p class="text-sm text-gray-500 mt-1">${t('Toutes les lignes sont dans les clous.','Every line is on track.')}</p>
+                </div>`;
+            return;
+        }
+
+        badge.classList.remove('hidden');
+        badge.innerText = String(data.alerts.length);
+
+        data.alerts.forEach(a => {
+            const label = flags.lang === 'en' ? a.label_en : a.label_fr;
+            const pct = a.annual > 0 ? Math.round((a.ytd_actual / a.annual) * 100) : 0;
+            const border = a.status === 'bad' ? 'border-rose-300 bg-rose-50/40' : 'border-amber-300 bg-amber-50/40';
+
+            body.insertAdjacentHTML('beforeend', `
+                <div class="border ${border} rounded-xl p-4 flex items-center justify-between gap-4">
+                    <div class="flex items-center gap-3">
+                        <i class="fas ${escAttr(a.icon || 'fa-square')} text-${escAttr(a.color || 'gray')}-500 text-lg" aria-hidden="true"></i>
+                        <div>
+                            <p class="font-black text-gray-800">${esc(label)}</p>
+                            <p class="text-xs text-gray-600 mt-0.5">${fmtFull(a.ytd_actual)} / ${fmtFull(a.annual)} FCFA · ${pct}%
+                              <span class="text-gray-400">· ${t('rythme','pace')} ${data.time_pct}%</span>
+                            </p>
+                        </div>
+                    </div>
+                    ${pillHtml(a.status)}
+                </div>
+            `);
+        });
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* PENDING TRANSFER REQUESTS (cards on Overview)                         */
+    /* --------------------------------------------------------------------- */
+
+    async function fetchPendingRequests() {
+        const year = document.getElementById('global_year_filter').value;
+        try {
+            const res = await fetch(`/api/v1/budget_controller.php?tab=transfer_requests&year=${encodeURIComponent(year)}`, { credentials: 'same-origin' });
+            const json = await res.json();
+            if (json.status === 'success') renderPendingRequests(json.data);
+        } catch (e) {
+            console.error('[budgets] transfer_requests fetch failed:', e);
+        }
+    }
+
+    function renderPendingRequests(rows) {
+        const wrap = document.getElementById('pending-transfer-requests');
+        wrap.innerHTML = '';
+        if (!rows || rows.length === 0) {
+            wrap.classList.add('hidden');
+            return;
+        }
+        wrap.classList.remove('hidden');
+        rows.forEach(r => {
+            const fromLbl = flags.lang === 'en' ? r.from_label_en : r.from_label_fr;
+            const toLbl   = flags.lang === 'en' ? r.to_label_en   : r.to_label_fr;
+            wrap.insertAdjacentHTML('beforeend', `
+                <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-4">
+                    <i class="fas fa-exchange-alt text-amber-600 text-xl mt-1" aria-hidden="true"></i>
+                    <div class="flex-1">
+                        <p class="text-sm font-black text-amber-900">
+                            ${t('Demande de transfert','Transfer request')} — ${fmtFull(r.amount)} FCFA
+                        </p>
+                        <p class="text-xs text-amber-800 mt-1">
+                            <strong>${esc(fromLbl)}</strong> → <strong>${esc(toLbl)}</strong>
+                            · ${t('demandé par','requested by')} ${esc(r.requested_by_name)}
+                        </p>
+                        <p class="text-xs text-gray-700 mt-2 italic">« ${esc(r.reason)} »</p>
+                    </div>
+                    <div class="flex gap-2 shrink-0">
+                        <button type="button" onclick="decideTransfer(${r.id},'rejected')"
+                                class="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg font-bold text-xs">
+                            <i class="fas fa-times mr-1" aria-hidden="true"></i>${t('Refuser','Reject')}
+                        </button>
+                        <button type="button" onclick="decideTransfer(${r.id},'approved')"
+                                class="bg-lpc-dark hover:bg-green-800 text-white px-4 py-2 rounded-lg font-bold text-xs">
+                            <i class="fas fa-check mr-1" aria-hidden="true"></i>${t('Approuver','Approve')}
+                        </button>
+                    </div>
+                </div>
+            `);
+        });
+    }
+
+    async function decideTransfer(reqId, decision) {
+        if (!flags.canApproveTransfers) return;
+        const msg = decision === 'approved'
+            ? t('Approuver cette demande ?','Approve this request?')
+            : t('Refuser cette demande ?','Reject this request?');
+        if (window.LPC && LPC.modal && LPC.modal.confirm) {
+            const ok = await LPC.modal.confirm(msg);
+            if (!ok) return;
+        } else if (!window.confirm(msg)) return;
+
+        try {
+            const res = await fetch('/api/v1/budget_controller.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({
+                    action: 'decide_transfer',
+                    request_id: reqId,
+                    decision
+                })
+            });
+            const json = await res.json();
+            if (json.status === 'success') {
+                await fetchTab('overview');   // re-render KPIs and cards
+            } else if (window.LPC && LPC.modal) {
+                LPC.modal.alert(json.message);
+            }
+        } catch (e) {
+            console.error('[budgets] decide error:', e);
+        }
+    }
+    window.decideTransfer = decideTransfer;
+
+    /* --------------------------------------------------------------------- */
+    /* PDF EXPORT — one-page MD summary (answer #9)                          */
+    /* --------------------------------------------------------------------- */
+
+    async function generateReportPDF() {
+        const year = document.getElementById('global_year_filter').value;
+        // Make sure we have fresh overview + alerts.
+        cache = {};
+        await fetchTab('overview');
+        const alertsRes = await fetch(`/api/v1/budget_controller.php?tab=alerts&year=${encodeURIComponent(year)}`, { credentials: 'same-origin' });
+        const alertsJson = await alertsRes.json();
+        const alerts = (alertsJson.status === 'success') ? (alertsJson.data.alerts || []) : [];
+        const data = cache['overview'];
+
+        // Build a small hidden container styled for one-page export. Using
+        // a purpose-built layout, not html2canvas of the live page, so the
+        // PDF is print-friendly regardless of what the MD had scrolled to.
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'position:fixed;left:-10000px;top:0;width:900px;background:white;font-family:Inter,Arial,sans-serif;color:#111;padding:32px;';
+        wrap.innerHTML = `
+            <h1 style="font-size:22px;font-weight:900;margin:0 0 4px 0">${t('Budget & Performance','Budget & Performance')} — ${year}</h1>
+            <p style="font-size:11px;color:#6b7280;margin:0 0 20px 0">${t('Résumé Direction Générale','Managing Director Summary')} · ${new Date().toLocaleDateString(flags.lang === 'en' ? 'en-US' : 'fr-FR')}</p>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px">
+                ${kpiBlock(t('Chiffre d\'affaires','Revenue'),   data.kpis.rev_actual, data.kpis.rev_target, '#059669')}
+                ${kpiBlock(t('Dépenses','Expenses'),             data.kpis.exp_actual, data.kpis.exp_target, '#dc2626')}
+                ${kpiBlock(t('Fonds d\'imprévus','Emergency'),   data.kpis.emergency_available, null,        '#0f172a')}
+            </div>
+
+            <h2 style="font-size:14px;font-weight:900;margin:0 0 8px 0">${t('Les 8 lignes','The 8 lines')}</h2>
+            <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px">
+                <thead>
+                    <tr style="background:#f8fafc;text-align:left;color:#6b7280;font-size:10px;text-transform:uppercase">
+                        <th style="padding:6px 8px">${t('Ligne','Line')}</th>
+                        <th style="padding:6px 8px;text-align:right">${t('Réalisé YTD','Actual YTD')}</th>
+                        <th style="padding:6px 8px;text-align:right">${t('Objectif','Target')}</th>
+                        <th style="padding:6px 8px;text-align:center">${t('Statut','Status')}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${data.buckets.map(b => `
+                        <tr style="border-top:1px solid #f1f5f9">
+                            <td style="padding:6px 8px;font-weight:700">${esc(flags.lang === 'en' ? b.label_en : b.label_fr)}</td>
+                            <td style="padding:6px 8px;text-align:right">${fmtFull(b.ytd_actual)} FCFA</td>
+                            <td style="padding:6px 8px;text-align:right;color:#6b7280">${b.annual_target === null ? '—' : fmtFull(b.annual_target) + ' FCFA'}</td>
+                            <td style="padding:6px 8px;text-align:center">${pillPdf(b.status)}</td>
+                        </tr>`).join('')}
+                </tbody>
+            </table>
+
+            ${alerts.length > 0 ? `
+                <h2 style="font-size:14px;font-weight:900;margin:0 0 8px 0;color:#b91c1c">${t('Top alertes','Top alerts')}</h2>
+                <ul style="margin:0 0 12px 0;padding-left:18px;font-size:12px;line-height:1.6">
+                    ${alerts.slice(0, 5).map(a => `
+                        <li><strong>${esc(flags.lang === 'en' ? a.label_en : a.label_fr)}</strong> — ${fmtFull(a.ytd_actual)} / ${fmtFull(a.annual)} FCFA
+                        (${Math.round((a.ytd_actual / (a.annual || 1)) * 100)}%)</li>
+                    `).join('')}
+                </ul>
+            ` : `<p style="font-size:12px;color:#059669;font-weight:700">${t('Aucune alerte — toutes les lignes sont dans les clous.','No alerts — every line is on track.')}</p>`}
+
+            <p style="font-size:10px;color:#9ca3af;margin-top:24px">Bureau LPC ERP — ${t('généré automatiquement','auto-generated')}</p>
+        `;
+        document.body.appendChild(wrap);
+
+        try {
+            const canvas = await html2canvas(wrap, { scale: 2, backgroundColor: '#ffffff' });
+            const img    = canvas.toDataURL('image/jpeg', 0.92);
+            const pdf    = new jspdf.jsPDF('p', 'mm', 'a4');
+            const pdfW   = pdf.internal.pageSize.getWidth();
+            const pdfH   = (canvas.height * pdfW) / canvas.width;
+            pdf.addImage(img, 'JPEG', 0, 0, pdfW, pdfH);
+            pdf.save(`LPC_MD_Budget_${year}.pdf`);
+        } catch (e) {
+            console.error('[budgets] PDF export failed:', e);
+            if (window.LPC && LPC.modal) LPC.modal.alert(t('Échec de l\'export PDF.','PDF export failed.'));
+        } finally {
+            wrap.remove();
+        }
+    }
+    window.generateReportPDF = generateReportPDF;
+
+    function kpiBlock(label, actual, target, color) {
+        const pct = target && target > 0 ? Math.round((actual / target) * 100) : null;
+        return `
+            <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px">
+                <p style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin:0 0 4px 0;font-weight:800">${esc(label)}</p>
+                <p style="font-size:20px;font-weight:900;color:${color};margin:0">${fmtFull(actual)} FCFA</p>
+                ${pct !== null ? `<p style="font-size:11px;color:#6b7280;margin:4px 0 0 0">${pct}% ${t('de','of')} ${fmtFull(target)}</p>` : ''}
+            </div>`;
+    }
+
+    function pillPdf(status) {
+        const styles = {
+            ok:   'background:#ecfdf5;color:#047857',
+            warn: 'background:#fef3c7;color:#92400e',
+            bad:  'background:#fee2e2;color:#b91c1c',
+            '-':  'background:#f1f5f9;color:#475569'
+        };
+        const labels = {
+            ok: t('Sur objectif','On track'),
+            warn: t('À surveiller','Watch'),
+            bad: t('Dépassement','Over'),
+            '-': t('Non défini','Not set')
+        };
+        return `<span style="padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:800;${styles[status] || styles['-']}">${labels[status] || labels['-']}</span>`;
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Utilities                                                             */
+    /* --------------------------------------------------------------------- */
+
+    function esc(s) {
+        return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+            '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+        }[c]));
+    }
+    function escAttr(s) {
+        // Same as esc but tuned for use inside quoted attribute values.
+        return esc(s).replace(/[^a-zA-Z0-9_-]/g, '');
+    }
+})();
