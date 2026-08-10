@@ -244,7 +244,8 @@ CREATE TABLE IF NOT EXISTS `budget_transfer_requests` (
 --    follow-up migration. Granted per the answers from the MD scoping call:
 --    Finance drafts, MD approves.
 -- -----------------------------------------------------------------------------
-INSERT INTO permissions (`key`, `module`, `description`) VALUES
+-- Column is `name`, not `key` — see 001_rbac_seed.sql:98.
+INSERT INTO permissions (name, module, description) VALUES
   ('accounting.budgets.request_transfer', 'accounting',
    'Créer une demande de transfert budgétaire (Finance)'),
   ('accounting.budgets.approve_transfer', 'accounting',
@@ -253,18 +254,34 @@ ON DUPLICATE KEY UPDATE
     module      = VALUES(module),
     description = VALUES(description);
 
+-- role_permissions is keyed by role_id/permission_id (ints), not role/
+-- permission_key (strings) — see 001_rbac_seed.sql:222 and the pattern in
+-- 060_recycling_price_override.sql:168.
+
 -- Grant the request permission to any role that already carries
 -- accounting.budgets.transfer (i.e. Finance / Accountant).
-INSERT INTO role_permissions (role, permission_key)
-SELECT DISTINCT rp.role, 'accounting.budgets.request_transfer'
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT rp.role_id, p_new.id
   FROM role_permissions rp
- WHERE rp.permission_key = 'accounting.budgets.transfer'
-ON DUPLICATE KEY UPDATE role = role;
+  JOIN permissions p_old ON p_old.id = rp.permission_id
+  JOIN permissions p_new ON p_new.name = 'accounting.budgets.request_transfer'
+ WHERE p_old.name = 'accounting.budgets.transfer'
+   AND NOT EXISTS (
+        SELECT 1 FROM role_permissions rp2
+         WHERE rp2.role_id = rp.role_id AND rp2.permission_id = p_new.id
+   );
 
 -- Grant the approve permission to admin only (the MD role).
-INSERT INTO role_permissions (role, permission_key) VALUES
-  ('admin', 'accounting.budgets.approve_transfer')
-ON DUPLICATE KEY UPDATE role = role;
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+  FROM roles r
+  CROSS JOIN permissions p
+ WHERE r.name = 'admin'
+   AND p.name = 'accounting.budgets.approve_transfer'
+   AND NOT EXISTS (
+        SELECT 1 FROM role_permissions rp2
+         WHERE rp2.role_id = r.id AND rp2.permission_id = p.id
+   );
 
 COMMIT;
 
