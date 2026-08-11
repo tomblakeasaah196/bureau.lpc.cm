@@ -26,13 +26,15 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/functions/help.php';
 require_once __DIR__ . '/../../includes/classes/AiSettings.php';
+require_once __DIR__ . '/../../includes/classes/AiRoleLimits.php';
 
 Rbac::requirePermission('help.manage');
 
 $lang = lpc_help_lang($_GET['lang'] ?? null);
 $en   = $lang === 'en';
 
-$settings = AiSettings::getMasked();
+$settings   = AiSettings::getMasked();
+$roleLimits = AiRoleLimits::allWithRoles();
 
 $pageTitle    = $en ? 'AI assistant settings' : "Paramètres de l'assistant IA";
 $pageSubtitle = $en ? 'Help centre · configuration' : "Centre d'aide · configuration";
@@ -101,7 +103,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                     </label>
                     <label class="block">
                         <span class="block text-[11px] font-extrabold uppercase tracking-wider text-gray-500 mb-1"><?= $en ? 'Model' : 'Modèle' ?></span>
-                        <input type="text" name="deepseek_model" placeholder="deepseek-chat"
+                        <input type="text" name="deepseek_model" placeholder="deepseek-v4-flash"
                                value="<?= htmlspecialchars($settings['deepseek_model']) ?>"
                                class="w-full border border-lpc-border rounded-xl px-3 py-2 text-sm font-mono">
                     </label>
@@ -180,6 +182,50 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                 <?php endif; ?>
             </div>
         </form>
+
+        <!-- ========================= DAILY USAGE LIMITS ========================= -->
+        <section class="mt-8">
+            <h2 class="text-base font-black text-gray-900 mb-1"><?= $en ? 'Daily usage limits' : "Limites d'utilisation quotidienne" ?></h2>
+            <p class="text-[12px] text-gray-500 mb-4 max-w-2xl">
+                <?= $en
+                    ? 'How many questions each role may ask the assistant per calendar day. Only questions that get an actual answer count — a "nothing found" reply is free. Leave a field blank for unlimited.'
+                    : "Combien de questions chaque rôle peut poser à l'assistant par jour civil. Seules les questions ayant obtenu une réponse comptent — une réponse « rien trouvé » est gratuite. Laisser un champ vide pour illimité." ?>
+            </p>
+
+            <div id="ai-role-limits-banner" class="hidden mb-4 rounded-xl px-4 py-3 text-sm font-bold"></div>
+
+            <form id="ai-role-limits-form" class="bg-white rounded-2xl border border-lpc-border shadow-sm overflow-hidden">
+                <?= Csrf::field() ?>
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="bg-gray-50 text-left text-[11px] uppercase tracking-wider text-gray-500">
+                            <th class="px-4 py-3 font-extrabold"><?= $en ? 'Role' : 'Rôle' ?></th>
+                            <th class="px-4 py-3 font-extrabold w-48"><?= $en ? 'Daily limit' : 'Limite quotidienne' ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($roleLimits as $rl): ?>
+                        <tr class="border-t border-lpc-border">
+                            <td class="px-4 py-3 font-bold text-gray-900"><?= htmlspecialchars($rl['role_name']) ?></td>
+                            <td class="px-4 py-2">
+                                <input type="number" min="0" step="1"
+                                       name="limits[<?= (int) $rl['role_id'] ?>]"
+                                       value="<?= $rl['daily_limit'] !== null ? (int) $rl['daily_limit'] : '' ?>"
+                                       placeholder="<?= $en ? 'unlimited' : 'illimité' ?>"
+                                       class="w-32 border border-lpc-border rounded-xl px-3 py-1.5 text-sm font-mono">
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <div class="p-4 border-t border-lpc-border">
+                    <button type="submit"
+                            class="bg-lpc-dark hover:bg-[#004722] text-white px-5 py-2.5 rounded-xl font-bold shadow-md transition-all">
+                        <?= $en ? 'Save limits' : 'Enregistrer les limites' ?>
+                    </button>
+                </div>
+            </form>
+        </section>
 
     </main>
 </div>

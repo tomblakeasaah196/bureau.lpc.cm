@@ -31,7 +31,13 @@ final class EmbeddingClient
     /** Requests this many texts per HTTP call — keeps each request's runtime
      *  well inside a shared-host PHP timeout even for a big backlog. */
     private const BATCH_SIZE = 50;
-    private const TIMEOUT_S  = 30;
+    /** A single question at ask-time is a couple hundred tokens at most —
+     *  embeddings are fast. Kept short so a slow provider fails within the
+     *  request's overall time budget (see help_chat_controller.php's
+     *  set_time_limit()) rather than eating most of it before DeepSeek even
+     *  gets called. The reindex cron job (bulk, offline) tolerates a slow
+     *  provider fine regardless, since CLI has no such budget. */
+    private const TIMEOUT_S  = 15;
 
     /**
      * Embed a list of texts, preserving order.

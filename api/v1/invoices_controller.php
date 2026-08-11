@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../includes/functions/signature_side_effects.php';
 //   below updates invoices.status but must also refresh the linked sales
 //   orders — before this, an invoice paid via bank transfer or wallet left
 //   the order page reading "Non payé" indefinitely.
+require_once __DIR__ . '/../../includes/functions/notify.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 Rbac::requirePermission('accounting.invoices.view');
@@ -58,19 +59,25 @@ if (empty($action)) {
 // ==========================================
 // HELPER: NOTIFICATION ENGINE
 // ==========================================
-function notifyAdminFinance($db, $title, $message) {
+// Sprint 9: added $relatedUrl/$type — these rows are now actually surfaced
+// (see api/v1/notifications_controller.php's merged feed), so a bare title
+// is no longer enough; callers should pass a page to land on and, where it
+// matters, a severity. 'finance' is not a real seeded role (see
+// migrations/001_rbac_seed.sql), so this has only ever reached admin +
+// accountant — left as-is to avoid changing who gets notified.
+function notifyAdminFinance($db, $title, $message, $relatedUrl = null, $type = 'info') {
     $stmt = $db->query("
-        SELECT u.id 
-        FROM users u 
-        JOIN roles r ON u.role_id = r.id 
+        SELECT u.id
+        FROM users u
+        JOIN roles r ON u.role_id = r.id
         WHERE r.name IN ('admin', 'finance', 'accountant') AND u.status = 'active'
     ");
     $target_users = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
     if (!empty($target_users)) {
-        $insertStmt = $db->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)");
+        $insertStmt = $db->prepare("INSERT INTO notifications (user_id, title, message, type, related_url) VALUES (?, ?, ?, ?, ?)");
         foreach ($target_users as $uid) {
-            $insertStmt->execute([$uid, $title, $message]);
+            $insertStmt->execute([$uid, $title, $message, $type, $relatedUrl]);
         }
     }
 }
@@ -919,7 +926,7 @@ try {
 
             $msg = "Nouvelle Facture ($reference) générée pour " . number_format($total_amount, 0, ',', ' ') . " FCFA"
                  . ($air_amount > 0 ? " (dont AIR retenu à la source " . number_format($air_amount, 0, ',', ' ') . " FCFA)" : '') . '.';
-            notifyAdminFinance($db, "Facture Émise", $msg);
+            notifyAdminFinance($db, "Facture Émise", $msg, '/modules/accounting/invoices.php', 'info');
 
             // Batch B — misconfiguration warning: the client was flagged as
             // agent de retenue but no rate is set, so the invoice booked
@@ -935,7 +942,9 @@ try {
                     notifyAdminFinance(
                         $db,
                         'Configuration retenue AIR incomplète',
-                        "Facture {$reference} émise pour {$cname_val} : le client est marqué « retient à la source » mais son taux AIR est à 0. La facture a été émise sans scission AIR. Corrigez la fiche client (CRM → Modifier → cocher taux 2,2 %/5,5 %/10 %/15 %) puis, si nécessaire, ré-émettez la facture."
+                        "Facture {$reference} émise pour {$cname_val} : le client est marqué « retient à la source » mais son taux AIR est à 0. La facture a été émise sans scission AIR. Corrigez la fiche client (CRM → Modifier → cocher taux 2,2 %/5,5 %/10 %/15 %) puis, si nécessaire, ré-émettez la facture.",
+                        '/modules/crm/clients.php',
+                        'warning'
                     );
                 } catch (Throwable $e) {
                     error_log('generate_invoice wa-misconfigured notify: ' . $e->getMessage());
@@ -1067,6 +1076,29 @@ try {
                 );
             }
 
+            // Sprint 9 — general "a payment landed" event, distinct from the
+            // AIR-uncertified alert below (that one is a standing problem to
+            // fix; this one is just "FYI, money came in"). Same permission
+            // that gates this action, so the audience is exactly "whoever
+            // could have recorded this payment themselves."
+            try {
+                $cnGeneral = $db->prepare("SELECT name FROM clients WHERE id = ?");
+                $cnGeneral->execute([$client_id]);
+                $cnameGeneral = (string) ($cnGeneral->fetchColumn() ?: ('#' . $client_id));
+                lpc_notify_permission(
+                    $db,
+                    'accounting.invoices.record_payment',
+                    'Paiement enregistré',
+                    "Paiement {$payRef} — {$cnameGeneral} : " . number_format($amount, 0, ',', ' ') . " FCFA reçu(s)"
+                        . ($invoice_id ? " sur la facture #{$invoice_id}" : ' (avoir client)') . '.',
+                    $invoice_id ? '/modules/accounting/invoices.php' : '/modules/crm/clients.php',
+                    'info',
+                    [$user_id]
+                );
+            } catch (Throwable $e) {
+                error_log('register_payment general notify: ' . $e->getMessage());
+            }
+
             // Batch B — immediate notification when a payment books AIR
             // retenu but no certificate is attached yet. Best-effort: a
             // notification insert must never break a successful payment.
@@ -1081,7 +1113,9 @@ try {
                     notifyAdminFinance(
                         $db,
                         'Retenue AIR sans attestation',
-                        "Paiement {$payRef} — {$cname} a retenu {$amount_fmt} FCFA d'AIR. Téléversez l'attestation dans Déclarations Fiscales → Retenues à la source pour créditer ce montant sur la déclaration AIR."
+                        "Paiement {$payRef} — {$cname} a retenu {$amount_fmt} FCFA d'AIR. Téléversez l'attestation dans Déclarations Fiscales → Retenues à la source pour créditer ce montant sur la déclaration AIR.",
+                        '/modules/accounting/tax_declarations.php',
+                        'warning'
                     );
                 } catch (Throwable $e) {
                     error_log('register_payment air-uncertified notify: ' . $e->getMessage());

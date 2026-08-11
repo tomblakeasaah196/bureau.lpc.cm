@@ -83,6 +83,38 @@
         });
     });
 
+    // ---------------------------------------------------- Role limits form --
+    var limitsForm   = document.getElementById('ai-role-limits-form');
+    var limitsBanner = document.getElementById('ai-role-limits-banner');
+
+    function showLimitsBanner(ok, message) {
+        if (!limitsBanner) return;
+        limitsBanner.textContent = message;
+        limitsBanner.className = 'mb-4 rounded-xl px-4 py-3 text-sm font-bold '
+            + (ok ? 'bg-green-50 text-green-700 border border-green-200'
+                  : 'bg-red-50 text-red-700 border border-red-200');
+    }
+
+    if (limitsForm) {
+        limitsForm.addEventListener('submit', function (ev) {
+            ev.preventDefault();
+            var submitBtn = limitsForm.querySelector('button[type="submit"]');
+            if (submitBtn) { submitBtn.disabled = true; }
+
+            var fd = new FormData(limitsForm);   // "limits[<role_id>]" fields serialize as a PHP array automatically
+            api('save_role_limits', fd).then(function (json) {
+                if (submitBtn) { submitBtn.disabled = false; }
+                showLimitsBanner(json.status === 'success', json.message || 'Erreur.');
+                if (json.status === 'success' && json.role_limits) {
+                    json.role_limits.forEach(function (rl) {
+                        var input = limitsForm.querySelector('input[name="limits[' + rl.role_id + ']"]');
+                        if (input) input.value = rl.daily_limit === null ? '' : rl.daily_limit;
+                    });
+                }
+            });
+        });
+    }
+
     // ------------------------------------------------------ Test buttons ----
     document.querySelectorAll('.lpc-ai-test-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {

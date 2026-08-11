@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/functions/notify.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 Rbac::requirePermission('accounting.journal.view');
@@ -234,6 +235,25 @@ else if ($method === 'POST') {
             }
 
             $pdo->commit();
+
+            // Notify whoever can approve that a fresh draft is waiting on
+            // them — the journal_entry.php queue tab is already the default
+            // view on load, so a bare link to the page lands right on it.
+            // Only for drafts: a direct post means the actor already held
+            // accounting.journal.approve, so nobody else needs to act.
+            if (!$wants_post) {
+                lpc_notify_permission(
+                    $pdo,
+                    'accounting.journal.approve',
+                    'Écriture en attente d\'approbation',
+                    "Nouvelle écriture ($ref, {$journal_code}) déposée par " . ($_SESSION['user_name'] ?? 'un opérateur')
+                        . " — " . number_format($total_debit, 0, ',', ' ') . " FCFA. En attente de validation.",
+                    '/modules/accounting/journal_entry.php',
+                    'warning',
+                    [$user_id]
+                );
+            }
+
             $msg = $wants_post
                 ? 'Écriture équilibrée et validée au Grand Livre.'
                 : 'Brouillard sauvegardé dans la file d\'attente.';
@@ -246,17 +266,31 @@ else if ($method === 'POST') {
             $entry_id = (int)$payload['id'];
 
             // Sanity check: the row is actually a draft. Users open two tabs.
-            $st = $pdo->prepare("SELECT status FROM journal_entries WHERE id = ?");
+            $st = $pdo->prepare("SELECT status, reference, created_by FROM journal_entries WHERE id = ?");
             $st->execute([$entry_id]);
-            $current = $st->fetchColumn();
-            if ($current === false) throw new Exception("Écriture introuvable.");
-            if ($current !== 'draft') throw new Exception("Cette écriture n'est plus en brouillon (statut actuel : $current).");
+            $entryRow = $st->fetch(PDO::FETCH_ASSOC);
+            if ($entryRow === false) throw new Exception("Écriture introuvable.");
+            if ($entryRow['status'] !== 'draft') throw new Exception("Cette écriture n'est plus en brouillon (statut actuel : {$entryRow['status']}).");
 
             // post_journal_entry validates balance + stamps posted_at/posted_by
             // + flips status to 'posted'. SIGNAL SQLSTATE '45000' on drift.
             $pdo->prepare("CALL post_journal_entry(?, ?)")->execute([$entry_id, $user_id]);
 
             $pdo->commit();
+
+            // Let the person who submitted it know it cleared — skip if they
+            // approved their own draft.
+            if (!empty($entryRow['created_by']) && (int) $entryRow['created_by'] !== $user_id) {
+                lpc_notify_user(
+                    $pdo,
+                    (int) $entryRow['created_by'],
+                    'Écriture approuvée',
+                    "Votre écriture {$entryRow['reference']} a été validée et postée au Grand Livre par " . ($_SESSION['user_name'] ?? 'un approbateur') . ".",
+                    '/modules/accounting/ledger.php',
+                    'info'
+                );
+            }
+
             sendResponse('success', 'Brouillard validé et transféré au Grand Livre.');
         }
 
@@ -275,7 +309,7 @@ else if ($method === 'POST') {
             $placeholders = implode(',', array_fill(0, count($ids), '?'));
 
             $st = $pdo->prepare("
-                SELECT id, status, confidence_score
+                SELECT id, status, confidence_score, created_by
                   FROM journal_entries
                  WHERE id IN ($placeholders)
             ");
@@ -302,6 +336,25 @@ else if ($method === 'POST') {
             }
 
             $pdo->commit();
+
+            // Group by preparer so someone with 5 entries in the batch gets
+            // one message, not five.
+            $byPreparer = [];
+            foreach ($rows as $r) {
+                $cb = (int) ($r['created_by'] ?? 0);
+                if ($cb > 0 && $cb !== $user_id) $byPreparer[$cb] = ($byPreparer[$cb] ?? 0) + 1;
+            }
+            foreach ($byPreparer as $preparerId => $n) {
+                lpc_notify_user(
+                    $pdo,
+                    $preparerId,
+                    'Écritures approuvées',
+                    "$n de vos écritures ont été validées en lot et postées au Grand Livre.",
+                    '/modules/accounting/ledger.php',
+                    'info'
+                );
+            }
+
             sendResponse('success', "$count écriture(s) postée(s) au Grand Livre.", ['posted' => $count]);
         }
 

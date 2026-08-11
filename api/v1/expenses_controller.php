@@ -42,6 +42,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/JournalPoster.php';
 require_once __DIR__ . '/../../includes/classes/Paginator.php';
 require_once __DIR__ . '/../../includes/classes/Uploads.php';
+require_once __DIR__ . '/../../includes/functions/notify.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -522,6 +523,23 @@ try {
             }
 
             $db->commit();
+
+            // Only on genuine creation — re-saving an existing draft (id > 0)
+            // is routine editing, not an event worth a notification.
+            if ($id <= 0) {
+                lpc_notify_permission(
+                    $db,
+                    'accounting.expenses.view',
+                    'Nouvelle dépense enregistrée',
+                    ($_SESSION['user_name'] ?? 'Un opérateur') . " a enregistré la dépense $reference ($title) — "
+                        . number_format($amount, 0, ',', ' ') . " FCFA"
+                        . ($payment_status === 'paid' ? ' (payée immédiatement).' : ' (non payée).'),
+                    '/modules/accounting/expenses.php',
+                    'info',
+                    [$user_id]
+                );
+            }
+
             jr('success', 'Dépense enregistrée.', ['id' => $expense_id]);
         }
 
@@ -563,6 +581,17 @@ try {
                ->execute([$payment_date, $treasury_id, $je_id, $id]);
 
             $db->commit();
+
+            lpc_notify_permission(
+                $db,
+                'accounting.expenses.view',
+                'Dépense marquée payée',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " a marqué la dépense {$exp['reference']} ({$exp['title']}) comme payée et comptabilisée.",
+                '/modules/accounting/expenses.php',
+                'info',
+                [$user_id]
+            );
+
             jr('success', 'Dépense marquée payée et comptabilisée.', ['journal_entry_id' => $je_id]);
         }
 
@@ -701,6 +730,19 @@ try {
                 $full = docRoot() . '/' . ltrim((string) $p, '/');
                 if (is_file($full)) @unlink($full);
             }
+
+            lpc_notify_permission(
+                $db,
+                'accounting.expenses.view',
+                'Dépense supprimée',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " a supprimé la dépense "
+                    . ($exp['reference'] ?? "#$id") . " (" . number_format((float) $exp['amount'], 0, ',', ' ') . " FCFA)"
+                    . (!empty($exp['journal_entry_id']) ? ' — écriture comptable extournée.' : '.'),
+                '/modules/accounting/expenses.php',
+                'warning',
+                [$user_id]
+            );
+
             jr('success', 'Dépense supprimée.');
         }
 

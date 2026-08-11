@@ -120,10 +120,13 @@ try {
              . "ou utilisez le bouton « Demander (PDF) » sur le tableau de bord pour envoyer un courrier formel au client.";
 
     $db->beginTransaction();
-    $ins = $db->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)");
+    // Sprint 9: added type/related_url so this reminder is actually clickable
+    // once surfaced — see api/v1/notifications_controller.php, which as of
+    // Sprint 9 finally reads the `notifications` table this cron writes to.
+    $ins = $db->prepare("INSERT INTO notifications (user_id, title, message, type, related_url) VALUES (?, ?, ?, 'warning', ?)");
     $sent = 0;
     foreach ($u as $uid) {
-        $ins->execute([(int)$uid, $title, $message]);
+        $ins->execute([(int)$uid, $title, $message, '/modules/accounting/tax_declarations.php']);
         $sent++;
     }
     $db->commit();

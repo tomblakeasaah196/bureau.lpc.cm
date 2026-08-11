@@ -41,7 +41,18 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/TaxEngine.php';
 require_once __DIR__ . '/../../includes/classes/CompanyProfile.php';
+require_once __DIR__ . '/../../includes/functions/notify.php';
 Rbac::requirePermission('accounting.invoices.view');
+
+// No dedicated accounting.tax.* permission exists yet (see the TODO on the
+// 'approve' case below). accounting.invoices.view — this file's own gate —
+// is held by admin, accountant AND sales (migrations/029_sales_role.sql
+// grants it so salespeople can see who's overdue), so it's too broad an
+// audience for tax notifications. accounting.reports.close_year is only
+// ever granted to admin + accountant (migrations/001_rbac_seed.sql), which
+// is the actual "finance decision-makers" set — used as the targeting
+// permission for every lpc_notify_permission() call in this file.
+const LPC_TAX_NOTIFY_PERM = 'accounting.reports.close_year';
 
 $user_id = (int)($_SESSION['user_id'] ?? 0);
 $db      = Database::getInstance()->getConnection();
@@ -146,6 +157,18 @@ try {
             $db->commit();
 
             tax_audit('tax_declaration.approve', $decl_id, ['kind'=>$kind,'period'=>"$year-$month",'net'=>$out['net']]);
+
+            lpc_notify_permission(
+                $db,
+                LPC_TAX_NOTIFY_PERM,
+                'Déclaration fiscale approuvée',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " a verrouillé la déclaration " . strtoupper($kind)
+                    . " ($month/$year) — net à payer : " . number_format((float) $out['net'], 0, ',', ' ') . " FCFA.",
+                '/modules/accounting/tax_declarations.php',
+                'info',
+                [$user_id]
+            );
+
             echo json_encode(['status'=>'success','declaration_id'=>$decl_id,'pdf_path'=>$pdf_path,'hash'=>$hash]);
             break;
         }
@@ -217,6 +240,19 @@ try {
             ")->execute([$pd, TaxEngine::round($amount), $ref ?: null, $je_id, $tid, $quittance_path, $id]);
 
             tax_audit('tax_declaration.pay', $id, ['amount'=>$amount, 'reference'=>$ref, 'je_id'=>$je_id]);
+
+            lpc_notify_permission(
+                $db,
+                LPC_TAX_NOTIFY_PERM,
+                'Paiement fiscal enregistré',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " a réglé la déclaration " . strtoupper($row['kind'])
+                    . " ({$row['period_year']}-" . str_pad((string) $row['period_month'], 2, '0', STR_PAD_LEFT) . ") — "
+                    . number_format($amount, 0, ',', ' ') . " FCFA" . ($ref !== '' ? " (réf. $ref)" : '') . '.',
+                '/modules/accounting/tax_declarations.php',
+                'info',
+                [$user_id]
+            );
+
             echo json_encode(['status'=>'success','declaration_id'=>$id,'je_id'=>$je_id,'quittance_path'=>$quittance_path]);
             break;
         }
@@ -231,6 +267,23 @@ try {
                            WHERE id=?")
                ->execute([$user_id, $ref, $id]);
             tax_audit('tax_declaration.mark_filed', $id, ['reference'=>$ref]);
+
+            $decl = $db->prepare("SELECT kind, period_year, period_month FROM tax_declarations WHERE id = ?");
+            $decl->execute([$id]);
+            if ($d = $decl->fetch(PDO::FETCH_ASSOC)) {
+                lpc_notify_permission(
+                    $db,
+                    LPC_TAX_NOTIFY_PERM,
+                    'Déclaration fiscale télédéclarée',
+                    ($_SESSION['user_name'] ?? 'Un opérateur') . " a marqué " . strtoupper($d['kind'])
+                        . " ({$d['period_year']}-" . str_pad((string) $d['period_month'], 2, '0', STR_PAD_LEFT) . ") comme télédéclarée"
+                        . ($ref !== '' ? " (réf. $ref)" : '') . '.',
+                    '/modules/accounting/tax_declarations.php',
+                    'info',
+                    [$user_id]
+                );
+            }
+
             echo json_encode(['status'=>'success']);
             break;
         }
@@ -413,6 +466,25 @@ try {
             ")->execute([$cert_id, $client_id, $py, $pm]);
 
             tax_audit('withholding_certificate.upload', $cert_id, ['client_id'=>$client_id,'amount'=>$amount]);
+
+            // Closes the loop on the standing "AIR sans attestation" alert
+            // (both the live bell check and register_payment's per-payment
+            // one in invoices_controller.php) — worth an explicit "resolved"
+            // note rather than just letting the live check quietly shrink.
+            $cnCert = $db->prepare("SELECT name FROM clients WHERE id = ?");
+            $cnCert->execute([$client_id]);
+            $cnameCert = (string) ($cnCert->fetchColumn() ?: "#$client_id");
+            lpc_notify_permission(
+                $db,
+                LPC_TAX_NOTIFY_PERM,
+                'Attestation AIR reçue',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " a téléversé l'attestation $ref pour $cnameCert ("
+                    . str_pad((string) $pm, 2, '0', STR_PAD_LEFT) . "/$py) — " . number_format($amount, 0, ',', ' ') . " FCFA créditable.",
+                '/modules/accounting/tax_declarations.php',
+                'info',
+                [$user_id]
+            );
+
             echo json_encode(['status'=>'success','certificate_id'=>$cert_id,'file_path'=>$file_path]);
             break;
         }

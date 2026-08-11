@@ -36,19 +36,23 @@ if (empty($action)) {
 // ==========================================
 // HELPER: NOTIFICATION ENGINE
 // ==========================================
-function notifyAdminFinance($db, $title, $message) {
+// Sprint 9: added $relatedUrl/$type — these rows are now actually surfaced
+// (see api/v1/notifications_controller.php's merged feed). 'finance' is not
+// a real seeded role (migrations/001_rbac_seed.sql), left as-is to avoid
+// changing who gets notified.
+function notifyAdminFinance($db, $title, $message, $relatedUrl = null, $type = 'info') {
     $stmt = $db->query("
-        SELECT u.id 
-        FROM users u 
-        JOIN roles r ON u.role_id = r.id 
+        SELECT u.id
+        FROM users u
+        JOIN roles r ON u.role_id = r.id
         WHERE r.name IN ('admin', 'finance', 'accountant', 'Admin', 'Accountant') AND u.status = 'active'
     ");
     $target_users = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
     if (!empty($target_users)) {
-        $insertStmt = $db->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)");
+        $insertStmt = $db->prepare("INSERT INTO notifications (user_id, title, message, type, related_url) VALUES (?, ?, ?, ?, ?)");
         foreach ($target_users as $uid) {
-            $insertStmt->execute([$uid, $title, $message]);
+            $insertStmt->execute([$uid, $title, $message, $type, $relatedUrl]);
         }
     }
 }
@@ -791,7 +795,8 @@ try {
             }
 
             $operator_name = $_SESSION['user_name'];
-            notifyAdminFinance($db, "Réception Marchandises", "$operator_name a réceptionné le BC : " . $po['reference']);
+            notifyAdminFinance($db, "Réception Marchandises", "$operator_name a réceptionné le BC : " . $po['reference'],
+                '/modules/inventory/procurement.php', 'info');
 
             $db->commit();
             echo json_encode(['status' => 'success', 'summary' => $summary_data]);
@@ -904,7 +909,8 @@ try {
                 }
             }
 
-            notifyAdminFinance($db, "Inventaire Physique Validé", "$operator_name a verrouillé un inventaire (Réf: $reference).\nLien: /modules/inventory/print_audit.php?token=$token");
+            notifyAdminFinance($db, "Inventaire Physique Validé", "$operator_name a verrouillé un inventaire (Réf: $reference).",
+                "/modules/inventory/print_audit.php?token=$token", 'info');
 
             $db->commit();
             echo json_encode(['status' => 'success', 'token' => $token, 'reference' => $reference]);
@@ -943,7 +949,8 @@ try {
             $stmtMove->execute([$pid, $qty, $user_id]);
 
             $operator_name = $_SESSION['user_name'];
-            notifyAdminFinance($db, "Alerte Avarie (Stock Perdu)", "$operator_name a déclaré la perte de $qty x $pname.\nMotif: $reason");
+            notifyAdminFinance($db, "Alerte Avarie (Stock Perdu)", "$operator_name a déclaré la perte de $qty x $pname.\nMotif: $reason",
+                '/modules/inventory/stock.php', 'warning');
 
             $db->commit();
             echo json_encode(['status' => 'success']);

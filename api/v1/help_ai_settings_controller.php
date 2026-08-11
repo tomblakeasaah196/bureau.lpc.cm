@@ -23,6 +23,7 @@
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/AiSettings.php';
+require_once __DIR__ . '/../../includes/classes/AiRoleLimits.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -116,6 +117,46 @@ switch ($action) {
             'status'   => 'success',
             'message'  => $changed ? "Paramètres enregistrés." : "Aucune modification détectée.",
             'settings' => $after,
+        ]);
+    }
+
+    case 'save_role_limits': {
+        Csrf::requireValid();
+
+        // Payload shape: limits[<role_id>] = '' (unlimited) | non-negative int
+        $limits = $_POST['limits'] ?? [];
+        if (!is_array($limits) || !$limits) {
+            ai_settings_fail("Aucune limite à enregistrer.");
+        }
+
+        // Reject anything that isn't blank or a non-negative integer BEFORE
+        // touching the DB — AiRoleLimits::save() would also coerce a bad
+        // value harmlessly, but failing the whole request here gives the
+        // admin one clear error instead of a silently "fixed" number.
+        foreach ($limits as $roleId => $raw) {
+            if ((int) $roleId <= 0) { ai_settings_fail('Rôle invalide.'); }
+            $raw = is_string($raw) ? trim($raw) : $raw;
+            if ($raw !== '' && (!is_numeric($raw) || (int) $raw < 0)) {
+                ai_settings_fail("Limite invalide pour le rôle #{$roleId} : un nombre entier positif, ou vide pour illimité.");
+            }
+        }
+
+        $changed = AiRoleLimits::save($limits, (int) ($_SESSION['user_id'] ?? 0));
+
+        try {
+            Database::getInstance()->getConnection()->prepare(
+                "INSERT INTO audit_logs (user_id, action, table_name, record_id, new_value)
+                 VALUES (?, 'UPDATE', 'ai_role_limits', 0, ?)"
+            )->execute([
+                $_SESSION['user_id'] ?? null,
+                json_encode($limits, JSON_UNESCAPED_UNICODE),
+            ]);
+        } catch (Throwable $e) { error_log('help_ai_settings_controller audit (role_limits): ' . $e->getMessage()); }
+
+        ai_settings_out([
+            'status'      => 'success',
+            'message'     => $changed ? "Limites enregistrées." : "Aucune modification détectée.",
+            'role_limits' => AiRoleLimits::allWithRoles(),
         ]);
     }
 

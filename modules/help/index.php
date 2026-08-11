@@ -223,6 +223,9 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     </main>
 </div>
 
+<?php require __DIR__ . '/../../includes/components/help_chat_widget.php'; ?>
+
 <script src="<?= lpc_asset('/assets/js/modules/help-center.js') ?>" defer></script>
+<script src="<?= lpc_asset('/assets/js/modules/help-chat-widget.js') ?>" defer></script>
 </body>
 </html>

@@ -16,6 +16,7 @@ try {
     require_once '../../includes/config/db.php';
     require_once '../../includes/classes/Database.php';
     require_once __DIR__ . '/../../includes/classes/JournalPoster.php';
+    require_once __DIR__ . '/../../includes/functions/notify.php';
     $pdo = Database::getInstance()->getConnection();
 } catch (Exception $e) {
     error_log('API error: ' . $e->getMessage());
@@ -159,6 +160,18 @@ else if ($method === 'POST') {
             }
 
             $pdo->commit();
+
+            lpc_notify_permission(
+                $pdo,
+                'accounting.cashflow.view',
+                'Nouveau compte de trésorerie',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " a créé le compte « $name » ($type)"
+                    . ($balance > 0 ? ' — solde d\'ouverture ' . number_format($balance, 0, ',', ' ') . ' FCFA.' : '.'),
+                '/modules/accounting/cashflow.php',
+                'info',
+                [$user_id]
+            );
+
             sendResponse('success', 'Compte créé avec succès.');
         }
 
@@ -252,12 +265,18 @@ else if ($method === 'POST') {
             $stmtT->execute([$caisse_id, $actual, "DRV-".$driver_id, $user_id]);
 
             // C. Handle Variance
+            $shortfall_notice = null;
             if ($variance < 0) {
                 // Shortfall -> Driver Debt
                 $debt = abs($variance);
                 $stmtD = $pdo->prepare("INSERT INTO driver_debts (driver_id, amount, tour_date, logged_by) VALUES (?, ?, CURRENT_DATE(), ?)");
                 $stmtD->execute([$driver_id, $debt, $user_id]);
-            } 
+
+                $drvName = $pdo->prepare("SELECT CONCAT(first_name, ' ', last_name) FROM users WHERE id = ?");
+                $drvName->execute([$driver_id]);
+                $shortfall_notice = ($drvName->fetchColumn() ?: "chauffeur #$driver_id") . ' — '
+                    . number_format($debt, 0, ',', ' ') . ' FCFA manquant(s) sur la tournée de ce jour.';
+            }
             else if ($variance > 0 && $overage_client_id) {
                 // Overage -> Client Wallet (Avoir)
                 // Assuming client_wallets exists from AR module. If not, create it dynamically or skip safely.
@@ -272,6 +291,19 @@ else if ($method === 'POST') {
             );
 
             $pdo->commit();
+
+            if ($shortfall_notice !== null) {
+                lpc_notify_permission(
+                    $pdo,
+                    'accounting.cashflow.view',
+                    'Écart de caisse — tournée',
+                    $shortfall_notice,
+                    '/modules/accounting/cashflow.php',
+                    'warning',
+                    [$user_id]
+                );
+            }
+
             sendResponse('success', 'Tournée validée.', ['journal_entry_id' => $je_id]);
         }
 
@@ -312,6 +344,18 @@ else if ($method === 'POST') {
             $je_id = JournalPoster::postInternalTransfer($from_id, $to_id, $amount, $ref ?: 'Virement interne');
 
             $pdo->commit();
+
+            lpc_notify_permission(
+                $pdo,
+                'accounting.cashflow.view',
+                'Virement interne effectué',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " a viré " . number_format($amount, 0, ',', ' ')
+                    . " FCFA de « {$accs[$from_id]['name']} » vers « {$accs[$to_id]['name']} »" . ($ref !== '' ? " (réf. $ref)" : '') . '.',
+                '/modules/accounting/cashflow.php',
+                'info',
+                [$user_id]
+            );
+
             sendResponse('success', 'Virement interne effectué.', ['journal_entry_id' => $je_id]);
         }
 
@@ -363,6 +407,25 @@ else if ($method === 'POST') {
             $stmt->execute([$trx_id, $user_id, $reason, $amount]);
 
             $pdo->commit();
+
+            // Targets admin.settings.edit as a stand-in for "Direction only"
+            // (admin.settings.* is never granted to accountant — see
+            // migrations/001_rbac_seed.sql — unlike most accounting.* keys,
+            // which accountant also holds). Note: as of this writing there is
+            // no decide/approve endpoint anywhere in the codebase for
+            // treasury_edit_requests — this notification at least surfaces
+            // the request even though acting on it is still a DB-level fix.
+            lpc_notify_permission(
+                $pdo,
+                'admin.settings.edit',
+                'Demande de correction — trésorerie',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " demande la correction de la transaction #$trx_id vers "
+                    . number_format($amount, 0, ',', ' ') . " FCFA. Motif : $reason",
+                '/modules/accounting/cashflow.php',
+                'warning',
+                [$user_id]
+            );
+
             sendResponse('success', 'Demande de correction envoyée à la Direction.');
         }
 

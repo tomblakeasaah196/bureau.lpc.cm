@@ -123,7 +123,13 @@ $__langUrl = function (string $to) use ($__base): string {
         <div id="lpc-notif-menu" class="lpc-pop" role="menu" hidden style="width:22rem">
             <div class="lpc-pop-head">
                 <span class="lpc-pop-title">Notifications</span>
-                <a href="/modules/notifications/index.php" class="lpc-pop-link"><?= $lang === 'en' ? 'View all' : 'Voir tout' ?></a>
+                <span class="lpc-pop-head-actions" style="display:flex;align-items:center;gap:.75rem">
+                    <button type="button" id="lpc-notif-markall" class="lpc-pop-link" hidden
+                            style="background:none;border:0;cursor:pointer;padding:0;font:inherit">
+                        <?= $lang === 'en' ? 'Mark all read' : 'Tout marquer lu' ?>
+                    </button>
+                    <a href="/modules/notifications/index.php" class="lpc-pop-link"><?= $lang === 'en' ? 'View all' : 'Voir tout' ?></a>
+                </span>
             </div>
             <div class="lpc-pop-body" id="lpc-notif-list">
                 <p class="lpc-pop-empty"><?= $lang === 'en' ? 'Nothing new.' : 'Rien de nouveau.' ?></p>

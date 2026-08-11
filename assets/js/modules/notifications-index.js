@@ -6,6 +6,11 @@
  * Renders the same feed as the topbar bell, grouped by severity. Uses the same
  * endpoint so there is exactly one place where these conditions are computed —
  * no duplicated SQL between the panel and the page.
+ *
+ * Items with an `id` are stored events and get a "mark read" action (POSTs
+ * back to the same endpoint, then the row is removed client-side). Items
+ * without one are live-computed conditions and stay link-only — see
+ * api/v1/notifications_controller.php's header comment for why.
  * -----------------------------------------------------------------------------
  */
 (function () {
@@ -49,7 +54,9 @@
 
         var body = el('div', 'divide-y divide-gray-100');
         items.forEach(function (item) {
-            var row = el('a', 'flex items-center justify-between gap-4 px-6 py-4 hover:bg-gray-50 transition-colors');
+            var wrap = el('div', 'flex items-center gap-2 px-6 py-4 hover:bg-gray-50 transition-colors');
+
+            var row = el('a', 'flex-1 min-w-0 flex items-center justify-between gap-4');
             row.href = item.href;
 
             var txt = el('div', 'min-w-0');
@@ -64,10 +71,38 @@
                 'shrink-0 text-[11px] font-black uppercase tracking-wider text-emerald-700',
                 (L.open || 'Ouvrir') + ' →'));
 
-            body.appendChild(row);
+            wrap.appendChild(row);
+
+            if (item.id) {
+                var btn = el('button', 'shrink-0 w-8 h-8 rounded-lg border border-gray-200 text-gray-400 hover:text-emerald-700 hover:border-emerald-300 grid place-items-center text-sm font-black');
+                btn.type = 'button';
+                btn.textContent = '✓';
+                btn.title = L.markRead || 'Marquer comme lu';
+                btn.setAttribute('aria-label', btn.title);
+                btn.addEventListener('click', function () { dismiss(item.id, wrap); });
+                wrap.appendChild(btn);
+            }
+
+            body.appendChild(wrap);
         });
         card.appendChild(body);
         return card;
+    }
+
+    function dismiss(id, rowEl) {
+        fetch('/api/v1/notifications_controller.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'mark_read', id: id })
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (json) {
+                if (json && json.status === 'success' && rowEl && rowEl.parentNode) {
+                    rowEl.parentNode.removeChild(rowEl);
+                }
+            })
+            .catch(function () { /* leave the row in place */ });
     }
 
     function render(items) {

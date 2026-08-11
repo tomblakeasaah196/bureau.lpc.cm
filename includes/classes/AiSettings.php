@@ -207,7 +207,7 @@ final class AiSettings
         return [
             'id'                    => 0,
             'deepseek_base_url'     => 'https://api.deepseek.com',
-            'deepseek_model'        => 'deepseek-chat',
+            'deepseek_model'        => 'deepseek-v4-flash',
             'deepseek_api_key_enc'  => null,
             'embedding_base_url'    => '',
             'embedding_model'       => '',

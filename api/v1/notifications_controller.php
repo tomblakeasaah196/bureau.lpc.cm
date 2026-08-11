@@ -4,24 +4,90 @@
  * -----------------------------------------------------------------------------
  * Bureau LPC ERP — topbar notifications feed.
  *
- * Three real, schema-verified checks (grounded in existing queries elsewhere
- * in this codebase, not invented columns):
- *   1. Overdue invoices          -- invoices_controller.php's own AR-aging query
- *   2. AIR withheld, no attestation -- docs/GUIDE_FISCAL_CAMEROUN.md §7 checklist
- *   3. Low stock                 -- inventory_controller.php's current_qty calc
+ * Merges TWO sources into one feed:
+ *
+ *   1. Live-computed conditions (the original three, schema-verified checks,
+ *      grounded in existing queries elsewhere in this codebase):
+ *        - Overdue invoices             -- invoices_controller.php's AR-aging query
+ *        - AIR withheld, no attestation -- docs/GUIDE_FISCAL_CAMEROUN.md §7 checklist
+ *        - Low stock                    -- inventory_controller.php's current_qty calc
+ *      These stay true until the underlying condition resolves. No id, no
+ *      read state — nothing to mark read because there's nothing stored.
+ *
+ *   2. Stored, per-user rows from the `notifications` table (unread only).
+ *      Until this file's Sprint-9 change, NOTHING ever read that table —
+ *      every INSERT INTO notifications across the app (invoice issued, goods
+ *      received, stock loss, CRE refused, driver delivery confirmed, large
+ *      logistics expense, the monthly AIR-attestation cron, and now the
+ *      accounting-module events wired via includes/functions/notify.php) was
+ *      landing in a table nothing displayed. Only scripts/cron/purge_notifications.php
+ *      ever touched it again, archiving rows nobody had seen. This file now
+ *      surfaces them, and the POST branch below lets the frontend mark them read.
  *
  * Each item gated behind the same permission that already gates its parent
- * page, so nobody sees an alert for a module they can't open anyway.
+ * page (live items) or by permission at insert time (stored items — see
+ * includes/functions/notify.php's lpc_notify_permission()), so nobody sees
+ * an alert for a module they can't open.
  *
- * GET /api/v1/notifications_controller.php  -> { status, data: { items:[], count } }
+ * GET  /api/v1/notifications_controller.php
+ *      -> { status, data: { items:[{type,severity,label,href,id?}], count } }
+ *      Stored items carry an `id`; live items don't — that's how the
+ *      frontend knows which ones can be dismissed.
+ *
+ * POST /api/v1/notifications_controller.php  (CSRF-gated, JSON or form body)
+ *      action=mark_read      &id=N   -> marks one stored notification read
+ *      action=mark_all_read          -> marks all of the caller's stored rows read
+ *      Both are scoped to $_SESSION['user_id'] — you can only mark your own.
  * -----------------------------------------------------------------------------
  */
 require_once __DIR__ . '/../../includes/bootstrap.php';
 header('Content-Type: application/json; charset=utf-8');
 
 Rbac::requireAuth();
-$lang = lpc_i18n_current_lang();
+$lang    = lpc_i18n_current_lang();
+$user_id = (int) ($_SESSION['user_id'] ?? 0);
+$method  = $_SERVER['REQUEST_METHOD'];
 
+// ==========================================
+// POST — mark stored notification(s) read.
+// ==========================================
+if ($method !== 'GET') {
+    Csrf::requireValid();
+
+    $in     = json_decode(file_get_contents('php://input') ?: '', true);
+    $action = $in['action'] ?? ($_POST['action'] ?? '');
+
+    try {
+        $db = Database::getInstance()->getConnection();
+
+        if ($action === 'mark_read') {
+            $id = (int) ($in['id'] ?? ($_POST['id'] ?? 0));
+            if ($id > 0 && $user_id > 0) {
+                $db->prepare("UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?")
+                   ->execute([$id, $user_id]);
+            }
+            echo json_encode(['status' => 'success']);
+        } elseif ($action === 'mark_all_read') {
+            if ($user_id > 0) {
+                $db->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0")
+                   ->execute([$user_id]);
+            }
+            echo json_encode(['status' => 'success']);
+        } else {
+            http_response_code(400);
+            echo json_encode(['status' => 'error', 'message' => 'Unknown action.']);
+        }
+    } catch (Throwable $e) {
+        error_log('notifications_controller POST: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['status' => 'error', 'message' => 'Could not update notification.']);
+    }
+    exit;
+}
+
+// ==========================================
+// GET — merged feed.
+// ==========================================
 try {
     $db = Database::getInstance()->getConnection();
     $items = [];
@@ -84,6 +150,39 @@ try {
                     ? sprintf('%d product(s) at or below reorder level', $row['n'])
                     : sprintf('%d produit(s) au seuil de réappro ou en dessous', $row['n']),
                 'href'     => '/modules/inventory/stock.php?filter=low_stock',
+            ];
+        }
+    }
+
+    // ---- stored, per-user events (unread only) ----------------------------
+    // Gated implicitly: lpc_notify_permission() only ever inserted a row for
+    // THIS user if they held a qualifying permission at the time it fired, so
+    // there is no separate permission check needed here — same trust model as
+    // the live checks above, just enforced at write time instead of read time.
+    if ($user_id > 0) {
+        $stmt = $db->prepare("
+            SELECT id, title, message, type, related_url, created_at
+              FROM notifications
+             WHERE user_id = ? AND is_read = 0
+             ORDER BY created_at DESC
+             LIMIT 50
+        ");
+        $stmt->execute([$user_id]);
+        $stored = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $sevMap = ['error' => 'danger', 'warning' => 'warning', 'success' => 'info', 'info' => 'info'];
+        foreach ($stored as $n) {
+            $label = (string) $n['title'];
+            $msg   = trim((string) $n['message']);
+            if ($msg !== '') {
+                $label .= ' — ' . (mb_strlen($msg) > 110 ? mb_substr($msg, 0, 110) . '…' : $msg);
+            }
+            $items[] = [
+                'id'       => (int) $n['id'],
+                'type'     => 'event',
+                'severity' => $sevMap[$n['type']] ?? 'info',
+                'label'    => $label,
+                'href'     => $n['related_url'] ?: '/modules/notifications/index.php',
             ];
         }
     }

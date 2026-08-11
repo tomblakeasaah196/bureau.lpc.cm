@@ -7,12 +7,16 @@
  * assets/js/lpc-palette.js. The topbar's search control is a button that opens
  * that palette.
  *
- * Notifications come from api/v1/notifications_controller.php, which computes
- * live conditions (overdue invoices, uncertified AIR withholdings, low stock)
- * rather than reading stored messages. That's why there is deliberately no
- * "mark as read": an overdue invoice does not stop being overdue because
- * someone looked at it. The panel surfaces the condition and links to the page
- * where it can actually be resolved.
+ * Notifications come from api/v1/notifications_controller.php, which merges
+ * two kinds of item:
+ *   - LIVE conditions (overdue invoices, uncertified AIR withholdings, low
+ *     stock) — no `id`, no dismiss control. An overdue invoice does not stop
+ *     being overdue because someone looked at it; the row links to the page
+ *     where it can actually be resolved.
+ *   - STORED events (item.id present) — a discrete thing that happened
+ *     (entry posted, transfer awaiting a decision, discrepancy found…). These
+ *     get a dismiss (✓) control that POSTs action=mark_read and removes the
+ *     row client-side without a refetch.
  * -----------------------------------------------------------------------------
  */
 (function () {
@@ -74,11 +78,38 @@
         }
     }
 
+    // POSTs to the same endpoint to mark one (or all) stored notifications
+    // read. Best-effort from the UI's perspective too: on failure we just
+    // leave the item in place rather than pretend it's gone.
+    function markRead(payload, onDone) {
+        fetch('/api/v1/notifications_controller.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (json) {
+                if (json && json.status === 'success' && onDone) onDone();
+            })
+            .catch(function () { /* leave the item in place */ });
+    }
+
     function loadNotifications() {
-        var list  = document.getElementById('lpc-notif-list');
-        var badge = document.getElementById('lpc-notif-badge');
-        var btn   = document.getElementById('lpc-notif-btn');
+        var list    = document.getElementById('lpc-notif-list');
+        var badge   = document.getElementById('lpc-notif-badge');
+        var btn     = document.getElementById('lpc-notif-btn');
+        var markAll = document.getElementById('lpc-notif-markall');
         if (!list || !badge) return;
+
+        // Local running count so dismissing an item updates the badge
+        // without a full refetch.
+        var count = 0;
+
+        function decrement() {
+            count = Math.max(0, count - 1);
+            setCount(badge, btn, count);
+        }
 
         fetch('/api/v1/notifications_controller.php', { credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
@@ -87,11 +118,15 @@
                 var items = (json.data && json.data.items) || [];
 
                 // Prefer the server's own count; fall back to the array length.
-                var count = (json.data && typeof json.data.count === 'number')
+                count = (json.data && typeof json.data.count === 'number')
                     ? json.data.count
                     : items.length;
 
                 setCount(badge, btn, count);
+
+                var hasDismissible = items.some(function (i) { return !!i.id; });
+                if (markAll) markAll.hidden = !hasDismissible;
+
                 if (!items.length) return;
 
                 // Most severe first, so the thing that needs attention is on top.
@@ -101,22 +136,78 @@
 
                 list.textContent = '';
                 items.forEach(function (item) {
-                    var a = document.createElement('a');
-                    a.href = item.href;
-                    a.className = 'lpc-pop-item';
-
-                    var dot = document.createElement('span');
-                    dot.className = dotClass(item.severity);
-                    a.appendChild(dot);
-
-                    var txt = document.createElement('span');
-                    txt.textContent = item.label;       // textContent, never innerHTML
-                    a.appendChild(txt);
-
-                    list.appendChild(a);
+                    var row = el_row(item, decrement);
+                    list.appendChild(row);
                 });
             })
             .catch(function () { /* silent — the badge simply stays hidden */ });
+
+        if (markAll) {
+            markAll.addEventListener('click', function () {
+                markRead({ action: 'mark_all_read' }, function () {
+                    list.querySelectorAll('[data-notif-id]').forEach(function (row) {
+                        row.remove();
+                        count = Math.max(0, count - 1);
+                    });
+                    setCount(badge, btn, count);
+                    markAll.hidden = true;
+                    if (!list.children.length) {
+                        var empty = document.createElement('p');
+                        empty.className = 'lpc-pop-empty';
+                        empty.textContent = document.documentElement.lang === 'en' ? 'Nothing new.' : 'Rien de nouveau.';
+                        list.appendChild(empty);
+                    }
+                });
+            });
+        }
+    }
+
+    function el_row(item, onDismiss) {
+        var row = document.createElement('div');
+        row.className = 'lpc-pop-item';
+        row.style.display = 'flex';
+        row.style.alignItems = 'center';
+        row.style.gap = '.5rem';
+        if (item.id) row.setAttribute('data-notif-id', String(item.id));
+
+        var a = document.createElement('a');
+        a.href = item.href;
+        a.style.display = 'flex';
+        a.style.alignItems = 'center';
+        a.style.gap = '.5rem';
+        a.style.flex = '1';
+        a.style.minWidth = '0';
+
+        var dot = document.createElement('span');
+        dot.className = dotClass(item.severity);
+        a.appendChild(dot);
+
+        var txt = document.createElement('span');
+        txt.textContent = item.label;       // textContent, never innerHTML
+        a.appendChild(txt);
+
+        row.appendChild(a);
+
+        if (item.id) {
+            var dismiss = document.createElement('button');
+            dismiss.type = 'button';
+            dismiss.className = 'lpc-icon-btn';
+            dismiss.title = document.documentElement.lang === 'en' ? 'Mark as read' : 'Marquer comme lu';
+            dismiss.setAttribute('aria-label', dismiss.title);
+            dismiss.style.flexShrink = '0';
+            dismiss.textContent = '✓';
+            dismiss.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                markRead({ action: 'mark_read', id: item.id }, function () {
+                    row.remove();
+                    onDismiss();
+                });
+            });
+            row.appendChild(dismiss);
+        }
+
+        return row;
     }
 
     document.addEventListener('DOMContentLoaded', function () {

@@ -91,8 +91,8 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 
         <p class="text-[11px] text-gray-400 mt-6 max-w-2xl leading-relaxed">
             <?= $en
-                ? 'These alerts are computed live from the current state of the books and stock each time this page loads — they are not stored messages, so there is nothing to mark as read. An item disappears when the underlying condition is resolved.'
-                : 'Ces alertes sont calculées en direct à partir de l’état actuel des comptes et du stock à chaque chargement de la page — ce ne sont pas des messages stockés, il n’y a donc rien à marquer comme lu. Un élément disparaît lorsque la condition sous-jacente est résolue.' ?>
+                ? 'Two kinds of item show up here. Standing conditions (overdue invoices, uncertified AIR withholdings, low stock) are computed live from the current state of the books and stock each time this page loads — they have no "mark as read"; an item disappears when the underlying condition is resolved. Everything else is a one-off event (an entry posted, a transfer awaiting a decision…) — those carry a ✓ button and stay until you mark them read.'
+                : 'Deux types d’éléments apparaissent ici. Les conditions permanentes (factures en retard, retenues AIR sans attestation, stock bas) sont calculées en direct à partir de l’état actuel des comptes et du stock à chaque chargement de la page — elles n’ont pas de « marquer comme lu » ; un élément disparaît lorsque la condition sous-jacente est résolue. Tout le reste est un évènement ponctuel (une écriture postée, un transfert en attente de décision…) — ceux-ci portent un bouton ✓ et restent affichés jusqu’à ce que vous les marquiez comme lus.' ?>
         </p>
     </main>
 </div>
@@ -107,6 +107,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
         'summary1' => $en ? '1 open alert'              : '1 alerte ouverte',
         'summaryN' => $en ? '%d open alerts'            : '%d alertes ouvertes',
         'none'     => $en ? 'No open alerts'            : 'Aucune alerte ouverte',
+        'markRead' => $en ? 'Mark as read'               : 'Marquer comme lu',
     ],
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?></script>
 <script src="<?= lpc_asset('/assets/js/modules/notifications-index.js') ?>" defer></script>

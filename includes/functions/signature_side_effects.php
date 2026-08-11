@@ -52,7 +52,7 @@ if (basename($_SERVER['PHP_SELF'] ?? '') === basename(__FILE__)) {
  * unified path doesn't accidentally use a different targeting rule
  * (admin+finance active users).
  */
-function lpc_signature_notify_admin(PDO $db, string $title, string $message): void
+function lpc_signature_notify_admin(PDO $db, string $title, string $message, ?string $relatedUrl = null, string $type = 'info'): void
 {
     try {
         $ids = $db->query(
@@ -63,8 +63,8 @@ function lpc_signature_notify_admin(PDO $db, string $title, string $message): vo
                 AND u.status = 'active'"
         )->fetchAll(PDO::FETCH_COLUMN);
         if (!$ids) return;
-        $ins = $db->prepare('INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)');
-        foreach ($ids as $uid) $ins->execute([(int) $uid, $title, $message]);
+        $ins = $db->prepare('INSERT INTO notifications (user_id, title, message, type, related_url) VALUES (?, ?, ?, ?, ?)');
+        foreach ($ids as $uid) $ins->execute([(int) $uid, $title, $message, $type, $relatedUrl]);
     } catch (Throwable $e) {
         // Notifications are best-effort — a broken row must not block a
         // customer's signature. Log and continue.
@@ -243,7 +243,9 @@ function lpc_signature_side_effects_cre(PDO $db, int $creId): void
     lpc_signature_notify_admin(
         $db,
         'CRE Signé & Scellé',
-        "Le bon de retour {$cre['reference']} a été signé électroniquement."
+        "Le bon de retour {$cre['reference']} a été signé électroniquement.",
+        '/modules/operations/empties_collection.php',
+        'info'
     );
 }
 
@@ -439,7 +441,9 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
     lpc_signature_notify_admin(
         $db,
         'BL Signé & Clôturé',
-        "Le bon de livraison {$del['reference']} a été signé électroniquement."
+        "Le bon de livraison {$del['reference']} a été signé électroniquement.",
+        '/modules/sales/bl_detail.php?id=' . (int) $del['id'],
+        'info'
     );
 }
 
@@ -493,7 +497,9 @@ function lpc_signature_side_effects_quote(PDO $db, int $proposalId): void
         $db,
         'Devis accepté et signé',
         "Le devis {$p['reference']} a été signé électroniquement par le client "
-        . "({$p['client_name']}). Bon pour accord."
+        . "({$p['client_name']}). Bon pour accord.",
+        '/modules/crm/proposal_studio.php',
+        'info'
     );
 }
 

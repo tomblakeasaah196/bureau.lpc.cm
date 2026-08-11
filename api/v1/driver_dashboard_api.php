@@ -92,12 +92,19 @@ try {
             $stmtUpdate->execute([$cash, $del_id]);
 
             // Send Notification to Ops & Admin
+            // Sprint 9: added type/related_url so this row is actually
+            // clickable once surfaced — see api/v1/notifications_controller.php,
+            // which as of Sprint 9 finally reads the `notifications` table.
             $notif_msg = "Le chauffeur a confirmé la livraison {$reference}. Cash déclaré : " . number_format($cash, 0, ',', ' ') . " FCFA.";
-            $stmtNotif = $db->prepare("INSERT INTO notifications (user_id, title, message, is_read, created_at) VALUES (?, 'Livraison Confirmée', ?, 0, NOW())");
-            
+            $notif_href = '/modules/sales/bl_detail.php?id=' . (int) $del_id;
+            $stmtNotif = $db->prepare("INSERT INTO notifications (user_id, title, message, type, related_url, is_read, created_at) VALUES (?, 'Livraison Confirmée', ?, 'info', ?, 0, NOW())");
+
+            // 'finance' is not a real seeded role (migrations/001_rbac_seed.sql
+            // only seeds admin/accountant/operations/driver) — left as-is to
+            // avoid changing who gets notified.
             $stmtOps = $db->query("SELECT id FROM users WHERE role_id IN (SELECT id FROM roles WHERE name IN ('admin', 'operations', 'finance'))");
             while ($uid = $stmtOps->fetchColumn()) {
-                $stmtNotif->execute([$uid, $notif_msg]);
+                $stmtNotif->execute([$uid, $notif_msg, $notif_href]);
             }
 
             $db->commit();

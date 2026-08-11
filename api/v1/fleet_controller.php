@@ -5,6 +5,7 @@
  * Bootstrap loads env, DB, hardened session, CSRF, Rbac.
  */
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/functions/notify.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 
@@ -461,20 +462,28 @@ else if ($method === 'POST') {
             $stmt->execute([$v_id, $type, $desc, $odo, $next_odo, $cost]);
 
             // E. CROSS-MODULE NOTIFICATION (Finance Alert)
+            // Sprint 9 fix: this used to query
+            // `role_id = (SELECT id FROM roles WHERE name = 'finance')` — 'finance'
+            // is not a real seeded role (migrations/001_rbac_seed.sql only seeds
+            // admin/accountant/operations/driver), so that subquery always
+            // returned NULL and $fin_users was always empty. This alert has
+            // never reached anyone. Fixed to target by permission instead of a
+            // hardcoded (and wrong) role name — see includes/functions/notify.php.
             if (in_array($type, ['repair', 'routine']) && $cost >= 150000) {
                 $stmtVeh = $pdo->prepare("SELECT plate_number FROM vehicles WHERE id = ?");
                 $stmtVeh->execute([$v_id]);
                 $plate = $stmtVeh->fetchColumn();
 
                 $finance_msg = "Alerte Dépense Flotte : Facture d'intervention de " . number_format($cost, 0, ',', ' ') . " FCFA enregistrée pour le véhicule " . $plate . ". Motif: " . substr($desc, 0, 50);
-                
-                $stmtFin = $pdo->query("SELECT id FROM users WHERE role_id = (SELECT id FROM roles WHERE name = 'finance')");
-                $fin_users = $stmtFin->fetchAll(PDO::FETCH_COLUMN);
 
-                $stmtNotif = $pdo->prepare("INSERT INTO notifications (user_id, title, message, is_read, created_at) VALUES (?, 'Dépense Logistique Importante', ?, 0, NOW())");
-                foreach ($fin_users as $fid) {
-                    $stmtNotif->execute([$fid, $finance_msg]);
-                }
+                lpc_notify_permission(
+                    $pdo,
+                    'accounting.expenses.view',
+                    'Dépense Logistique Importante',
+                    $finance_msg,
+                    '/modules/fleet/vehicles.php',
+                    'warning'
+                );
             }
 
             // ONE SINGLE COMMIT AND RESPONSE

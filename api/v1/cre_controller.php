@@ -25,12 +25,18 @@ function sendResponse($status, $message, $data = null) {
     exit;
 }
 
-function notifyAdmin($pdo, $title, $message) {
+// Sprint 9: added $relatedUrl/$type so these rows are actually clickable and
+// colour-coded once surfaced (see api/v1/notifications_controller.php, which
+// as of Sprint 9 finally reads the `notifications` table instead of nobody).
+// 'finance' is not a real seeded role (migrations/001_rbac_seed.sql only
+// seeds admin/accountant/operations/driver) so this has only ever reached
+// admins in practice — kept as-is to avoid changing who gets notified.
+function notifyAdmin($pdo, $title, $message, $relatedUrl = null, $type = 'info') {
     $stmt = $pdo->query("SELECT u.id FROM users u JOIN roles r ON u.role_id = r.id WHERE r.name IN ('admin', 'finance') AND u.status = 'active'");
     $admins = $stmt->fetchAll(PDO::FETCH_COLUMN);
     if (!empty($admins)) {
-        $insert = $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)");
-        foreach ($admins as $uid) { $insert->execute([$uid, $title, $message]); }
+        $insert = $pdo->prepare("INSERT INTO notifications (user_id, title, message, type, related_url) VALUES (?, ?, ?, ?, ?)");
+        foreach ($admins as $uid) { $insert->execute([$uid, $title, $message, $type, $relatedUrl]); }
     }
 }
 
@@ -289,7 +295,8 @@ if ($action === 'sign_cre' || $action === 'reject_cre') {
         if ($reason === '') throw new Exception("Motif du refus requis.");
         $pdo->prepare("UPDATE cre_documents SET status = 'rejected', rejection_reason = ? WHERE id = ?")
             ->execute([$reason, $cre['id']]);
-        notifyAdmin($pdo, "CRE Refusé", "Le client a refusé le bon de retour " . $cre['reference'] . ".\nRaison: " . $reason);
+        notifyAdmin($pdo, "CRE Refusé", "Le client a refusé le bon de retour " . $cre['reference'] . ".\nRaison: " . $reason,
+            '/modules/operations/empties_collection.php', 'warning');
         $pdo->commit();
         sendResponse('success', 'Document refusé et annulé.');
     } catch (Exception $e) {
@@ -807,7 +814,9 @@ if ($method === 'POST') {
                 $pdo,
                 'CRE Annulé',
                 "Le CRE {$cre['reference']} a été annulé par " . ($_SESSION['user_name'] ?? 'un opérateur')
-                    . ".\nMotif : " . $reason
+                    . ".\nMotif : " . $reason,
+                '/modules/operations/empties_collection.php',
+                'warning'
             );
             $pdo->commit();
             sendResponse('success', 'CRE annulé.');
@@ -1031,7 +1040,8 @@ if ($method === 'POST') {
                 $msg .= "\n\n⚠ PRIX NÉGOCIÉ(S) — $override_count ligne(s) hors catalogue :\n"
                       . implode("\n", $override_notif);
             }
-            notifyAdmin($pdo, $override_count > 0 ? "Vente Recyclage (Prix négocié)" : "Vente Recyclage (Cash)", $msg);
+            notifyAdmin($pdo, $override_count > 0 ? "Vente Recyclage (Prix négocié)" : "Vente Recyclage (Cash)", $msg,
+                '/modules/operations/empties_collection.php', $override_count > 0 ? 'warning' : 'info');
 
             $pdo->commit();
             sendResponse('success', 'Vente enregistrée avec succès.', [

@@ -4,6 +4,7 @@
 // stored proc for balanced posting. All state-changing actions are CSRF-checked.
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/Depreciation.php';
+require_once __DIR__ . '/../../includes/functions/notify.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -344,6 +345,16 @@ try {
         $asset_id = (int) $db->lastInsertId();
         $db->commit();
 
+        lpc_notify_permission(
+            $db,
+            'accounting.fixed_assets.view',
+            'Nouvelle immobilisation capitalisée',
+            ($_SESSION['user_name'] ?? 'Un opérateur') . " a capitalisé « $name » — " . number_format($cost, 0, ',', ' ') . " FCFA, amorti sur $life mois.",
+            '/modules/accounting/fixed_assets.php',
+            'info',
+            [$user_id]
+        );
+
         sendJson('success', 'Immobilisation capitalisée.', ['asset_id' => $asset_id]);
     }
 
@@ -437,6 +448,18 @@ try {
         ")->execute([$entry_id, $month, $year]);
 
         $db->commit();
+
+        lpc_notify_permission(
+            $db,
+            'accounting.fixed_assets.view',
+            'Dotations aux amortissements passées',
+            ($_SESSION['user_name'] ?? 'Un opérateur') . " a exécuté les dotations de " . sprintf('%02d/%04d', $month, $year)
+                . " — {$ran} actif(s), écriture $ref postée au Grand Livre.",
+            '/modules/accounting/fixed_assets.php',
+            'info',
+            [$user_id]
+        );
+
         sendJson('success', "{$ran} dotation(s) posté(s).", ['journal_entry_id' => $entry_id, 'count' => $ran]);
     }
 
@@ -559,6 +582,18 @@ try {
         ]);
 
         $db->commit();
+
+        lpc_notify_permission(
+            $db,
+            'accounting.fixed_assets.view',
+            'Immobilisation sortie',
+            ($_SESSION['user_name'] ?? 'Un opérateur') . " a sorti « " . ($asset['name'] ?? "actif #$asset_id") . " » du registre"
+                . ($sale > 0 ? ' (cession, ' . number_format($sale, 0, ',', ' ') . ' FCFA).' : ' (mise au rebut).'),
+            '/modules/accounting/fixed_assets.php',
+            'info',
+            [$user_id]
+        );
+
         sendJson('success', "Sortie d'actif enregistrée.", [
             'journal_entry_id' => $entry_id,
             'book_value'       => $gain['book_value'],

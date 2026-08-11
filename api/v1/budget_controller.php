@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/functions/notify.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 Rbac::requirePermission('accounting.budgets.view');
@@ -552,6 +553,17 @@ else if ($method === 'POST') {
             }
 
             $pdo->commit();
+
+            lpc_notify_permission(
+                $pdo,
+                'accounting.budgets.approve_transfer',
+                'Objectifs budgétaires mis à jour',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " a enregistré $saved objectif(s) budgétaire(s) pour l'exercice $t_year.",
+                '/modules/accounting/budgets.php',
+                'info',
+                [$user_id]
+            );
+
             sendResponse('success', "$saved objectif(s) enregistré(s) pour $t_year.");
         }
 
@@ -585,6 +597,18 @@ else if ($method === 'POST') {
             $stmt->execute([$year, $from, $to, (string)round($amount, 2), $reason, $user_id]);
 
             $pdo->commit();
+
+            lpc_notify_permission(
+                $pdo,
+                'accounting.budgets.approve_transfer',
+                'Transfert budgétaire en attente',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " demande un transfert de "
+                    . number_format($amount, 0, ',', ' ') . " FCFA (exercice $year). Motif : $reason",
+                '/modules/accounting/budgets.php',
+                'warning',
+                [$user_id]
+            );
+
             sendResponse('success', "Demande de transfert créée. En attente de validation.");
         }
 
@@ -610,7 +634,7 @@ else if ($method === 'POST') {
             }
 
             $stmt = $pdo->prepare("
-                SELECT id, fiscal_year, from_bucket_id, to_bucket_id, amount, status
+                SELECT id, fiscal_year, from_bucket_id, to_bucket_id, amount, status, requested_by
                   FROM budget_transfer_requests
                  WHERE id = ?
                  FOR UPDATE
@@ -669,6 +693,20 @@ else if ($method === 'POST') {
             ")->execute([$decision, $user_id, ($note === '' ? null : $note), $req_id]);
 
             $pdo->commit();
+
+            if (!empty($req['requested_by']) && (int) $req['requested_by'] !== $user_id) {
+                lpc_notify_user(
+                    $pdo,
+                    (int) $req['requested_by'],
+                    $decision === 'approved' ? 'Transfert budgétaire approuvé' : 'Transfert budgétaire refusé',
+                    "Votre demande de transfert de " . number_format((float) $req['amount'], 0, ',', ' ') . " FCFA (exercice {$req['fiscal_year']}) a été "
+                        . ($decision === 'approved' ? 'approuvée et appliquée.' : 'refusée.')
+                        . ($note !== '' ? " Note : $note" : ''),
+                    '/modules/accounting/budgets.php',
+                    $decision === 'approved' ? 'info' : 'warning'
+                );
+            }
+
             sendResponse('success',
                 $decision === 'approved'
                     ? "Transfert approuvé et appliqué."
