@@ -19,6 +19,16 @@ than 5 years or notifications shorter than 7 days even by editing `.env`.
 `purge_deleted_clients.php` floors at 1 day (never same-day) but has no
 ceiling — an admin can set a long grace period without a code change.
 
+| Script | What it does | Cadence | Config |
+|---|---|---|---|
+| `reindex_help_chunks.php` | (Re)chunks + (re)embeds help article bodies that are new, edited, or under a stale embedding model, into `help_article_chunks` (migration 099) — the Help Centre AI Assistant's search index | nightly | provider/model/key via the gear icon on `/modules/help/index.php` (`AiSettings`, migration 098), not `.env` |
+
+Unlike the five purge jobs above, `reindex_help_chunks.php` is not a
+housekeeping/retention script — it is what keeps the AI assistant's answers
+in sync with the help centre's actual content. A no-op run (nothing edited
+since last night) exits 0 immediately without calling the embedding API, so
+running it nightly costs nothing on a quiet day.
+
 ## cPanel Cron entries
 
 Set these in **cPanel → Advanced → Cron Jobs**. Times are five minutes apart
@@ -30,7 +40,12 @@ so they don't all hit the DB at once.
 15 0 * * * /usr/local/bin/php /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/purge_audit_logs.php     >> /home/smartqaq/logs/lpc-cron.log 2>&1
 20 0 * * * /usr/local/bin/php /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/purge_login_attempts.php >> /home/smartqaq/logs/lpc-cron.log 2>&1
 25 0 * * * /usr/local/bin/php /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/purge_deleted_clients.php >> /home/smartqaq/logs/lpc-cron.log 2>&1
+30 0 * * * /usr/local/bin/php /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/reindex_help_chunks.php   >> /home/smartqaq/logs/lpc-cron.log 2>&1
 ```
+
+`reindex_help_chunks.php` is a no-op — exits 0 immediately — until an admin
+has filled in the embedding provider from the gear icon, so it's safe to add
+this cron entry ahead of that (it just won't do anything yet).
 
 Adjust the `/home/smartqaq/` prefix if the cPanel user changes. The
 `>> logs/lpc-cron.log 2>&1` tail keeps a runbook trace we can `tail -f` when
@@ -47,6 +62,7 @@ php scripts/cron/purge_sessions.php
 php scripts/cron/purge_audit_logs.php
 php scripts/cron/purge_login_attempts.php
 php scripts/cron/purge_deleted_clients.php
+php scripts/cron/reindex_help_chunks.php --dry    # then, without --dry, once the embedding provider is configured
 ```
 
 Every one should exit 0 and print either "no-op" (nothing to do) or
