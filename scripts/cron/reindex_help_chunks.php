@@ -8,10 +8,17 @@
  * For every PUBLISHED article body (help_article_bodies, one row per article
  * per language), decides whether its help_article_chunks are stale — never
  * embedded, edited since, or embedded under a different provider/model — and
- * if so: deletes the old chunk set, re-chunks the body (HelpChunker), embeds
- * each chunk (EmbeddingClient), and inserts the new set. Everything else is
- * left untouched, so a content edit in one article never re-embeds the other
- * few hundred.
+ * if so, hands it to HelpChunkIndexer::reindexArticle() to actually re-chunk
+ * and re-embed it. Everything else is left untouched, so a content edit in
+ * one article never re-embeds the other few hundred.
+ *
+ * NOT THE ONLY WAY A CHUNK SET GETS WRITTEN. api/v1/help_controller.php's
+ * save_article action calls HelpChunkIndexer::reindexArticle() synchronously
+ * right after an edit, so most edits are searchable within the same request
+ * — this nightly sweep is the safety net that catches whatever the
+ * synchronous call missed (provider not configured yet at save time, a
+ * save-time call that failed, a model switched afterwards in the settings
+ * screen), not the only path anymore.
  *
  * NOT CONFIGURED IS NOT AN ERROR. If nobody has filled in the embedding
  * provider from the gear icon yet (migration 098 / AiSettings), this exits 0
@@ -46,6 +53,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/AiSettings.php';
 require_once __DIR__ . '/../../includes/classes/HelpChunker.php';
 require_once __DIR__ . '/../../includes/classes/EmbeddingClient.php';
+require_once __DIR__ . '/../../includes/classes/HelpChunkIndexer.php';
 
 $dry = in_array('--dry', array_slice($argv, 1), true);
 
@@ -114,56 +122,33 @@ try {
     foreach ($toReindex as $b) {
         $label = "article #{$b['article_id']} ({$b['lang']})";
         try {
-            $chunkTexts = HelpChunker::chunk((string) $b['body_md']);
-            if (!$chunkTexts) {
-                fwrite(STDOUT, "  skip {$label}: body produced zero chunks.\n");
-                continue;
-            }
-
             if ($dry) {
+                // Dry run never calls the embedding API or writes — just
+                // report what a real run would chunk.
+                $chunkTexts = HelpChunker::chunk((string) $b['body_md']);
+                if (!$chunkTexts) {
+                    fwrite(STDOUT, "  skip {$label}: body produced zero chunks.\n");
+                    continue;
+                }
                 fwrite(STDOUT, "  would reindex {$label}: " . count($chunkTexts) . " chunk(s).\n");
                 $okArticles++;
                 $okChunks += count($chunkTexts);
                 continue;
             }
 
-            // Embed with the title prefixed for context, but STORE the chunk
-            // text clean — PR2 shows chunk_text to the model/user, and a
-            // title repeated on every one of an article's chunks is noise
-            // there even though it helps the embedding find the right chunk.
-            $forEmbedding = array_map(
-                static fn($c) => trim((string) $b['title']) . "\n\n" . $c,
-                $chunkTexts
+            $n = HelpChunkIndexer::reindexArticle(
+                (int) $b['article_id'], (string) $b['lang'], (string) $b['title'],
+                (string) $b['body_md'], (string) $b['body_updated_at'], $configuredModel
             );
-            $vectors = EmbeddingClient::embedBatch($forEmbedding);
-
-            $db->beginTransaction();
-            $db->prepare("DELETE FROM help_article_chunks WHERE article_id = ? AND lang = ?")
-               ->execute([$b['article_id'], $b['lang']]);
-
-            $ins = $db->prepare(
-                "INSERT INTO help_article_chunks
-                    (article_id, lang, chunk_index, chunk_text, token_count,
-                     embedding_model, embedding_dims, embedding, source_updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-            );
-            foreach ($chunkTexts as $i => $text) {
-                $vec = $vectors[$i]['vector'];
-                $ins->execute([
-                    $b['article_id'], $b['lang'], $i, $text,
-                    (int) ceil(mb_strlen($text) / 4),   // rough token estimate; not billed on, informational only
-                    $configuredModel, $vectors[$i]['dims'],
-                    EmbeddingClient::packVector($vec),
-                    $b['body_updated_at'],
-                ]);
+            if ($n === 0) {
+                fwrite(STDOUT, "  skip {$label}: body produced zero chunks.\n");
+                continue;
             }
-            $db->commit();
 
             $okArticles++;
-            $okChunks += count($chunkTexts);
-            fwrite(STDOUT, "  reindexed {$label}: " . count($chunkTexts) . " chunk(s).\n");
+            $okChunks += $n;
+            fwrite(STDOUT, "  reindexed {$label}: {$n} chunk(s).\n");
         } catch (Throwable $e) {
-            if ($db->inTransaction()) { $db->rollBack(); }
             error_log("reindex_help_chunks: {$label}: " . $e->getMessage());
             fwrite(STDERR, "  FAILED {$label}: {$e->getMessage()}\n");
             $failed[] = $label;

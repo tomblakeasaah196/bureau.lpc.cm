@@ -65,6 +65,31 @@ function chat_fail(string $msg, int $code = 400): void
 }
 
 /**
+ * Resolve every {{go:N}} marker the model placed in its (already
+ * markdown-rendered) answer into a real inline link, or drop it if N isn't a
+ * valid, page-bound source. This is the ONLY place a page_path from
+ * $matches ever becomes an href in the answer body — the marker only ever
+ * carries a bare integer the model wrote, never a URL, so there is nothing
+ * here for the model to hallucinate its way around.
+ *
+ * @param array<int,array{page_path:string}> $matches same array indexing
+ *        used to build the "[Source N: ...]" context (N = index + 1)
+ */
+function chat_resolve_inline_links(string $html, array $matches, bool $en): string
+{
+    $label = $en ? 'Open this page' : 'Ouvrir cette page';
+    return (string) preg_replace_callback('/\{\{go:(\d+)\}\}/', function ($m) use ($matches, $label) {
+        $idx  = ((int) $m[1]) - 1;
+        $page = $matches[$idx]['page_path'] ?? '';
+        if ($page === '') {
+            return '';   // invalid source number or that source has no page — drop silently
+        }
+        return ' <a class="lpc-ai-chat-inline-link" href="' . htmlspecialchars($page, ENT_QUOTES, 'UTF-8')
+             . '" target="_blank" rel="noopener noreferrer">&rarr; ' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</a>';
+    }, $html);
+}
+
+/**
  * Best-effort log — a logging failure must never take down the actual
  * answer the visitor is about to receive.
  *
@@ -95,6 +120,23 @@ function chat_log(string $question, string $lang, string $pagePath, array $match
 }
 
 switch ($action) {
+
+    // Read-only, no CSRF needed (same reasoning as help_controller.php's own
+    // read actions): lets the widget show "N questions left today" BEFORE
+    // the user spends one asking, instead of only finding out they were at
+    // zero after typing a question and hitting the quota_exceeded branch
+    // below. Cheap: one COUNT query, no embedding/DeepSeek call.
+    case 'quota': {
+        $roleId = Rbac::currentRoleId();
+        $cap    = AiRoleLimits::dailyLimitFor($roleId);
+        $used   = $cap === null ? 0 : AiRoleLimits::todayUsageFor((int) ($_SESSION['user_id'] ?? 0));
+        chat_out([
+            'status'    => 'success',
+            'cap'       => $cap,                                    // null = unlimited
+            'used'      => $used,
+            'remaining' => $cap === null ? null : max(0, $cap - $used),
+        ]);
+    }
 
     case 'ask': {
         Csrf::requireValid();
@@ -131,8 +173,8 @@ switch ($action) {
                 'answer_html' => '',
                 'sources'     => [],
                 'message'     => $en
-                    ? "The AI assistant isn't configured yet. Ask an administrator to set it up from the gear icon."
-                    : "L'assistant IA n'est pas encore configuré. Demandez à un administrateur de le configurer depuis l'icône en forme d'engrenage.",
+                    ? "Praxis isn't configured yet. Ask an administrator to set it up from the gear icon."
+                    : "Praxis n'est pas encore configuré. Demandez à un administrateur de le configurer depuis l'icône en forme d'engrenage.",
             ]);
         }
 
@@ -153,9 +195,10 @@ switch ($action) {
                     'quota_exceeded' => true,
                     'answer_html'    => '',
                     'sources'        => [],
+                    'quota'          => ['cap' => $dailyCap, 'used' => $usedToday, 'remaining' => 0],
                     'message'        => $en
-                        ? "You've reached today's limit of {$dailyCap} questions for the assistant. It resets at midnight."
-                        : "Vous avez atteint la limite quotidienne de {$dailyCap} questions pour l'assistant. Elle se réinitialise à minuit.",
+                        ? "You've reached today's limit of {$dailyCap} questions for Praxis. It resets at midnight."
+                        : "Vous avez atteint la limite quotidienne de {$dailyCap} questions pour Praxis. Elle se réinitialise à minuit.",
                 ]);
             }
         }
@@ -169,25 +212,31 @@ switch ($action) {
                 'configured'  => true,
                 'had_match'   => false,
                 'answer_html' => lpc_help_markdown($en
-                    ? "I couldn't find anything in the help centre about that. Try rephrasing, or browse by module below."
-                    : "Je n'ai rien trouvé dans le centre d'aide à ce sujet. Essayez de reformuler, ou parcourez par module ci-dessous."),
+                    ? "I couldn't find anything in the help centre about that — try rephrasing, or browse by module below."
+                    : "Je n'ai rien trouvé dans le centre d'aide à ce sujet — essayez de reformuler, ou parcourez par module ci-dessous."),
                 'sources'     => [],
             ]);
         }
 
-        // Grounding context: each retrieved chunk, labelled. The model is
-        // told to draw only from these and never write a link itself — the
-        // source list the user sees is built from $matches below, not from
-        // anything the model writes.
+        // Grounding context: each retrieved chunk, labelled, and flagged when
+        // it has a real ERP page bound to it (help_articles.page_path). The
+        // model is told to draw only from these and never write a link or
+        // URL itself — it may only ever REFERENCE a page via the {{go:N}}
+        // marker below, whose actual href is resolved server-side from
+        // $matches, never from anything the model writes. This is what makes
+        // an inline "go to this page" link safe to place mid-answer instead
+        // of only in the source list at the bottom: the model picks WHERE to
+        // put a marker, but never WHAT URL it points to.
         $context = '';
         foreach ($matches as $i => $m) {
             $n = $i + 1;
-            $context .= "[Source {$n}: {$m['title']}]\n{$m['chunk_text']}\n\n";
+            $hasPage = $m['page_path'] !== '';
+            $context .= "[Source {$n}: {$m['title']}" . ($hasPage ? ', has a linkable page' : '') . "]\n{$m['chunk_text']}\n\n";
         }
 
         $langName = $en ? 'English' : 'French';
         $system = <<<SYS
-You are the help assistant embedded in the Bureau LPC ERP's help centre. Answer the user's question STRICTLY using the numbered source excerpts below — never use outside knowledge, and never invent a feature, field, button, permission or URL that is not in them.
+You are Praxis, the help assistant embedded in the Bureau LPC ERP's help centre. Answer the user's question STRICTLY using the numbered source excerpts below — never use outside knowledge, and never invent a feature, field, button, permission or URL that is not in them.
 
 Rules:
 - Answer in {$langName}.
@@ -195,7 +244,8 @@ Rules:
 - If the sources only partially cover the question, answer the part they cover and say plainly what they don't.
 - If the sources don't answer the question at all, say so plainly instead of guessing.
 - Do not refer to "Source 1" / "Source 2" by number in your answer — write naturally. The sources are shown to the user separately, underneath your answer.
-- Do not write any links or URLs yourself.
+- Do not write any links or URLs yourself, ever.
+- The ONLY exception: when your answer describes a concrete action or screen documented by a source marked "has a linkable page", insert the marker {{go:N}} (N = that source's number) immediately after the sentence describing it — e.g. "...bascule dans le panier « À facturer ».{{go:2}}". Use it at most once per source, only for sources marked "has a linkable page", and only where it is genuinely useful — not after every sentence.
 
 Sources:
 {$context}
@@ -210,8 +260,8 @@ SYS;
             error_log('help_chat_controller ask: ' . $e->getMessage());
             chat_log($question, $lang, $pagePath, $matches, false, false, null, $e->getMessage());
             chat_fail(
-                $en ? 'The assistant is temporarily unavailable. Try again shortly.'
-                    : "L'assistant est momentanément indisponible. Réessayez dans un instant.",
+                $en ? 'Praxis is temporarily unavailable. Try again shortly.'
+                    : "Praxis est momentanément indisponible. Réessayez dans un instant.",
                 502
             );
         }
@@ -223,22 +273,42 @@ SYS;
         foreach ($matches as $m) {
             if (isset($seen[$m['slug']])) { continue; }
             $seen[$m['slug']] = true;
-            $sources[] = ['title' => $m['title'], 'url' => $m['url'], 'category' => $m['category']];
+            $sources[] = [
+                'title'     => $m['title'],
+                'url'       => $m['url'],
+                'category'  => $m['category'],
+                // The real ERP screen this article documents, if any — lets
+                // the widget offer a direct "go to this page" link next to
+                // the article link, instead of only ever linking to more
+                // reading. Empty string means unbound; the widget treats
+                // that as "no page link", not an error.
+                'page_path' => $m['page_path'],
+            ];
         }
 
         chat_log($question, $lang, $pagePath, $matches, true, true, $answer, '');
+
+        // This question just consumed one quota slot (billable = true above)
+        // — recompute rather than assume $usedToday + 1, so the widget's
+        // indicator reflects the actual row just written, not an inferred
+        // count that could drift if something else changed it concurrently.
+        $usedNow = $dailyCap === null ? 0 : AiRoleLimits::todayUsageFor((int) ($_SESSION['user_id'] ?? 0));
 
         chat_out([
             'status'      => 'success',
             'configured'  => true,
             'had_match'   => true,
+            'quota'       => ['cap' => $dailyCap, 'used' => $usedNow, 'remaining' => $dailyCap === null ? null : max(0, $dailyCap - $usedNow)],
             // Reusing lpc_help_markdown() is deliberate and safe regardless of
             // the answer's origin: it escapes the ENTIRE input first and only
             // then whitelists a small tag set back in — see its own header in
             // includes/functions/help.php. An LLM's freeform text gets exactly
             // the same treatment as an author's Markdown; neither can inject
-            // a raw tag.
-            'answer_html' => lpc_help_markdown($answer),
+            // a raw tag. chat_resolve_inline_links() runs AFTER that escaping,
+            // on the resulting trusted HTML string — it only ever substitutes
+            // a {{go:N}} token for an <a> built from $matches' own page_path,
+            // never from anything the model wrote.
+            'answer_html' => chat_resolve_inline_links(lpc_help_markdown($answer), $matches, $en),
             'sources'     => $sources,
         ]);
     }

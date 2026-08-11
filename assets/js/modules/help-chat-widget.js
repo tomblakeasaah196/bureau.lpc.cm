@@ -29,13 +29,88 @@
     var messages  = document.getElementById('lpc-ai-chat-messages');
     var form      = document.getElementById('lpc-ai-chat-form');
     var input     = document.getElementById('lpc-ai-chat-input');
+    var quotaEl   = document.getElementById('lpc-ai-chat-quota');
     var lang      = panel.getAttribute('data-lang') === 'en' ? 'en' : 'fr';
     var t = {
         thinking:     lang === 'en' ? 'Thinking…'                                  : 'Recherche en cours…',
         networkError: lang === 'en' ? 'Connection failed. Check your network.'     : 'Connexion impossible. Vérifiez votre réseau.',
         sessionDead:  lang === 'en' ? 'Session expired. Reload the page.'          : 'Session expirée. Rechargez la page.',
         sourcesLabel: lang === 'en' ? 'Sources'                                    : 'Sources',
+        goToPage:     lang === 'en' ? 'Go to this page'                           : 'Aller à cette page',
+        quotaLeft:    lang === 'en' ? '{n} of {cap} questions left today'          : "{n} question(s) restantes aujourd'hui sur {cap}",
     };
+
+    // ---------------------------------------------------------- Quota ----
+    // Shows "N of CAP questions left today" in the panel head, so a user
+    // sees the limit BEFORE they run out instead of discovering it via a
+    // quota_exceeded reply. Fetched lazily (only once, on first open — no
+    // reason to spend a request on every page load for a widget the user
+    // may never open) and then kept in sync from each ask() response's own
+    // `quota` field, which is already the freshest possible number since it
+    // reflects the request that just ran.
+    var quotaFetched = false;
+
+    function renderQuota(q) {
+        if (!quotaEl || !q || q.cap === null || q.cap === undefined) {
+            // Unlimited role (cap === null) or no data yet — nothing to show.
+            if (quotaEl) quotaEl.hidden = true;
+            return;
+        }
+        var remaining = q.remaining;
+        quotaEl.textContent = t.quotaLeft.replace('{n}', remaining).replace('{cap}', q.cap);
+        quotaEl.classList.toggle('lpc-ai-chat-quota--low', q.cap > 0 && remaining <= Math.ceil(q.cap * 0.2));
+        quotaEl.hidden = false;
+    }
+
+    function fetchQuota() {
+        if (quotaFetched) return;
+        quotaFetched = true;
+        var c  = csrf();
+        var fd = new FormData();
+        fd.append('action', 'quota');
+        if (c.token) fd.append(c.field || '_csrf', c.token);
+        fetch(ENDPOINT, { method: 'POST', body: fd, credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (json) { if (json && json.status === 'success') renderQuota(json); })
+            .catch(function () { /* silent — the indicator just stays hidden */ });
+    }
+
+    // ------------------------------------------------------- Transcript ----
+    // Persisted to sessionStorage (this browser tab only, cleared when it's
+    // closed — not localStorage, which would leak one user's chat into
+    // whoever's session opens the ERP in that browser next). Purpose: a
+    // question's answer often links the user AWAY to the actual ERP page
+    // (see the page_path source link below) — when they come back to the
+    // help centre, the conversation should still be there instead of
+    // resetting to the empty greeting every time they navigate.
+    var HISTORY_KEY  = 'lpc_ai_chat_history_v1';
+    var HISTORY_CAP  = 40;   // ~20 exchanges; bounds storage size, not a UX limit
+
+    function loadHistory() {
+        try {
+            var raw = window.sessionStorage.getItem(HISTORY_KEY);
+            var arr = raw ? JSON.parse(raw) : [];
+            return Array.isArray(arr) ? arr : [];
+        } catch (e) {
+            return [];   // storage disabled/full/corrupt — degrade to no persistence
+        }
+    }
+
+    function saveHistory(arr) {
+        try {
+            window.sessionStorage.setItem(HISTORY_KEY, JSON.stringify(arr.slice(-HISTORY_CAP)));
+        } catch (e) {
+            // Quota exceeded or storage disabled — the chat still works this
+            // page load, it just won't survive navigation. Not worth surfacing.
+        }
+    }
+
+    var history = loadHistory();
+
+    function pushHistory(entry) {
+        history.push(entry);
+        saveHistory(history);
+    }
 
     var open = false;
 
@@ -46,6 +121,7 @@
         launcher.classList.toggle('is-open', open);
         if (open) {
             window.setTimeout(function () { input && input.focus(); }, 50);
+            fetchQuota();
         }
     }
 
@@ -133,11 +209,31 @@
                 label.textContent = t.sourcesLabel;
                 srcWrap.appendChild(label);
                 json.sources.forEach(function (s) {
+                    var row = document.createElement('div');
+                    row.className = 'lpc-ai-chat-source-row';
+
                     var a = document.createElement('a');
                     a.href = s.url;
                     a.className = 'lpc-ai-chat-source';
                     a.textContent = s.title;
-                    srcWrap.appendChild(a);
+                    row.appendChild(a);
+
+                    // page_path is only set when the article is bound to an
+                    // actual ERP screen (help_articles.page_path) — most
+                    // useful link in the whole answer when present, since it
+                    // takes the user straight to the feature instead of more
+                    // reading. Absent for purely conceptual articles.
+                    if (s.page_path) {
+                        var p = document.createElement('a');
+                        p.href = s.page_path;
+                        p.target = '_blank';
+                        p.rel = 'noopener noreferrer';
+                        p.className = 'lpc-ai-chat-source lpc-ai-chat-source--page';
+                        p.textContent = '→ ' + t.goToPage;
+                        row.appendChild(p);
+                    }
+
+                    srcWrap.appendChild(row);
                 });
                 bubble.appendChild(srcWrap);
             }
@@ -173,6 +269,13 @@
 
         ask(question).then(function (json) {
             renderBotAnswer(placeholder, json);
+            if (json.quota) { quotaFetched = true; renderQuota(json.quota); }
+            // Persist AFTER the outcome is known, and as a matched pair —
+            // never a saved question with no saved answer, even if the tab
+            // is closed mid-request (nothing gets pushed in that case, which
+            // is correct: there's nothing complete to restore).
+            pushHistory({ role: 'user', text: question });
+            pushHistory({ role: 'bot', json: json });
             sending = false;
             input.disabled = false;
             input.focus();
@@ -193,4 +296,23 @@
         input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     }
     input.addEventListener('input', autoResize);
+
+    // --------------------------------------------------------- Hydration ----
+    // Replay any conversation saved earlier in this tab's session, on top of
+    // the static greeting bubble already in the markup — so a user who
+    // followed a "go to this page" link away and came back (or just
+    // navigated to another help centre page) finds their chat as they left
+    // it instead of starting over. Synchronous, no network calls: every
+    // saved bot entry is the exact JSON api/v1/help_chat_controller.php
+    // returned the first time, replayed through the same renderBotAnswer()
+    // used for a live answer.
+    (function hydrate() {
+        history.forEach(function (entry) {
+            if (entry.role === 'user' && typeof entry.text === 'string') {
+                addUserMessage(entry.text);
+            } else if (entry.role === 'bot' && entry.json) {
+                renderBotAnswer(addBotPlaceholder(''), entry.json);
+            }
+        });
+    })();
 })();

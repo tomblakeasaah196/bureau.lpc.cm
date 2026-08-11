@@ -36,8 +36,8 @@ $en   = $lang === 'en';
 $settings   = AiSettings::getMasked();
 $roleLimits = AiRoleLimits::allWithRoles();
 
-$pageTitle    = $en ? 'AI assistant settings' : "Paramètres de l'assistant IA";
-$pageSubtitle = $en ? 'Help centre · configuration' : "Centre d'aide · configuration";
+$pageTitle    = $en ? 'Praxis settings' : 'Paramètres de Praxis';
+$pageSubtitle = $en ? 'Help centre AI assistant · configuration' : "Assistant IA du centre d'aide · configuration";
 ?>
 <!DOCTYPE html>
 <html lang="<?= $lang ?>">
@@ -188,8 +188,8 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
             <h2 class="text-base font-black text-gray-900 mb-1"><?= $en ? 'Daily usage limits' : "Limites d'utilisation quotidienne" ?></h2>
             <p class="text-[12px] text-gray-500 mb-4 max-w-2xl">
                 <?= $en
-                    ? 'How many questions each role may ask the assistant per calendar day. Only questions that get an actual answer count — a "nothing found" reply is free. Leave a field blank for unlimited.'
-                    : "Combien de questions chaque rôle peut poser à l'assistant par jour civil. Seules les questions ayant obtenu une réponse comptent — une réponse « rien trouvé » est gratuite. Laisser un champ vide pour illimité." ?>
+                    ? 'How many questions each role may ask Praxis per calendar day. Only questions that get an actual answer count — a "nothing found" reply is free. Leave a field blank for unlimited.'
+                    : "Combien de questions chaque rôle peut poser à Praxis par jour civil. Seules les questions ayant obtenu une réponse comptent — une réponse « rien trouvé » est gratuite. Laisser un champ vide pour illimité." ?>
             </p>
 
             <div id="ai-role-limits-banner" class="hidden mb-4 rounded-xl px-4 py-3 text-sm font-bold"></div>

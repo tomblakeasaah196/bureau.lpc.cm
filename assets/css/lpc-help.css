@@ -740,6 +740,14 @@
     color: var(--lpc-accent-on-dark, #8CC63F);
 }
 .lpc-ai-chat-title { margin: .2rem 0 0; font-size: 1rem; font-weight: 800; }
+.lpc-ai-chat-quota {
+    margin: .3rem 0 0;
+    font-size: .688rem;
+    font-weight: 700;
+    color: var(--lpc-chrome-mute, rgba(255,255,255,.55));
+}
+/* Close to the cap — worth a visual nudge before it hits zero. */
+.lpc-ai-chat-quota--low { color: var(--lpc-warn-on-dark, #FFC15E); }
 .lpc-ai-chat-close {
     flex: none;
     width: 28px; height: 28px;
@@ -826,6 +834,12 @@
     text-transform: uppercase;
     color: var(--lpc-ink-mute, #98A2B3);
 }
+.lpc-ai-chat-source-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: .6rem;
+}
 .lpc-ai-chat-source {
     font-size: .75rem;
     font-weight: 700;
@@ -833,6 +847,27 @@
     text-decoration: none;
 }
 .lpc-ai-chat-source:hover { text-decoration: underline; }
+/* The direct "go to this page" link — visually distinct from the article
+   link since it's the more actionable of the two when both are present. */
+.lpc-ai-chat-source--page {
+    color: var(--lpc-ink, #1D2939);
+    font-weight: 800;
+}
+/* Inline "go to this page" link the server splices into the answer body
+   itself (see chat_resolve_inline_links() in help_chat_controller.php) —
+   right next to the sentence that mentions the feature, not just in the
+   source list at the bottom. Slightly smaller/lighter than body text so it
+   reads as a UI affordance, not part of the assistant's own sentence. */
+.lpc-ai-chat-inline-link {
+    display: inline-block;
+    margin-left: .15rem;
+    font-size: .8em;
+    font-weight: 800;
+    color: var(--lpc-accent-on-light, #005A2B);
+    text-decoration: none;
+    white-space: nowrap;
+}
+.lpc-ai-chat-inline-link:hover { text-decoration: underline; }
 
 .lpc-ai-chat-form {
     flex: none;

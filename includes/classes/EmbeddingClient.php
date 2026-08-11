@@ -8,12 +8,14 @@
  * (base URL, model, key) comes from AiSettings — the gear icon, not .env —
  * so switching providers is a settings-screen edit. See migration 098.
  *
- * ONLY CALLED FROM THE REINDEX CRON JOB (scripts/cron/reindex_help_chunks.php).
- * Never on a request path: embedding an article happens once per edit, at
- * most nightly, not per visitor question. The chat endpoint (PR2) embeds the
- * user's QUESTION at ask-time — a single short string, one call — which is
- * cheap enough to happen inline there; bulk article embedding is not, hence
- * this class's batching.
+ * CALLED FROM: the nightly reindex cron (scripts/cron/reindex_help_chunks.php,
+ * a full sweep), AND synchronously from api/v1/help_controller.php's
+ * save_article/toggle actions via HelpChunkIndexer (one article at a time,
+ * right after an edit or a publish — best-effort, wrapped in try/catch by
+ * the caller so a slow provider never blocks saving). Either way this is
+ * bounded: at most a handful of chunks for one article, never the whole
+ * corpus on a request path. The chat endpoint (PR2) embeds the user's
+ * QUESTION at ask-time separately — a single short string, one call.
  *
  * cURL, same idiom as SignerOtp::sendTwilio() — no vendor HTTP client dep.
  * -----------------------------------------------------------------------------

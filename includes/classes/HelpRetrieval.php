@@ -55,7 +55,7 @@ final class HelpRetrieval
     private const MIN_SIMILARITY  = 0.15;
 
     /**
-     * @return array<int,array{article_id:int,slug:string,title:string,category:string,chunk_text:string,url:string,similarity:float}>
+     * @return array<int,array{article_id:int,slug:string,title:string,category:string,chunk_text:string,url:string,page_path:string,similarity:float}>
      */
     public static function search(string $question, ?string $lang = null): array
     {
@@ -79,7 +79,7 @@ final class HelpRetrieval
             $db = Database::getInstance()->getConnection();
             $stmt = $db->prepare(
                 "SELECT c.article_id, c.chunk_text, c.embedding, c.embedding_dims,
-                        a.slug, a.required_permission,
+                        a.slug, a.required_permission, a.page_path,
                         COALESCE(b.title, bfr.title) AS title,
                         cat.title_fr AS cat_title_fr, cat.title_en AS cat_title_en
                    FROM help_article_chunks c
@@ -123,6 +123,14 @@ final class HelpRetrieval
                 'category'   => ($lang === 'en' && $r['cat_title_en'] !== '') ? $r['cat_title_en'] : $r['cat_title_fr'],
                 'chunk_text' => (string) $r['chunk_text'],
                 'url'        => '/modules/help/article.php?slug=' . rawurlencode($r['slug']) . '&lang=' . rawurlencode($lang),
+                // The actual ERP screen this article documents, if bound to
+                // one (help_articles.page_path, set from the article editor
+                // — same field modules/help/article.php's own "go to this
+                // page" button already uses). Empty string, not null, when
+                // unbound — matches how every other string field here is
+                // shaped, and keeps chat_controller/widget from needing a
+                // separate null-check.
+                'page_path'  => (string) $r['page_path'],
                 'similarity' => $sim,
             ];
         }
