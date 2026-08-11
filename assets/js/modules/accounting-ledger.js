@@ -26,9 +26,13 @@
 
         const fmt = (num) => LPC.fmt.int(num || 0);
 
+        // Deep-link support: /modules/accounting/ledger.php#grandlivre
+        const LEDGER_VALID_TABS = ['balance', 'tiers', 'grandlivre'];
+
         window.onload = async () => {
             await populateYearFilter();
-            switchTab('balance');
+            const hash = (window.location.hash || '').replace('#', '');
+            switchTab(LEDGER_VALID_TABS.includes(hash) ? hash : 'balance');
         };
 
         function refreshAllTabs() { fetchTabData(currentTab); }

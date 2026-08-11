@@ -17,7 +17,14 @@
         
         const fmt = (num) => LPC.fmt.int(num || 0);
 
-        window.onload = () => { fetchFinancials(); };
+        // Deep-link support: /modules/accounting/reports.php#tft
+        const REPORTS_VALID_TABS = ['bilan', 'resultat', 'tft', 'notes', 'cloture', 'dashboard'];
+
+        window.onload = () => {
+            fetchFinancials();
+            const hash = (window.location.hash || '').replace('#', '');
+            if (REPORTS_VALID_TABS.includes(hash) && hash !== currentTab) switchTab(hash);
+        };
 
         function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
         function closeModal(id) { document.getElementById(id).classList.add('hidden'); }

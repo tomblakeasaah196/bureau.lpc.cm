@@ -34,12 +34,16 @@ const CSRF_TOKEN = window.PAGE_DATA.v1;
 
 const fmt = (num) => LPC.fmt.int(Math.round(Number(num) || 0));
 
+// Deep-link support: /modules/accounting/fixed_assets.php#register
+const FA_VALID_TABS = ['queue', 'register', 'dotations'];
+
 window.onload = () => {
     document.getElementById('dotation_month').value = new Date().toISOString().slice(0, 7);
     document.getElementById('cap_date').valueAsDate = new Date();
     document.getElementById('cap_service_start').valueAsDate = new Date();
     document.getElementById('ces_date').valueAsDate = new Date();
-    switchTab('queue');
+    const hash = (window.location.hash || '').replace('#', '');
+    switchTab(FA_VALID_TABS.includes(hash) ? hash : 'queue');
 };
 
 async function jsonPost(payload) {

@@ -846,7 +846,7 @@ html.lpc-collapsed #lpc-topbar { left: var(--lpc-sidebar-w-collapsed); }
     display: flex;
     align-items: flex-start;
     justify-content: center;
-    padding: 12vh 1rem 1rem;
+    padding: 8vh 1rem 1rem;
     background: rgba(2, 18, 10, .55);
     backdrop-filter: blur(4px);
     animation: lpcPaletteIn .12s ease-out;
@@ -855,8 +855,11 @@ html.lpc-collapsed #lpc-topbar { left: var(--lpc-sidebar-w-collapsed); }
 
 .lpc-palette-panel {
     width: 100%;
-    max-width: 640px;
-    max-height: 70vh;
+    /* Widened from 640/70vh (Sprint 7G) — the index now also carries in-page
+       tabs alongside Pages/Actions/Help, so more rows need to be scannable
+       without scrolling on the very first keystroke. */
+    max-width: 760px;
+    max-height: 78vh;
     display: flex;
     flex-direction: column;
     background: var(--lpc-surface);

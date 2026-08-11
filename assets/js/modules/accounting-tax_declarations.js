@@ -585,6 +585,12 @@ async function loadSettings() {
 
 document.addEventListener('DOMContentLoaded', () => {
     loadDashboard();
+
+    // Deep-link support: /modules/accounting/tax_declarations.php#withholding
+    const TAX_VALID_TABS = ['dashboard', 'monthly', 'withholding', 'settings'];
+    const hash = (window.location.hash || '').replace('#', '');
+    if (TAX_VALID_TABS.includes(hash) && hash !== 'dashboard') switchTab(hash);
+
     const ysel = document.getElementById('tax-year');
     if (ysel) ysel.addEventListener('change', () => {
         // Reload whatever tab is active.

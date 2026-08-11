@@ -23,7 +23,13 @@
 
         const fmt = (num) => LPC.fmt.int(num || 0);
 
-        window.onload = () => { switchTab('wallets'); };
+        // Deep-link support: /modules/accounting/cashflow.php#reconciliation
+        const CASHFLOW_VALID_TABS = ['wallets', 'tournee', 'operations', 'reconciliation'];
+
+        window.onload = () => {
+            const hash = (window.location.hash || '').replace('#', '');
+            switchTab(CASHFLOW_VALID_TABS.includes(hash) ? hash : 'wallets');
+        };
 
         function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
         function closeModal(id) { document.getElementById(id).classList.add('hidden'); }

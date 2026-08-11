@@ -578,7 +578,7 @@ require __DIR__ . '/../../includes/components/topbar.php';
                         <button type="button" class="err-copy-btn"
                                 title="Copier cette erreur (partageable avec un LLM)"
                                 aria-label="Copier cette erreur"
-                                onclick="event.preventDefault();event.stopPropagation();">
+                                onclick="event.preventDefault();">
                             📋 <span class="err-copy-label">Copier</span>
                         </button>
                         <button type="button" onclick="event.preventDefault();event.stopPropagation();this.closest('.err-item').remove();window.__lpcErrMon&&window.__lpcErrMon.refresh();"

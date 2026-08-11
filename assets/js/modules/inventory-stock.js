@@ -18,6 +18,10 @@
         // from, so the operator never has to re-navigate to find the PO again.
         let deepLinkPoId = null;
 
+        // Deep-link support: /modules/inventory/stock.php#movements
+        // (receive_po takes priority — it targets one specific PO, not just a tab)
+        const STOCK_VALID_TABS = ['stock', 'receptions', 'movements', 'audit'];
+
         window.onload = () => {
             const params = new URLSearchParams(window.location.search);
             const receivePo = parseInt(params.get('receive_po'), 10);
@@ -25,7 +29,8 @@
                 deepLinkPoId = receivePo;
                 switchTab('receptions').then(() => openReceptionForOrder(receivePo));
             } else {
-                switchTab('stock');
+                const hash = (window.location.hash || '').replace('#', '');
+                switchTab(STOCK_VALID_TABS.includes(hash) ? hash : 'stock');
             }
         };
 

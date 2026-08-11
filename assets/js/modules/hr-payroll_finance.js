@@ -23,9 +23,13 @@
 
         const fmt = (num) => LPC.fmt.int(Math.round(Number(num) || 0));
 
+        // Deep-link support: /modules/hr/payroll_finance.php#payroll
+        const PAYROLL_VALID_TABS = ['advances', 'contracts', 'payroll'];
+
         window.onload = () => {
             document.getElementById('payroll_period').value = new Date().toISOString().slice(0, 7);
-            switchTab('advances');
+            const hash = (window.location.hash || '').replace('#', '');
+            switchTab(PAYROLL_VALID_TABS.includes(hash) ? hash : 'advances');
         };
 
         async function jsonPost(payload) {

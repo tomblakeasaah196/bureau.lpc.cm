@@ -46,10 +46,14 @@
         }
 
         /** Initialization Hook */
+        // Deep-link support: /modules/fleet/vehicles.php#maintenance
+        const VEHICLES_VALID_TABS = ['dashboard', 'flotte', 'affectations', 'maintenance', 'carburant'];
+
         window.onload = () => {
             document.getElementById('assign_date').valueAsDate = new Date(); // Default to today
             fetchDriversList(); // Pre-cache operations/driver users
-            switchTab('dashboard');
+            const hash = (window.location.hash || '').replace('#', '');
+            switchTab(VEHICLES_VALID_TABS.includes(hash) ? hash : 'dashboard');
             document.getElementById('maint_type').addEventListener('change', function() {
         const expiryDiv = document.getElementById('expiry_update_div');
         if (['insurance', 'routine'].includes(this.value)) {

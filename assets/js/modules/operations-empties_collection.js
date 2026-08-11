@@ -86,6 +86,11 @@
         if (window.LPC && LPC.deeplink && LPC.deeplink.hasFilter()) {
             arriveFromDeeplink();
         }
+
+        // Deep-link support: /modules/operations/empties_collection.php#recycling
+        var EMPTIES_VALID_TABS = ['owed', 'new', 'recycling', 'revenue'];
+        var hash = (window.location.hash || '').replace('#', '');
+        if (EMPTIES_VALID_TABS.includes(hash) && hash !== currentTab) switchTab(hash);
     });
 
     // ---------------------------------------------------------------------

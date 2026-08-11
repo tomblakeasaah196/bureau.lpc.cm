@@ -731,6 +731,11 @@
         ['#dash_month','#dash_year'].forEach(sel => $(sel).addEventListener('change', loadDashboard));
 
         loadDashboard();
+
+        // Deep-link support: /modules/accounting/expenses.php#recurring
+        const EXP_VALID_TABS = ['dashboard', 'list', 'recurring', 'categories'];
+        const hash = (window.location.hash || '').replace('#', '');
+        if (EXP_VALID_TABS.includes(hash) && hash !== 'dashboard') window.switchExpenseTab(hash);
     });
 
 })();

@@ -45,6 +45,132 @@ foreach (lpc_nav_sections($lang) as $__section) {
 }
 
 // -----------------------------------------------------------------------------
+// 1b. Tabs — in-page views inside the module pages that have more than one.
+//
+// Each page resolves a #hash into its already-existing switchTab() on load
+// (see e.g. assets/js/modules/accounting-ledger.js) — this list only has to
+// point at the right anchor, it does not teach the page anything new.
+//
+// The tab a page opens on BY DEFAULT is deliberately left out: the Pages
+// entry above already lands there, and listing it again would just be the
+// same destination twice under two labels. Every OTHER tab gets its own
+// line, gated by the parent page's permission — plus its own permission
+// where a tab is hidden further still (Dépenses → Récurrentes, Emballages →
+// Revenus Recyclage), so the palette never offers a click that 404s.
+// -----------------------------------------------------------------------------
+$__tabIcon = 'M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.002 5.25h.006v.006H3.752v-.006Zm-.002 5.25h.007v.007H3.75v-.007Z';
+
+$__tabPages = [
+    ['perm' => 'accounting.ledger.view', 'href' => '/modules/accounting/ledger.php',
+     'fr' => 'Grand Livre', 'en' => 'Ledger', 'tabs' => [
+        ['id' => 'tiers',      'fr' => 'Balance des Tiers (401/411)', 'en' => 'Trial Balance — Third Parties (401/411)'],
+        ['id' => 'grandlivre', 'fr' => 'Grand Livre & Lettrage',      'en' => 'General Ledger & Reconciliation'],
+    ]],
+    ['perm' => 'accounting.journal.view', 'href' => '/modules/accounting/journal_entry.php',
+     'fr' => 'Écritures', 'en' => 'Journal Entries', 'tabs' => [
+        ['id' => 'wizard', 'fr' => 'Saisie Manuelle (Assistant)', 'en' => 'Manual Entry (Wizard)'],
+        ['id' => 'chart',  'fr' => 'Plan Comptable LPC',          'en' => 'Chart of Accounts'],
+    ]],
+    ['perm' => 'inventory.stock.view', 'href' => '/modules/inventory/stock.php',
+     'fr' => 'État du Stock', 'en' => 'Stock', 'tabs' => [
+        ['id' => 'receptions', 'fr' => 'Réceptions Fournisseurs',      'en' => 'Supplier Receptions'],
+        ['id' => 'movements',  'fr' => 'Historique (Entrées/Sorties)', 'en' => 'Movement History'],
+        ['id' => 'audit',      'fr' => 'Inventaire',                   'en' => 'Stock Audit'],
+    ]],
+    ['perm' => 'fleet.vehicles.view', 'href' => '/modules/fleet/vehicles.php',
+     'fr' => 'Véhicules', 'en' => 'Vehicles', 'tabs' => [
+        ['id' => 'flotte',       'fr' => 'Parc Automobile',           'en' => 'Vehicle Fleet'],
+        ['id' => 'affectations', 'fr' => 'Affectations (Journalier)', 'en' => 'Daily Assignments'],
+        ['id' => 'maintenance',  'fr' => 'Maintenance & Documents',   'en' => 'Maintenance & Documents'],
+        ['id' => 'carburant',    'fr' => 'Suivi Carburant',           'en' => 'Fuel Tracking'],
+    ]],
+    ['perm' => 'accounting.reports.view', 'href' => '/modules/accounting/reports.php',
+     'fr' => 'États Financiers', 'en' => 'Financial Statements (SYSCOHADA)', 'tabs' => [
+        ['id' => 'resultat',  'fr' => 'Compte de Résultat (SIG)', 'en' => 'Income Statement (SIG)'],
+        ['id' => 'tft',       'fr' => 'Flux de Trésorerie (TFT)', 'en' => 'Cash Flow Statement (TFT)'],
+        ['id' => 'notes',     'fr' => 'Notes Annexes',            'en' => 'Notes to Financial Statements'],
+        ['id' => 'cloture',   'fr' => 'Assistant Clôture',        'en' => 'Closing Assistant'],
+        ['id' => 'dashboard', 'fr' => 'Vue Dirigeant',            'en' => 'Executive View'],
+    ]],
+    ['perm' => 'hr.payroll.view', 'href' => '/modules/hr/payroll_finance.php',
+     'fr' => 'Paie & Contrats', 'en' => 'Payroll & Contracts', 'tabs' => [
+        ['id' => 'contracts', 'fr' => 'Employés & Contrats',   'en' => 'Employees & Contracts'],
+        ['id' => 'payroll',   'fr' => 'Génération de la Paie', 'en' => 'Payroll Generation'],
+    ]],
+    ['perm' => 'operations.empties.view', 'href' => '/modules/operations/empties_collection.php',
+     'fr' => 'Emballages & Recyclage', 'en' => 'Empties & Recycling', 'tabs' => [
+        ['id' => 'new',       'fr' => 'Collecter',         'en' => 'Collect'],
+        ['id' => 'recycling', 'fr' => 'Vente Recyclage',   'en' => 'Recycling Sale'],
+        ['id' => 'revenue',   'fr' => 'Revenus Recyclage', 'en' => 'Recycling Revenue', 'perm' => 'operations.recycling.view'],
+    ]],
+    ['perm' => 'accounting.invoices.view', 'href' => '/modules/accounting/tax_declarations.php',
+     'fr' => 'Déclarations Fiscales', 'en' => 'Tax Declarations', 'tabs' => [
+        ['id' => 'monthly',     'fr' => 'Déclarations Mensuelles', 'en' => 'Monthly Filings'],
+        ['id' => 'withholding', 'fr' => 'Retenues à la Source',    'en' => 'Withholding Tax'],
+        ['id' => 'settings',    'fr' => 'Paramètres',              'en' => 'Settings'],
+    ]],
+    ['perm' => 'accounting.fixed_assets.view', 'href' => '/modules/accounting/fixed_assets.php',
+     'fr' => 'Immobilisations', 'en' => 'Fixed Assets', 'tabs' => [
+        ['id' => 'register',  'fr' => 'Registre des Actifs',  'en' => 'Asset Register'],
+        ['id' => 'dotations', 'fr' => 'Dotations Mensuelles', 'en' => 'Monthly Depreciation'],
+    ]],
+    ['perm' => 'accounting.cashflow.view', 'href' => '/modules/accounting/cashflow.php',
+     'fr' => 'Trésorerie', 'en' => 'Cashflow', 'tabs' => [
+        ['id' => 'tournee',        'fr' => 'Retour de Tournée',       'en' => 'Route Return'],
+        ['id' => 'operations',     'fr' => 'Opérations & Transferts', 'en' => 'Operations & Transfers'],
+        ['id' => 'reconciliation', 'fr' => 'Rapprochement Bancaire',  'en' => 'Bank Reconciliation'],
+    ]],
+    ['perm' => 'accounting.expenses.view', 'href' => '/modules/accounting/expenses.php',
+     'fr' => 'Dépenses', 'en' => 'Expenses', 'tabs' => [
+        ['id' => 'list',       'fr' => 'Dépenses',           'en' => 'Expenses'],
+        ['id' => 'recurring',  'fr' => 'Récurrentes',        'en' => 'Recurring',        'perm' => 'accounting.expenses.recurring.manage'],
+        ['id' => 'categories', 'fr' => 'Catégories & OHADA', 'en' => 'Categories & OHADA', 'perm' => 'accounting.expenses.categories.manage'],
+    ]],
+    ['perm' => 'accounting.invoices.view', 'href' => '/modules/accounting/invoices.php',
+     'fr' => 'Factures & Paiements', 'en' => 'Invoices & Payments', 'tabs' => [
+        ['id' => 'to_invoice',        'fr' => 'BL Non Facturés',      'en' => 'Unbilled Delivery Notes'],
+        ['id' => 'invoices_payments', 'fr' => 'Factures & Caisse',    'en' => 'Invoices & Cash Register'],
+        ['id' => 'wallets',           'fr' => 'Trop Perçus (Avoirs)', 'en' => 'Credit Balances (Avoirs)'],
+    ]],
+    ['perm' => 'sales.orders.view', 'href' => '/modules/sales/orders.php',
+     'fr' => 'Commandes & Dispatch', 'en' => 'Orders & Dispatch', 'tabs' => [
+        ['id' => 'dispatch', 'fr' => 'Dispatch & BL', 'en' => 'Dispatch & Delivery Notes'],
+    ]],
+    ['perm' => 'accounting.budgets.view', 'href' => '/modules/accounting/budgets.php',
+     'fr' => 'Budgets', 'en' => 'Budgets', 'tabs' => [
+        ['id' => 'targets', 'fr' => 'Objectifs', 'en' => 'Targets'],
+        ['id' => 'alerts',  'fr' => 'Alertes',   'en' => 'Alerts'],
+    ]],
+    // Settings reads ?tab=, not a hash (see modules/settings/index.php) — 'sep'
+    // overrides the default anchor separator below. 'roles' and 'company' are
+    // NOT listed here: they already have their own catalogue entries in nav.php
+    // (admin_roles, admin_company) with their own labels and permissions, so
+    // repeating them here would just be the same destination twice.
+    ['perm' => 'admin.settings.view', 'href' => '/modules/settings/index.php', 'sep' => '?tab=',
+     'fr' => 'Paramètres', 'en' => 'Settings', 'tabs' => [
+        ['id' => 'preferences', 'fr' => 'Préférences',    'en' => 'Preferences'],
+        ['id' => 'sessions',    'fr' => 'Sessions',       'en' => 'Sessions'],
+        ['id' => 'audits',      'fr' => "Logs d'Audit",   'en' => 'Audit Logs'],
+    ]],
+];
+
+foreach ($__tabPages as $__pg) {
+    if (!Rbac::hasPermission($__pg['perm'])) continue;   // can't reach the page at all
+    $__sep = $__pg['sep'] ?? '#';
+    foreach ($__pg['tabs'] as $__t) {
+        if (isset($__t['perm']) && !Rbac::hasPermission($__t['perm'])) continue;
+        $__index[] = [
+            'g' => 'Pages',
+            'l' => $en ? $__t['en'] : $__t['fr'],
+            'h' => $en ? $__pg['en'] : $__pg['fr'],
+            'u' => $__pg['href'] . $__sep . $__t['id'],
+            'i' => $__tabIcon,
+            'm' => '',
+        ];
+    }
+}
+
+// -----------------------------------------------------------------------------
 // 2. Actions — the same set the quick-create menu offers, plus a few common
 //    jumps. Each carries the permission that gates its destination page.
 // -----------------------------------------------------------------------------
@@ -53,7 +179,10 @@ $__actions = [
     ['perm' => 'accounting.invoices.view', 'fr' => 'Nouvelle facture',   'en' => 'New invoice',   'u' => '/modules/accounting/invoices.php?new=1'],
     ['perm' => 'crm.clients.view',         'fr' => 'Nouveau client',     'en' => 'New client',    'u' => '/modules/crm/clients.php?new=1'],
     ['perm' => 'sales.orders.view',        'fr' => 'Nouvelle commande',  'en' => 'New order',     'u' => '/modules/sales/orders.php?new=1'],
-    ['perm' => 'accounting.journal.view',  'fr' => 'Nouvelle écriture',  'en' => 'New journal entry', 'u' => '/modules/accounting/journal_entry.php?tab=wizard'],
+    // Was ?tab=wizard — journal_entry.php never read that param, so this quietly
+    // always landed on the default "queue" tab. Fixed now that #wizard works
+    // (see accounting-journal_entry.js).
+    ['perm' => 'accounting.journal.view',  'fr' => 'Nouvelle écriture',  'en' => 'New journal entry', 'u' => '/modules/accounting/journal_entry.php#wizard'],
     ['perm' => 'inventory.procurement.view', 'fr' => 'Nouvelle commande fournisseur', 'en' => 'New purchase order', 'u' => '/modules/inventory/procurement.php?new=1'],
 ];
 foreach ($__actions as $__a) {
@@ -172,5 +301,5 @@ $__paletteStrings = [
 // including page's variable — that is exactly what broke
 // modules/notifications/index.php after the topbar was rendered.
 unset($__index, $__section, $__item, $__actions, $__a, $__plusIcon, $__paletteStrings, $__sectionLabel,
-      $__helpIcon, $__helpGroup, $__ha);
+      $__helpIcon, $__helpGroup, $__ha, $__tabIcon, $__tabPages, $__pg, $__t, $__sep);
 ?>

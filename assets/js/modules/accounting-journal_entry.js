@@ -25,11 +25,15 @@
             return { cls: 'bg-rose-50 text-rose-700 ring-1 ring-rose-200', label: score + ' %', title: 'Revue manuelle nécessaire' };
         }
 
-        window.onload = () => { 
+        // Deep-link support: /modules/accounting/journal_entry.php#wizard
+        const JE_VALID_TABS = ['queue', 'wizard', 'chart'];
+
+        window.onload = () => {
             // Initialize Wizard with 2 empty lines
             document.getElementById('wiz_date').valueAsDate = new Date();
             resetWizard();
-            switchTab('queue'); 
+            const hash = (window.location.hash || '').replace('#', '');
+            switchTab(JE_VALID_TABS.includes(hash) ? hash : 'queue');
         };
 
         function openModal(id) { document.getElementById(id).classList.remove('hidden'); }

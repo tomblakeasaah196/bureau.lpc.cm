@@ -157,13 +157,18 @@ switch ($action) {
 
         // Shared hosting's default max_execution_time (commonly 30s) is
         // tighter than an embedding call + a DeepSeek chat completion can
-        // reliably finish inside — see DeepSeekClient::TIMEOUT_S /
-        // EmbeddingClient::TIMEOUT_S for the budget this leaves headroom for.
+        // reliably finish inside. Worst-case budget with DeepSeekClient's
+        // retry (Sprint 7H follow-up — see that class's header): up to 2
+        // attempts x 25s + a 0.5s pause between them = ~50.5s, plus up to 15s
+        // for the embedding call (EmbeddingClient::TIMEOUT_S), plus PHP's own
+        // overhead. 75s leaves a real margin instead of racing the ceiling —
+        // this host has already been observed serving successful answers
+        // that took close to the old 60s limit, so it clearly tolerates this.
         // A clean "provider timed out" JSON error beats PHP hard-killing the
         // request mid-response with no output at all. @-silenced because some
         // hosts disable this ini setting entirely; that's fine, it just means
         // the host's own (longer, presumably) limit applies instead.
-        @set_time_limit(60);
+        @set_time_limit(75);
 
         if (!AiSettings::isDeepSeekConfigured() || !AiSettings::isEmbeddingConfigured()) {
             chat_out([
