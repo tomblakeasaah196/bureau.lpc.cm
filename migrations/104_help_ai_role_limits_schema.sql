@@ -35,12 +35,19 @@
 SET NAMES utf8mb4;
 START TRANSACTION;
 
+-- role_id is plain signed INT(11), NOT INT UNSIGNED, to exactly match
+-- roles.id — this app's pre-migration legacy tables (roles, users, ...)
+-- predate the INT UNSIGNED convention later migrations use for new tables.
+-- MySQL requires an FK's column and its referenced column to match type AND
+-- signedness exactly; mismatching this is exactly what errno 150 ("Foreign
+-- key constraint is incorrectly formed") means. Migration 029's header has
+-- the same lesson learned the same way, against audit_logs.user_id.
 CREATE TABLE IF NOT EXISTS ai_role_limits (
-    role_id      INT UNSIGNED NOT NULL,
+    role_id      INT(11) NOT NULL,
     -- NULL = unlimited.
     daily_limit  INT UNSIGNED NULL,
     updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    updated_by   INT UNSIGNED DEFAULT NULL,
+    updated_by   INT(11) DEFAULT NULL,
     PRIMARY KEY (role_id),
     CONSTRAINT fk_ai_role_limits_role FOREIGN KEY (role_id)
         REFERENCES roles (id) ON DELETE CASCADE
