@@ -19,6 +19,7 @@
  */
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/ClientTrash.php';
+require_once __DIR__ . '/../../includes/functions/notify.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 
@@ -70,6 +71,18 @@ try {
     ]);
 
     $db->commit();
+
+    lpc_notify_permission(
+        $db,
+        'crm.clients.purge',
+        'Client supprimé définitivement',
+        ($_SESSION['user_name'] ?? 'Un opérateur') . " a définitivement supprimé « " . ($before['name'] ?? "#$clientId")
+            . " » (" . ($before['lpc_code'] ?? "#$clientId") . ") de la corbeille. Action irréversible.",
+        '/modules/crm/clients.php',
+        'danger',
+        [(int) $_SESSION['user_id']]
+    );
+
     echo json_encode(['status' => 'success', 'message' => 'Client supprimé définitivement.']);
 } catch (RuntimeException $e) {
     if (isset($db) && $db->inTransaction()) $db->rollBack();

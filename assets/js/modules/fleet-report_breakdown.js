@@ -24,10 +24,18 @@
         };
 
         async function submitBreakdown() {
+            // Sprint 9 fix: this used to send action:'log_maintenance', which
+            // requires 'fleet.vehicles.maintenance' — a permission the driver
+            // role does not hold (only operations/admin do). This page is
+            // gated by 'fleet.breakdown.report' instead (which drivers DO
+            // hold), and now calls the matching backend action — see the
+            // Sprint 9 comment on the 'report_breakdown' handler in
+            // fleet_controller.php for the full story. service_type is still
+            // forced server-side regardless of what's sent here.
             const payload = {
-                action: 'log_maintenance',
+                action: 'report_breakdown',
                 vehicle_id: document.getElementById('maint_vehicle_id').value,
-                service_type: 'repair', // FORCED TYPE
+                service_type: 'repair', // FORCED TYPE (also re-forced server-side)
                 total_cost: document.getElementById('maint_cost').value || 0,
                 description: document.getElementById('maint_desc').value,
                 odometer_at_service: document.getElementById('maint_odo').value,

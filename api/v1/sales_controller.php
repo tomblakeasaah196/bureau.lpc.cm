@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../includes/classes/Paginator.php';   // Sprint 5
 // a price change, never a discount; see the header of that file for why this
 // is centralised rather than reimplemented per call site.
 require_once __DIR__ . '/../../includes/functions/pricing.php';
+require_once __DIR__ . '/../../includes/functions/notify.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 
@@ -175,6 +176,19 @@ if ($action === 'sign_bl' || $action === 'reject_bl') {
             // Push it back to the driver to correct the numbers
             $db->prepare("UPDATE deliveries SET status = 'dispatched', rejection_reason = ? WHERE id = ?")->execute([$reason, $delivery['id']]);
             $db->commit();
+
+            // PUBLIC route — no logged-in actor to exclude, the client did this
+            // from their own device via the token link. Tell the assigned
+            // driver directly (they're the one who has to fix the numbers) and
+            // whoever dispatches so it doesn't sit unnoticed.
+            $rejectMsg = "Le client a refusé les quantités du BL {$delivery['reference']}. Motif : $reason. Le chauffeur doit corriger et redéposer.";
+            if (!empty($delivery['driver_id'])) {
+                lpc_notify_user($db, (int) $delivery['driver_id'], 'BL refusé par le client', $rejectMsg,
+                    '/modules/sales/bl_detail.php?id=' . (int) $delivery['id'], 'warning');
+            }
+            lpc_notify_permission($db, 'sales.orders.dispatch', 'BL refusé par le client', $rejectMsg,
+                '/modules/sales/bl_detail.php?id=' . (int) $delivery['id'], 'warning');
+
             echo json_encode(['status' => 'success', 'message' => 'BL refusé. Le chauffeur doit corriger les quantités.']);
             exit;
         }
@@ -757,6 +771,23 @@ try {
             }
 
             $db->commit();
+
+            // Discount/surcharge past the configured cap only reaches here if
+            // the actor also holds sales.orders.discount_approve — worth
+            // flagging as a warning rather than routine order noise.
+            $overCap = $max_pct > 0 && $subtotal > 0 && (($total_discount / $subtotal) * 100) > $max_pct;
+            lpc_notify_permission(
+                $db,
+                'sales.orders.dispatch',
+                $overCap ? 'Nouvelle commande — remise hors plafond' : 'Nouvelle commande',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " a enregistré la commande $reference — "
+                    . number_format($total_amount, 0, ',', ' ') . " FCFA"
+                    . ($overCap ? ' (remise au-delà du plafond, approuvée).' : '.'),
+                '/modules/sales/order_detail.php?id=' . $so_id,
+                $overCap ? 'warning' : 'info',
+                [$user_id]
+            );
+
             echo json_encode([
                 'status'    => 'success',
                 'message'   => 'Commande enregistrée.',
@@ -958,6 +989,20 @@ try {
             $db->prepare("UPDATE sales_orders SET status = 'dispatched' WHERE id = ?")
                ->execute([$so_id]);
             $db->commit();
+
+            // Own-fleet only — supplier/client_pickup dispatches have no LPC
+            // driver to tell (see the mode normalisation above).
+            if ($driver_id) {
+                lpc_notify_user(
+                    $db,
+                    $driver_id,
+                    'Nouvelle livraison assignée',
+                    "BL $reference vous est assigné (" . count($items) . " ligne(s)).",
+                    '/modules/sales/bl_detail.php?id=' . (int) $delivery_id,
+                    'info'
+                );
+            }
+
             echo json_encode(['status' => 'success', 'token' => $token]);
             break;
 
@@ -1550,6 +1595,17 @@ try {
             ")->execute([$user_id, $reason, $so_id]);
 
             $db->commit();
+
+            lpc_notify_permission(
+                $db,
+                'sales.orders.dispatch',
+                'Commande annulée',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " a annulé la commande {$cur['reference']}. Motif : $reason",
+                '/modules/sales/order_detail.php?id=' . $so_id,
+                'warning',
+                [$user_id]
+            );
+
             echo json_encode(['status' => 'success', 'message' => 'Commande annulée.']);
             break;
 

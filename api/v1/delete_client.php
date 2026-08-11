@@ -20,6 +20,7 @@
  */
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/ClientTrash.php';
+require_once __DIR__ . '/../../includes/functions/notify.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 
@@ -53,6 +54,10 @@ try {
     $db = Database::getInstance()->getConnection();
     $db->beginTransaction();
 
+    $nameStmt = $db->prepare("SELECT name FROM clients WHERE id = ?");
+    $nameStmt->execute([$clientId]);
+    $clientName = (string) ($nameStmt->fetchColumn() ?: "#$clientId");
+
     ClientTrash::softDelete($db, $clientId, $reassignToId, (int) $_SESSION['user_id']);
 
     // Audit trail — belt and braces alongside whatever generic audit_logs
@@ -69,6 +74,17 @@ try {
     ]);
 
     $db->commit();
+
+    lpc_notify_permission(
+        $db,
+        'crm.clients.delete',
+        'Client déplacé vers la corbeille',
+        ($_SESSION['user_name'] ?? 'Un opérateur') . " a déplacé « $clientName » (#$clientId) vers la corbeille — données réaffectées vers le client #$reassignToId.",
+        '/modules/crm/clients.php',
+        'warning',
+        [(int) $_SESSION['user_id']]
+    );
+
     echo json_encode(['status' => 'success', 'message' => 'Client déplacé vers la corbeille.']);
 } catch (RuntimeException $e) {
     // Expected, user-facing validation failure (bad ids, already deleted, etc.)

@@ -22,6 +22,7 @@
  */
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/functions/notify.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -119,8 +120,20 @@ try {
 
             $ins = $db->prepare("INSERT INTO roles (name) VALUES (?)");
             $ins->execute([$name]);
-            audit('CREATE', 'roles', $db->lastInsertId(), "role.name=$name");
-            respond_success(['id' => (int) $db->lastInsertId(), 'name' => $name]);
+            $new_role_id = (int) $db->lastInsertId();
+            audit('CREATE', 'roles', $new_role_id, "role.name=$name");
+
+            lpc_notify_permission(
+                $db,
+                'admin.roles.edit',
+                'Nouveau rôle créé',
+                ($_SESSION['user_name'] ?? 'Un administrateur') . " a créé le rôle « $name » (sans permission pour l'instant).",
+                '/modules/admin/roles.php',
+                'info',
+                [(int) ($_SESSION['user_id'] ?? 0)]
+            );
+
+            respond_success(['id' => $new_role_id, 'name' => $name]);
 
         // ------------------------------------------------------------------
         case 'update_role':
@@ -167,6 +180,17 @@ try {
             $db->prepare("DELETE FROM roles WHERE id = ?")->execute([$id]);
             $db->commit();
             audit('DELETE', 'roles', $id, "role.name=$roleName");
+
+            lpc_notify_permission(
+                $db,
+                'admin.roles.edit',
+                'Rôle supprimé',
+                ($_SESSION['user_name'] ?? 'Un administrateur') . " a supprimé le rôle « $roleName ».",
+                '/modules/admin/roles.php',
+                'warning',
+                [(int) ($_SESSION['user_id'] ?? 0)]
+            );
+
             respond_success(['id' => $id]);
 
         // ------------------------------------------------------------------
@@ -236,6 +260,18 @@ try {
             if (($_SESSION['user_role_id'] ?? 0) === $role_id) {
                 Rbac::forceReload();
             }
+
+            lpc_notify_permission(
+                $db,
+                'admin.roles.edit',
+                'Permissions du rôle modifiées',
+                ($_SESSION['user_name'] ?? 'Un administrateur') . " a modifié les permissions du rôle « $targetRoleName » ("
+                    . count($ids) . ' permission(s) au total).',
+                '/modules/admin/roles.php',
+                'warning',
+                [(int) ($_SESSION['user_id'] ?? 0)]
+            );
+
             respond_success(['role_id' => $role_id, 'permission_count' => count($ids)]);
 
         // ------------------------------------------------------------------

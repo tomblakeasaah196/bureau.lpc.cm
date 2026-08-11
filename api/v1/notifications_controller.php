@@ -6,11 +6,15 @@
  *
  * Merges TWO sources into one feed:
  *
- *   1. Live-computed conditions (the original three, schema-verified checks,
- *      grounded in existing queries elsewhere in this codebase):
+ *   1. Live-computed conditions, schema-verified and grounded in existing
+ *      queries elsewhere in this codebase:
  *        - Overdue invoices             -- invoices_controller.php's AR-aging query
  *        - AIR withheld, no attestation -- docs/GUIDE_FISCAL_CAMEROUN.md §7 checklist
  *        - Low stock                    -- inventory_controller.php's current_qty calc
+ *        - Fleet doc expiring (Sprint 9) -- fleet_controller.php's insurance/
+ *          technical-visit alert query (dashboard tab, Strategy 7B)
+ *        - Fleet maintenance due (Sprint 9) -- same file's odometer trigger
+ *          (dashboard/maintenance tabs, Strategy 2B)
  *      These stay true until the underlying condition resolves. No id, no
  *      read state — nothing to mark read because there's nothing stored.
  *
@@ -150,6 +154,51 @@ try {
                     ? sprintf('%d product(s) at or below reorder level', $row['n'])
                     : sprintf('%d produit(s) au seuil de réappro ou en dessous', $row['n']),
                 'href'     => '/modules/inventory/stock.php?filter=low_stock',
+            ];
+        }
+    }
+
+    // Sprint 9 · Fleet compliance — same grounded queries as fleet_controller.php's
+    // 'dashboard'/'maintenance' tabs (Strategy 7B / 2B alerts), which until now
+    // only surfaced inside modules/fleet/vehicles.php itself. An expired
+    // insurance or technical-visit document is a legal/safety exposure, not
+    // just an inconvenience, so it belongs in the global feed too.
+    if (Rbac::hasPermission('fleet.vehicles.view')) {
+        $row = $db->query("
+            SELECT COUNT(*) AS n FROM vehicles
+             WHERE status != 'retired'
+               AND (
+                    (insurance_expiry IS NOT NULL AND insurance_expiry <= DATE_ADD(CURRENT_DATE(), INTERVAL 15 DAY))
+                 OR (technical_visit_expiry IS NOT NULL AND technical_visit_expiry <= DATE_ADD(CURRENT_DATE(), INTERVAL 15 DAY))
+               )
+        ")->fetch(PDO::FETCH_ASSOC);
+        if ((int)$row['n'] > 0) {
+            $items[] = [
+                'type'     => 'fleet_doc_expiring',
+                'severity' => 'danger',
+                'label'    => $lang === 'en'
+                    ? sprintf('%d vehicle(s) with insurance or technical visit expiring within 15 days', $row['n'])
+                    : sprintf('%d véhicule(s) avec assurance ou visite technique expirant sous 15 jours', $row['n']),
+                'href'     => '/modules/fleet/vehicles.php',
+            ];
+        }
+
+        $row = $db->query("
+            SELECT COUNT(*) AS n
+              FROM vehicles v
+              JOIN vehicle_maintenance m ON v.id = m.vehicle_id
+             WHERE v.status != 'retired' AND m.next_service_odometer IS NOT NULL
+               AND (m.next_service_odometer - v.current_odometer) <= 500
+               AND m.id = (SELECT MAX(id) FROM vehicle_maintenance WHERE vehicle_id = v.id)
+        ")->fetch(PDO::FETCH_ASSOC);
+        if ((int)$row['n'] > 0) {
+            $items[] = [
+                'type'     => 'fleet_maintenance_due',
+                'severity' => 'warning',
+                'label'    => $lang === 'en'
+                    ? sprintf('%d vehicle(s) due for maintenance within 500 km', $row['n'])
+                    : sprintf('%d véhicule(s) à entretenir sous 500 km', $row['n']),
+                'href'     => '/modules/fleet/vehicles.php',
             ];
         }
     }

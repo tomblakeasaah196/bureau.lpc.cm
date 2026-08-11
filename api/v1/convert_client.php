@@ -8,6 +8,7 @@ header('Content-Type: application/json');
 
 require_once '../../includes/config/db.php';
 require_once '../../includes/classes/Database.php';
+require_once __DIR__ . '/../../includes/functions/notify.php';
 
 if (!isset($_SESSION['user_id'])) {
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized']); exit;
@@ -56,8 +57,18 @@ try {
 
     $db->commit();
 
+    lpc_notify_permission(
+        $db,
+        'accounting.invoices.view',
+        'Prospect converti en client actif',
+        ($_SESSION['user_name'] ?? 'Un opérateur') . " a converti « {$client['name']} » en client actif — compte OHADA $new_account_code généré.",
+        '/modules/crm/clients.php',
+        'info',
+        [(int) ($_SESSION['user_id'] ?? 0)]
+    );
+
     echo json_encode([
-        'status' => 'success', 
+        'status' => 'success',
         'message' => 'Client converti avec succès. Compte OHADA généré: ' . $new_account_code,
         'new_account' => $new_account_code
     ]);

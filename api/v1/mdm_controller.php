@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/Paginator.php';   // Sprint 5
+require_once __DIR__ . '/../../includes/functions/notify.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 Rbac::requirePermission('admin.master_data.view');
@@ -775,6 +776,24 @@ try {
         // never sourced from user input, so the format-string usage is safe.
         $sql = sprintf("UPDATE `%s` SET `%s` = ? WHERE id = ?", $map['table'], $map['col']);
         $db->prepare($sql)->execute([$val, $id]);
+
+        // Only 'employees' toggles a login — products/suppliers/clients are
+        // routine catalog management, not access control.
+        if ($module === 'employees') {
+            $nameQ = $db->prepare("SELECT CONCAT(first_name, ' ', last_name) FROM users WHERE id = ?");
+            $nameQ->execute([$id]);
+            $empName2 = (string) ($nameQ->fetchColumn() ?: "#$id");
+            lpc_notify_permission(
+                $db,
+                'admin.users.toggle_status',
+                $newFlag ? 'Utilisateur réactivé' : 'Utilisateur désactivé',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . ($newFlag ? " a réactivé " : " a désactivé ") . "le compte de $empName2.",
+                '/modules/admin/master_data.php',
+                $newFlag ? 'info' : 'warning',
+                [(int) $_SESSION['user_id']]
+            );
+        }
+
         echo json_encode(['status' => 'success']); exit;
     }
 
@@ -1130,6 +1149,21 @@ try {
                     $stmt->execute([$new_user_id, $_POST['job_title'], $_POST['phone'], $_POST['base_salary'], $avatar_path]);
                 }
                 $db->commit();
+
+                if (!$id) {
+                    // Targets admin.users.create — this whole controller is
+                    // already hardcoded admin-only (line 13), so this reaches
+                    // every OTHER admin, not the one who just did it.
+                    lpc_notify_permission(
+                        $db,
+                        'admin.users.create',
+                        'Nouvel utilisateur créé',
+                        ($_SESSION['user_name'] ?? 'Un opérateur') . " a créé le compte de {$_POST['first_name']} {$_POST['last_name']} ({$_POST['email']}) — mot de passe temporaire à faire changer.",
+                        '/modules/admin/master_data.php',
+                        'info',
+                        [(int) $_SESSION['user_id']]
+                    );
+                }
             } catch (Exception $e) {
                 $db->rollBack(); throw $e;
             }

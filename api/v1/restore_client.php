@@ -13,6 +13,7 @@
  */
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/ClientTrash.php';
+require_once __DIR__ . '/../../includes/functions/notify.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 
@@ -56,6 +57,21 @@ try {
     ]);
 
     $db->commit();
+
+    $nameStmt = $db->prepare("SELECT name FROM clients WHERE id = ?");
+    $nameStmt->execute([$clientId]);
+    $clientName = (string) ($nameStmt->fetchColumn() ?: "#$clientId");
+
+    lpc_notify_permission(
+        $db,
+        'crm.clients.restore',
+        'Client restauré',
+        ($_SESSION['user_name'] ?? 'Un opérateur') . " a restauré « $clientName » (#$clientId) depuis la corbeille.",
+        '/modules/crm/clients.php',
+        'info',
+        [(int) $_SESSION['user_id']]
+    );
+
     echo json_encode(['status' => 'success', 'message' => 'Client restauré.']);
 } catch (RuntimeException $e) {
     if (isset($db) && $db->inTransaction()) $db->rollBack();

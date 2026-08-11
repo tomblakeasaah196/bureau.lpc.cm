@@ -4,6 +4,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/Payroll.php';
 require_once __DIR__ . '/../../includes/classes/JournalPoster.php'; // PR-2, migration 095
+require_once __DIR__ . '/../../includes/functions/notify.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -327,6 +328,23 @@ try {
             throw $e;
         }
 
+        // Tell each employee their salary landed — one notification per
+        // person, not a broadcast.
+        $ids = array_map('intval', $payslip_ids);
+        $ph  = implode(',', array_fill(0, count($ids), '?'));
+        $paidSlips = $db->prepare("SELECT user_id, net_pay FROM hr_payslips WHERE id IN ($ph)");
+        $paidSlips->execute($ids);
+        foreach ($paidSlips->fetchAll(PDO::FETCH_ASSOC) as $slip) {
+            lpc_notify_user(
+                $db,
+                (int) $slip['user_id'],
+                'Salaire payé',
+                "Votre salaire de " . number_format((float) $slip['net_pay'], 0, ',', ' ') . " FCFA a été réglé le $payment_date.",
+                '/modules/hr/payroll_finance.php',
+                'info'
+            );
+        }
+
         sendJson('success', 'Règlement enregistré.', [
             'journal_entry_id' => $je_id,
             'count'            => count($payslip_ids),
@@ -596,6 +614,20 @@ try {
         if ($uid <= 0 || $amt <= 0) throw new Exception("Utilisateur ou montant invalide.");
         $stmt = $db->prepare("INSERT INTO hr_advances (user_id, amount, request_date, status) VALUES (?, ?, CURRENT_DATE(), 'pending')");
         $stmt->execute([$uid, $amt]);
+
+        $empName = $db->prepare("SELECT CONCAT(first_name, ' ', last_name) FROM users WHERE id = ?");
+        $empName->execute([$uid]);
+        lpc_notify_permission(
+            $db,
+            'hr.payroll.approve_advance',
+            'Demande d\'acompte',
+            ($_SESSION['user_name'] ?? 'Un opérateur') . " a soumis une demande d'acompte pour " . ($empName->fetchColumn() ?: "#$uid")
+                . " — " . number_format($amt, 0, ',', ' ') . " FCFA.",
+            '/modules/hr/payroll_finance.php',
+            'warning',
+            [$user_id]
+        );
+
         sendJson('success', 'Acompte demandé.');
     }
 
@@ -604,6 +636,20 @@ try {
         if ($id <= 0) throw new Exception("ID acompte invalide.");
         $stmt = $db->prepare("UPDATE hr_advances SET status = 'approved', approved_by = ? WHERE id = ?");
         $stmt->execute([$user_id, $id]);
+
+        $adv = $db->prepare("SELECT user_id, amount FROM hr_advances WHERE id = ?");
+        $adv->execute([$id]);
+        if ($a = $adv->fetch(PDO::FETCH_ASSOC)) {
+            lpc_notify_user(
+                $db,
+                (int) $a['user_id'],
+                'Acompte approuvé',
+                "Votre demande d'acompte de " . number_format((float) $a['amount'], 0, ',', ' ') . " FCFA a été approuvée. Décaissement à suivre.",
+                '/modules/hr/payroll_finance.php',
+                'info'
+            );
+        }
+
         sendJson('success', 'Acompte approuvé.');
     }
 
@@ -641,6 +687,19 @@ try {
             throw $e;
         }
 
+        $adv2 = $db->prepare("SELECT user_id, amount FROM hr_advances WHERE id = ?");
+        $adv2->execute([$advance_id]);
+        if ($a2 = $adv2->fetch(PDO::FETCH_ASSOC)) {
+            lpc_notify_user(
+                $db,
+                (int) $a2['user_id'],
+                'Acompte décaissé',
+                "Votre acompte de " . number_format((float) $a2['amount'], 0, ',', ' ') . " FCFA a été payé le " . $payment_date . '.',
+                '/modules/hr/payroll_finance.php',
+                'info'
+            );
+        }
+
         sendJson('success', 'Acompte décaissé.', ['journal_entry_id' => $je_id]);
     }
 
@@ -650,6 +709,21 @@ try {
         if ($id <= 0) throw new Exception("ID acompte invalide.");
         $stmt = $db->prepare("UPDATE hr_advances SET status = 'rejected', approved_by = ? WHERE id = ?");
         $stmt->execute([$user_id, $id]);
+
+        $adv3 = $db->prepare("SELECT user_id, amount FROM hr_advances WHERE id = ?");
+        $adv3->execute([$id]);
+        if ($a3 = $adv3->fetch(PDO::FETCH_ASSOC)) {
+            lpc_notify_user(
+                $db,
+                (int) $a3['user_id'],
+                'Acompte refusé',
+                "Votre demande d'acompte de " . number_format((float) $a3['amount'], 0, ',', ' ') . " FCFA a été refusée."
+                    . ($reason !== '' ? " Motif : $reason" : ''),
+                '/modules/hr/payroll_finance.php',
+                'warning'
+            );
+        }
+
         sendJson('success', 'Acompte refusé.');
     }
 
@@ -785,6 +859,30 @@ try {
         }
 
         $db->commit();
+
+        // One notification per employee — not a broadcast, so it stays
+        // proportionate no matter how many payslips a run generates.
+        foreach ($created as $c) {
+            lpc_notify_user(
+                $db,
+                (int) $c['user_id'],
+                'Bulletin de paie disponible',
+                "Votre bulletin de paie de " . sprintf('%02d/%04d', $m, $y) . " est prêt — net à payer : "
+                    . number_format((float) $c['net'], 0, ',', ' ') . " FCFA.",
+                '/modules/hr/payroll_finance.php',
+                'info'
+            );
+        }
+        lpc_notify_permission(
+            $db,
+            'hr.payroll.generate',
+            'Paie générée',
+            ($_SESSION['user_name'] ?? 'Un opérateur') . " a généré " . count($created) . " bulletin(s) pour " . sprintf('%02d/%04d', $m, $y) . '.',
+            '/modules/hr/payroll_finance.php',
+            'info',
+            [$user_id]
+        );
+
         sendJson('success', count($created) . ' bulletin(s) générés.', ['created' => $created]);
     }
 

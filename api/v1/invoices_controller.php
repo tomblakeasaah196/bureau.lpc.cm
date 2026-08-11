@@ -1254,6 +1254,18 @@ try {
             }
 
             $db->commit();
+
+            $totalValidated = array_sum(array_column($deliveries, 'payment_collected'));
+            lpc_notify_user(
+                $db,
+                (int) $recon['driver_id'],
+                'Caisse validée',
+                "Votre caisse du " . $recon['date'] . " a été validée par la comptabilité — "
+                    . number_format((float) $totalValidated, 0, ',', ' ') . " FCFA répartis sur " . count($deliveries) . " livraison(s).",
+                '/modules/accounting/cashflow.php',
+                'info'
+            );
+
             echo json_encode(['status' => 'success']);
             break;
 

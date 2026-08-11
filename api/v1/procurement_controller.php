@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../includes/functions/procurement.php';
 // Supplier tariff + the price-change log. Migration 063 — a supplier changing
 // their price is a new price, not a remise and not a ristourne.
 require_once __DIR__ . '/../../includes/functions/pricing.php';
+require_once __DIR__ . '/../../includes/functions/notify.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 // Baseline gate. Every write action below re-checks with its own permission:
@@ -256,6 +257,19 @@ try {
             }
 
             $db->commit();
+
+            $supName = $db->prepare("SELECT name FROM suppliers WHERE id = ?");
+            $supName->execute([$supplier_id]);
+            lpc_notify_permission(
+                $db,
+                'accounting.cashflow.view',
+                'Règlement fournisseur',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " a réglé " . count($posted) . " bon(s) de commande pour "
+                    . ($supName->fetchColumn() ?: "#$supplier_id") . " — " . number_format($grand_paid, 0, ',', ' ') . " FCFA.",
+                '/modules/inventory/procurement.php',
+                'info',
+                [$user_id]
+            );
 
             echo json_encode([
                 'status'  => 'success',
@@ -1193,6 +1207,18 @@ try {
             // to reflect this — see the "réception" wording.
 
             $db->commit();
+
+            lpc_notify_permission(
+                $db,
+                'inventory.stock.receive',
+                'Nouveau bon de commande',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " a créé le BC $reference — "
+                    . number_format($total_amount, 0, ',', ' ') . " FCFA. En attente de réception.",
+                '/modules/inventory/procurement.php',
+                'info',
+                [$user_id]
+            );
+
             echo json_encode(['status' => 'success', 'message' => 'Commande créée (En attente de réception logistique).', 'token' => $token]);
             break;
 
@@ -1426,6 +1452,17 @@ try {
             ")->execute([$user_id, ($reason !== '' ? $reason : null), $po_id]);
 
             $db->commit();
+
+            lpc_notify_permission(
+                $db,
+                'inventory.procurement.approve',
+                'Bon de commande annulé',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " a annulé le BC {$po['reference']} — stock et écritures extournés."
+                    . ($reason !== '' ? " Motif : $reason" : ''),
+                '/modules/inventory/procurement.php',
+                'warning',
+                [$user_id]
+            );
 
             echo json_encode([
                 'status'  => 'success',

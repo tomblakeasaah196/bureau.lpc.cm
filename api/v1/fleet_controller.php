@@ -414,16 +414,38 @@ else if ($method === 'POST') {
         }
 
         // 4. LOG MAINTENANCE & EXPENSE (Upgraded with Auto-Renewal Logic)
-        if ($action === 'log_maintenance') {
+        //
+        // Sprint 9 fix: 'report_breakdown' is a real, separate permission
+        // ('fleet.breakdown.report', held by the 'driver' role — see
+        // migrations/001_rbac_seed.sql) that was declared in $ACTION_PERMS
+        // above but never actually handled. modules/fleet/report_breakdown.php
+        // — a DRIVER-facing page — has always posted action='log_maintenance'
+        // instead (see fleet-report_breakdown.js), which requires
+        // 'fleet.vehicles.maintenance' — a permission ONLY operations/admin
+        // hold, not driver. Every breakdown report a driver submitted was
+        // therefore rejected with a 403 before it ever reached this code.
+        //
+        // Fix: handle both actions here, but do NOT just grant drivers
+        // 'fleet.vehicles.maintenance' — that would also let them log routine
+        // maintenance and renew insurance/technical-visit dates, which is
+        // ops/admin territory. Instead, 'report_breakdown' is accepted at its
+        // own narrower permission and the server — not the client — forces
+        // service_type='repair' and drops the fields a breakdown report has
+        // no business touching (next_service_odometer, new_expiry_date),
+        // regardless of what the request body contains.
+        if ($action === 'log_maintenance' || $action === 'report_breakdown') {
+            $isBreakdownReport = ($action === 'report_breakdown');
+
             $v_id = (int)$payload['vehicle_id'];
-            $type = $payload['service_type'];
+            $type = $isBreakdownReport ? 'repair' : $payload['service_type'];
             $cost = (float)$payload['total_cost'];
             $desc = $payload['description'] ?: null;
             $odo = $payload['odometer_at_service'] ? (int)$payload['odometer_at_service'] : null;
-            $next_odo = $payload['next_service_odometer'] ? (int)$payload['next_service_odometer'] : null;
-            
-            // New: Dates for auto-renewal (passed from the frontend modal)
-            $new_expiry = $payload['new_expiry_date'] ?? null; 
+            $next_odo = $isBreakdownReport ? null : ($payload['next_service_odometer'] ? (int)$payload['next_service_odometer'] : null);
+
+            // New: Dates for auto-renewal (passed from the frontend modal).
+            // Never applicable to a driver's breakdown report.
+            $new_expiry = $isBreakdownReport ? null : ($payload['new_expiry_date'] ?? null);
 
             // A. Validate Odometer if provided
             if ($odo !== null) {
@@ -452,9 +474,11 @@ else if ($method === 'POST') {
             }
             
             // C. AUTO-STATUS LOGIC: If it was in repair, mark it active now
+            $backInService = false;
             if ($type === 'repair') {
                 $stmt = $pdo->prepare("UPDATE vehicles SET status = 'active' WHERE id = ? AND status = 'repair'");
                 $stmt->execute([$v_id]);
+                $backInService = $stmt->rowCount() > 0;
             }
 
             // D. Insert Maintenance Log (The History Record)
@@ -486,11 +510,35 @@ else if ($method === 'POST') {
                 );
             }
 
+            // F. OPS ALERT — a 'repair' entry is inherently unplanned, unlike
+            // 'routine'/'insurance', and is what a driver's breakdown report
+            // always is (action='report_breakdown', forced above). Ops needs
+            // to know regardless of cost, which the finance alert above is
+            // gated on. Two different audiences, two different concerns.
+            if ($type === 'repair') {
+                $stmtVeh2 = $pdo->prepare("SELECT plate_number FROM vehicles WHERE id = ?");
+                $stmtVeh2->execute([$v_id]);
+                $plate2 = (string) ($stmtVeh2->fetchColumn() ?: "#$v_id");
+
+                lpc_notify_permission(
+                    $pdo,
+                    'fleet.vehicles.maintenance',
+                    $backInService ? 'Véhicule remis en service' : 'Panne / réparation signalée',
+                    ($_SESSION['user_name'] ?? 'Un opérateur') . " a enregistré une réparation pour $plate2"
+                        . ($desc ? " : " . substr($desc, 0, 80) : '.')
+                        . ($backInService ? ' Le véhicule repasse actif.' : ''),
+                    '/modules/fleet/vehicles.php',
+                    $backInService ? 'info' : 'warning'
+                );
+            }
+
             // ONE SINGLE COMMIT AND RESPONSE
             $pdo->commit();
-            sendResponse('success', 'Intervention technique enregistrée et alertes mises à jour.');
+            sendResponse('success', $isBreakdownReport
+                ? 'Panne signalée au bureau logistique.'
+                : 'Intervention technique enregistrée et alertes mises à jour.');
 
-        } // Closes if ($action === 'log_maintenance')
+        } // Closes if ($action === 'log_maintenance' || 'report_breakdown')
 
     } catch (Exception $e) {
         if (isset($pdo) && $pdo->inTransaction()) {
