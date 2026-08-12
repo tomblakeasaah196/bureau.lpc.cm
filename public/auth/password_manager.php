@@ -109,7 +109,7 @@ body{background:#051A0F;color:#eee;min-height:100vh;font-family:Inter,sans-serif
             <input type="email" id="pm-email" name="email" required autocomplete="username"
                    inputmode="email" autocapitalize="none" spellcheck="false"
                    value="<?= $prefEmail ?>" <?= $prefEmail !== '' ? 'readonly' : '' ?>
-                   class="w-full field rounded-xl py-3 px-4 text-sm" placeholder="prenom.nom@lapetitecour.cm">
+                   class="w-full field rounded-xl py-3 px-4 text-sm" placeholder="prenom.nom@lpc.cm">
             <?php if ($prefEmail !== ''): ?>
                 <p class="text-[10px] text-white/40 mt-1"><?= __t('ui.compte_connecte_actuellement') ?></p>
             <?php endif; ?>

@@ -1159,7 +1159,7 @@
                 <label class="lpc-field-label">Email (identifiant de connexion) *</label>
                 <input type="email" name="email" value="${esc(user.email || '')}" required
                        autocomplete="off" inputmode="email" autocapitalize="none" spellcheck="false"
-                       placeholder="prenom.nom@lapetitecour.cm" class="lpc-input font-bold">
+                       placeholder="prenom.nom@lpc.cm" class="lpc-input font-bold">
                 <p class="lpc-field-help">C'est avec cette adresse que la personne se connecte. Elle doit être unique.</p>
             </div>
             <div>

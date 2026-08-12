@@ -167,7 +167,7 @@ SELECT 'connexion-se-connecter' AS slug,
 
 | Champ | Ce qu'on y met |
 |---|---|
-| Adresse Email | L'adresse que l'administrateur a enregistrée pour vous, par exemple `prenom.nom@lapetitecour.cm`. |
+| Adresse Email | L'adresse que l'administrateur a enregistrée pour vous, par exemple `prenom.nom@lpc.cm`. |
 | Mot de Passe | Celui que l'administrateur vous a communiqué, ou celui que vous avez choisi depuis. |
 
 ## La casse n'a aucune importance
