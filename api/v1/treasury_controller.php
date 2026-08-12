@@ -429,6 +429,20 @@ else if ($method === 'POST') {
             sendResponse('success', 'Demande de correction envoyée à la Direction.');
         }
 
+        // No handler matched. Without this, execution falls out of the
+        // if-chain having sent NO body and with the transaction still open:
+        // the browser gets HTTP 200 with zero bytes and fetch().json()
+        // throws "Unexpected end of JSON input" -- an error that names
+        // neither the endpoint nor the action. Three JS callers drifted from
+        // their handler names (internal_transfer/reconcile_transaction/
+        // request_edit) and every one surfaced as that same opaque message.
+        // Fail loudly instead.
+        if (isset($pdo) && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        error_log('[treasury] unknown action: ' . $action);
+        sendResponse('error', 'Action inconnue : ' . $action);
+
     } catch (Exception $e) {
         if (isset($pdo) && $pdo->inTransaction()) {
             $pdo->rollBack();

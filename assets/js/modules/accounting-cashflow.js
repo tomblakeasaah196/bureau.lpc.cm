@@ -402,7 +402,7 @@
                 renderReconciliation(); // reset checkbox
                 return;
             }
-            const r = await treasuryPost({ action: 'reconcile_transaction', transaction_id: id }, 'reconciliation');
+            const r = await treasuryPost({ action: 'reconcile', transaction_id: id }, 'reconciliation');
             if (r) LPC.modal.alert("Transaction verrouillée.");
         }
 
@@ -415,9 +415,9 @@
 
         async function submitEditRequest() {
             const payload = {
-                action:         'request_edit',
+                action:         'edit_request',
                 transaction_id: document.getElementById('edit_trx_id').value,
-                new_amount:     document.getElementById('edit_amount').value,
+                amount:         document.getElementById('edit_amount').value,
                 reason:         document.getElementById('edit_reason').value,
             };
             if (!payload.reason || payload.reason.trim().length < 5) {
@@ -497,11 +497,11 @@
 
         async function submitTransfer() {
             const payload = {
-                action:  'internal_transfer',
-                from_id: document.getElementById('tf_from').value,
-                to_id:   document.getElementById('tf_to').value,
-                amount:  parseFloat(document.getElementById('tf_amount').value) || 0,
-                note:    document.getElementById('tf_note')?.value || '',
+                action:    'transfer',
+                from_id:   document.getElementById('tf_from').value,
+                to_id:     document.getElementById('tf_to').value,
+                amount:    parseFloat(document.getElementById('tf_amount').value) || 0,
+                reference: document.getElementById('tf_note')?.value || '',
             };
             if (!payload.from_id || !payload.to_id) return LPC.modal.alert("Compte source et destination obligatoires.");
             if (payload.from_id === payload.to_id)   return LPC.modal.alert("La source et la destination doivent être différentes.");
