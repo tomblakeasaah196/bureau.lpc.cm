@@ -1,19 +1,41 @@
 <?php
 /**
- * public/auth/password_manager.php  --  Sprint-2 hardened flow.
+ * public/auth/password_manager.php  --  "Change my password".
  *
- * Two modes controlled by the tab UI:
- *   · change   — user knows their current password
- *   · request  — user enters employee_code + email; server emails a reset link
+ * SPRINT 14 — THIS PAGE DOES ONE THING NOW.
+ * -----------------------------------------
+ * It had two tabs:
  *
- * The actual "set new password from token" step lives at /password_reset.php.
+ *   · "Changer"  — employee code + old password + new password.  Worked.
+ *   · "Oublié ?" — employee code + email, POSTed action=request_reset, which
+ *                  called Mail::send() with a signed token link.
+ *
+ * The second tab was a trap. `Mail::send()` returns TRUE and writes the body to
+ * the PHP error log when MAIL_FROM is unset (includes/classes/Mail.php), and
+ * MAIL_FROM is unset because SMTP has never been configured on this host. So
+ * the tab always answered "Si les informations correspondent, un lien de
+ * réinitialisation a été envoyé", the user waited for an email that was sitting
+ * in error_log, and the only route out was ringing the office anyway.
+ *
+ * A recovery flow that cannot deliver is worse than no recovery flow, because
+ * it costs the user their time before they discover it. The tab is gone. The
+ * page states plainly who to ask, and the login page repeats it.
+ *
+ * Re-enabling later: set MAIL_FROM in .env, flip
+ * LPC_PASSWORD_RESET_BY_EMAIL_ENABLED in api/v1/password_controller.php, and
+ * restore a "forgot" form. The token machinery, the password_resets table and
+ * password_reset.php are all still here and still correct.
+ *
+ * The identifier is the EMAIL ADDRESS, prefilled from the session when the user
+ * is signed in (the common case: this page is reached from the account menu).
  */
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
 
-$lang = lpc_i18n_current_lang();
-$forced   = !empty($_GET['force']) || !empty($_SESSION['force_reset']);
-$prefCode = htmlspecialchars($_SESSION['employee_code'] ?? '', ENT_QUOTES, 'UTF-8');
+$lang      = lpc_i18n_current_lang();
+$forced    = !empty($_GET['force']) || !empty($_SESSION['force_reset']);
+$prefEmail = htmlspecialchars($_SESSION['user_email'] ?? '', ENT_QUOTES, 'UTF-8');
+$signedIn  = !empty($_SESSION['user_id']);
 ?>
 <!DOCTYPE html>
 <html lang="<?= $lang ?>">
@@ -31,18 +53,20 @@ body{background:#051A0F;color:#eee;min-height:100vh;font-family:Inter,sans-serif
        border:1px solid rgba(255,255,255,.15);box-shadow:0 25px 50px -12px rgba(0,0,0,.5)}
 .field{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#fff}
 .field:focus{border-color:#8CC63F;background:rgba(255,255,255,.1);outline:none}
+.field:read-only{opacity:.7;cursor:not-allowed}
 .valid{color:#8CC63F;transition:color .3s}
 .invalid{color:rgba(255,255,255,.4);transition:color .3s}
-.tab.active{background:rgba(255,255,255,.2);color:#fff}
-.tab{color:rgba(255,255,255,.5)}
-input[type=checkbox]{accent-color:#8CC63F}
 </style>
 </head>
 <body class="flex items-center justify-center p-4">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
-
-<div class="w-full max-w-md glass  id="main" role="main"rounded-3xl p-8 my-8">
+<?php /* Sprint 14: the id/role attributes were previously written INSIDE the
+         class attribute's quotes — `class="w-full max-w-md glass  id="main"
+         role="main"rounded-3xl p-8"`. The browser parsed `id` as part of the
+         class list, so the skip link above pointed at nothing and the landmark
+         never existed. Fixed here and in password_reset.php. */ ?>
+<div id="main" role="main" class="w-full max-w-md glass rounded-3xl p-8 my-8">
 
     <div class="text-center mb-6">
         <h1 class="text-white text-2xl font-semibold"><?= __t('ui.s_curit_du_compte') ?></h1>
@@ -55,39 +79,51 @@ input[type=checkbox]{accent-color:#8CC63F}
     </div>
     <?php endif; ?>
 
-    <div class="flex bg-white/5 rounded-xl p-1 mb-6 border border-white/10"
-         role="tablist" aria-label="<?= htmlspecialchars(__t('ui.mode_de_gestion') ?: 'Mode de gestion') ?>">
-        <button onclick="setMode('change')"  id="tab-change"  role="tab"
-                aria-selected="true"  aria-controls="panel-change"
-                class="lpc-focusable tab active flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all">
-            <?= __t('ui.changer') ?>
-        </button>
-        <button onclick="setMode('request')" id="tab-request" role="tab"
-                aria-selected="false" aria-controls="panel-request"
-                class="lpc-focusable tab flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all">
-            <?= __t('ui.oubli') ?>
-        </button>
-    </div>
-
     <div id="alert" class="hidden mb-4 p-3 rounded-lg text-sm font-medium border" role="alert" aria-live="polite"></div>
 
-    <!-- =========== CHANGE =========== -->
-    <form id="form-change" role="tabpanel" aria-labelledby="tab-change" tabindex="0" class="space-y-4">
+<?php if (!$signedIn): ?>
+    <?php /* Sprint 14 audit: the change endpoint now REQUIRES a session — it
+             previously accepted an anonymous caller who knew (email, current
+             password), which let anyone who had seen a credential lock the
+             real owner out. Since the API will refuse, say so here rather
+             than presenting a form that fails on submit. Someone who has
+             forgotten their password cannot use this page at all; the note
+             below the form already tells them to ask an administrator. */ ?>
+    <div class="mb-5 p-4 rounded-xl border border-amber-400/30 bg-amber-400/10">
+        <p class="text-sm text-amber-100 font-semibold mb-1">
+            <i class="fas fa-lock mr-1"></i> <?= __t('ui.connexion_requise') ?>
+        </p>
+        <p class="text-xs text-amber-100/80 leading-relaxed">
+            <?= __t('ui.connectez_vous_pour_changer_mdp') ?>
+        </p>
+        <a href="/index.php?lang=<?= $lang ?>"
+           class="inline-block mt-3 px-4 py-2 rounded-lg bg-lpc-light/90 hover:bg-lpc-light text-white text-xs font-bold uppercase tracking-wider transition-colors">
+            <?= __t('ui.se_connecter') ?>
+        </a>
+    </div>
+<?php endif; ?>
+
+    <form id="form-change" class="space-y-4"<?= $signedIn ? '' : ' aria-hidden="true" style="display:none"' ?>>
         <div>
-            <label class="block text-xs uppercase tracking-wider text-white/70 mb-1.5"><?= __t('ui.code_employ') ?></label>
-            <input type="text" name="employee_code" required autocomplete="username" value="<?= $prefCode ?>"
-                   class="w-full field rounded-xl py-3 px-4 text-sm" placeholder="Ex: LPC-001">
+            <label for="pm-email" class="block text-xs uppercase tracking-wider text-white/70 mb-1.5"><?= __t('ui.adresse_email') ?></label>
+            <input type="email" id="pm-email" name="email" required autocomplete="username"
+                   inputmode="email" autocapitalize="none" spellcheck="false"
+                   value="<?= $prefEmail ?>" <?= $prefEmail !== '' ? 'readonly' : '' ?>
+                   class="w-full field rounded-xl py-3 px-4 text-sm" placeholder="prenom.nom@lapetitecour.cm">
+            <?php if ($prefEmail !== ''): ?>
+                <p class="text-[10px] text-white/40 mt-1"><?= __t('ui.compte_connecte_actuellement') ?></p>
+            <?php endif; ?>
         </div>
         <div>
-            <label class="block text-xs uppercase tracking-wider text-white/70 mb-1.5"><?= __t('ui.ancien_mot_de_passe') ?></label>
-            <input type="password" name="old_password" required autocomplete="current-password"
+            <label for="pm-old" class="block text-xs uppercase tracking-wider text-white/70 mb-1.5"><?= __t('ui.ancien_mot_de_passe') ?></label>
+            <input type="password" id="pm-old" name="old_password" required autocomplete="current-password"
                    class="w-full field rounded-xl py-3 px-4 text-sm" placeholder="••••••••">
         </div>
 
         <hr class="border-white/10">
 
         <div>
-            <label class="block text-xs uppercase tracking-wider text-white/70 mb-1.5"><?= __t('ui.nouveau_mot_de_passe') ?></label>
+            <label for="new_password_change" class="block text-xs uppercase tracking-wider text-white/70 mb-1.5"><?= __t('ui.nouveau_mot_de_passe') ?></label>
             <div class="relative">
                 <input type="password" id="new_password_change" name="new_password" required autocomplete="new-password"
                        class="w-full field rounded-xl py-3 pl-4 pr-11 text-sm" placeholder="••••••••">
@@ -95,15 +131,17 @@ input[type=checkbox]{accent-color:#8CC63F}
                     <i id="eye-c" class="fas fa-eye"></i>
                 </button>
             </div>
-            <ul class="mt-2 text-[10px] space-y-1 pl-1">
-                <li id="ruleC-len"  class="invalid"><i class="fas fa-circle text-[6px] mr-1"></i> Min 8 caractères</li>
-                <li id="ruleC-cap"  class="invalid"><i class="fas fa-circle text-[6px] mr-1"></i> 1 majuscule</li>
-                <li id="ruleC-num"  class="invalid"><i class="fas fa-circle text-[6px] mr-1"></i> 1 chiffre</li>
-                <li id="ruleC-spec" class="invalid"><i class="fas fa-circle text-[6px] mr-1"></i> 1 caractère spécial (!@#$%^&amp;*(),.?":{}|&lt;&gt;)</li>
-            </ul>
+            <?php /* Sprint 14: this checklist used to be four <li> elements
+                     hardcoding "Min 8 caractères" while the server enforced a
+                     configurable minimum defaulting to 10 — so the page could
+                     promise a password the server would refuse. The list is
+                     now built by JS from window.LPC.pwPolicy, which
+                     lpc_password_policy_js() emits from the same array
+                     lpc_password_check() validates against. */ ?>
+            <ul id="pw-rules" class="mt-2 text-[10px] space-y-1 pl-1"></ul>
         </div>
         <div>
-            <label class="block text-xs uppercase tracking-wider text-white/70 mb-1.5"><?= __t('ui.modal.confirm') ?></label>
+            <label for="confirm_change" class="block text-xs uppercase tracking-wider text-white/70 mb-1.5"><?= __t('ui.modal.confirm') ?></label>
             <input type="password" id="confirm_change" required autocomplete="new-password"
                    class="w-full field rounded-xl py-3 px-4 text-sm" placeholder="••••••••">
             <p id="match-change" class="text-xs mt-1 font-bold hidden"></p>
@@ -115,29 +153,15 @@ input[type=checkbox]{accent-color:#8CC63F}
         </button>
     </form>
 
-    <!-- =========== REQUEST RESET =========== -->
-    <form id="form-request" role="tabpanel" aria-labelledby="tab-request" tabindex="0" hidden class="space-y-4">
-        <p class="text-xs text-white/60">
-            <?= __t('ui.saisissez_votre_code_employ_et_votre_ema') ?>
+    <div class="mt-6 pt-5 border-t border-white/10">
+        <p class="text-xs text-white/50 leading-relaxed">
+            <i class="fas fa-circle-info mr-1 text-white/30"></i>
+            <?= __t('ui.mot_de_passe_oublie_contactez_admin') ?>
         </p>
-        <div>
-            <label class="block text-xs uppercase tracking-wider text-white/70 mb-1.5"><?= __t('ui.code_employ') ?></label>
-            <input type="text" name="employee_code" required autocomplete="username"
-                   class="w-full field rounded-xl py-3 px-4 text-sm" placeholder="Ex: LPC-001">
-        </div>
-        <div>
-            <label class="block text-xs uppercase tracking-wider text-white/70 mb-1.5"><?= __t('ui.email_d_entreprise') ?></label>
-            <input type="email" name="email" required autocomplete="email"
-                   class="w-full field rounded-xl py-3 px-4 text-sm" placeholder="nom.prenom@lapetitecour.com">
-        </div>
-        <button type="submit"
-                class="mt-2 w-full py-3.5 rounded-xl bg-gradient-to-r from-lpc-dark to-lpc-light text-white font-bold text-sm uppercase tracking-widest transition-all hover:opacity-90">
-            <?= __t('ui.envoyer_le_lien') ?>
-        </button>
-    </form>
+    </div>
 
-    <div class="text-center mt-6">
-        <?php if (!empty($_SESSION['user_id'])): ?>
+    <div class="text-center mt-5">
+        <?php if ($signedIn): ?>
             <a href="/api/v1/auth.php?logout=true" class="text-xs text-white/70 hover:text-white font-medium uppercase tracking-wider">
                 <i class="fas fa-sign-out-alt mr-1"></i> <?= __t('ui.se_d_connecter') ?>
             </a>
@@ -150,6 +174,7 @@ input[type=checkbox]{accent-color:#8CC63F}
 </div>
 
 <?= Rbac::jsBootstrap() ?>
+<?= lpc_password_policy_js($lang) ?>
 <script src="<?= lpc_asset('/assets/js/lpc-dom.js') ?>"  defer></script>
 <script src="<?= lpc_asset('/assets/js/lpc-rbac.js') ?>" defer></script>
 <script src="<?= lpc_asset('/assets/js/modules/auth-password_manager.js') ?>" defer></script>

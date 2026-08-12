@@ -129,9 +129,11 @@
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
-    function currentUserCode() {
+    // Sprint 14: the re-auth identifier is the email address, matching the
+    // login page. Rbac::jsBootstrap() publishes it as user.email.
+    function currentUserEmail() {
         try {
-            return (window.LPC && LPC.rbac && LPC.rbac.user && LPC.rbac.user.code) || '';
+            return (window.LPC && LPC.rbac && LPC.rbac.user && LPC.rbac.user.email) || '';
         } catch (e) { return ''; }
     }
 
@@ -175,7 +177,7 @@
         overlay.setAttribute('aria-modal', 'true');
         overlay.setAttribute('aria-labelledby', 'lpc-sl-title');
 
-        const code = currentUserCode();
+        const email = currentUserEmail();
         const reason = (opts && opts.reason) || 'idle';
         const subtitle = reason === '401'
             ? 'Votre session a expiré. Saisissez votre mot de passe pour reprendre.'
@@ -185,9 +187,10 @@
             '<div class="lpc-sl-box">',
             '  <h2 id="lpc-sl-title">Session verrouillée</h2>',
             '  <p class="sub">' + subtitle + '</p>',
-            '  <label for="lpc-sl-code">Matricule</label>',
-            '  <input id="lpc-sl-code" type="text" autocomplete="username" ',
-            '         value="' + escapeAttr(code) + '" ' + (code ? 'readonly' : '') + '>',
+            '  <label for="lpc-sl-email">Adresse email</label>',
+            '  <input id="lpc-sl-email" type="email" autocomplete="username" ',
+            '         inputmode="email" autocapitalize="none" spellcheck="false" ',
+            '         value="' + escapeAttr(email) + '" ' + (email ? 'readonly' : '') + '>',
             '  <label for="lpc-sl-pass">Mot de passe</label>',
             '  <input id="lpc-sl-pass" type="password" autocomplete="current-password">',
             '  <div class="lpc-sl-err" id="lpc-sl-err" role="alert"></div>',
@@ -203,7 +206,7 @@
         locked = true; locking = false;
 
         const passInput   = overlay.querySelector('#lpc-sl-pass');
-        const codeInput   = overlay.querySelector('#lpc-sl-code');
+        const emailInput  = overlay.querySelector('#lpc-sl-email');
         const errBox      = overlay.querySelector('#lpc-sl-err');
         const submitBtn   = overlay.querySelector('#lpc-sl-submit');
         const logoutBtn   = overlay.querySelector('#lpc-sl-logout');
@@ -224,7 +227,7 @@
             try {
                 if (!csrf) csrf = await fetchFreshCsrf();
                 const body = new URLSearchParams();
-                body.set('employee_code', codeInput.value.trim());
+                body.set('email', emailInput.value.trim());
                 body.set('password',      passInput.value);
                 body.set('_csrf',         csrf);
 

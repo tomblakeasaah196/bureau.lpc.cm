@@ -182,9 +182,26 @@
         dot.className = dotClass(item.severity);
         a.appendChild(dot);
 
+        var textCol = document.createElement('span');
+        textCol.style.display = 'flex';
+        textCol.style.flexDirection = 'column';
+        textCol.style.minWidth = '0';
+
         var txt = document.createElement('span');
         txt.textContent = item.label;       // textContent, never innerHTML
-        a.appendChild(txt);
+        textCol.appendChild(txt);
+
+        // Only stored events carry created_at — live conditions ("3 invoices
+        // overdue") have no single "when", they're just true right now.
+        if (item.created_at) {
+            var when = document.createElement('span');
+            when.style.fontSize = '11px';
+            when.style.opacity = '0.65';
+            when.textContent = LPC.fmt.timeAgo(item.created_at);
+            textCol.appendChild(when);
+        }
+
+        a.appendChild(textCol);
 
         row.appendChild(a);
 

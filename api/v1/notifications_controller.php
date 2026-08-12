@@ -34,9 +34,10 @@
  * an alert for a module they can't open.
  *
  * GET  /api/v1/notifications_controller.php
- *      -> { status, data: { items:[{type,severity,label,href,id?}], count } }
- *      Stored items carry an `id`; live items don't — that's how the
- *      frontend knows which ones can be dismissed.
+ *      -> { status, data: { items:[{type,severity,label,href,id?,created_at?}], count } }
+ *      Stored items carry an `id` and `created_at` (ISO 8601); live items
+ *      carry neither — that's how the frontend knows which ones can be
+ *      dismissed and which ones have a real "when" to render.
  *
  * POST /api/v1/notifications_controller.php  (CSRF-gated, JSON or form body)
  *      action=mark_read      &id=N   -> marks one stored notification read
@@ -227,11 +228,16 @@ try {
                 $label .= ' — ' . (mb_strlen($msg) > 110 ? mb_substr($msg, 0, 110) . '…' : $msg);
             }
             $items[] = [
-                'id'       => (int) $n['id'],
-                'type'     => 'event',
-                'severity' => $sevMap[$n['type']] ?? 'info',
-                'label'    => $label,
-                'href'     => $n['related_url'] ?: '/modules/notifications/index.php',
+                'id'         => (int) $n['id'],
+                'type'       => 'event',
+                'severity'   => $sevMap[$n['type']] ?? 'info',
+                'label'      => $label,
+                'href'       => $n['related_url'] ?: '/modules/notifications/index.php',
+                // ISO 8601 (date('c')), not the raw MySQL "Y-m-d H:i:s" string —
+                // Safari fails to parse the latter with `new Date()`. Only
+                // stored items carry this; live-computed conditions have no
+                // "when", they're just true right now.
+                'created_at' => $n['created_at'] ? date('c', strtotime($n['created_at'])) : null,
             ];
         }
     }

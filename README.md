@@ -422,6 +422,46 @@ Every secret + every environment-varying config value lives in `.env` at the app
 
 ## 4. RBAC — how it works and how to use it
 
+### 4.0 Authentication: email + admin-set password
+
+Since `migrations/105_login_by_email.sql`, people sign in with their **email address** and a **password an administrator sets for them**. Read this before touching anything under `api/v1/auth.php`, `public/auth/`, or the two onboarding surfaces.
+
+**What changed, and what did not**
+
+| | Before | Now |
+|---|---|---|
+| Sign-in identifier | `employee_code` (`LPC-001`) | `users.email`, unique, stored lower/trimmed |
+| Who sets the first password | nobody — a hardcoded `LPC2026` in the MDM path | the administrator, subject to the password policy |
+| Forgotten password | "Oublié ?" tab that claimed to send a mail | an administrator sets a new one in Settings |
+| `employee_code` | typed by hand, collided after deletes | auto-issued `EMP-###`, read-only, `UNIQUE` |
+| Forced change at first login | — | deliberately **not** implemented; changing is user-initiated |
+
+**There is no outbound mail on this installation.** `MAIL_FROM` is unset, and `Mail::send()` returns `true` while only writing to the PHP error log — which is exactly why the old reset tab appeared to work and delivered nothing for months. Never make a new flow depend on email. The token machinery (`password_resets`, `public/auth/password_reset.php`, the `request_reset`/`reset` actions) is kept but gated behind `LPC_PASSWORD_RESET_BY_EMAIL_ENABLED` (default off): it returns an explicit "disabled" message and `password_reset.php` redirects to `/index.php?error=reset_disabled`. Flip that constant only once SMTP genuinely exists.
+
+**The one password rule.** `includes/functions/password_policy.php` defines the policy once — `lpc_password_check()` to validate, `lpc_password_hash()` to hash. Minimum length comes from the `sec_password_min_length` preference (default 10); the rest is one upper, one lower, one digit, one non-alphanumeric. "Non-alphanumeric" is `[^A-Za-z0-9]`, so hyphens, spaces and accents all count — the old class silently rejected them. Every server path that accepts a password calls these two functions; the same rule set is published to the browser as `window.LPC.pwPolicy` so the on-screen checklist cannot drift from the server. **Never** call `password_hash()` directly, and never re-inline the rules.
+
+**Onboarding lives in two places** — Settings → Utilisateurs (`settings_controller.php?action=save_users`) and Admin → Master Data → Employés (`mdm_controller.php?action=save&module=employees`). They are deliberately consistent: both require a policy-compliant password on create, both treat an empty password field on edit as "keep the current one", both reject a duplicate email, and neither accepts a hand-typed `employee_code`. If you change one, change the other and re-run `test/password_test.sh`.
+
+**Matricules.** `lpc_next_employee_code()` in `includes/functions/employee_code.php` issues `EMP-###` from the current numeric max. Do not resurrect the old `ORDER BY id DESC LIMIT 1` approach — it re-issues a code after a delete, which is now a fatal `UNIQUE` violation. Pre-existing `LPC-<timestamp>` codes are left untouched on purpose: they are already printed on payslips.
+
+**Session ownership — read this before touching `password_controller.php`.** The `change` action requires an authenticated session **and** verifies that the session owner is the account being modified. Both halves are load-bearing, and an earlier version of this guard had only the second:
+
+```php
+if (!empty($_SESSION['user_id']) && ...mismatch...) { reject; }   // WRONG
+```
+
+That is a no-op for a caller with no session at all, so an anonymous POST that knew `(email, current password)` changed the password and locked the real owner out — and with SMTP disabled, the owner then needs an administrator to get back in. It was found by probing the live endpoint during audit, not by reading the code, and it is now covered by Section E of `test/password_test.sh`, which fails against the old guard and passes against the new one. Never weaken that check to "signed in *or* knows the old password".
+
+Failures of `change` return one uniform message (`Identifiants incorrects.`) for wrong password, unknown address and locked account. Distinct wording let an unauthenticated caller enumerate which addresses were real accounts.
+
+Because the endpoint now demands a session, `public/auth/password_manager.php` renders a "sign in first" panel instead of the form for signed-out visitors — a form that is guaranteed to be rejected is worse than no form. Someone who has genuinely forgotten their password cannot use this page at all; that is what the admin reset in Settings is for.
+
+A successful change revokes the user's other sessions and keeps the current one.
+
+**`user_sessions` is not owned by any migration.** The table predates the migration runner, so its column widths are whatever a given installation happens to have. That mattered the moment email became the identifier: `auth.php` writes the submitted identifier to `user_sessions.login_identifier` on *every* outcome, and if that column is narrower than the address, the INSERT throws under `STRICT_TRANS_TABLES`, the catch redirects to `error=system_error`, and the user cannot sign in **with correct credentials and no audit row explaining why**. `migrations/107_user_sessions_login_identifier_width.sql` widens it to 190 to match `users.email`, guarded so it is a no-op where the column is already wide enough. If you ever add columns to this table, add them in a migration.
+
+Help Center coverage for all of the above is `migrations/106_help_login_by_email_articles.sql` (category `compte-et-connexion`, FR + EN). That migration also rewrites three older articles that documented the retired flow. Per §5.9, a change to any of these behaviours means updating the article in the same commit.
+
 ### 4.1 Model
 
 Three DB tables (already in the schema, seeded by `migrations/001_rbac_seed.sql`):

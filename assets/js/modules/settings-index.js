@@ -68,7 +68,11 @@
                 { id: 'kpi3', label: 'Verrouillés',    icon: 'fa-user-lock',  color: 'text-red-600',   bg: 'bg-red-50' }
             ],
             columns: [
-                { key: 'employee_code', label: 'Code',     render: v => `<span class="font-bold text-gray-500">${esc(v)}</span>` },
+                // Sprint 14: labelled "Matricule" because it is no longer the
+                // thing you log in with — the email is. Kept in the grid
+                // because payroll and the audit trail refer to it.
+                { key: 'employee_code', label: 'Matricule', render: v => `<span class="font-bold text-gray-500">${esc(v || '—')}</span>` },
+                { key: 'email',         label: 'Connexion', render: v => `<span class="text-gray-700">${esc(v || '—')}</span>` },
                 { key: 'first_name',    label: 'Identité', render: (v, row) => `<span class="font-black text-gray-900">${esc(v)} ${esc(row.last_name)}</span>` },
                 { key: 'role_name',     label: 'Rôle',     render: v => `<span class="px-2 py-1 bg-gray-100 text-gray-700 rounded text-[10px] uppercase font-bold tracking-wider border border-gray-200">${esc(v || 'NON ASSIGNÉ')}</span>` },
                 { key: 'status',        label: 'Accès',    render: v => v === 'active'
@@ -1137,15 +1141,26 @@
               }).join('')
             : '<option value="">— aucun rôle disponible —</option>';
 
+        // Sprint 14:
+        //   · Email is the LOGIN field and leads the form.
+        //   · The matricule is assigned by the server. On create it is not
+        //     shown at all (there is nothing to show yet); on edit it is
+        //     displayed disabled, for reference. It is never submitted —
+        //     save_users ignores the key entirely.
+        //   · The password help text says who to talk to, because there is no
+        //     self-service recovery on this installation.
+        const pwHelp = id
+            ? 'Laisser vide pour conserver le mot de passe actuel. Si vous en saisissez un, il remplace l\'ancien immédiatement et ferme les sessions ouvertes de cette personne.'
+            : 'Mot de passe initial. Communiquez-le à la personne par un canal séparé ; elle pourra le changer elle-même depuis « Changer mon mot de passe ».';
+
         form.innerHTML = `
             <input type="hidden" name="id" value="${esc(id || '')}">
             <div>
-                <label class="lpc-field-label">Code Employé *</label>
-                <input type="text" name="employee_code" value="${esc(user.employee_code || '')}" required class="lpc-input font-bold">
-            </div>
-            <div>
-                <label class="lpc-field-label">Email *</label>
-                <input type="email" name="email" value="${esc(user.email || '')}" required class="lpc-input">
+                <label class="lpc-field-label">Email (identifiant de connexion) *</label>
+                <input type="email" name="email" value="${esc(user.email || '')}" required
+                       autocomplete="off" inputmode="email" autocapitalize="none" spellcheck="false"
+                       placeholder="prenom.nom@lapetitecour.cm" class="lpc-input font-bold">
+                <p class="lpc-field-help">C'est avec cette adresse que la personne se connecte. Elle doit être unique.</p>
             </div>
             <div>
                 <label class="lpc-field-label">Prénom *</label>
@@ -1155,6 +1170,12 @@
                 <label class="lpc-field-label">Nom *</label>
                 <input type="text" name="last_name" value="${esc(user.last_name || '')}" required class="lpc-input">
             </div>
+            ${id ? `
+            <div>
+                <label class="lpc-field-label">Matricule</label>
+                <input type="text" value="${esc(user.employee_code || '—')}" disabled class="lpc-input bg-gray-50 text-gray-500">
+                <p class="lpc-field-help">Attribué automatiquement par le système. Non modifiable.</p>
+            </div>` : ''}
             <div>
                 <label class="lpc-field-label">Rôle Système *</label>
                 <select name="role_id" required class="lpc-input font-bold">${roleOpts}</select>
@@ -1162,7 +1183,9 @@
             </div>
             <div>
                 <label class="lpc-field-label">Mot de passe ${id ? '(laisser vide pour conserver)' : '*'}</label>
-                <input type="password" name="password" ${id ? '' : 'required'} placeholder="••••••••" class="lpc-input">
+                <input type="password" name="password" ${id ? '' : 'required'} autocomplete="new-password"
+                       placeholder="••••••••" class="lpc-input">
+                <p class="lpc-field-help">${pwHelp}</p>
             </div>`;
 
         $('actionModal').classList.remove('hidden');
@@ -1175,9 +1198,14 @@
         if (!formElement.reportValidity()) return;
 
         try {
-            await apiPost(`${API}?action=save_${currentTab}`, new FormData(formElement));
+            // save_users now answers with a sentence naming the login address
+            // and, on create, the matricule it assigned. Showing it closes the
+            // loop for the admin, who otherwise has to reopen the row to find
+            // out what the system decided.
+            const res = await apiPost(`${API}?action=save_${currentTab}`, new FormData(formElement));
             closeModal();
             fetchTabData();
+            if (res && res.message) toast(res.message);
         } catch (err) {
             toast(`Erreur d'enregistrement : ${err.message}`, 'error');
         }

@@ -614,9 +614,18 @@ final class UserProfile
     }
 
     /**
-     * What lpc-usermenu.js needs. Deliberately excludes anything sensitive:
-     * no employee_code, no email domain tricks, no pin metadata beyond a
-     * boolean — this payload is inlined into HTML and ends up in the DOM.
+     * What lpc-usermenu.js needs. This payload is inlined into HTML and ends up
+     * in the DOM, so it carries no secrets: no password material, and no pin
+     * metadata beyond a boolean.
+     *
+     * `employeeCode` IS included, and that is deliberate. It used to be the
+     * sign-in identifier, which is why an older version of this comment called
+     * it sensitive and claimed it was excluded — the claim was already false
+     * when it was written, since the key below has always shipped. Since
+     * migration 105 the matricule is a read-only payroll reference that people
+     * are expected to quote, and the account panel displays it as such. The
+     * credential is the email address plus a password, and no password field
+     * is exposed here.
      */
     public static function jsPayload(): array
     {

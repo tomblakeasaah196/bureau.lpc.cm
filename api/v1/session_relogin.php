@@ -56,15 +56,19 @@ $maxAuth    = Prefs::int('sec_max_login_attempts', (int) env('AUTH_MAX_ATTEMPTS_
 $authWindow = Prefs::int('sec_lockout_minutes', 15);
 RateLimiter::guard('auth', $ip_address, $maxAuth, $authWindow);
 
-$employee_code = trim($_POST['employee_code'] ?? '');
-$password      = $_POST['password'] ?? '';
+// Sprint 14: the identifier is the email address. `employee_code` is still
+// read as a fallback key so a page loaded BEFORE the deploy — the session lock
+// lives on every long-lived tab in the building, so this is the common case on
+// deploy day, not an edge case — still submits something usable.
+$login    = mb_strtolower(trim($_POST['email'] ?? $_POST['employee_code'] ?? ''));
+$password = $_POST['password'] ?? '';
 
-if ($employee_code === '' || $password === '') {
+if ($login === '' || $password === '') {
     http_response_code(400);
     echo json_encode([
         'status'  => 'error',
         'code'    => 'empty_fields',
-        'message' => 'Identifiant et mot de passe requis.',
+        'message' => 'Adresse email et mot de passe requis.',
     ]);
     exit;
 }
@@ -77,9 +81,10 @@ try {
           FROM users u
      LEFT JOIN roles r              ON u.role_id = r.id
      LEFT JOIN employee_profiles ep ON u.id      = ep.user_id
-         WHERE u.employee_code = :code
+         WHERE LOWER(TRIM(u.email)) = :email
+         LIMIT 1
     ");
-    $stmt->execute(['code' => $employee_code]);
+    $stmt->execute(['email' => $login]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
     // Audit every failure with the same login_status vocabulary auth.php uses,
@@ -88,30 +93,30 @@ try {
     if (!$user) {
         $db->prepare("INSERT INTO user_sessions (login_identifier, ip_address, user_agent, login_status)
                       VALUES (?, ?, ?, 'user_not_found')")
-           ->execute([$employee_code, $ip_address, $user_agent]);
+           ->execute([$login, $ip_address, $user_agent]);
         http_response_code(401);
         echo json_encode(['status' => 'error', 'code' => 'invalid_credentials',
-                          'message' => 'Identifiant ou mot de passe incorrect.']);
+                          'message' => 'Adresse email ou mot de passe incorrect.']);
         exit;
     }
 
     if ($user['status'] !== 'active') {
         $db->prepare("INSERT INTO user_sessions (user_id, login_identifier, ip_address, user_agent, login_status)
                       VALUES (?, ?, ?, ?, 'account_locked')")
-           ->execute([$user['id'], $employee_code, $ip_address, $user_agent]);
+           ->execute([$user['id'], $login, $ip_address, $user_agent]);
         http_response_code(403);
         echo json_encode(['status' => 'error', 'code' => 'account_locked',
                           'message' => 'Compte désactivé. Contactez un administrateur.']);
         exit;
     }
 
-    if (!password_verify($password, $user['password_hash'])) {
+    if (!password_verify($password, (string) ($user['password_hash'] ?? ''))) {
         $db->prepare("INSERT INTO user_sessions (user_id, login_identifier, ip_address, user_agent, login_status)
                       VALUES (?, ?, ?, ?, 'failed_password')")
-           ->execute([$user['id'], $employee_code, $ip_address, $user_agent]);
+           ->execute([$user['id'], $login, $ip_address, $user_agent]);
         http_response_code(401);
         echo json_encode(['status' => 'error', 'code' => 'invalid_credentials',
-                          'message' => 'Identifiant ou mot de passe incorrect.']);
+                          'message' => 'Adresse email ou mot de passe incorrect.']);
         exit;
     }
 
@@ -131,7 +136,7 @@ try {
              session_token, session_token_hash)
         VALUES (?, ?, ?, ?, 'success', ?, ?)
     ")->execute([
-        $user['id'], $employee_code, $ip_address, $user_agent,
+        $user['id'], $login, $ip_address, $user_agent,
         $session_token, $session_token_hash,
     ]);
 
@@ -140,6 +145,7 @@ try {
     $_SESSION['user_role_id']   = (int) $user['role_id'];
     $_SESSION['user_name']      = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
     $_SESSION['employee_code']  = $user['employee_code'];
+    $_SESSION['user_email']     = $user['email'];
     $_SESSION['avatar']         = $user['avatar'] ?? null;
     $_SESSION['session_token']  = $session_token;
     $_SESSION['last_activity']  = time();

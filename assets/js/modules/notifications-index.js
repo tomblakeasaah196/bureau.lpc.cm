@@ -61,7 +61,13 @@
 
             var txt = el('div', 'min-w-0');
             txt.appendChild(el('p', 'text-sm font-bold text-gray-900', item.label));
-            if (item.type) {
+            // Stored events show when they happened; live conditions ("3
+            // invoices overdue") have no single "when" so they keep showing
+            // their type slug instead — there's nothing to date them by.
+            if (item.created_at) {
+                txt.appendChild(el('p', 'text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-0.5',
+                                   LPC.fmt.timeAgo(item.created_at)));
+            } else if (item.type) {
                 txt.appendChild(el('p', 'text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-0.5',
                                    String(item.type).replace(/_/g, ' ')));
             }

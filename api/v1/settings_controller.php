@@ -99,46 +99,163 @@ try {
     $responseData = ['table' => [], 'kpis' => []];
     $admin_id = $_SESSION['user_id'];
 
+    /**
+     * CREATE / UPDATE a user account.
+     *
+     * SPRINT 14 — this action is where an employee is onboarded, and it was
+     * the weakest surface in the app:
+     *
+     *   · NO password policy. `password_hash($_POST['password'])` accepted a
+     *     one-character password, while password_controller.php enforced a
+     *     regex on the same column. The admin form was the easy way around the
+     *     rule the users were held to.
+     *   · PASSWORD_DEFAULT here vs PASSWORD_BCRYPT + configured cost there.
+     *     Same column, two hashing configurations, and BCRYPT_COST ignored.
+     *   · `employee_code` was typed by hand and used as the login credential,
+     *     with no uniqueness check — two accounts could share one, and then
+     *     the login lookup returned whichever the optimiser felt like.
+     *   · Email was never validated or checked for duplicates. It is now the
+     *     credential, so a duplicate is an authentication bug.
+     *   · An admin could remove their own admin role or lock themselves out.
+     *
+     * All of that is fixed below. The matricule is now system-assigned and
+     * never read from the request.
+     */
     if ($action === 'save_users') {
-        $id = $_POST['id'] ?? '';
-        $emp_code = trim($_POST['employee_code'] ?? '');
-        $email = trim($_POST['email'] ?? '');
+        $id    = trim((string) ($_POST['id'] ?? ''));
+        $email = mb_strtolower(trim($_POST['email'] ?? ''));
         $first = trim($_POST['first_name'] ?? '');
-        $last = trim($_POST['last_name'] ?? '');
-        $role = (int)($_POST['role_id'] ?? 0);
-        $pass = $_POST['password'] ?? '';
+        $last  = trim($_POST['last_name'] ?? '');
+        $role  = (int) ($_POST['role_id'] ?? 0);
+        $pass  = (string) ($_POST['password'] ?? '');
 
-        if (empty($id)) {
-            // CREATE NEW USER
-            $hash = password_hash($pass, PASSWORD_DEFAULT);
-            $stmt = $db->prepare("INSERT INTO users (employee_code, email, first_name, last_name, role_id, password_hash, status) VALUES (?, ?, ?, ?, ?, ?, 'active')");
-            $stmt->execute([$emp_code, $email, $first, $last, $role, $hash]);
-            $newId = $db->lastInsertId();
-            
-            // Log Audit
-            $auditStmt = $db->prepare("INSERT INTO audit_logs (user_id, action, table_name, record_id, new_value) VALUES (?, 'INSERT', 'users', ?, ?)");
-            $auditStmt->execute([$admin_id, $newId, "Created User: $emp_code"]);
-            
-            echo json_encode(['status' => 'success']); exit;
-        } else {
-            // UPDATE EXISTING USER
-            if (!empty($pass)) {
-                // Password changed
-                $hash = password_hash($pass, PASSWORD_DEFAULT);
-                $stmt = $db->prepare("UPDATE users SET employee_code=?, email=?, first_name=?, last_name=?, role_id=?, password_hash=? WHERE id=?");
-                $stmt->execute([$emp_code, $email, $first, $last, $role, $hash, $id]);
-            } else {
-                // Password unchanged
-                $stmt = $db->prepare("UPDATE users SET employee_code=?, email=?, first_name=?, last_name=?, role_id=? WHERE id=?");
-                $stmt->execute([$emp_code, $email, $first, $last, $role, $id]);
-            }
-            
-            // Log Audit
-            $auditStmt = $db->prepare("INSERT INTO audit_logs (user_id, action, table_name, record_id, new_value) VALUES (?, 'UPDATE', 'users', ?, ?)");
-            $auditStmt->execute([$admin_id, $id, "Updated User: $emp_code"]);
-            
-            echo json_encode(['status' => 'success']); exit;
+        // ---- validation ----------------------------------------------------
+        if ($first === '' || $last === '') {
+            lpc_fail('Le prénom et le nom sont obligatoires.');
         }
+        if ($email === '') {
+            lpc_fail("L'adresse email est obligatoire — c'est l'identifiant de connexion.");
+        }
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            lpc_fail("Adresse email invalide : « {$email} ».");
+        }
+        if ($role <= 0) {
+            lpc_fail('Le rôle système est obligatoire.');
+        }
+
+        // The credential must be unique. Checked explicitly so the user gets a
+        // sentence instead of the SQLSTATE 23000 the UNIQUE index would throw.
+        $dupe = $db->prepare("SELECT id FROM users WHERE LOWER(TRIM(email)) = ? AND id <> ? LIMIT 1");
+        $dupe->execute([$email, $id === '' ? 0 : (int) $id]);
+        if ($dupe->fetch()) {
+            lpc_fail("Cette adresse email est déjà utilisée par un autre compte.");
+        }
+
+        // A password is mandatory on create, optional on edit (blank = keep).
+        // When present it must satisfy the same policy the user is held to
+        // when they change it themselves.
+        if ($id === '' && $pass === '') {
+            lpc_fail('Un mot de passe initial est obligatoire.');
+        }
+        if ($pass !== '') {
+            $policy = lpc_password_check($pass);
+            if (!$policy['ok']) lpc_fail($policy['message']);
+        }
+
+        if ($id === '') {
+            // ---- CREATE ------------------------------------------------------
+            // The matricule is assigned here, never accepted from the request.
+            // lpc_next_employee_code() takes the numeric MAX rather than the
+            // last-inserted row, so it cannot collide after a deletion.
+            $emp_code = lpc_next_employee_code($db);
+            $hash     = lpc_password_hash($pass);
+
+            $stmt = $db->prepare("
+                INSERT INTO users (employee_code, email, first_name, last_name, role_id, password_hash, status, password_changed_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'active', NOW())
+            ");
+            $stmt->execute([$emp_code, $email, $first, $last, $role, $hash]);
+            $newId = (int) $db->lastInsertId();
+
+            $db->prepare("
+                INSERT INTO audit_logs (user_id, action, table_name, record_id, new_value)
+                VALUES (?, 'INSERT', 'users', ?, ?)
+            ")->execute([$admin_id, $newId, "Created user {$emp_code} <{$email}> role_id={$role}"]);
+
+            echo json_encode([
+                'status'        => 'success',
+                'employee_code' => $emp_code,
+                'message'       => "Compte créé. {$first} {$last} se connecte avec {$email}.",
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        // ---- UPDATE ----------------------------------------------------------
+        $uid = (int) $id;
+
+        // Self-lockout guards. An admin editing their own row cannot change
+        // their role (which could strip admin.settings.edit and leave nobody
+        // able to grant it back). Deliberate demotions go through the RBAC tab.
+        $isSelf = ($uid === (int) $admin_id);
+        if ($isSelf) {
+            $cur = $db->prepare("SELECT role_id FROM users WHERE id = ?");
+            $cur->execute([$uid]);
+            $curRole = (int) $cur->fetchColumn();
+            if ($curRole !== $role) {
+                lpc_fail("Vous ne pouvez pas modifier votre propre rôle. Demandez à un autre administrateur.");
+            }
+        }
+
+        if ($pass !== '') {
+            $hash = lpc_password_hash($pass);
+            $db->prepare("
+                UPDATE users
+                   SET email=?, first_name=?, last_name=?, role_id=?, password_hash=?, password_changed_at=NOW()
+                 WHERE id=?
+            ")->execute([$email, $first, $last, $role, $hash, $uid]);
+
+            // An admin-set password is a credential the account owner did not
+            // choose and may not yet know. Every existing session for that user
+            // is therefore terminated: if the reason for the reset is that
+            // someone else had the old password, leaving their session alive
+            // defeats the whole exercise.
+            //
+            // The admin's own session is spared when they are resetting
+            // themselves — being logged out by your own click is confusing, and
+            // you self-evidently know the new password.
+            if ($isSelf) {
+                $currentHash = !empty($_SESSION['session_token']) ? hash('sha256', $_SESSION['session_token']) : '';
+                $db->prepare("
+                    UPDATE user_sessions SET logout_time = NOW()
+                     WHERE user_id = ? AND logout_time IS NULL AND session_token_hash <> ?
+                ")->execute([$uid, $currentHash]);
+            } else {
+                $db->prepare("
+                    UPDATE user_sessions SET logout_time = NOW()
+                     WHERE user_id = ? AND logout_time IS NULL
+                ")->execute([$uid]);
+            }
+        } else {
+            $db->prepare("
+                UPDATE users
+                   SET email=?, first_name=?, last_name=?, role_id=?
+                 WHERE id=?
+            ")->execute([$email, $first, $last, $role, $uid]);
+        }
+
+        $what = $pass !== '' ? 'Updated user + password reset' : 'Updated user';
+        $db->prepare("
+            INSERT INTO audit_logs (user_id, action, table_name, record_id, new_value)
+            VALUES (?, 'UPDATE', 'users', ?, ?)
+        ")->execute([$admin_id, $uid, "{$what} <{$email}> role_id={$role}"]);
+
+        echo json_encode([
+            'status'  => 'success',
+            'message' => $pass !== ''
+                ? 'Compte mis à jour. Le nouveau mot de passe est actif et les sessions ouvertes ont été fermées.'
+                : 'Compte mis à jour.',
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
     }
 
     if ($action === 'toggle_user') {

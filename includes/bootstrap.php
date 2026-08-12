@@ -104,6 +104,18 @@ unset($__lpc_tz);
 //     translation stub that lived in includes/functions/helpers.php.
 require_once __DIR__ . '/functions/i18n.php';
 
+// Password policy — lpc_password_check() / lpc_password_hash(). Loaded here
+// because three separate surfaces (login-adjacent password change, admin user
+// creation in Settings, employee onboarding in Master Data) all have to apply
+// the SAME rule, and before Sprint 14 they each had their own. See
+// includes/functions/password_policy.php for what that cost.
+require_once __DIR__ . '/functions/password_policy.php';
+
+// Matricule allocation — lpc_next_employee_code(). Shared by the two
+// onboarding surfaces so they cannot drift apart again; see the file header
+// for the LPC-<timestamp> bug that happened when they did.
+require_once __DIR__ . '/functions/employee_code.php';
+
 // Cache-busted asset URLs — lpc_asset(). Must be available to every template
 // that emits a <link> or <script>. See includes/functions/assets.php for why
 // unversioned asset paths broke production on 28 July 2026.

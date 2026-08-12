@@ -258,6 +258,9 @@ class Rbac
                 'role'  => self::$roleName,
                 'roleId'=> self::$roleId,
                 'code'  => $_SESSION['employee_code'] ?? null,
+                // Sprint 14: the login identifier. lpc-session-lock.js prefills
+                // its re-auth field from this, the way it used to use `code`.
+                'email' => $_SESSION['user_email'] ?? null,
                 'avatar'=> $_SESSION['avatar']     ?? null,
             ],
             'permissions' => array_keys(self::$permissions ?? []),

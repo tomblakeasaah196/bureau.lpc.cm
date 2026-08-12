@@ -121,6 +121,30 @@
         percent(n, d = 1) { const v = Number(n); return Number.isFinite(v) ? v.toFixed(d) + ' %' : '—'; },
         date(iso) { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString('fr-FR'); },
         dateTime(iso) { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString('fr-FR'); },
+        // Relative time for things like the notifications feed — "il y a 5 min"
+        // rather than a full timestamp nobody wants to do math on. Falls back to
+        // an absolute date once it's more than a week old, where "relative"
+        // stops being useful and starts being vague. Reads document.documentElement.lang
+        // the same way lpc-topbar.js / notifications-index.js already do for
+        // their own bilingual strings — no i18n dictionary entry needed for
+        // a handful of unit words.
+        timeAgo(iso) {
+            if (!iso) return '';
+            const d = new Date(iso);
+            if (isNaN(d)) return '';
+            const en = document.documentElement.lang === 'en';
+            const diffMs = Date.now() - d.getTime();
+            const sec = Math.round(diffMs / 1000);
+            if (sec < 0)   return en ? 'just now' : 'à l\'instant';
+            if (sec < 45)  return en ? 'just now' : 'à l\'instant';
+            const min = Math.round(sec / 60);
+            if (min < 60)  return en ? `${min} min ago` : `il y a ${min} min`;
+            const hr = Math.round(min / 60);
+            if (hr < 24)   return en ? `${hr}h ago` : `il y a ${hr} h`;
+            const day = Math.round(hr / 24);
+            if (day < 7)   return en ? `${day}d ago` : `il y a ${day} j`;
+            return d.toLocaleDateString(en ? 'en-GB' : 'fr-FR');
+        },
     };
 
     Object.assign(window.LPC, { html, raw, el, setText, escapeHtml, fmt });

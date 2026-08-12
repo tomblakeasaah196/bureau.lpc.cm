@@ -1092,9 +1092,34 @@ try {
             }
         }
         elseif ($module === 'employees') {
+            // SPRINT 14 — email is the login credential, the matricule is
+            // system-assigned, and the admin sets the initial password.
             if (empty($_POST['role_id'])) throw new MdmValidationException("Le Rôle Système est obligatoire.");
             if (empty($_POST['first_name']) || empty($_POST['last_name'])) throw new MdmValidationException("Le Nom et Prénom sont obligatoires.");
-            if (empty($_POST['email'])) throw new MdmValidationException("L'adresse email est obligatoire.");
+            if (empty($_POST['email'])) throw new MdmValidationException("L'adresse email est obligatoire — c'est l'identifiant de connexion.");
+
+            $emp_email = mb_strtolower(trim((string) $_POST['email']));
+            if (!filter_var($emp_email, FILTER_VALIDATE_EMAIL)) {
+                throw new MdmValidationException("Adresse email invalide : « {$emp_email} ».");
+            }
+
+            // Unique, because it is now the credential. Checked here so the
+            // user reads a sentence rather than a UNIQUE-constraint violation.
+            $dupeStmt = $db->prepare("SELECT id FROM users WHERE LOWER(TRIM(email)) = ? AND id <> ? LIMIT 1");
+            $dupeStmt->execute([$emp_email, (int) ($id ?: 0)]);
+            if ($dupeStmt->fetch()) {
+                throw new MdmValidationException("Cette adresse email est déjà utilisée par un autre compte.");
+            }
+
+            // Password: required when creating, optional when editing.
+            $emp_password = (string) ($_POST['password'] ?? '');
+            if (!$id && $emp_password === '') {
+                throw new MdmValidationException("Un mot de passe initial est obligatoire.");
+            }
+            if ($emp_password !== '') {
+                $pwPolicy = lpc_password_check($emp_password);
+                if (!$pwPolicy['ok']) throw new MdmValidationException($pwPolicy['message']);
+            }
             // 1. Handle avatar upload — hardened via Uploads::saveUploaded.
             //    Writes under /uploads/avatars/YYYY/MM/ (protected by uploads/.htaccess).
             require_once __DIR__ . '/../../includes/classes/Uploads.php';
@@ -1117,7 +1142,17 @@ try {
                 if ($id) {
                     // Update IAM
                     $stmt = $db->prepare("UPDATE users SET first_name=?, last_name=?, email=?, role_id=? WHERE id=?");
-                    $stmt->execute([$_POST['first_name'], $_POST['last_name'], $_POST['email'], $_POST['role_id'], $id]);
+                    $stmt->execute([$_POST['first_name'], $_POST['last_name'], $emp_email, $_POST['role_id'], $id]);
+
+                    // An admin-set password takes effect at once and closes
+                    // that person's open sessions — see the same reasoning in
+                    // settings_controller.php's save_users.
+                    if ($emp_password !== '') {
+                        $db->prepare("UPDATE users SET password_hash=?, password_changed_at=NOW() WHERE id=?")
+                           ->execute([lpc_password_hash($emp_password), $id]);
+                        $db->prepare("UPDATE user_sessions SET logout_time=NOW() WHERE user_id=? AND logout_time IS NULL")
+                           ->execute([$id]);
+                    }
                     // Update HR Profile
                     if ($avatar_path) {
                         $stmt = $db->prepare("UPDATE employee_profiles SET job_title=?, phone=?, base_salary=?, avatar=? WHERE user_id=?");
@@ -1128,21 +1163,36 @@ try {
                         $stmt->execute([$_POST['job_title'], $_POST['phone'], $_POST['base_salary'], $id]);
                     }
                 } else {
-                    // New Employee
-                    $temp_pwd = password_hash('LPC2026', PASSWORD_BCRYPT);
-                    
-                    // AUTO-GENERATE CODE: EMP-001, EMP-002...
-                    $stmt_code = $db->query("SELECT employee_code FROM users WHERE employee_code LIKE 'EMP-%' ORDER BY id DESC LIMIT 1");
-                    $last_code = $stmt_code->fetchColumn();
-                    if ($last_code) {
-                        $num = (int)str_replace('EMP-', '', $last_code);
-                        $emp_code = 'EMP-' . str_pad($num + 1, 3, '0', STR_PAD_LEFT);
-                    } else {
-                        $emp_code = 'EMP-001';
-                    }
-                    $stmt = $db->prepare("INSERT INTO users (role_id, employee_code, first_name, last_name, email, password_hash, status) VALUES (?, ?, ?, ?, ?, ?, 'active')");
-                    $emp_code = 'LPC-' . time();
-                    $stmt->execute([$_POST['role_id'], $emp_code, $_POST['first_name'], $_POST['last_name'], $_POST['email'], $temp_pwd]);
+                    // New Employee.
+                    //
+                    // TWO BUGS FIXED HERE (Sprint 14):
+                    //
+                    // 1. The password was the hardcoded shared secret
+                    //    'LPC2026' — the same string for every employee ever
+                    //    created through this form, never rotated, and
+                    //    documented in the help article. The admin now sets it.
+                    //
+                    // 2. The matricule was computed correctly and then thrown
+                    //    away. The original read:
+                    //
+                    //        $emp_code = 'EMP-' . str_pad($num + 1, 3, '0', ...);
+                    //        $stmt = $db->prepare("INSERT INTO users ...");
+                    //        $emp_code = 'LPC-' . time();     // <- overwrote it
+                    //        $stmt->execute([..., $emp_code, ...]);
+                    //
+                    //    so every employee onboarded here carries a
+                    //    LPC-<unix timestamp>. Those rows are left alone by
+                    //    migration 105 (the numbers are on payslips already),
+                    //    but nothing new is minted that way.
+                    //
+                    // Allocation now lives in lpc_next_employee_code(), shared
+                    // with settings_controller.php, so the two onboarding
+                    // surfaces cannot disagree again.
+                    $emp_code = lpc_next_employee_code($db);
+                    $emp_hash = lpc_password_hash($emp_password);
+
+                    $stmt = $db->prepare("INSERT INTO users (role_id, employee_code, first_name, last_name, email, password_hash, status, password_changed_at) VALUES (?, ?, ?, ?, ?, ?, 'active', NOW())");
+                    $stmt->execute([$_POST['role_id'], $emp_code, $_POST['first_name'], $_POST['last_name'], $emp_email, $emp_hash]);
                     $new_user_id = $db->lastInsertId();
                     
                     $stmt = $db->prepare("INSERT INTO employee_profiles (user_id, job_title, phone, base_salary, hire_date, avatar) VALUES (?, ?, ?, ?, CURDATE(), ?)");
@@ -1158,7 +1208,7 @@ try {
                         $db,
                         'admin.users.create',
                         'Nouvel utilisateur créé',
-                        ($_SESSION['user_name'] ?? 'Un opérateur') . " a créé le compte de {$_POST['first_name']} {$_POST['last_name']} ({$_POST['email']}) — mot de passe temporaire à faire changer.",
+                        ($_SESSION['user_name'] ?? 'Un opérateur') . " a créé le compte de {$_POST['first_name']} {$_POST['last_name']} — connexion par {$emp_email}.",
                         '/modules/admin/master_data.php',
                         'info',
                         [(int) $_SESSION['user_id']]

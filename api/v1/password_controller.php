@@ -2,37 +2,64 @@
 /**
  * api/v1/password_controller.php
  * -----------------------------------------------------------------------------
- * Bureau LPC ERP — password management API (Sprint-2 hardened).
+ * Bureau LPC ERP — password management API.
+ *
+ * SPRINT 14 — WHAT CHANGED AND WHY
+ * --------------------------------
+ * 1. `change` is keyed on the EMAIL ADDRESS, not the employee code.
+ * 2. The password rules come from lpc_password_check() (one definition, shared
+ *    with the browser checklist and with both onboarding forms) instead of the
+ *    local regex that hardcoded a minimum of 8 while the admin-facing
+ *    preference said 10.
+ * 3. Reusing the current password as the new one is refused.
+ * 4. `request_reset` and `reset` are DISABLED behind the constant below.
+ *
+ * WHY THE RESET ACTIONS ARE DISABLED RATHER THAN DELETED
+ * ------------------------------------------------------
+ * There is no SMTP on this host. `Mail::send()` detects that (MAIL_FROM empty),
+ * writes the message to the PHP error log, and returns TRUE — so the old
+ * `request_reset` answered "a reset link has been sent" to every caller and
+ * sent nothing, for as long as the feature has existed. The user then waited
+ * for an email that was never coming.
+ *
+ * Deleting the code would mean rewriting it when SMTP arrives. Leaving it
+ * callable would mean continuing to lie. So it stays, correct and inert,
+ * behind one constant. Turning it back on is: configure MAIL_FROM in .env, set
+ * LPC_PASSWORD_RESET_BY_EMAIL_ENABLED to true, restore the "forgot" form on
+ * password_manager.php. Nothing else.
+ *
+ * Until then the recovery path is human: an administrator sets a new password
+ * from Paramètres -> Utilisateurs, which kills that user's sessions.
  *
  * Actions:
  *
  *   POST action=change
- *     Body: employee_code, old_password, new_password
- *     Effect: password_verify old_password, update to new.
+ *     Body: email, old_password, new_password
+ *     Effect: verify old_password, apply the policy, update, kill the user's
+ *             OTHER sessions (the current one survives).
  *
- *   POST action=request_reset
- *     Body: employee_code, email
- *     Effect: if the combination matches a user, INSERT a password_resets row
- *             with a hashed token and email a signed reset link. Response is
- *             ALWAYS a generic success to avoid account enumeration.
- *
- *   POST action=reset
- *     Body: token, new_password
- *     Effect: validate token (hash + not-expired + not-used), update password,
- *             mark token used, clear must_reset_password, kill all other
- *             sessions for the user.
+ *   POST action=request_reset   -> 503, disabled (see above)
+ *   POST action=reset           -> 503, disabled (see above)
  *
  * All actions:
- *   · CSRF required (Csrf::requireValid())
- *   · Rate-limited (10 change/hour/IP; 3 request_reset/hour/IP; 5 reset/hour/IP)
- *   · Password policy: min 8 chars, ≥1 uppercase, ≥1 digit, ≥1 special
+ *   - CSRF required (Csrf::requireValid())
+ *   - Rate-limited per IP
+ *   - Password policy from includes/functions/password_policy.php
  *
  * Response envelope: { status: 'success'|'error', message: string }
  * -----------------------------------------------------------------------------
  */
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
-require_once __DIR__ . '/../../includes/classes/Mail.php';
+
+/**
+ * Master switch for the email-token recovery flow.
+ *
+ * FALSE until SMTP exists. See the file header. Flipping this to true without
+ * a working MAIL_FROM restores the silent-failure bug it was introduced to
+ * stop, so check .env first.
+ */
+const LPC_PASSWORD_RESET_BY_EMAIL_ENABLED = false;
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -50,9 +77,13 @@ $ua = mb_substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
 $action = $_POST['action'] ?? '';
 
 // -----------------------------------------------------------------------------
-function pwOk(string $p): bool {
-    return (bool) preg_match('/^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{8,}$/', $p);
-}
+// NOTE: a local pwOk() used to live here. It hardcoded a minimum of 8 while
+// the admin-facing `sec_password_min_length` preference said 10 and was read
+// by nobody, and its special-character class excluded the hyphen and every
+// accented character — so "Café-du-Marché-2026" was refused with a message
+// that did not say which characters would count. The rule now lives in
+// includes/functions/password_policy.php, shared with the browser checklist
+// and with both onboarding forms.
 function reply(bool $ok, string $msg, array $extra = []): void {
     echo json_encode(array_merge(['status' => $ok ? 'success' : 'error', 'message' => $msg], $extra));
     exit;
@@ -67,20 +98,77 @@ try {
         case 'change': {
             RateLimiter::guard('pw_change', $ip, 10, 60);
 
-            $code = trim($_POST['employee_code'] ?? '');
-            $old  = $_POST['old_password'] ?? '';
-            $new  = $_POST['new_password'] ?? '';
+            $email = mb_strtolower(trim($_POST['email'] ?? $_POST['employee_code'] ?? ''));
+            $old   = $_POST['old_password'] ?? '';
+            $new   = $_POST['new_password'] ?? '';
 
-            if ($code === '' || $old === '' || $new === '') reply(false, 'Champs manquants.');
-            if (!pwOk($new)) reply(false, 'Le nouveau mot de passe ne respecte pas les critères de sécurité.');
+            if ($email === '' || $old === '' || $new === '') reply(false, 'Champs manquants.');
 
-            $stmt = $db->prepare("SELECT id, password_hash, status FROM users WHERE employee_code = ?");
-            $stmt->execute([$code]);
+            // You must be signed in, and you may only change your OWN password.
+            //
+            // Both halves matter, and an earlier version of this guard only had
+            // the second. It read
+            //
+            //     if (!empty($_SESSION['user_id']) && ... != $email) reject;
+            //
+            // which is a no-op for a caller with no session at all: an
+            // anonymous request that knew (email, current password) sailed past
+            // it and changed the password. That is not merely "knowing the
+            // password is already enough" — it hands an attacker who has seen a
+            // credential the ability to *lock the real owner out* remotely,
+            // and with SMTP disabled the owner then needs an administrator to
+            // get back in. Verified by direct HTTP probe, not by reading.
+            //
+            // Admin-initiated changes for OTHER people are a separate,
+            // permission-gated path in settings_controller.php, audited as an
+            // admin action against the admin's own identity.
+            if (empty($_SESSION['user_id']) || empty($_SESSION['user_email'])) {
+                http_response_code(401);
+                reply(false, 'Vous devez etre connecte pour changer votre mot de passe.',
+                      ['code' => 'unauthenticated']);
+            }
+            if (mb_strtolower((string) $_SESSION['user_email']) !== $email) {
+                reply(false, 'Vous ne pouvez modifier que votre propre mot de passe.');
+            }
+
+            $policy = lpc_password_check($new);
+            if (!$policy['ok']) reply(false, $policy['message']);
+
+            // Rejected here as well as in the browser: the JS check is a
+            // courtesy and is trivially bypassed. A "change" that changes
+            // nothing would still bump password_changed_at and kill the user's
+            // other sessions, which looks exactly like a successful rotation
+            // in the audit log while leaving the old credential live.
+            if (hash_equals($old, $new)) {
+                reply(false, 'Le nouveau mot de passe doit être différent de l\'ancien.');
+            }
+
+            $stmt = $db->prepare("
+                SELECT id, password_hash, status
+                  FROM users
+                 WHERE LOWER(TRIM(email)) = ?
+                 LIMIT 1
+            ");
+            $stmt->execute([$email]);
             $u = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$u || $u['status'] !== 'active') reply(false, 'Identifiants incorrects.');
-            if (!password_verify($old, $u['password_hash'])) reply(false, 'L\'ancien mot de passe est incorrect.');
 
-            $newHash = password_hash($new, PASSWORD_BCRYPT, ['cost' => (int) env('BCRYPT_COST', 12)]);
+            // One message for "no such address", "locked account" and "wrong
+            // password" — the caller is not necessarily the account owner, so
+            // distinguishing them would confirm which addresses exist.
+            // ONE message for every failure mode: no such address, locked
+            // account, or wrong current password. Distinct wording here let a
+            // caller enumerate which addresses are real accounts by reading
+            // which error came back. The session check above already pins this
+            // to the account owner, so a genuine user never sees the ambiguity
+            // in practice — they are told their current password is wrong,
+            // which is the only case they can actually reach.
+            $bad = 'Identifiants incorrects.';
+            if (!$u || $u['status'] !== 'active') reply(false, $bad);
+            if (!password_verify($old, (string) ($u['password_hash'] ?? ''))) {
+                reply(false, $bad);
+            }
+
+            $newHash = lpc_password_hash($new);
             $db->prepare("
                 UPDATE users
                    SET password_hash = ?, must_reset_password = 0, password_changed_at = NOW()
@@ -102,26 +190,37 @@ try {
             reply(true, 'Mot de passe mis à jour avec succès.');
         }
 
-        // ==================== REQUEST RESET ====================
+        // ==================== REQUEST RESET (disabled) ====================
+        // Left intact below the guard so re-enabling is one constant. See the
+        // file header for why it cannot be allowed to run without SMTP.
         case 'request_reset': {
+            if (!LPC_PASSWORD_RESET_BY_EMAIL_ENABLED) {
+                http_response_code(503);
+                reply(false, "La réinitialisation par email n'est pas disponible sur cette installation. "
+                           . "Demandez à un administrateur de définir un nouveau mot de passe pour vous.");
+            }
+
             RateLimiter::guard('pw_reset_req', $ip, 3, 60);
 
-            $code  = trim($_POST['employee_code'] ?? '');
-            $email = trim($_POST['email'] ?? '');
+            // Sprint 14: keyed on the email alone. Requiring code + email was
+            // a second factor that only ever inconvenienced the account owner —
+            // both values appear on any internal directory listing.
+            $email = mb_strtolower(trim($_POST['email'] ?? ''));
 
             // Always return the same generic message — never leak whether the
-            // pair matches a user.
+            // address matches a user.
             $genericMsg = 'Si les informations correspondent, un lien de réinitialisation a été envoyé à votre adresse email.';
 
-            if ($code === '' || $email === '') reply(true, $genericMsg);
+            if ($email === '') reply(true, $genericMsg);
 
-            $stmt = $db->prepare("SELECT id, email, status FROM users WHERE employee_code = ?");
-            $stmt->execute([$code]);
+            $stmt = $db->prepare("SELECT id, email, employee_code, status FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1");
+            $stmt->execute([$email]);
             $u = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$u || strcasecmp($u['email'], $email) !== 0 || $u['status'] !== 'active') {
-                error_log("[password] reset requested for unknown/mismatched code={$code} email={$email} ip={$ip}");
+            if (!$u || $u['status'] !== 'active') {
+                error_log("[password] reset requested for unknown/inactive email={$email} ip={$ip}");
                 reply(true, $genericMsg);
             }
+            $code = (string) ($u['employee_code'] ?? '');
 
             // Invalidate any pending resets so only the latest link works.
             $db->prepare("UPDATE password_resets SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL")
@@ -166,19 +265,35 @@ Adresse IP à l'origine de la demande : {$ip}
 {$companyName}
 EMAIL;
 
+            // Required here, not at the top of the file: this is the only
+            // statement in the controller that needs it, and it is unreachable
+            // while LPC_PASSWORD_RESET_BY_EMAIL_ENABLED is false. Requiring it
+            // unconditionally would load a class the live code path never uses.
+            require_once __DIR__ . '/../../includes/classes/Mail.php';
             Mail::send($u['email'], $subject, $body);
             pw_audit($u['id'], 'Password reset requested from ' . $ip);
             reply(true, $genericMsg);
         }
 
-        // ==================== RESET ====================
+        // ==================== RESET (disabled) ====================
+        // A token can only exist if request_reset issued one, which it no
+        // longer does — but any token minted before this deploy is still in
+        // password_resets and still inside its hour, so the gate is explicit
+        // rather than implied.
         case 'reset': {
+            if (!LPC_PASSWORD_RESET_BY_EMAIL_ENABLED) {
+                http_response_code(503);
+                reply(false, "La réinitialisation par email n'est pas disponible sur cette installation. "
+                           . "Demandez à un administrateur de définir un nouveau mot de passe pour vous.");
+            }
+
             RateLimiter::guard('pw_reset', $ip, 5, 60);
 
             $raw = trim($_POST['token'] ?? '');
             $new = $_POST['new_password'] ?? '';
             if ($raw === '' || $new === '') reply(false, 'Lien invalide ou données manquantes.');
-            if (!pwOk($new))                 reply(false, 'Le mot de passe ne respecte pas les critères de sécurité.');
+            $policy = lpc_password_check($new);
+            if (!$policy['ok'])              reply(false, $policy['message']);
 
             $tokenHash = hash('sha256', $raw);
             $stmt = $db->prepare("
@@ -194,7 +309,7 @@ EMAIL;
             if ($pr['used_at'] !== null)                  reply(false, 'Lien déjà utilisé. Demandez un nouveau lien.');
             if (strtotime($pr['expires_at']) < time())    reply(false, 'Lien expiré. Demandez un nouveau lien.');
 
-            $newHash = password_hash($new, PASSWORD_BCRYPT, ['cost' => (int) env('BCRYPT_COST', 12)]);
+            $newHash = lpc_password_hash($new);
 
             $db->beginTransaction();
             $db->prepare("

@@ -77,6 +77,8 @@ const mdmConfig = {
         columns: [
             { key: 'avatar', label: 'Profil', render: v => `<img alt="" src="${v || '/assets/img/default_avatar.png'}" class="w-10 h-10 rounded-full object-cover border border-gray-200">` },
             { key: 'employee_code', label: 'Matricule', render: v => `<span class="font-bold text-gray-500">${v || 'N/A'}</span>` },
+            // Sprint 14: the login identifier, so it belongs in the grid.
+            { key: 'email', label: 'Connexion', render: v => `<span class="text-sm text-gray-600">${v || '-'}</span>` },
             { key: 'full_name', label: 'Nom & Prénom', render: v => `<span class="font-black text-gray-900">${v}</span>` },
             { key: 'role_name', label: 'Rôle Système', render: v => `<span class="px-2 py-1 bg-blue-50 text-blue-600 rounded text-[10px] font-bold uppercase">${v}</span>` },
             { key: 'job_title', label: 'Poste', render: v => `<span class="text-sm text-gray-600">${v || '-'}</span>` },
@@ -85,7 +87,13 @@ const mdmConfig = {
         form: [
             { name: 'first_name', label: 'Prénom', type: 'text', width: 'col-span-1' },
             { name: 'last_name', label: 'Nom', type: 'text', width: 'col-span-1' },
-            { name: 'email', label: 'Email (Connexion)', type: 'email', width: 'col-span-1' },
+            { name: 'email', label: 'Email (identifiant de connexion)', type: 'email', width: 'col-span-1' },
+            // Sprint 14: the admin sets the initial password here. It used to
+            // be the hardcoded shared string 'LPC2026' for every single
+            // employee — see the comment in mdm_controller.php. `optional`
+            // means "not required when editing": blank keeps the current one.
+            { name: 'password', label: 'Mot de passe', type: 'password', width: 'col-span-1', optional: 'edit',
+              help: "À la création : obligatoire. En modification : laisser vide pour conserver le mot de passe actuel." },
             { name: 'role_id', label: 'Rôle Système', type: 'dynamic_select', source: 'roles', width: 'col-span-1' },
             { name: 'job_title', label: 'Poste (ex: Chauffeur)', type: 'text', width: 'col-span-1' },
             { name: 'phone', label: 'Téléphone', type: 'text', width: 'col-span-1' },
@@ -750,11 +758,21 @@ function openModal(id = null) {
         } else if (field.type === 'file') {
             inputHTML = LPC.html`<input type="file" id="f_${field.name}" name="${field.name}" accept="image/*" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-sm font-medium outline-none">`;
             if (value) inputHTML += LPC.html`<p class="text-[10px] text-gray-500 mt-1">Fichier actuel: ${value.split('/').pop()}</p>`;
+        } else if (field.type === 'password') {
+            // Never echo a password back into the DOM — `value` for this field
+            // would be whatever the read endpoint returned, and the point of a
+            // hash is that it does not come back. Blank on edit means "keep",
+            // which is exactly what an empty input submits.
+            const pwRequired = (field.optional === 'edit' && id) ? '' : 'required';
+            inputHTML = LPC.html`<input ${LPC.raw(pwRequired)} type="password" id="f_${field.name}" name="${field.name}" autocomplete="new-password" placeholder="${id ? 'Laisser vide pour conserver' : '••••••••'}" class="${INPUT_CLS}">`;
         } else {
             inputHTML = LPC.html`<input required type="${field.type}" id="f_${field.name}" name="${field.name}" value="${value}" ${currentModule === 'pricing' && id && field.name.includes('id') ? 'readonly' : ''} class="${INPUT_CLS}">`;
         }
 
-        form.innerHTML += LPC.html`<div class="${field.width}"><label class="${LABEL_CLS}">${field.label}</label>${LPC.raw(inputHTML)}</div>`;
+        const helpHTML = field.help
+            ? LPC.html`<p class="text-[10px] text-gray-500 mt-1">${field.help}</p>`
+            : '';
+        form.innerHTML += LPC.html`<div class="${field.width}"><label class="${LABEL_CLS}">${field.label}</label>${LPC.raw(inputHTML)}${LPC.raw(helpHTML)}</div>`;
     });
 
     mountFormPickers(form);

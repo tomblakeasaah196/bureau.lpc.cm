@@ -105,9 +105,24 @@ $lang = lpc_i18n_current_lang();
                     <?php 
                         $error = $_GET['error'];
                         if ($error === 'invalid_credentials') {
-                            echo $lang == 'fr' ? 'Code employé ou mot de passe incorrect.' : 'Invalid employee code or password.';
+                            echo $lang == 'fr' ? 'Adresse email ou mot de passe incorrect.' : 'Invalid email address or password.';
                         } elseif ($error === 'empty_fields') {
                             echo $lang == 'fr' ? 'Veuillez remplir tous les champs.' : 'Please fill in all fields.';
+                        } elseif ($error === 'account_locked') {
+                            // Sprint 14: this case was reachable from auth.php since Sprint 2
+                            // but had no message here, so a locked-out employee got the
+                            // useless generic "Une erreur est survenue" and rang the office.
+                            echo $lang == 'fr'
+                                ? 'Ce compte est désactivé. Contactez votre administrateur.'
+                                : 'This account is disabled. Contact your administrator.';
+                        } elseif ($error === 'reset_disabled') {
+                            echo $lang == 'fr'
+                                ? 'La réinitialisation par email n\'est pas disponible. Votre administrateur peut définir un nouveau mot de passe.'
+                                : 'Email password reset is unavailable. Your administrator can set a new password for you.';
+                        } elseif ($error === 'reset_invalid') {
+                            echo $lang == 'fr'
+                                ? 'Ce lien de réinitialisation n\'est plus valide.'
+                                : 'This reset link is no longer valid.';
                         } elseif ($error === 'system_error') {
                             echo $lang == 'fr' ? 'Erreur système. Veuillez contacter l\'administrateur.' : 'System error. Please contact the administrator.';
                         } else {
@@ -121,19 +136,26 @@ $lang = lpc_i18n_current_lang();
         <form action="api/v1/auth.php" method="POST" class="space-y-5" autocomplete="on">
             <?= Csrf::field() ?>
 
+            <?php /* Sprint 14: the login identifier is the email address. The
+                     employee code is no longer a credential — see
+                     docs/SPRINT14_EMAIL_LOGIN.md. type="email" gives mobile
+                     users the @ keyboard; autocomplete="username" is correct
+                     for an email used as a login name and is what password
+                     managers expect to pair with current-password. */ ?>
             <div>
-                <label for="employee_code" class="block text-xs font-medium text-white/70 mb-1.5 ml-1 uppercase tracking-wider">
-                    <?php echo $lang == 'fr' ? 'Code Employé' : 'Employee Code'; ?>
+                <label for="email" class="block text-xs font-medium text-white/70 mb-1.5 ml-1 uppercase tracking-wider">
+                    <?php echo $lang == 'fr' ? 'Adresse Email' : 'Email Address'; ?>
                 </label>
                 <div class="relative">
                     <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                         <svg class="h-5 w-5 text-white/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                         </svg>
                     </div>
-                    <input type="text" id="employee_code" name="employee_code" required autocomplete="username" autofocus
+                    <input type="email" id="email" name="email" required autocomplete="username" autofocus
+                        inputmode="email" autocapitalize="none" spellcheck="false"
                         class="w-full glass-input rounded-xl py-3.5 pl-11 pr-4 text-base transition-all duration-300"
-                        placeholder="Ex: LPC-001">
+                        placeholder="prenom.nom@lapetitecour.cm">
                 </div>
             </div>
 
@@ -153,10 +175,22 @@ $lang = lpc_i18n_current_lang();
                 </div>
             </div>
 
-            <div class="flex items-center justify-between text-sm mt-2 mb-6 ml-1">
-                <a href="password_manager.php?lang=<?php echo $lang; ?>" class="text-white/60 hover:text-lpc-light transition-colors font-medium">
-                    <?php echo $lang == 'fr' ? 'Mot de passe oublié / Changer ?' : 'Forgot / Change Password?'; ?>
+            <?php /* Sprint 14: there is no self-service recovery. SMTP is not
+                     configured, and the old "Oublié ?" tab called Mail::send(),
+                     which logs-and-returns-true when MAIL_FROM is empty — it
+                     reported success and delivered nothing. A dead end that
+                     LOOKS like it worked is worse than an honest instruction,
+                     so the honest instruction is what the page now shows.
+                     "Changer" still links out, because that one works. */ ?>
+            <div class="mt-2 mb-6 ml-1 space-y-1.5">
+                <a href="password_manager.php?lang=<?php echo $lang; ?>" class="block text-sm text-white/60 hover:text-lpc-light transition-colors font-medium">
+                    <?php echo $lang == 'fr' ? 'Changer mon mot de passe' : 'Change my password'; ?>
                 </a>
+                <p class="text-xs text-white/40 leading-relaxed">
+                    <?php echo $lang == 'fr'
+                        ? 'Mot de passe oublié ? Contactez votre administrateur : il peut en définir un nouveau pour vous.'
+                        : 'Forgot your password? Contact your administrator — they can set a new one for you.'; ?>
+                </p>
             </div>
 
             <button type="submit" 

@@ -11,6 +11,25 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 
 $lang = lpc_i18n_current_lang();
+
+/**
+ * SPRINT 14 — this page is unreachable by design.
+ *
+ * It is the landing page for a link that arrives by email, and no email can
+ * leave this host: MAIL_FROM is unset, so Mail::send() logs and returns true.
+ * api/v1/password_controller.php now refuses both `request_reset` and `reset`
+ * with a 503, so a user who somehow arrived here — a token minted before the
+ * deploy, a bookmarked link, a forwarded message — would fill in the form,
+ * submit, and be told no. Better to say so immediately.
+ *
+ * The form below is left in the file, unreachable, for the same reason the
+ * controller keeps its logic: when SMTP is configured this becomes a one-line
+ * revert instead of a rewrite. See docs/SPRINT14_EMAIL_LOGIN.md.
+ */
+header('Location: /index.php?error=reset_disabled');
+exit;
+
+// phpcs:disable — everything below is dormant until SMTP exists.
 $token = trim($_GET['token'] ?? '');
 if ($token === '' || strlen($token) < 32 || strlen($token) > 128) {
     header('Location: /index.php?error=reset_invalid'); exit;
@@ -38,7 +57,7 @@ body{background:#051A0F;color:#eee;min-height:100vh;font-family:Inter,sans-serif
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 
-<div class="w-full max-w-md glass  id="main" role="main"rounded-3xl p-8">
+<div id="main" role="main" class="w-full max-w-md glass rounded-3xl p-8">
     <div class="text-center mb-6">
         <h1 class="text-white text-2xl font-semibold"><?= __t('ui.nouveau_mot_de_passe') ?></h1>
         <p class="text-lpc-light text-xs mt-2 uppercase tracking-[0.2em]"><?= htmlspecialchars(CompanyProfile::displayName()) ?></p>

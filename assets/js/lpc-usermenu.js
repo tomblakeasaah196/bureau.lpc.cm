@@ -480,7 +480,9 @@
                     '<input type="text" class="lpc-account-input" data-f="job_title" readonly>',
                     t('ui.account.hr_managed', 'Géré par les RH.')) +
               field('employee_code', t('ui.account.employee_code', 'Matricule'),
-                    '<input type="text" class="lpc-account-input" data-f="employee_code" readonly>') +
+                    '<input type="text" class="lpc-account-input" data-f="employee_code" readonly>',
+                    t('ui.account.employee_code_hint',
+                      'Référence de paie. Ne sert pas à se connecter.')) +
               fieldFull('about', t('ui.account.about', 'À propos'),
                     '<textarea class="lpc-account-textarea" data-f="about" maxlength="280"></textarea>' +
                     '<div class="lpc-account-count"><span data-about-count>0</span>/280</div>') +
