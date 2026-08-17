@@ -249,7 +249,15 @@ $fdate = static function ($v): string {
         'docType'         => 'quote',
         'csrf'            => Csrf::token(),
         'csrfField'       => '_csrf',
-        'successRedirect' => '/quote.php?token=' . $token . '&pdf=1',
+        // dompdf one-pager receipt — commented out, not deleted. This used to
+        // send "Télécharger le reçu PDF" straight to the dompdf-rendered
+        // "offre commerciale" (?pdf=1). The success screen now points both
+        // receipt buttons at the same html2canvas/jsPDF WYSIWYG autodownload
+        // quote.php#btn-download already uses (see documents-quote.js). To
+        // restore the dompdf receipt, uncomment the line below and delete the
+        // 'successRedirect' line under it.
+        // 'successRedirect' => '/quote.php?token=' . $token . '&pdf=1',
+        'successRedirect' => '/quote.php?token=' . $token . '&autodownload=1',
         'signedDocumentUrl' => '/quote.php?token=' . $token . '&autodownload=1',
     ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
 <script src="<?= lpc_asset('/assets/js/modules/signature-universal.js') ?>" defer></script>

@@ -24,16 +24,25 @@ try {
     $pdo = Database::getInstance()->getConnection();
     
     // Fetch Document and related info
+    // op_email/op_job_title/op_department/op_phone enrich the "Intervenant
+    // LPC" box below with more than a bare name + RBAC role: job_title/
+    // department come from `employees` (Sprint 15 SSOT — see migration 108),
+    // the same table UserProfile::current() and the payroll/settings
+    // controllers already read for this exact purpose.
     $stmt = $pdo->prepare("
-        SELECT d.*, c.name as client_name, c.address as client_address, 
-               s.name as site_name, s.address as site_address, 
+        SELECT d.*, c.name as client_name, c.address as client_address,
+               s.name as site_name, s.address as site_address,
                u.first_name as op_first_name, u.last_name as op_last_name,
-               r.name as op_role
+               u.email as op_email,
+               r.name as op_role,
+               emp.job_title as op_job_title, emp.department as op_department,
+               emp.personal_phone as op_phone
         FROM cre_documents d
         JOIN clients c ON d.client_id = c.id
         LEFT JOIN client_sites s ON d.site_id = s.id
         JOIN users u ON d.operator_id = u.id
         LEFT JOIN roles r ON u.role_id = r.id
+        LEFT JOIN employees emp ON emp.id = u.employee_id
         WHERE d.token = ? AND d.status = 'signed'
     ");
     $stmt->execute([$token]);
@@ -72,6 +81,25 @@ try {
     // Show the actual error to help debugging, instead of a generic message
     die("Erreur DB: " . $e->getMessage());
 }
+
+// Sprint 11 fix: the Informations Client box below used to read
+// cre_documents.signatory_name / .signatory_phone directly. Migration 055
+// moved external signatures into document_signatures and stopped writing
+// those two columns on newly signed CREs, so every htmlspecialchars() call
+// on them was silently fed null — the "Passing null to parameter #1
+// ($string) of type string is deprecated" notices that were leaking into
+// this printed certificate.
+//
+// Same two-path read the Scellement block further down already uses: prefer
+// the document_signatures row (current, post-055 CREs), fall back to the
+// legacy cre_documents columns for anything signed before it.
+$sig_doc         = lpc_signature_doc('cre', $token);
+$signatory       = $sig_doc
+    ? DocumentSignature::getActiveByParty('cre', (int) ($sig_doc['record_id'] ?? 0), $sig_doc, 'external')
+    : null;
+$signatory_name  = $signatory['signatory_name']  ?? $cre['signatory_name']  ?? '';
+$signatory_role  = $signatory['signatory_role']  ?? $cre['signatory_role']  ?? '';
+$signatory_phone = $signatory['signatory_phone'] ?? $cre['signatory_phone'] ?? '';
 
 // Helper for formatting labels
 $labels = [
@@ -166,14 +194,26 @@ $labels = [
                 <?php if($cre['site_name']): ?>
                     <p class="font-bold text-xs text-blue-700 mt-1"><i class="fas fa-map-marker-alt w-4"></i> Site : <?php echo htmlspecialchars($cre['site_name']); ?></p>
                 <?php endif; ?>
-                <p class="text-xs text-gray-600 mt-1"><i class="fas fa-user-tie w-4"></i> Signataire : <?php echo htmlspecialchars($cre['signatory_name']); ?></p>
-                <p class="text-xs text-gray-600 mt-1"><i class="fas fa-phone w-4"></i> Tél : <?php echo htmlspecialchars($cre['signatory_phone']); ?></p>
+                <p class="text-xs text-gray-600 mt-1"><i class="fas fa-user-tie w-4"></i> Signataire : <?php echo htmlspecialchars($signatory_name); ?></p>
+                <?php if ($signatory_role !== ''): ?>
+                    <p class="text-xs text-gray-600 mt-1"><i class="fas fa-id-badge w-4"></i> Fonction : <?php echo htmlspecialchars($signatory_role); ?></p>
+                <?php endif; ?>
+                <p class="text-xs text-gray-600 mt-1"><i class="fas fa-phone w-4"></i> Tél : <?php echo htmlspecialchars($signatory_phone); ?></p>
             </div>
 
             <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
                 <h4 class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3 border-b border-gray-200 pb-2">Intervenant LPC</h4>
-                <p class="font-black text-sm text-gray-900"><?php echo htmlspecialchars($cre['op_first_name'] . ' ' . $cre['op_last_name']); ?></p>
-                <p class="text-xs text-gray-600 mt-1 uppercase font-bold tracking-wider"><?php echo htmlspecialchars($cre['op_role'] ?? 'Opérateur'); ?></p>
+                <p class="font-black text-sm text-gray-900"><?php echo htmlspecialchars(trim($cre['op_first_name'] . ' ' . $cre['op_last_name'])); ?></p>
+                <p class="text-xs text-gray-600 mt-1 uppercase font-bold tracking-wider"><?php echo htmlspecialchars($cre['op_job_title'] ?: ($cre['op_role'] ?? 'Opérateur')); ?></p>
+                <?php if (!empty($cre['op_department'])): ?>
+                    <p class="text-xs text-gray-500 mt-1"><i class="fas fa-building w-4"></i> <?php echo htmlspecialchars($cre['op_department']); ?></p>
+                <?php endif; ?>
+                <?php if (!empty($cre['op_email'])): ?>
+                    <p class="text-xs text-gray-600 mt-1"><i class="fas fa-envelope w-4"></i> <?php echo htmlspecialchars($cre['op_email']); ?></p>
+                <?php endif; ?>
+                <?php if (!empty($cre['op_phone'])): ?>
+                    <p class="text-xs text-gray-600 mt-1"><i class="fas fa-phone w-4"></i> <?php echo htmlspecialchars($cre['op_phone']); ?></p>
+                <?php endif; ?>
             </div>
         </div>
 

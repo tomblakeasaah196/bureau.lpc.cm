@@ -32,6 +32,14 @@ $canOverridePrice = Rbac::hasPermission('operations.recycling.override_price');
 $canCreateCre     = Rbac::hasPermission('operations.empties.create_cre');
 $canSellRecycler  = Rbac::hasPermission('operations.recycling.sell');
 $canViewRevenue   = Rbac::hasPermission('operations.recycling.view');
+// Sprint 15 — internal sign-off gate. A CRE must be signed "côté LPC" before
+// the client-facing QR/WhatsApp modal below will show it; see
+// openCreDispatchGate() in operations-empties_collection.js and
+// docs/SIGNATURES.md. Same permission signature_sign_button.php checks for
+// every other document type — kept as a plain string here (rather than
+// DocumentSignature::permissionFor('cre','internal')) since this page only
+// ever deals with 'cre' and doesn't otherwise load that class.
+$canSignCreInternal = Rbac::hasPermission('signatures.cre.internal.sign');
 $editPriceLabel   = __t('ui.x.modifier_le_prix');
 ?>
 <!DOCTYPE html>
@@ -277,6 +285,15 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                             class="w-full bg-lpc-dark hover:bg-green-800 disabled:bg-gray-300 disabled:cursor-not-allowed text-white p-4 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-transform">
                         <i class="fas fa-qrcode text-lg"></i> <?= htmlspecialchars(__t('ui.x.generer_le_cre_code_qr')) ?>
                     </button>
+                    <?php if (!$canSignCreInternal): ?>
+                    <!-- Sprint 15 — heads-up only, not a hard block: creation and the
+                         internal sign-off are two different permissions on purpose
+                         (see migration 113). This just avoids the surprise of filling
+                         the form only to hit a "no permission" wall at the sign step. -->
+                    <p class="text-[11px] text-gray-400 text-center mt-2">
+                        <i class="fas fa-circle-info mr-1"></i>Vous pourrez créer le CRE, mais il faudra qu'un responsable habilité à signer côté LPC le valide avant l'envoi au client.
+                    </p>
+                    <?php endif; ?>
                 </form>
             </div>
 
@@ -447,6 +464,29 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
             <?php endif; ?>
 
         </main>
+    </div>
+
+    <!-- ==================================================================
+         MODAL: internal LPC sign-off — required before the client-facing
+         QR/WhatsApp modal below will show. Talks to the same
+         /api/v1/signatures_controller.php contract signature-internal.js
+         uses (status + sign_internal — see docs/SIGNATURES.md); this page
+         can't load that module as-is because it mints a fresh CRE token
+         per submission rather than working from one static token known at
+         page load. See openCreDispatchGate() in
+         operations-empties_collection.js.
+         ================================================================== -->
+    <div id="modal-cre-sign" class="hidden fixed inset-0 z-50 flex items-end md:items-center justify-center bg-gray-900/90 backdrop-blur-sm transition-opacity">
+        <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
+            <div class="bg-lpc-dark p-6 text-center border-b border-gray-200 relative">
+                <button type="button" onclick="closeModal('modal-cre-sign')" class="absolute top-4 right-4 text-white/60 hover:text-white text-2xl" aria-label="<?= htmlspecialchars(__t('ui.common.close')) ?>"><i class="fas fa-times-circle"></i></button>
+                <h3 class="font-black text-xl text-white tracking-tight"><i class="fas fa-stamp mr-1"></i> Signature interne LPC</h3>
+                <p class="text-xs font-bold text-white/70 mt-1"><?= htmlspecialchars(__t('ui.x.ref_2')) ?> <span id="cre_sign_ref" class="text-white">CRE-...</span></p>
+            </div>
+            <div class="p-6 space-y-4" id="cre_sign_modal_body">
+                <p class="text-sm text-gray-500"><i class="fas fa-circle-notch fa-spin mr-1"></i> <?= htmlspecialchars(__t('ui.x.chargement')) ?></p>
+            </div>
+        </div>
     </div>
 
     <!-- ==================================================================

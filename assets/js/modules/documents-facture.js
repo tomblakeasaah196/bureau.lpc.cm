@@ -315,6 +315,21 @@
 
         // 6. PDF GENERATOR
         // -------------------------------------------------------------------------
+        // dompdf primary path DISABLED — see the dated note below. Client-facing
+        // download is html2canvas + jsPDF WYSIWYG only for now, the same engine
+        // every other document type (devis, BC, BL, CRE) already uses. Nothing
+        // was deleted: downloadServerPDF() is still defined a few lines down,
+        // just not called. To bring dompdf back as the primary path, uncomment
+        // the `await downloadServerPDF(filename);` line (and the try/catch
+        // around it) inside generatePDF() below and remove the direct
+        // downloadCanvasPDF() call that currently replaces it.
+        //
+        // Original (2607) rationale for making dompdf primary, kept for
+        // context — the specific bugs it cites are believed fixed (see
+        // downloadCanvasPDF()'s document.fonts.ready + rAF wait and its
+        // multi-page slicing loop), but re-verify against a real multi-page
+        // invoice before relying on canvas-only in production again:
+        //
         // Server-side dompdf is the source of truth; html2canvas is the lifeboat.
         //
         // The old implementation was html2canvas-only, and it did not survive
@@ -340,9 +355,10 @@
         // AUTODOWNLOAD — a client landing here from the "Télécharger le
         // document signé" button on sign_document.php's success screen
         // (?autodownload=1) skips the extra tap and gets the PDF right away.
-        // Fires once; generatePDF() already has its own dompdf-then-canvas
-        // fallback chain and its own LPC.modal.alert if both fail, so the
-        // client can retry from the download button in this same tab.
+        // Fires once; generatePDF() now goes straight to the html2canvas path
+        // (see the dompdf-disabled note above) and still has its own
+        // LPC.modal.alert if that fails, so the client can retry from the
+        // download button in this same tab.
         // ---------------------------------------------------------------------
         let __autodownloadFired = false;
         function maybeAutodownload() {
@@ -362,28 +378,28 @@
             const filename = `LPC_Facture_${apiData.invoice.reference}.pdf`;
 
             try {
-                await downloadServerPDF(filename);
-            } catch (serverError) {
-                console.warn('[facture] dompdf indisponible, repli sur la capture client :', serverError);
-                try {
-                    await downloadCanvasPDF(filename);
-                    LPC.toast(
-                        "PDF généré en mode dégradé (image). Le texte ne sera pas sélectionnable.",
-                        'warning'
-                    );
-                } catch (canvasError) {
-                    console.error('[facture] échec des deux moteurs PDF :', canvasError);
-                    LPC.modal.alert(
-                        "Impossible de générer le PDF. Vérifiez votre connexion, puis réessayez."
-                    );
-                }
+                // dompdf primary path — commented out, not deleted. Restore by
+                // uncommenting this line and the catch/fallback below it, then
+                // removing the direct downloadCanvasPDF() call that follows.
+                // await downloadServerPDF(filename);
+                await downloadCanvasPDF(filename);
+            } catch (canvasError) {
+                console.error('[facture] échec de la capture html2canvas :', canvasError);
+                LPC.modal.alert(
+                    "Impossible de générer le PDF. Vérifiez votre connexion, puis réessayez."
+                );
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = originalHTML;
             }
         }
 
-        /** Primary path — dompdf via ?pdf=1. Vector text, paginated, ~40 KB. */
+        /**
+         * dompdf path — vector text, paginated, ~40 KB. DORMANT: generatePDF()
+         * no longer calls this (see the notes above and inside generatePDF()).
+         * Left in place, untouched and callable, so re-enabling dompdf is a
+         * one-line change rather than rewriting this function from scratch.
+         */
         async function downloadServerPDF(filename) {
             const url = `?token=${encodeURIComponent(invToken)}&pdf=1`;
             const response = await fetch(url, {

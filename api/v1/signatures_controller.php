@@ -382,6 +382,37 @@ switch ($action) {
             sig_fail('Service indisponible.', 503, 'db_down');
         }
 
+        // CRE ONLY — mirrors the $shouldRunSideEffects check sign_internal
+        // already applies (see the Sprint 12 comment on that case above).
+        //
+        // empties_collection.php now offers a "Signer côté LPC" gate BEFORE
+        // a CRE is ever shared with the client (openCreDispatchGate() in
+        // operations-empties_collection.js), so the operator's internal
+        // signature routinely runs lpc_signature_side_effects_cre() FIRST
+        // now — booking the empties ledger and flipping cre_documents.status
+        // to 'signed' before the customer ever opens their link.
+        // lpc_signature_side_effects_cre() requires status = 'en_transit'
+        // and throws "déjà traité" otherwise. Unlike sign_internal, this
+        // case had no pre-check for that — so without this guard, EVERY
+        // customer signature on a CRE LPC already signed would hit that
+        // throw and fail with a 500, even though the link is perfectly
+        // valid. Skipping side effects here does not skip the customer's
+        // own signature row below, only a state change that already
+        // happened. BL keeps its original unconditional behaviour: the
+        // customer can still amend figures on their phone before signing,
+        // a materially different situation this fix does not need to touch.
+        $shouldRunSideEffects = true;
+        if ($type === 'cre') {
+            try {
+                $s = $db->prepare("SELECT status FROM cre_documents WHERE id = ? LIMIT 1");
+                $s->execute([$docId]);
+                $shouldRunSideEffects = ((string) $s->fetchColumn() === 'en_transit');
+            } catch (Throwable $e) {
+                error_log('signatures_controller: state check failed at sign_external: ' . $e->getMessage());
+                sig_fail('Service indisponible.', 503, 'db_down');
+            }
+        }
+
         // ORDER IS LOAD-BEARING: side effects FIRST, then re-load, then sign.
         //
         // On a BL the counterparty can amend the figures on their phone
@@ -398,9 +429,15 @@ switch ($action) {
         try {
             $db->beginTransaction();
 
-            lpc_signature_side_effects_dispatch($db, $type, $docId, $extras);
+            if ($shouldRunSideEffects) {
+                lpc_signature_side_effects_dispatch($db, $type, $docId, $extras);
+            }
 
-            $signedDoc = sig_load_doc($db, $type, $token);
+            // Re-read after side effects (a no-op re-read if we skipped —
+            // $doc, captured by sig_resolve() above, already reflects the
+            // document as it stands) so the hash covers the post-state,
+            // matching sign_internal's ordering exactly.
+            $signedDoc = $shouldRunSideEffects ? sig_load_doc($db, $type, $token) : $doc;
             if (!$signedDoc) {
                 throw new RuntimeException('Document illisible après mise à jour.');
             }

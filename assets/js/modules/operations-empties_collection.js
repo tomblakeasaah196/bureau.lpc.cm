@@ -797,7 +797,7 @@
                 document.getElementById('form-cre').reset();
                 renderCreQtyGrid();   // reset the qty inputs
                 loadSites();
-                showShareModal(result.data.reference, result.data.token, document.getElementById('client_phone').value);
+                openCreDispatchGate(result.data.reference, result.data.token, document.getElementById('client_phone').value);
                 loadHistory();
                 loadEmptiesKPIs();
             } else {
@@ -836,6 +836,111 @@
             '_blank');
     }
     window.shareWhatsApp = shareWhatsApp;
+
+    // ---------------------------------------------------------------------
+    // INTERNAL SIGN GATE — "Signer côté LPC" before the client ever sees the
+    // QR/WhatsApp modal above. Talks to the same universal signature
+    // endpoints signature-internal.js uses (see docs/SIGNATURES.md); this
+    // page can't load that module as-is because it mints a fresh CRE token
+    // per submission rather than working from one static token known at
+    // page load, so the same status + sign_internal contract is called
+    // directly here instead.
+    //
+    // Both call sites that used to jump straight to showShareModal() — a
+    // freshly generated CRE, and "Renvoyer" on a still-pending row in
+    // history — now go through this gate first, so a CRE can never reach
+    // the client without an LPC signature on file.
+    // ---------------------------------------------------------------------
+    const SIG_ENDPOINT = '/api/v1/signatures_controller.php';
+
+    async function openCreDispatchGate(ref, token, phone) {
+        const refEl = document.getElementById('cre_sign_ref');
+        if (refEl) refEl.textContent = ref;
+        const body = document.getElementById('cre_sign_modal_body');
+        body.innerHTML = `<p class="text-sm text-gray-500"><i class="fas fa-circle-notch fa-spin mr-1"></i> ${LPC.t ? LPC.t('ui.x.chargement') : 'Chargement…'}</p>`;
+        openModal('modal-cre-sign');
+
+        let st;
+        try {
+            const res = await fetch(SIG_ENDPOINT + '?action=status&type=cre&token=' + encodeURIComponent(token));
+            st = await res.json();
+        } catch (e) {
+            body.innerHTML = '<p class="text-sm text-red-600">Erreur réseau. Réessayez.</p>';
+            return;
+        }
+        if (!st || st.status !== 'success') {
+            body.innerHTML = `<p class="text-sm text-red-600">${LPC.escapeHtml((st && st.message) || 'Erreur de chargement.')}</p>`;
+            return;
+        }
+
+        // Already signed internally — e.g. "Renvoyer" on a CRE someone with
+        // permission already signed earlier. Nothing left to confirm; go
+        // straight to the client share step.
+        if (st.internal) {
+            closeModal('modal-cre-sign');
+            showShareModal(ref, token, phone);
+            return;
+        }
+
+        if (!st.can_sign_internal) {
+            body.innerHTML = `
+                <div class="rounded-xl bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800">
+                    <i class="fas fa-triangle-exclamation mr-1"></i>
+                    Ce CRE est créé mais ne peut pas encore être envoyé au client : vous n'avez pas la permission
+                    de signer côté LPC. Il reste visible dans l'historique (« En attente ») jusqu'à ce qu'un
+                    responsable autorisé le signe et le renvoie.
+                </div>
+                <div class="pt-3 flex justify-end">
+                    <button type="button" onclick="closeModal('modal-cre-sign')" class="px-5 py-2.5 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors">Fermer</button>
+                </div>`;
+            return;
+        }
+
+        const signerName = LPC.escapeHtml((window.LPC && LPC.user && LPC.user.name) || '—');
+        const signerRole = LPC.escapeHtml((window.LPC && LPC.user && LPC.user.role) || '—');
+
+        body.innerHTML = `
+            <p class="text-sm text-gray-600">Vous êtes sur le point de signer ce retour d'emballages dans son état <strong>actuel</strong>, au nom de :</p>
+            <div class="rounded-xl bg-gray-50 border border-gray-200 p-4">
+                <p class="font-bold text-gray-900 text-sm">${signerName}</p>
+                <p class="text-xs text-gray-500">${signerRole}</p>
+            </div>
+            <p class="text-xs text-gray-500">Le code QR et le lien WhatsApp ne s'affichent qu'une fois cette signature enregistrée.</p>
+            <div class="pt-2 flex justify-end gap-3">
+                <button type="button" onclick="closeModal('modal-cre-sign')" class="px-5 py-2.5 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors">Annuler</button>
+                <button type="button" id="cre_sign_confirm_btn" class="px-6 py-2.5 rounded-lg text-sm font-bold text-white bg-lpc-dark hover:bg-[#004722] shadow-md flex items-center gap-2 transition-all">
+                    <i class="fas fa-stamp"></i> Signer maintenant
+                </button>
+            </div>`;
+
+        const confirmBtn = document.getElementById('cre_sign_confirm_btn');
+        if (confirmBtn) confirmBtn.addEventListener('click', function () { confirmCreInternalSign(ref, token, phone); });
+    }
+    window.openCreDispatchGate = openCreDispatchGate;
+
+    async function confirmCreInternalSign(ref, token, phone) {
+        const btn = document.getElementById('cre_sign_confirm_btn');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Signature…'; }
+
+        try {
+            const res = await fetch(SIG_ENDPOINT + '?action=sign_internal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'cre', token: token }),
+            });
+            const result = await res.json();
+            if (result.status === 'success') {
+                closeModal('modal-cre-sign');
+                showShareModal(ref, token, phone);
+            } else {
+                LPC.modal.alert(result.message || 'La signature a échoué.');
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-stamp"></i> Signer maintenant'; }
+            }
+        } catch (e) {
+            LPC.modal.alert('Erreur réseau. Réessayez.');
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-stamp"></i> Signer maintenant'; }
+        }
+    }
 
     // ---------------------------------------------------------------------
     // TAB: VENTE RECYCLAGE — data-driven grid + override handling
@@ -1248,7 +1353,7 @@
     document.addEventListener('click', function (ev) {
         const reshare = ev.target.closest('.js-cre-reshare');
         if (reshare) {
-            showShareModal(reshare.dataset.ref, reshare.dataset.token, reshare.dataset.phone);
+            openCreDispatchGate(reshare.dataset.ref, reshare.dataset.token, reshare.dataset.phone);
             return;
         }
         const cancel = ev.target.closest('.js-cre-cancel');
