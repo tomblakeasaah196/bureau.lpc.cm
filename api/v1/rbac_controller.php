@@ -10,12 +10,21 @@
  *   ?action=list_roles              -> [{id, name, user_count, perm_count}]
  *   ?action=list_permissions        -> {module: [{id, name, description}, ...]}
  *   ?action=get_role_permissions    -> {role, permissions[], has: {perm: true}}
+ *                                       role now also carries
+ *                                       default_landing_permission
  *                                       ?role_id=N
+ *   ?action=list_landing_options    -> {permission: {path, label_fr, label_en}}
+ *                                       — the dashboards catalogue, for the
+ *                                       landing-page picker in the Rôles tab.
  *   POST action=create_role         -> {name}
  *   POST action=update_role         -> {id, name}
  *   POST action=delete_role         -> {id}
  *   POST action=set_role_permissions -> {role_id, permissions[]}
- *   POST action=reset_defaults      -> reseeds the 4 built-in roles
+ *   POST action=set_role_landing    -> {role_id, default_landing_permission}
+ *                                       — must be one of list_landing_options'
+ *                                       keys, and the role must already hold
+ *                                       that permission. Empty/null clears it.
+ *   POST action=reset_defaults      -> reseeds the 5 built-in roles
  *
  * Response envelope: { status: 'success'|'error', message?, data? }
  * -----------------------------------------------------------------------------
@@ -69,11 +78,20 @@ try {
             respond_success($out);
 
         // ------------------------------------------------------------------
+        case 'list_landing_options':
+            // The dashboards catalogue from permissions.php — single source
+            // of truth also used by Rbac::landingPath(). Deliberately just
+            // the 5 dashboards, not the full nav menu (see that file's
+            // comment on $LPC_DASHBOARD_LANDING_OPTIONS for why).
+            $catalog = require __DIR__ . '/../../includes/config/permissions.php';
+            respond_success($catalog['dashboards'] ?? []);
+
+        // ------------------------------------------------------------------
         case 'get_role_permissions':
             $role_id = (int) ($_GET['role_id'] ?? 0);
             if ($role_id <= 0) throw_bad("role_id requis.");
 
-            $roleStmt = $db->prepare("SELECT id, name FROM roles WHERE id = ?");
+            $roleStmt = $db->prepare("SELECT id, name, default_landing_permission FROM roles WHERE id = ?");
             $roleStmt->execute([$role_id]);
             $role = $roleStmt->fetch(PDO::FETCH_ASSOC);
             if (!$role) throw_bad("Rôle introuvable.");
@@ -144,12 +162,12 @@ try {
             if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/', $name)) {
                 throw_bad("Nom invalide.");
             }
-            // Refuse rename of the 4 built-in roles.
+            // Refuse rename of the 5 built-in roles.
             $sys = $db->prepare("SELECT name FROM roles WHERE id = ?");
             $sys->execute([$id]);
             $cur = $sys->fetchColumn();
             if ($cur === false) throw_bad("Rôle introuvable.");
-            if (in_array($cur, ['admin','accountant','operations','driver'], true) && $cur !== $name) {
+            if (in_array($cur, ['admin','accountant','operations','sales','driver'], true) && $cur !== $name) {
                 throw_bad("Impossible de renommer un rôle système.");
             }
             $upd = $db->prepare("UPDATE roles SET name = ? WHERE id = ?");
@@ -167,7 +185,7 @@ try {
             $sys->execute([$id]);
             $roleName = $sys->fetchColumn();
             if ($roleName === false) throw_bad("Rôle introuvable.");
-            if (in_array($roleName, ['admin','accountant','operations','driver'], true)) {
+            if (in_array($roleName, ['admin','accountant','operations','sales','driver'], true)) {
                 throw_bad("Impossible de supprimer un rôle système.");
             }
             $usrs = $db->prepare("SELECT COUNT(*) FROM users WHERE role_id = ?");
@@ -275,10 +293,62 @@ try {
             respond_success(['role_id' => $role_id, 'permission_count' => count($ids)]);
 
         // ------------------------------------------------------------------
+        case 'set_role_landing':
+            Rbac::requirePermission('admin.roles.edit');
+            $role_id = (int) ($body['role_id'] ?? 0);
+            $perm    = trim((string) ($body['default_landing_permission'] ?? ''));
+            if ($role_id <= 0) throw_bad("role_id requis.");
+
+            $roleStmt = $db->prepare("SELECT name FROM roles WHERE id = ?");
+            $roleStmt->execute([$role_id]);
+            $roleName = $roleStmt->fetchColumn();
+            if ($roleName === false) throw_bad("Rôle introuvable.");
+
+            if ($perm === '') {
+                // Clearing it — falls back to Rbac::landingPath()'s
+                // auto-detect. Always allowed, no permission check needed.
+                $db->prepare("UPDATE roles SET default_landing_permission = NULL WHERE id = ?")
+                   ->execute([$role_id]);
+                audit('UPDATE', 'roles', $role_id, 'default_landing_permission=NULL');
+                if (($_SESSION['user_role_id'] ?? 0) === $role_id) Rbac::forceReload();
+                respond_success(['role_id' => $role_id, 'default_landing_permission' => null]);
+            }
+
+            $catalog    = require __DIR__ . '/../../includes/config/permissions.php';
+            $dashboards = $catalog['dashboards'] ?? [];
+            if (!isset($dashboards[$perm])) {
+                throw_bad("Page d'accueil invalide: $perm");
+            }
+
+            // The role must actually hold that permission — a landing page
+            // the role can't reach would 403 its own members on login.
+            $hasPerm = $db->prepare("
+                SELECT 1 FROM role_permissions rp
+                  JOIN permissions p ON p.id = rp.permission_id
+                 WHERE rp.role_id = ? AND p.name = ?
+            ");
+            $hasPerm->execute([$role_id, $perm]);
+            if (!$hasPerm->fetchColumn()) {
+                throw_bad("Accordez d'abord la permission « $perm » à ce rôle avant de la choisir comme page d'accueil.");
+            }
+
+            $db->prepare("UPDATE roles SET default_landing_permission = ? WHERE id = ?")
+               ->execute([$perm, $role_id]);
+            audit('UPDATE', 'roles', $role_id, "default_landing_permission=$perm");
+
+            // Same reasoning as set_role_permissions: only the current
+            // session sharing this role needs an immediate refresh.
+            if (($_SESSION['user_role_id'] ?? 0) === $role_id) {
+                Rbac::forceReload();
+            }
+
+            respond_success(['role_id' => $role_id, 'default_landing_permission' => $perm]);
+
+        // ------------------------------------------------------------------
         case 'reset_defaults':
             Rbac::requirePermission('admin.roles.edit');
             // Reload the defaults declared in permissions.php and re-apply them
-            // to the 4 system roles. Doesn't touch custom roles.
+            // to the 5 system roles. Doesn't touch custom roles.
             $catalog = require __DIR__ . '/../../includes/config/permissions.php';
             $defaults = $catalog['defaults'];
 
@@ -290,7 +360,7 @@ try {
             $allPermIds = array_values($permMap);
 
             $db->beginTransaction();
-            foreach (['admin','accountant','operations','driver'] as $rname) {
+            foreach (['admin','accountant','operations','sales','driver'] as $rname) {
                 $roleStmt = $db->prepare("SELECT id FROM roles WHERE name = ?");
                 $roleStmt->execute([$rname]);
                 $roleId = (int) $roleStmt->fetchColumn();
@@ -315,7 +385,7 @@ try {
             $db->commit();
             audit('UPDATE', 'role_permissions', 0, 'reset_to_defaults');
             Rbac::forceReload();
-            respond_success(['message' => 'Défauts appliqués aux 4 rôles système.']);
+            respond_success(['message' => 'Défauts appliqués aux 5 rôles système.']);
 
         // ------------------------------------------------------------------
         default:

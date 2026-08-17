@@ -333,4 +333,35 @@ $LPC_DEFAULT_ROLE_PERMISSIONS = [
     ],
 ];
 
-return ['permissions' => $LPC_PERMISSIONS, 'defaults' => $LPC_DEFAULT_ROLE_PERMISSIONS];
+/**
+ * Dashboards a role may be sent to right after login (roles.
+ * default_landing_permission — migration 114). Deliberately a short,
+ * explicit list, NOT the full nav catalogue in includes/config/nav.php: a
+ * role's *default* landing page is meant to be a dashboard, not an
+ * arbitrary module page. An individual can still personally override their
+ * own landing page to any permitted page from Account Settings — that
+ * picker is intentionally wider than this one. See Rbac::landingPath() for
+ * how the two combine.
+ *
+ * `path` duplicates the href already declared for dash_md / dash_finance /
+ * dash_ops / dash_sales / dash_driver in includes/config/nav.php's
+ * $CATALOGUE — if a dashboard's URL ever moves, update both places.
+ *
+ * Order here is also the priority Rbac::landingPath() falls back through
+ * when a role has no default configured (or its configured one no longer
+ * applies): the first dashboard permission the user actually holds,
+ * scanned in this order.
+ */
+$LPC_DASHBOARD_LANDING_OPTIONS = [
+    'dashboard.md.view'      => ['path' => '/modules/dashboard/views/md_dashboard.php',      'label_fr' => 'Direction Générale', 'label_en' => 'Management'],
+    'dashboard.finance.view' => ['path' => '/modules/dashboard/views/finance_dashboard.php', 'label_fr' => 'Finance',            'label_en' => 'Finance'],
+    'dashboard.ops.view'     => ['path' => '/modules/dashboard/views/ops_dashboard.php',     'label_fr' => 'Opérations',         'label_en' => 'Operations'],
+    'dashboard.sales.view'   => ['path' => '/modules/dashboard/views/sales_dashboard.php',   'label_fr' => 'Ventes',             'label_en' => 'Sales'],
+    'dashboard.driver.view'  => ['path' => '/modules/dashboard/views/driver_dashboard.php',  'label_fr' => 'Chauffeur',          'label_en' => 'Driver'],
+];
+
+return [
+    'permissions' => $LPC_PERMISSIONS,
+    'defaults'    => $LPC_DEFAULT_ROLE_PERMISSIONS,
+    'dashboards'  => $LPC_DASHBOARD_LANDING_OPTIONS,
+];

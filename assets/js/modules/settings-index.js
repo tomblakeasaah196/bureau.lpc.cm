@@ -49,6 +49,7 @@
     let formState = null;     // { kind, original, dirty:Map, canEdit }
     let matrixState = null;   // { roles, activeRoleId, dirty }
     let rolesCache = null;    // role list for the user modal dropdown
+    let landingOptionsCache = null;  // dashboards catalogue for the role landing-page picker
 
     // -------------------------------------------------------------------------
     // 1. TAB REGISTRY
@@ -905,13 +906,26 @@
         await loadRolePermissions(roleId);
     }
 
+    async function loadLandingOptions() {
+        if (landingOptionsCache) return landingOptionsCache;
+        try {
+            landingOptionsCache = await apiGet(`${RBAC_API}?action=list_landing_options`);
+        } catch (err) {
+            landingOptionsCache = {};
+        }
+        return landingOptionsCache;
+    }
+
     async function loadRolePermissions(roleId) {
         const panel = $('perm-panel');
         panel.innerHTML = '<div class="py-16 text-center text-gray-400 animate-pulse font-bold text-sm">Chargement des permissions...</div>';
 
-        let data;
+        let data, landingOptions;
         try {
-            data = await apiGet(`${RBAC_API}?action=get_role_permissions&role_id=${encodeURIComponent(roleId)}`);
+            [data, landingOptions] = await Promise.all([
+                apiGet(`${RBAC_API}?action=get_role_permissions&role_id=${encodeURIComponent(roleId)}`),
+                loadLandingOptions()
+            ]);
         } catch (err) {
             panel.innerHTML = `<div class="lpc-section p-8 text-center text-red-500 font-bold">${esc(err.message)}</div>`;
             return;
@@ -940,6 +954,19 @@
             html += banner('info', 'fa-eye', 'Lecture seule — permission <code>admin.roles.edit</code> requise.');
         }
 
+        // Landing-page picker: restricted to the dashboards catalogue (see
+        // includes/config/permissions.php) — a role's *default* is meant to
+        // be a dashboard, not an arbitrary page. Options the role doesn't
+        // currently hold are shown but rejected server-side on save with a
+        // clear message, rather than hidden — hiding them would make "why
+        // isn't Ventes in the list" a support ticket instead of a visible,
+        // clickable option with an explanatory error.
+        const currentLanding = data.role.default_landing_permission || '';
+        const landingOptsHtml = Object.keys(landingOptions).map(key => {
+            const opt = landingOptions[key];
+            return `<option value="${esc(key)}" ${key === currentLanding ? 'selected' : ''}>${esc(opt.label_fr)}</option>`;
+        }).join('');
+
         html += `
             <div class="lpc-section">
                 <header class="lpc-section-head justify-between">
@@ -960,6 +987,18 @@
                             <i class="fas fa-trash-alt mr-1"></i> Supprimer
                         </button>` : ''}
                 </header>
+                <div class="flex flex-wrap items-center gap-2 px-6 py-3 border-t border-b border-gray-100 bg-gray-50/40">
+                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5" for="role-landing-select">
+                        <i class="fas fa-house text-gray-300"></i> Page d'accueil par défaut
+                    </label>
+                    <select id="role-landing-select" ${canEdit ? '' : 'disabled'}
+                            onchange="LPCSettings.setRoleLanding(${data.role.id}, this.value)"
+                            class="text-xs font-bold border border-gray-200 rounded-lg px-2 py-1.5 bg-white disabled:bg-gray-100 disabled:text-gray-400">
+                        <option value="">— aucune (détection automatique) —</option>
+                        ${landingOptsHtml}
+                    </select>
+                    <span class="text-[11px] text-gray-400">Nécessite que le rôle détienne déjà cette permission.</span>
+                </div>
                 <div class="lpc-matrix">`;
 
         modules.forEach(mod => {
@@ -1076,6 +1115,25 @@
         } catch (err) {
             toast(`Échec : ${err.message}`, 'error');
             if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-floppy-disk mr-2"></i>Enregistrer les permissions'; }
+        }
+    }
+
+    async function setRoleLanding(roleId, permission) {
+        const fd = new FormData();
+        fd.append('action', 'set_role_landing');
+        fd.append('role_id', roleId);
+        fd.append('default_landing_permission', permission);
+
+        try {
+            await apiPost(`${RBAC_API}?action=set_role_landing`, fd);
+            toast(permission ? "Page d'accueil mise à jour." : 'Détection automatique rétablie.');
+        } catch (err) {
+            toast(`Échec : ${err.message}`, 'error');
+        } finally {
+            // Re-render either way: on success this is a no-op refresh; on
+            // failure it snaps the <select> back to the saved value instead
+            // of leaving the rejected choice showing.
+            if (matrixState.activeRoleId === roleId) await loadRolePermissions(roleId);
         }
     }
 
@@ -1330,7 +1388,8 @@
         toggleModule: toggleModule,
         saveRolePermissions: saveRolePermissions,
         createRole: createRole,
-        deleteRole: deleteRole
+        deleteRole: deleteRole,
+        setRoleLanding: setRoleLanding
     };
 
     // Guard against losing edits to a browser navigation.

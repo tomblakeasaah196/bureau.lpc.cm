@@ -19,6 +19,11 @@
  *       case 'create': Rbac::requirePermission('crm.clients.create'); ...
  *   }
  *
+ *   // Send a freshly authenticated (or already-logged-in) session to its
+ *   // landing page — personal choice, then role default, then the first
+ *   // dashboard permission the user actually holds:
+ *   Rbac::redirectToLanding();
+ *
  * The class loads the current user's permission set from the DB exactly once
  * per session (cached in $_SESSION['rbac']). To force a refresh (e.g., after
  * an admin edits a role), call Rbac::forceReload() or invalidate the session.
@@ -38,6 +43,10 @@ class Rbac
     private static $roleId = null;
     /** @var string|null */
     private static $roleName = null;
+    /** @var string|null Permission key resolved to this role's post-login
+     *  landing page (roles.default_landing_permission). Null = none
+     *  configured; landingPath() auto-detects instead. */
+    private static $landingPermission = null;
     /** @var bool */
     private static $loaded = false;
 
@@ -61,9 +70,10 @@ class Rbac
             isset($_SESSION['rbac']['role_id'], $_SESSION['rbac']['permissions']) &&
             is_array($_SESSION['rbac']['permissions'])
         ) {
-            self::$permissions = $_SESSION['rbac']['permissions'];
-            self::$roleId      = $_SESSION['rbac']['role_id'];
-            self::$roleName    = $_SESSION['rbac']['role_name'] ?? ($_SESSION['user_role'] ?? null);
+            self::$permissions       = $_SESSION['rbac']['permissions'];
+            self::$roleId            = $_SESSION['rbac']['role_id'];
+            self::$roleName          = $_SESSION['rbac']['role_name'] ?? ($_SESSION['user_role'] ?? null);
+            self::$landingPermission = $_SESSION['rbac']['default_landing_permission'] ?? null;
             return;
         }
 
@@ -90,7 +100,8 @@ class Rbac
             $db = Database::getInstance()->getConnection();
 
             $stmt = $db->prepare("
-                SELECT u.role_id, r.name AS role_name, p.name AS perm_name
+                SELECT u.role_id, r.name AS role_name,
+                       r.default_landing_permission, p.name AS perm_name
                   FROM users u
              LEFT JOIN roles r             ON u.role_id  = r.id
              LEFT JOIN role_permissions rp ON rp.role_id = u.role_id
@@ -100,26 +111,37 @@ class Rbac
             $stmt->execute([(int) $userId]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-            $perms    = [];
-            $roleId   = null;
-            $roleName = null;
+            $perms       = [];
+            $roleId      = null;
+            $roleName    = null;
+            $landingPerm = null;
+            $landingSeen = false;
             foreach ($rows as $r) {
                 $roleId   = $roleId   ?? (int) $r['role_id'];
                 $roleName = $roleName ?? ($r['role_name'] !== null ? strtolower($r['role_name']) : null);
+                // default_landing_permission repeats identically across every
+                // row for this role (it's a roles column, joined once per
+                // permission) — take it from the first row, same as role_id.
+                if (!$landingSeen) {
+                    $landingPerm = $r['default_landing_permission'] ?? null;
+                    $landingSeen = true;
+                }
                 if (!empty($r['perm_name'])) {
                     $perms[$r['perm_name']] = true;
                 }
             }
 
-            self::$permissions = $perms;
-            self::$roleId      = $roleId;
-            self::$roleName    = $roleName;
+            self::$permissions       = $perms;
+            self::$roleId            = $roleId;
+            self::$roleName          = $roleName;
+            self::$landingPermission = $landingPerm;
 
             $_SESSION['rbac'] = [
-                'role_id'     => $roleId,
-                'role_name'   => $roleName,
-                'permissions' => $perms,
-                'loaded_at'   => time(),
+                'role_id'                    => $roleId,
+                'role_name'                  => $roleName,
+                'permissions'                => $perms,
+                'default_landing_permission' => $landingPerm,
+                'loaded_at'                  => time(),
             ];
             $_SESSION['user_role_id'] = $roleId;
             if ($roleName) {
@@ -236,6 +258,124 @@ class Rbac
     {
         self::init();
         return self::$roleId;
+    }
+
+    /** The current role's configured default_landing_permission, or null if none set. */
+    public static function currentRoleLandingPermission(): ?string
+    {
+        self::init();
+        return self::$landingPermission;
+    }
+
+    /**
+     * Where to send the current user immediately after login (or when an
+     * already-authenticated session hits /index.php). Checked in order:
+     *
+     *   1. Their own choice, if they set one in Account Settings AND it is
+     *      still reachable with their current permissions (see
+     *      UserProfile::validatedLandingPath() — deliberately NOT limited to
+     *      dashboards; a personal preference can be any permitted page).
+     *   2. Their role's configured default (roles.default_landing_permission,
+     *      set from Administration -> Paramètres -> Rôles (RBAC)) — but only
+     *      if they still actually hold that permission. A role's grants can
+     *      be edited after its landing page was set, so this is re-checked
+     *      every call rather than trusted blindly.
+     *   3. The first dashboard permission they hold, scanned in the fixed
+     *      order declared in includes/config/permissions.php's 'dashboards'
+     *      catalogue — the same safety net the old hardcoded chain gave,
+     *      for a role nobody has configured a landing page for yet.
+     *
+     * Returns null only if none of the above resolves — i.e. the user holds
+     * no dashboard permission at all. Callers should treat that as "nowhere
+     * to send them", not silently guess; see redirectToLanding().
+     */
+    public static function landingPath(): ?string
+    {
+        self::init();
+
+        if (!class_exists('UserProfile')) {
+            require_once __DIR__ . '/UserProfile.php';
+        }
+        $personal = UserProfile::validatedLandingPath();
+        if ($personal !== null) {
+            return $personal;
+        }
+
+        $dashboards = self::dashboardCatalogue();
+
+        if (
+            self::$landingPermission !== null &&
+            isset($dashboards[self::$landingPermission]) &&
+            self::hasPermission(self::$landingPermission)
+        ) {
+            return $dashboards[self::$landingPermission]['path'];
+        }
+
+        foreach ($dashboards as $permission => $info) {
+            if (self::hasPermission($permission)) {
+                return $info['path'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Redirect to landingPath(), or — if the user holds no dashboard
+     * permission at all — show a friendly explanation instead of a raw 403.
+     * The one call site index.php and api/v1/auth.php both use once a
+     * session is established.
+     */
+    public static function redirectToLanding(): void
+    {
+        $path = self::landingPath();
+        if ($path !== null) {
+            header("Location: $path");
+            exit;
+        }
+
+        echo <<<HTML
+<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<title>Aucun tableau de bord — Bureau LPC</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{margin:0;font-family:system-ui,sans-serif;background:#051A0F;color:#eee;
+     display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1rem}
+.card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);
+      border-radius:1rem;padding:2rem;max-width:480px;box-shadow:0 25px 50px -12px rgba(0,0,0,.5)}
+h1{margin:0 0 .5rem;font-size:1.5rem}
+p{opacity:.85;line-height:1.5}
+a{color:#8CC63F;text-decoration:none;font-weight:600}
+a:hover{text-decoration:underline}
+</style></head><body>
+<div class="card">
+  <h1>Aucun tableau de bord</h1>
+  <p>Votre compte est bien connecté, mais aucun tableau de bord ne vous est encore accordé. Contactez votre administrateur.</p>
+  <p><a href="/api/v1/auth.php?logout=true">Se déconnecter</a></p>
+</div></body></html>
+HTML;
+        exit;
+    }
+
+    /**
+     * The dashboards a role's default_landing_permission may point at, and
+     * that landingPath()'s safety net scans through. Single source of
+     * truth: includes/config/permissions.php's 'dashboards' key. Plain
+     * require (not require_once) deliberately — permissions.php has no
+     * side effects beyond building and returning arrays, and reset_defaults
+     * in rbac_controller.php already re-requires it the same way in the
+     * same request, so require_once here would silently hand back `true`
+     * instead of the array on a second load. Memoised per request either
+     * way via the static below.
+     */
+    private static function dashboardCatalogue(): array
+    {
+        static $catalogue = null;
+        if ($catalogue !== null) {
+            return $catalogue;
+        }
+        $config = require __DIR__ . '/../config/permissions.php';
+        return $catalogue = $config['dashboards'] ?? [];
     }
 
     /**

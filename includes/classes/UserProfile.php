@@ -43,6 +43,9 @@
  *   UserProfile::jsPayload()        array — what the browser needs
  *   UserProfile::pref($k, $d)       mixed — long-tail key from user_prefs
  *   UserProfile::setPref($k, $v)    void
+ *   UserProfile::validatedLandingPath() ?string — personal post-login
+ *                                   override, re-validated live. Used by
+ *                                   Rbac::landingPath(), not a page gate.
  *
  * DEGRADED MODE
  *   If migration 036 has not run, every getter falls back to the session/app
@@ -595,6 +598,33 @@ final class UserProfile
             throw new RuntimeException("Cette page ne peut pas être votre page d'accueil.");
         }
         return $path;
+    }
+
+    /**
+     * The current user's personal landing-page override, if they set one in
+     * Account Settings AND it still points somewhere they currently have
+     * permission to reach. Re-validated on every call (not just at save
+     * time) because permissions can change after the preference was saved —
+     * a role edit that revokes the permission behind it should fall through
+     * to the role default on the next login, not 403 the user on their own
+     * stale choice.
+     *
+     * Returns null silently (never throws) so a stale or unset preference
+     * is indistinguishable from "no preference" to the caller. The intended
+     * (only) caller is Rbac::landingPath().
+     */
+    public static function validatedLandingPath(): ?string
+    {
+        $path = trim((string) (self::current()['landing_page'] ?? ''));
+        if ($path === '') return null;
+        if (!function_exists('lpc_nav_sections')) return null;
+
+        foreach (lpc_nav_sections(self::locale()) as $section) {
+            foreach ($section['items'] as $item) {
+                if (strtok($item['href'], '#') === $path) return $path;
+            }
+        }
+        return null; // permission behind it was revoked since they set it
     }
 
     // =========================================================================

@@ -3,13 +3,11 @@
 require_once __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/includes/functions/helpers.php';
 
-// If already logged in, hop straight to the best available landing.
+// If already logged in, hop straight to the best available landing —
+// personal override, then role default, then best-available dashboard
+// permission. See Rbac::redirectToLanding().
 if (!empty($_SESSION['user_id'])) {
-    $landing = '/modules/dashboard/views/driver_dashboard.php';
-    if      (Rbac::hasPermission('dashboard.md.view'))      $landing = '/modules/dashboard/views/md_dashboard.php';
-    else if (Rbac::hasPermission('dashboard.finance.view')) $landing = '/modules/dashboard/views/finance_dashboard.php';
-    else if (Rbac::hasPermission('dashboard.ops.view'))     $landing = '/modules/dashboard/views/ops_dashboard.php';
-    header("Location: $landing"); exit;
+    Rbac::redirectToLanding();
 }
 
 $lang = lpc_i18n_current_lang();

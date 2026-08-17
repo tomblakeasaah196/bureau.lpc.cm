@@ -258,15 +258,9 @@ try {
         exit;
     }
 
-    // Landing page based on best available dashboard permission.
-    $landing = '/modules/dashboard/views/driver_dashboard.php';
-    if      (Rbac::hasPermission('dashboard.md.view'))      $landing = '/modules/dashboard/views/md_dashboard.php';
-    else if (Rbac::hasPermission('dashboard.finance.view')) $landing = '/modules/dashboard/views/finance_dashboard.php';
-    else if (Rbac::hasPermission('dashboard.ops.view'))     $landing = '/modules/dashboard/views/ops_dashboard.php';
-    else if (Rbac::hasPermission('dashboard.driver.view'))  $landing = '/modules/dashboard/views/driver_dashboard.php';
-
-    header("Location: $landing");
-    exit;
+    // Landing page: personal override, else role default, else best-
+    // available dashboard permission. See Rbac::redirectToLanding().
+    Rbac::redirectToLanding();
 
 } catch (Throwable $e) {
     error_log('auth.php: ' . $e->getMessage());

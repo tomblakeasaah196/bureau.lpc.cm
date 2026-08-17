@@ -27,6 +27,8 @@
 // that file for why the dark stylesheet also broke PDF generation.
 if (!defined('LPC_FORCE_LIGHT')) { define('LPC_FORCE_LIGHT', true); }
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/classes/DocumentSignature.php';
+require_once __DIR__ . '/../../includes/functions/document_pdf.php';   // lpc_signature_doc()
 $token = $_GET['token'] ?? '';
 $error = null;
 $cre = null;
@@ -50,9 +52,32 @@ if (empty($token)) {
         $stmt->execute([$token]);
         $cre = $stmt->fetch(PDO::FETCH_ASSOC);
 
+        // Sprint 15 — cre_documents.status = 'signed' no longer means "the
+        // client already signed" on its own. empties_collection.php now
+        // offers a "Signer côté LPC" gate that runs BEFORE the client ever
+        // gets this link (see docs/SIGNATURES.md), and that internal
+        // signature flips status to 'signed' by itself — same as the
+        // matching note in signatures_controller.php's sign_external case.
+        // Gating this page on the raw status meant a CRE LPC had already
+        // signed showed "déjà signé et scellé" to the client and never
+        // rendered the form at all, so they could never add their own
+        // signature. What actually answers "does the client still have
+        // something to do here" is whether an ACTIVE EXTERNAL signature
+        // exists — the same party-scoped, hash-checked source of truth
+        // every other document type's share button reads.
+        $clientAlreadySigned = false;
+        if ($cre) {
+            $sigDoc = lpc_signature_doc('cre', $token);
+            if ($sigDoc) {
+                $clientAlreadySigned = (bool) DocumentSignature::getActiveByParty(
+                    'cre', (int) ($sigDoc['record_id'] ?? 0), $sigDoc, 'external'
+                );
+            }
+        }
+
         if (!$cre) {
             $error = "Document introuvable.";
-        } elseif ($cre['status'] === 'signed') {
+        } elseif ($clientAlreadySigned) {
             $error = "Ce document a déjà été signé et scellé.";
         } elseif ($cre['status'] === 'rejected') {
             $error = "Ce document a été annulé/refusé.";
