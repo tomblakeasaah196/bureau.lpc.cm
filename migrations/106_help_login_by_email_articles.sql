@@ -396,7 +396,7 @@ SELECT 'connexion-se-connecter' AS slug,
 
 | Field | What goes in it |
 |---|---|
-| Email Address | The address your administrator registered for you, e.g. `firstname.lastname@lpc.cm`. |
+| Email Address | The address your administrator registered for you, e.g. `firstname.lastname@lapetitecour.cm`. |
 | Password | The one your administrator gave you, or the one you have chosen since. |
 
 ## Case does not matter
