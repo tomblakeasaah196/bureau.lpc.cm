@@ -30,6 +30,10 @@
 --      Paramètres -> Préférences -> Sécurité, seeded at 50/window — loose
 --      enough that a busy office never trips it on ordinary traffic.
 --
+-- NOTE ON help_fr: the column is VARCHAR(255) (see migration 034). Both
+-- strings below are kept well inside that; an over-long value fails the whole
+-- migration with SQLSTATE 22001 rather than truncating.
+--
 -- Depends on: 034 (app_preferences table).
 -- Idempotent: safe to run more than once.
 -- =============================================================================
@@ -48,7 +52,7 @@ VALUES
     'security',
     'Tentatives de connexion max (par compte)',
     'Max login attempts (per account)',
-    "Par tranche de 15 minutes, PAR COMPTE (adresse email tentée) — pas par IP. Dépasser ce seuil ne verrouille que ce compte, pas les autres utilisateurs du même réseau. Était AUTH_MAX_ATTEMPTS_PER_15MIN dans .env.",
+    "Par compte (adresse email tentée), et non par IP. Un dépassement ne verrouille que ce compte, jamais les autres utilisateurs du même réseau. Fenêtre = la durée de verrouillage ci-dessous.",
     'essais',
     3,
     50,
@@ -63,7 +67,7 @@ VALUES
     'security',
     'Tentatives de connexion max (par IP)',
     'Max login attempts (per IP)',
-    "Garde-fou séparé, par tranche de 15 minutes, PAR ADRESSE IP — pas par compte. Volontairement plus large que la limite par compte : tout un bureau partage la même IP publique, donc ce seuil ne doit se déclencher que sur une attaque par balayage de plusieurs comptes, jamais sur l'usage normal.",
+    "Garde-fou par adresse IP. Volontairement plus large que la limite par compte : tout un bureau partage une seule IP publique. Ne doit se déclencher que sur une attaque, jamais sur l'usage normal.",
     'essais',
     10,
     500,
