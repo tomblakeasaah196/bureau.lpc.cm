@@ -15,6 +15,7 @@
  *   In bootstrap: Csrf::init();       // guarantees $_SESSION['csrf'] exists
  *   In forms:      <?= Csrf::field() ?>
  *   In controllers (state-changing):  Csrf::requireValid();
+ *   In classic <form> POST handlers (not fetch/XHR): Csrf::requireValidOrRedirect($url);
  *   Reads token:   Csrf::token();
  * -----------------------------------------------------------------------------
  */
@@ -117,6 +118,31 @@ class Csrf
                . 'Rechargez la page et réessayez.</p>'
                . '<p><a href="javascript:location.reload()">Recharger</a></p></div>';
         }
+        exit;
+    }
+
+    /**
+     * Gate a classic HTML <form> POST endpoint (no JS involved). On an
+     * invalid/missing token, redirects to $onFail instead of emitting the
+     * JSON/HTML 419 body that requireValid() produces.
+     *
+     * Why this exists: requireValid()'s $isApi sniff treats any request
+     * under a /api/ path as an API call, so a plain <form action="/api/...">
+     * POST — e.g. the login form — gets classified as API and receives the
+     * raw JSON 419 payload. A browser has nothing to parse that JSON with on
+     * a non-AJAX submit, so it just renders it in the address bar. Use
+     * requireValidOrRedirect() for any endpoint reached only via a classic
+     * form submit; keep requireValid() for anything driven by fetch/XHR,
+     * which already knows how to read the JSON error and show it inline.
+     *
+     * @param string $onFail Path to redirect to on failure, e.g.
+     *                       '/index.php?error=csrf_expired'.
+     */
+    public static function requireValidOrRedirect(string $onFail): void
+    {
+        if (self::isValid()) return;
+
+        header('Location: ' . $onFail);
         exit;
     }
 

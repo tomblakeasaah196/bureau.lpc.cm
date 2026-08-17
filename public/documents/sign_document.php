@@ -94,6 +94,19 @@ if ($token === '' || $type === '') {
 
 $P = $PRESENTATION[$type] ?? null;
 $e = static function ($v): string { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
+
+// Viewer each type's signed PDF is generated from — same WYSIWYG page the
+// counterparty could already reach manually, opened here with
+// autodownload=1 so the viewer's existing generatePDF()/downloadPDF() fires
+// on load instead of waiting for a click. No new render pipeline.
+$SIGNED_DOC_PATH = [
+    'facture'      => '/facture.php',
+    'bon_commande' => '/bon_commande.php',
+    'payslip'      => '/payslip.php',
+];
+$signedDocumentUrl = isset($SIGNED_DOC_PATH[$type])
+    ? $SIGNED_DOC_PATH[$type] . '?token=' . $token . '&autodownload=1'
+    : null;
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -239,10 +252,11 @@ $e = static function ($v): string { return htmlspecialchars((string) $v, ENT_QUO
     </div>
 
     <script type="application/json" id="lpc-page-data"><?= json_encode([
-        'token'     => $token,
-        'docType'   => $type,
-        'csrf'      => Csrf::token(),
-        'csrfField' => '_csrf',
+        'token'             => $token,
+        'docType'           => $type,
+        'csrf'              => Csrf::token(),
+        'csrfField'         => '_csrf',
+        'signedDocumentUrl' => $signedDocumentUrl,
     ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
 <script src="<?= lpc_asset('/assets/js/modules/signature-universal.js') ?>" defer></script>
 </main>

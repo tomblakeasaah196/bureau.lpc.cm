@@ -319,18 +319,29 @@ if ($action === 'get_dashboard') {
         //    (COGS-ish). Values pass through a null-safe wrapper.
         $gross_margin_top3 = [];
         try {
+            // NOTE: MySQL allows a bare alias in HAVING/ORDER BY, but not an
+            // alias used inside an arithmetic expression there — that trips
+            // error 1247 "Reference 'revenue' not supported (reference to
+            // group function)" because `revenue` is itself an aggregate
+            // (SUM(...)). `(revenue - cogs)` in ORDER BY hit exactly that.
+            // Wrapping the aggregation in a derived table materializes
+            // revenue/cogs as plain columns first, so the outer WHERE/ORDER
+            // BY can combine them freely without re-touching the aggregate.
             $stmtGm = $pdo->prepare("
-                SELECT
-                    COALESCE(ca.name, '—') AS category,
-                    COALESCE(SUM(CASE WHEN ca.code LIKE '70%' THEN (jl.credit - jl.debit) ELSE 0 END), 0) AS revenue,
-                    COALESCE(SUM(CASE WHEN ca.code LIKE '6%'  THEN (jl.debit  - jl.credit) ELSE 0 END), 0) AS cogs
-                  FROM journal_lines jl
-                  JOIN journal_entries je ON jl.journal_entry_id = je.id
-                  JOIN chart_of_accounts ca ON jl.account_id = ca.id
-                 WHERE je.status = 'approved' AND je.date >= ? AND je.date <= ?
-                   AND (ca.code LIKE '70%' OR ca.code LIKE '6%')
-                 GROUP BY ca.id
-                HAVING revenue > 0
+                SELECT category, revenue, cogs
+                  FROM (
+                    SELECT
+                        COALESCE(ca.name, '—') AS category,
+                        COALESCE(SUM(CASE WHEN ca.code LIKE '70%' THEN (jl.credit - jl.debit) ELSE 0 END), 0) AS revenue,
+                        COALESCE(SUM(CASE WHEN ca.code LIKE '6%'  THEN (jl.debit  - jl.credit) ELSE 0 END), 0) AS cogs
+                      FROM journal_lines jl
+                      JOIN journal_entries je ON jl.journal_entry_id = je.id
+                      JOIN chart_of_accounts ca ON jl.account_id = ca.id
+                     WHERE je.status = 'approved' AND je.date >= ? AND je.date <= ?
+                       AND (ca.code LIKE '70%' OR ca.code LIKE '6%')
+                     GROUP BY ca.id
+                  ) gm
+                 WHERE revenue > 0
                  ORDER BY (revenue - cogs) DESC
                  LIMIT 3
             ");

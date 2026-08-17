@@ -371,6 +371,27 @@ document.getElementById('input_email_body').value =
             }
         }
 
+        // ---------------------------------------------------------------------
+        // AUTODOWNLOAD — a client landing here from the "Télécharger le
+        // document signé" button on the sign_*.php success screen
+        // (?autodownload=1) skips the extra tap and gets the PDF right away.
+        // Fires once; if generatePDF() throws, its own catch already shows
+        // the LPC.modal.alert fallback and the client can retry from the
+        // download button in this same tab.
+        // ---------------------------------------------------------------------
+        let __autodownloadFired = false;
+        async function maybeAutodownload() {
+            if (__autodownloadFired) return;
+            if (new URLSearchParams(window.location.search).get('autodownload') !== '1') return;
+            __autodownloadFired = true;
+            if (document.fonts && document.fonts.ready) {
+                await document.fonts.ready;
+            }
+            generatePDF();
+        }
+
         // Init App
-        window.onload = fetchProposalData;
-    
+        window.onload = async function () {
+            await fetchProposalData();
+            maybeAutodownload();
+        };

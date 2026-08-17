@@ -47,6 +47,7 @@
     var CSRF_TOKEN  = (window.PAGE_DATA.csrf) || '';
     var CSRF_FIELD  = (window.PAGE_DATA.csrfField) || '_csrf';
     var SUCCESS_URL = (window.PAGE_DATA.successRedirect) || '';
+    var SIGNED_DOC_URL = (window.PAGE_DATA.signedDocumentUrl) || '';
 
     var signaturePad = null;
 
@@ -262,6 +263,11 @@
             extra = '<a href="' + SUCCESS_URL + '" target="_blank" rel="noopener" '
                   + 'class="inline-block bg-lpc-dark text-white px-6 py-3 rounded-xl font-black text-sm shadow-md w-full">'
                   + '<i class="fas fa-file-pdf mr-2"></i> Télécharger le reçu PDF</a>';
+        }
+        if (!rejected && SIGNED_DOC_URL) {
+            extra += '<a href="' + SIGNED_DOC_URL + '" target="_blank" rel="noopener" '
+                  + 'class="inline-block mt-3 border-2 border-lpc-dark text-lpc-dark px-6 py-3 rounded-xl font-black text-sm w-full">'
+                  + '<i class="fas fa-file-signature mr-2"></i> Télécharger le document signé</a>';
         }
         if (!rejected && result.signature && result.signature.verify_url) {
             extra += '<a href="' + result.signature.verify_url + '" target="_blank" rel="noopener" '

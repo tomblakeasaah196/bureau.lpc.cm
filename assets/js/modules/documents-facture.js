@@ -81,10 +81,14 @@
                 const response = await fetch(`/api/v1/get_invoice.php?token=${invToken}`);
                 const result = await response.json();
                 if (result.status === 'success') {
-                    apiData = result.data; 
-                    injectData(); 
-                    setLang('fr'); 
-                    updateModals(); 
+                    apiData = result.data;
+                    injectData();
+                    setLang('fr');
+                    updateModals();
+                    if (document.fonts && document.fonts.ready) {
+                        await document.fonts.ready;
+                    }
+                    maybeAutodownload();
                 } else {
                     document.getElementById('document-capture').innerHTML = LPC.html`<div class="p-10 text-center text-red-600 font-bold text-xl mt-20">Erreur: ${result.message}</div>`;
                 }
@@ -332,6 +336,22 @@
         // to the capture only if the server route fails outright — an offline
         // client on a Douala mobile connection still gets a file.
         // -------------------------------------------------------------------------
+        // ---------------------------------------------------------------------
+        // AUTODOWNLOAD — a client landing here from the "Télécharger le
+        // document signé" button on sign_document.php's success screen
+        // (?autodownload=1) skips the extra tap and gets the PDF right away.
+        // Fires once; generatePDF() already has its own dompdf-then-canvas
+        // fallback chain and its own LPC.modal.alert if both fail, so the
+        // client can retry from the download button in this same tab.
+        // ---------------------------------------------------------------------
+        let __autodownloadFired = false;
+        function maybeAutodownload() {
+            if (__autodownloadFired) return;
+            if (new URLSearchParams(window.location.search).get('autodownload') !== '1') return;
+            __autodownloadFired = true;
+            generatePDF();
+        }
+
         async function generatePDF() {
             if (!apiData) return;
             const btn = document.getElementById('btn-download');

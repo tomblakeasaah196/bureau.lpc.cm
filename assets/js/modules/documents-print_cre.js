@@ -37,4 +37,33 @@
                 document.querySelector('.print-btn').style.display = 'flex';
             });
         }
-    
+
+        // ---------------------------------------------------------------------
+        // AUTODOWNLOAD — a client landing here from the "Télécharger le
+        // document signé" button on sign_cre.php's success screen
+        // (?autodownload=1) skips the extra tap and gets the PDF right away.
+        // downloadPDF() uses html2pdf, not the html2canvas+jsPDF pairing the
+        // other viewers use — kept as-is, just triggered automatically here.
+        // Fires once; failures surface however html2pdf() normally reports
+        // them, and the client can retry from the print button in this tab.
+        // ---------------------------------------------------------------------
+        let __autodownloadFired = false;
+        function maybeAutodownload() {
+            if (__autodownloadFired) return;
+            if (new URLSearchParams(window.location.search).get('autodownload') !== '1') return;
+            __autodownloadFired = true;
+            downloadPDF();
+        }
+
+        async function initAutodownload() {
+            if (document.fonts && document.fonts.ready) {
+                await document.fonts.ready;
+            }
+            maybeAutodownload();
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initAutodownload);
+        } else {
+            initAutodownload();
+        }

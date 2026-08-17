@@ -241,10 +241,11 @@ if (empty($token)) {
     </div>
 
     <script type="application/json" id="lpc-page-data"><?= json_encode([
-        'token'     => $token,
-        'docType'   => 'bl',
-        'csrf'      => Csrf::token(),
-        'csrfField' => '_csrf',
+        'token'             => $token,
+        'docType'           => 'bl',
+        'csrf'              => Csrf::token(),
+        'csrfField'         => '_csrf',
+        'signedDocumentUrl' => '/bon_livraison.php?token=' . $token . '&autodownload=1',
     ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
     <!--
       BL-specific extras piggyback on the same signature POST. The universal

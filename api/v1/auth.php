@@ -68,7 +68,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // 1. CSRF check — comes BEFORE any DB lookup or rate-limit consumption.
-Csrf::requireValid();
+//    This is a classic <form> POST (not AJAX), so on failure we redirect
+//    back to the login page with a friendly message instead of dumping the
+//    raw JSON 419 payload into the address bar (see Csrf::requireValidOrRedirect).
+Csrf::requireValidOrRedirect('/index.php?error=csrf_expired');
 
 // 2. Rate limit — per IP.
 //    Sprint 8: attempt count and lockout window are now the

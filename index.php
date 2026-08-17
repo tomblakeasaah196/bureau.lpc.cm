@@ -125,6 +125,14 @@ $lang = lpc_i18n_current_lang();
                                 : 'This reset link is no longer valid.';
                         } elseif ($error === 'system_error') {
                             echo $lang == 'fr' ? 'Erreur système. Veuillez contacter l\'administrateur.' : 'System error. Please contact the administrator.';
+                        } elseif ($error === 'csrf_expired') {
+                            // A stale login form (browser tab kept open across a deploy,
+                            // or a session recycled by PHP-FPM) submits with an outdated
+                            // CSRF token. auth.php redirects here instead of dumping the
+                            // raw JSON 419 payload into the address bar.
+                            echo $lang == 'fr'
+                                ? 'Votre session a expiré. Rechargez la page et réessayez.'
+                                : 'Your session has expired. Please reload the page and try again.';
                         } else {
                             echo $lang == 'fr' ? 'Une erreur est survenue.' : 'An error occurred.';
                         }

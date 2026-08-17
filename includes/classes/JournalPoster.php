@@ -1088,7 +1088,17 @@ final class JournalPoster
         if (!$po) {
             throw new RuntimeException("JournalPoster::postSupplierPayment — PO #{$po_id} not found.");
         }
-        if ($po['payment_status'] === 'paid' || !empty($po['payment_je_id'])) {
+        // payment_je_id is the ONLY authoritative "settled" signal — it is
+        // stamped exclusively at the bottom of this method, atomically with
+        // payment_status='paid'. Do not also gate on payment_status: a PO
+        // created "Payé (Cash/Virement)" gets payment_status='paid' at
+        // creation (procurement_controller::save_po) purely to declare
+        // intent, long before any JE exists — that is precisely the state
+        // inventory_controller::receive_po calls this method FROM (migration
+        // 093). Throwing on payment_status alone made every first-ever
+        // payment posting for such a PO fail as "already settled" — see the
+        // reception-500 bug this comment replaced.
+        if (!empty($po['payment_je_id'])) {
             throw new RuntimeException(
                 "JournalPoster::postSupplierPayment — PO #{$po_id} ({$po['reference']}) is already settled."
             );

@@ -60,10 +60,14 @@
                 const response = await fetch(`/api/v1/get_bl.php?token=${blToken}`);
                 const result = await response.json();
                 if (result.status === 'success') {
-                    apiData = result.data; 
-                    injectData(); 
-                    setLang('fr'); 
-                    updateModals(); 
+                    apiData = result.data;
+                    injectData();
+                    setLang('fr');
+                    updateModals();
+                    if (document.fonts && document.fonts.ready) {
+                        await document.fonts.ready;
+                    }
+                    maybeAutodownload();
                 } else {
                     document.getElementById('document-capture').innerHTML = LPC.html`<div class="p-10 text-center text-red-600 font-bold text-xl mt-20">Erreur: ${result.message}</div>`;
                 }
@@ -306,6 +310,22 @@
                 const key = el.getAttribute('data-i18n');
                 if (dictionary[lang][key]) el.innerHTML = dictionary[lang][key]; 
             });
+        }
+
+        // ---------------------------------------------------------------------
+        // AUTODOWNLOAD — a client landing here from the "Télécharger le
+        // document signé" button on sign_bl.php's success screen
+        // (?autodownload=1) skips the extra tap and gets the PDF right away.
+        // Fires once; if generatePDF() throws, its own catch already shows
+        // the LPC.modal.alert fallback and the client can retry from the
+        // download button in this same tab.
+        // ---------------------------------------------------------------------
+        let __autodownloadFired = false;
+        function maybeAutodownload() {
+            if (__autodownloadFired) return;
+            if (new URLSearchParams(window.location.search).get('autodownload') !== '1') return;
+            __autodownloadFired = true;
+            generatePDF();
         }
 
         async function generatePDF() {
