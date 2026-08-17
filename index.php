@@ -163,7 +163,7 @@ $lang = lpc_i18n_current_lang();
                     <input type="email" id="email" name="email" required autocomplete="username" autofocus
                         inputmode="email" autocapitalize="none" spellcheck="false"
                         class="w-full glass-input rounded-xl py-3.5 pl-11 pr-4 text-base transition-all duration-300"
-                        placeholder="prenom.nom@lapetitecour.cm">
+                        placeholder="prenom.nom@lpc.cm">
                 </div>
             </div>
 
@@ -178,8 +178,19 @@ $lang = lpc_i18n_current_lang();
                         </svg>
                     </div>
                     <input type="password" id="password" name="password" required autocomplete="current-password"
-                        class="w-full glass-input rounded-xl py-3.5 pl-11 pr-4 text-base transition-all duration-300"
+                        class="w-full glass-input rounded-xl py-3.5 pl-11 pr-12 text-base transition-all duration-300"
                         placeholder="••••••••">
+                    <button type="button" id="togglePassword" aria-controls="password" aria-pressed="false"
+                        aria-label="<?php echo $lang == 'fr' ? 'Afficher le mot de passe' : 'Show password'; ?>"
+                        class="absolute inset-y-0 right-0 pr-4 flex items-center text-white/50 hover:text-white/80 transition-colors">
+                        <svg id="eyeOpenIcon" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        <svg id="eyeClosedIcon" class="h-5 w-5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.025 10.025 0 012.132-3.411m3.66-2.66A9.958 9.958 0 0112 5c4.478 0 8.268 2.943 9.542 7a9.977 9.977 0 01-1.563 3.029M3 3l18 18" />
+                        </svg>
+                    </button>
                 </div>
             </div>
 
@@ -221,6 +232,33 @@ $lang = lpc_i18n_current_lang();
             </p>
         </div>
     </div>
+
+    <script>
+        // Show/hide the password field. Purely cosmetic — never touches what
+        // gets submitted, just the input's `type`, so it can't interfere with
+        // the CSRF/rate-limit/credential handling in api/v1/auth.php.
+        (function () {
+            var toggle     = document.getElementById('togglePassword');
+            var input      = document.getElementById('password');
+            var eyeOpen    = document.getElementById('eyeOpenIcon');
+            var eyeClosed  = document.getElementById('eyeClosedIcon');
+            if (!toggle || !input || !eyeOpen || !eyeClosed) return;
+
+            var labels = {
+                show: <?= json_encode($lang == 'fr' ? 'Afficher le mot de passe' : 'Show password') ?>,
+                hide: <?= json_encode($lang == 'fr' ? 'Masquer le mot de passe' : 'Hide password') ?>
+            };
+
+            toggle.addEventListener('click', function () {
+                var willShow = input.type === 'password';
+                input.type = willShow ? 'text' : 'password';
+                toggle.setAttribute('aria-pressed', String(willShow));
+                toggle.setAttribute('aria-label', willShow ? labels.hide : labels.show);
+                eyeOpen.classList.toggle('hidden', willShow);
+                eyeClosed.classList.toggle('hidden', !willShow);
+            });
+        })();
+    </script>
 
 </body>
 </html>

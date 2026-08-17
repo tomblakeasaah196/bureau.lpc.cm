@@ -47,7 +47,7 @@
 --
 -- Give every account a real, distinct address (a departed employee with no
 -- address should be set to status='inactive' AND given a placeholder such as
--- inactive+<id>@lapetitecour.cm — inactive accounts are refused at login by
+-- inactive+<id>@lpc.cm — inactive accounts are refused at login by
 -- auth.php regardless, so the placeholder is inert).
 --
 -- Depends on: 002_auth_hardening.sql

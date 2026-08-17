@@ -35,6 +35,19 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 $ip_address = $_SERVER['REMOTE_ADDR']     ?? 'UNKNOWN';
 $user_agent = mb_substr($_SERVER['HTTP_USER_AGENT'] ?? 'UNKNOWN', 0, 255);
 
+// OPTIONS short-circuits before touching the session or DB — this endpoint
+// doesn't serve OPTIONS as a verb, it just needs to decline it properly.
+// Previously OPTIONS fell through to the "not POST" branch below and got a
+// 302 to /index.php, which reads as broken to any CORS preflight, uptime
+// probe, or API scanner that (correctly) expects 200/204/405 here instead
+// of a redirect. Mirrors the 405 session_relogin.php already returns for
+// non-POST/non-GET.
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    header('Allow: POST, GET');
+    http_response_code(405);
+    exit;
+}
+
 // ==========================================
 // LOGOUT
 // ==========================================
