@@ -73,20 +73,14 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 //    raw JSON 419 payload into the address bar (see Csrf::requireValidOrRedirect).
 Csrf::requireValidOrRedirect('/index.php?error=csrf_expired');
 
-// 2. Rate limit — per IP.
-//    Sprint 8: attempt count and lockout window are now the
-//    `sec_max_login_attempts` / `sec_lockout_minutes` preferences
-//    (Paramètres -> Préférences -> Sécurité). The .env value remains the
-//    fallback for environments where migration 034 has not been applied.
-$maxAuth    = Prefs::int('sec_max_login_attempts', (int) env('AUTH_MAX_ATTEMPTS_PER_15MIN', 10));
-$authWindow = Prefs::int('sec_lockout_minutes', 15);
-RateLimiter::guard('auth', $ip_address, $maxAuth, $authWindow);
-
 // The field is named `email`. `employee_code` is still accepted as a fallback
 // POST key ONLY so that a browser with the old login page cached in memory —
 // or a tab left open across the deploy — submits something the server can act
 // on rather than silently failing the empty-field check. It is treated as an
 // email address like any other string; there is no code-based lookup left.
+//
+// Pulled up ahead of the rate limiter (was below it) so the per-account
+// bucket below has a normalised email to key on.
 $login    = trim($_POST['email'] ?? $_POST['employee_code'] ?? '');
 $password = $_POST['password'] ?? '';
 
@@ -97,6 +91,34 @@ if ($login === '' || $password === '') {
 
 // Normalise exactly the way migration 105 normalised the column.
 $login = mb_strtolower($login);
+
+// 2. Rate limit — two tiers, both against the same login flow, so a lockout
+//    only ever falls on the person actually being guessed against:
+//
+//    · per-ACCOUNT (bucket 'auth_acct'): the knob an admin sets in
+//      Paramètres -> Préférences -> Sécurité ("sec_max_login_attempts" /
+//      "sec_lockout_minutes"). Keyed by a hash of the normalised email, so
+//      it's the same bucket no matter which office/IP the attempt comes
+//      from, and it clears on its own once the window rolls or the account
+//      owner resets their password. This is the number the user thinks of
+//      as "how many tries before it locks."
+//    · per-IP (bucket 'auth_ip'): a much wider backstop so a script trying
+//      many different addresses from one address still gets shut down.
+//      Deliberately generous and NOT the admin-facing knob — everyone in
+//      the office shares one NAT'd IP, so this must stay loose enough that
+//      normal traffic never trips it; only a real spray attack should.
+//
+//    Previously there was a single per-IP bucket, keyed on IP alone — one
+//    person mistyping (or guessing at) their password locked out every
+//    colleague behind the same office connection for the whole window.
+//    That's the "blocks every user" bug: this now scopes the lockout to
+//    the account under attack.
+$maxAuth      = Prefs::int('sec_max_login_attempts', (int) env('AUTH_MAX_ATTEMPTS_PER_15MIN', 10));
+$authWindow   = Prefs::int('sec_lockout_minutes', 15);
+$maxAuthPerIp = Prefs::int('sec_max_login_attempts_ip', 50);
+
+RateLimiter::guard('auth_ip', $ip_address, $maxAuthPerIp, $authWindow);
+RateLimiter::guard('auth_acct', 'acct:' . substr(hash('sha256', $login), 0, 40), $maxAuth, $authWindow);
 
 try {
     $db = Database::getInstance()->getConnection();

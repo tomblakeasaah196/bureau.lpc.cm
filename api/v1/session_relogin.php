@@ -50,16 +50,13 @@ Csrf::requireValid();
 $ip_address = $_SERVER['REMOTE_ADDR']     ?? 'UNKNOWN';
 $user_agent = mb_substr($_SERVER['HTTP_USER_AGENT'] ?? 'UNKNOWN', 0, 255);
 
-// Same limits as auth.php — a re-auth attempt spends the same 'auth' bucket
-// so an attacker cannot bypass the login rate limit by switching endpoints.
-$maxAuth    = Prefs::int('sec_max_login_attempts', (int) env('AUTH_MAX_ATTEMPTS_PER_15MIN', 10));
-$authWindow = Prefs::int('sec_lockout_minutes', 15);
-RateLimiter::guard('auth', $ip_address, $maxAuth, $authWindow);
-
 // Sprint 14: the identifier is the email address. `employee_code` is still
 // read as a fallback key so a page loaded BEFORE the deploy — the session lock
 // lives on every long-lived tab in the building, so this is the common case on
 // deploy day, not an edge case — still submits something usable.
+//
+// Pulled up ahead of the rate limiter (was below it) so the per-account
+// bucket below has a normalised email to key on.
 $login    = mb_strtolower(trim($_POST['email'] ?? $_POST['employee_code'] ?? ''));
 $password = $_POST['password'] ?? '';
 
@@ -72,6 +69,19 @@ if ($login === '' || $password === '') {
     ]);
     exit;
 }
+
+// Same limits as auth.php, same two-tier split — a re-auth attempt spends
+// the same buckets so an attacker cannot bypass the login rate limit by
+// switching endpoints. See api/v1/auth.php for the full rationale: a
+// per-account bucket (the admin-configured knob) plus a much wider per-IP
+// backstop, so one person's lockout no longer takes the whole office's
+// session-lock modal down with it.
+$maxAuth      = Prefs::int('sec_max_login_attempts', (int) env('AUTH_MAX_ATTEMPTS_PER_15MIN', 10));
+$authWindow   = Prefs::int('sec_lockout_minutes', 15);
+$maxAuthPerIp = Prefs::int('sec_max_login_attempts_ip', 50);
+
+RateLimiter::guard('auth_ip', $ip_address, $maxAuthPerIp, $authWindow);
+RateLimiter::guard('auth_acct', 'acct:' . substr(hash('sha256', $login), 0, 40), $maxAuth, $authWindow);
 
 try {
     $db = Database::getInstance()->getConnection();
