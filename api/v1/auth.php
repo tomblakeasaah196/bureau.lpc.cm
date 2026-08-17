@@ -98,11 +98,22 @@ $login = mb_strtolower($login);
 try {
     $db = Database::getInstance()->getConnection();
 
+    // Sprint 15: employee attributes (name, matricule, avatar) come from
+    // `employees` (the SSOT), joined via users.employee_id. The old
+    // employee_profiles join is gone with the table itself. LEFT JOIN
+    // employees defensively — a users row with no linked employee is a
+    // schema bug post-109 (the FK is NOT NULL), but during the cutover
+    // window a NULL here is preferable to hiding a legitimate account.
     $stmt = $db->prepare("
-        SELECT u.*, r.name AS role_name, ep.avatar
+        SELECT u.*,
+               r.name AS role_name,
+               e.first_name    AS emp_first_name,
+               e.last_name     AS emp_last_name,
+               e.employee_code AS emp_employee_code,
+               e.avatar_path   AS avatar
           FROM users u
-     LEFT JOIN roles r             ON u.role_id = r.id
-     LEFT JOIN employee_profiles ep ON u.id      = ep.user_id
+     LEFT JOIN roles     r ON u.role_id     = r.id
+     LEFT JOIN employees e ON u.employee_id = e.id
          WHERE LOWER(TRIM(u.email)) = :email
          LIMIT 1
     ");
@@ -174,14 +185,23 @@ try {
         $session_token, $session_token_hash
     ]);
 
-    // Populate session identity
+    // Populate session identity.
+    //
+    // Sprint 15: name and matricule are read from the joined employees row
+    // (emp_first_name / emp_last_name / emp_employee_code), not from users.
+    // This lines up with the SSOT model and stays correct after migration
+    // 112 drops the duplicated columns from users. During the cutover window
+    // where both exist, the join wins — if it returned NULL because the
+    // legacy row somehow has no employee link, the empty-string fallback
+    // still writes something displayable rather than "null null".
     $_SESSION['user_id']        = (int) $user['id'];
+    $_SESSION['employee_id']    = (int) ($user['employee_id'] ?? 0);
     $_SESSION['user_role']      = strtolower($user['role_name'] ?? 'unknown');
     $_SESSION['user_role_id']   = (int) $user['role_id'];
-    $_SESSION['user_name']      = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
+    $_SESSION['user_name']      = trim(($user['emp_first_name'] ?? '') . ' ' . ($user['emp_last_name'] ?? ''));
     // Still carried: the account panel and payroll exports display it, and
     // Rbac::jsBootstrap() publishes it. It is an attribute now, not a key.
-    $_SESSION['employee_code']  = $user['employee_code'];
+    $_SESSION['employee_code']  = $user['emp_employee_code'] ?? null;
     // The login identifier. The session-lock modal prefills it, and
     // password_manager.php uses it so nobody has to retype their address.
     $_SESSION['user_email']     = $user['email'];

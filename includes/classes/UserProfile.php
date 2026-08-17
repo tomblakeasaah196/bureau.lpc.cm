@@ -122,17 +122,32 @@ final class UserProfile
             $db = self::db();
             if ($db) {
                 try {
+                    // Sprint 15 · Employee HR data (name, matricule, phone,
+                    // job_title, avatar) reads from `employees`; per-user UI
+                    // personalization (display_name, theme, accent, locale,
+                    // ...) reads from `employee_profiles`. The two tables now
+                    // have distinct concerns, though 036's personalization
+                    // columns still live on employee_profiles until a follow-
+                    // up sprint moves them to their own user_personalization
+                    // table. `phone` and `job_title` come from `employees`
+                    // now — the identically-named columns on employee_profiles
+                    // are vestigial and no longer written to.
                     $st = $db->prepare("
-                        SELECT u.id AS user_id, u.first_name, u.last_name, u.email,
-                               u.employee_code, u.password_changed_at, u.must_reset_password,
+                        SELECT u.id AS user_id, u.email,
+                               u.password_changed_at, u.must_reset_password,
                                r.name AS role_name,
-                               ep.display_name, ep.pronouns, ep.about, ep.phone, ep.job_title,
-                               ep.avatar, ep.locale, ep.timezone, ep.theme, ep.accent,
+                               e.first_name, e.last_name, e.employee_code,
+                               e.personal_phone AS phone,
+                               e.job_title,
+                               e.avatar_path   AS avatar,
+                               ep.display_name, ep.pronouns, ep.about,
+                               ep.locale, ep.timezone, ep.theme, ep.accent,
                                ep.density, ep.sidebar_collapsed, ep.reduce_motion,
                                ep.landing_page, ep.login_pin_set_at, ep.profile_updated_at,
                                (ep.login_pin_hash IS NOT NULL) AS has_pin
                           FROM users u
-                     LEFT JOIN roles r              ON r.id = u.role_id
+                     LEFT JOIN roles     r  ON r.id  = u.role_id
+                     LEFT JOIN employees e  ON e.id  = u.employee_id
                      LEFT JOIN employee_profiles ep ON ep.user_id = u.id
                          WHERE u.id = ?
                          LIMIT 1
@@ -347,7 +362,26 @@ final class UserProfile
         $db = self::db();
         if (!$db) throw new RuntimeException('Base de données indisponible.');
 
-        self::upsert($db, $userId, $set);
+        // Sprint 15: split HR fields (which live on `employees`, the SSOT)
+        // from UI personalization (which lives on `employee_profiles`).
+        // avatar and phone are HR data — their canonical column is now on
+        // `employees`, so this class writes there and the profile edit shows
+        // up on every surface that reads from the SSOT (dashboards, MDM
+        // grid, payroll detail).
+        $HR_FIELDS = ['avatar' => 'avatar_path', 'phone' => 'personal_phone'];
+        $employee_set = [];
+        foreach ($HR_FIELDS as $selfKey => $empCol) {
+            if (array_key_exists($selfKey, $set)) {
+                $employee_set[$empCol] = $set[$selfKey];
+                unset($set[$selfKey]);
+            }
+        }
+        if ($employee_set) {
+            self::updateEmployeeRow($db, $userId, $employee_set);
+        }
+        if ($set) {
+            self::upsert($db, $userId, $set);
+        }
 
         // ---- Re-sync the session mirrors -----------------------------------
         // Everything that reads $_SESSION['user_name'] / ['avatar'] / ['lang']
@@ -363,6 +397,33 @@ final class UserProfile
         }
 
         return $fresh;
+    }
+
+    /**
+     * Write a small set of HR columns onto the user's `employees` row (SSOT).
+     * Called by save() for fields whose canonical home moved from
+     * employee_profiles to employees in Sprint 15 — currently avatar_path and
+     * personal_phone. Uses the users.employee_id link established by 109.
+     *
+     * If the users row somehow has no linked employee (shouldn't happen post-
+     * 109 — FK is NOT NULL), the update silently affects zero rows rather
+     * than throwing, because this path can be exercised by a partial-deploy
+     * environment where 109 has not been applied yet. Callers get the "no
+     * effect" outcome via UserProfile::current(true) returning the old value.
+     */
+    private static function updateEmployeeRow(PDO $db, int $userId, array $set): void
+    {
+        if (!$set) return;
+        $assign = implode(', ', array_map(static fn($c) => "`$c` = :$c", array_keys($set)));
+        $st = $db->prepare("
+            UPDATE employees e
+              JOIN users u ON u.employee_id = e.id
+               SET $assign, e.updated_at = NOW(), e.updated_by = :user_id
+             WHERE u.id = :user_id
+        ");
+        $params = ['user_id' => $userId];
+        foreach ($set as $k => $v) $params[$k] = $v;
+        $st->execute($params);
     }
 
     /**

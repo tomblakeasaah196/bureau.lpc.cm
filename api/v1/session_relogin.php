@@ -76,11 +76,20 @@ if ($login === '' || $password === '') {
 try {
     $db = Database::getInstance()->getConnection();
 
+    // Sprint 15: employee attributes come from `employees` via
+    // users.employee_id. Kept in sync with api/v1/auth.php — the two lookups
+    // must return the same shape or the session-lock modal ends up with a
+    // different identity than the login page.
     $stmt = $db->prepare("
-        SELECT u.*, r.name AS role_name, ep.avatar
+        SELECT u.*,
+               r.name AS role_name,
+               e.first_name    AS emp_first_name,
+               e.last_name     AS emp_last_name,
+               e.employee_code AS emp_employee_code,
+               e.avatar_path   AS avatar
           FROM users u
-     LEFT JOIN roles r              ON u.role_id = r.id
-     LEFT JOIN employee_profiles ep ON u.id      = ep.user_id
+     LEFT JOIN roles     r ON u.role_id     = r.id
+     LEFT JOIN employees e ON u.employee_id = e.id
          WHERE LOWER(TRIM(u.email)) = :email
          LIMIT 1
     ");
@@ -140,11 +149,15 @@ try {
         $session_token, $session_token_hash,
     ]);
 
+    // Session identity mirrors auth.php exactly — same field sources so both
+    // paths produce interchangeable sessions. Sprint 15: name and matricule
+    // read from the employees join, not from users.
     $_SESSION['user_id']        = (int) $user['id'];
+    $_SESSION['employee_id']    = (int) ($user['employee_id'] ?? 0);
     $_SESSION['user_role']      = strtolower($user['role_name'] ?? 'unknown');
     $_SESSION['user_role_id']   = (int) $user['role_id'];
-    $_SESSION['user_name']      = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
-    $_SESSION['employee_code']  = $user['employee_code'];
+    $_SESSION['user_name']      = trim(($user['emp_first_name'] ?? '') . ' ' . ($user['emp_last_name'] ?? ''));
+    $_SESSION['employee_code']  = $user['emp_employee_code'] ?? null;
     $_SESSION['user_email']     = $user['email'];
     $_SESSION['avatar']         = $user['avatar'] ?? null;
     $_SESSION['session_token']  = $session_token;

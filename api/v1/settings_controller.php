@@ -38,13 +38,20 @@ $action = $_GET['action'] ?? 'read';
  * different permissions (see migration 034).
  */
 $LPC_ACTION_PERMS = [
-    'read'             => 'admin.settings.view',
-    'save_users'       => 'admin.settings.edit',
-    'toggle_user'      => 'admin.settings.edit',
-    'kill_session'     => 'admin.settings.edit',
-    'save_company'     => 'admin.company.edit',
-    'upload_logo'      => 'admin.company.edit',
-    'save_preferences' => 'admin.prefs.edit',
+    'read'                    => 'admin.settings.view',
+    // Sprint 15 — creating and editing a login now go through this one action.
+    // The old `save_users` name is still accepted below as an alias so a stale
+    // browser tab across the deploy submits something the server can act on.
+    'provision_account'       => 'admin.settings.edit',
+    'save_users'              => 'admin.settings.edit',   // deprecated alias
+    'toggle_user'             => 'admin.settings.edit',
+    'kill_session'            => 'admin.settings.edit',
+    // Powers the employee picker in the "+ Provisionner un compte" modal.
+    // Gated on .edit (not .view) because it is the setup for a write.
+    'list_unlinked_employees' => 'admin.settings.edit',
+    'save_company'            => 'admin.company.edit',
+    'upload_logo'             => 'admin.company.edit',
+    'save_preferences'        => 'admin.prefs.edit',
 ];
 
 $LPC_TAB_PERMS = [
@@ -100,39 +107,36 @@ try {
     $admin_id = $_SESSION['user_id'];
 
     /**
-     * CREATE / UPDATE a user account.
+     * PROVISION / UPDATE a login account.
      *
-     * SPRINT 14 — this action is where an employee is onboarded, and it was
-     * the weakest surface in the app:
+     * SPRINT 15 — this action no longer creates people. It creates LOGINS for
+     * people who already exist in `employees` (the SSOT). The old flow could
+     * insert a `users` row with no matching HR record, which is how "granting
+     * access to a non-employee" became a real production state and not a
+     * hypothetical.
      *
-     *   · NO password policy. `password_hash($_POST['password'])` accepted a
-     *     one-character password, while password_controller.php enforced a
-     *     regex on the same column. The admin form was the easy way around the
-     *     rule the users were held to.
-     *   · PASSWORD_DEFAULT here vs PASSWORD_BCRYPT + configured cost there.
-     *     Same column, two hashing configurations, and BCRYPT_COST ignored.
-     *   · `employee_code` was typed by hand and used as the login credential,
-     *     with no uniqueness check — two accounts could share one, and then
-     *     the login lookup returned whichever the optimiser felt like.
-     *   · Email was never validated or checked for duplicates. It is now the
-     *     credential, so a duplicate is an authentication bug.
-     *   · An admin could remove their own admin role or lock themselves out.
+     * PAYLOAD SHAPES
+     *   Create: employee_id, role_id, email, password
+     *   Update: id (existing users.id), role_id, email, password (optional)
      *
-     * All of that is fixed below. The matricule is now system-assigned and
-     * never read from the request.
+     * A user's NAME and MATRICULE are NOT accepted here — those live on
+     * `employees` and are edited in Données de Base. Editing them here would
+     * split the truth again, which is precisely what this refactor eliminates.
+     *
+     * DEPRECATED ALIAS
+     *   The action name `save_users` still routes here so a browser tab left
+     *   open across the deploy keeps working. The old form's `first_name` /
+     *   `last_name` fields are ignored — the linked employee already owns
+     *   those.
      */
-    if ($action === 'save_users') {
-        $id    = trim((string) ($_POST['id'] ?? ''));
-        $email = mb_strtolower(trim($_POST['email'] ?? ''));
-        $first = trim($_POST['first_name'] ?? '');
-        $last  = trim($_POST['last_name'] ?? '');
-        $role  = (int) ($_POST['role_id'] ?? 0);
-        $pass  = (string) ($_POST['password'] ?? '');
+    if ($action === 'provision_account' || $action === 'save_users') {
+        $id       = trim((string) ($_POST['id'] ?? ''));
+        $emp_id   = (int)          ($_POST['employee_id'] ?? 0);
+        $email    = mb_strtolower(trim((string) ($_POST['email'] ?? '')));
+        $role     = (int)          ($_POST['role_id'] ?? 0);
+        $pass     = (string)       ($_POST['password'] ?? '');
 
-        // ---- validation ----------------------------------------------------
-        if ($first === '' || $last === '') {
-            lpc_fail('Le prénom et le nom sont obligatoires.');
-        }
+        // ---- shared validation --------------------------------------------
         if ($email === '') {
             lpc_fail("L'adresse email est obligatoire — c'est l'identifiant de connexion.");
         }
@@ -143,17 +147,16 @@ try {
             lpc_fail('Le rôle système est obligatoire.');
         }
 
-        // The credential must be unique. Checked explicitly so the user gets a
-        // sentence instead of the SQLSTATE 23000 the UNIQUE index would throw.
+        // Email uniqueness across all users, excluding self on update. Checked
+        // explicitly so the user reads a sentence rather than the raw
+        // SQLSTATE 23000 the UNIQUE index would throw.
         $dupe = $db->prepare("SELECT id FROM users WHERE LOWER(TRIM(email)) = ? AND id <> ? LIMIT 1");
         $dupe->execute([$email, $id === '' ? 0 : (int) $id]);
         if ($dupe->fetch()) {
             lpc_fail("Cette adresse email est déjà utilisée par un autre compte.");
         }
 
-        // A password is mandatory on create, optional on edit (blank = keep).
-        // When present it must satisfy the same policy the user is held to
-        // when they change it themselves.
+        // Password: mandatory on create, optional on edit (blank = keep).
         if ($id === '' && $pass === '') {
             lpc_fail('Un mot de passe initial est obligatoire.');
         }
@@ -163,37 +166,60 @@ try {
         }
 
         if ($id === '') {
-            // ---- CREATE ------------------------------------------------------
-            // The matricule is assigned here, never accepted from the request.
-            // lpc_next_employee_code() takes the numeric MAX rather than the
-            // last-inserted row, so it cannot collide after a deletion.
-            $emp_code = lpc_next_employee_code($db);
-            $hash     = lpc_password_hash($pass);
+            // ---- CREATE (provision a login for an existing employee) ------
+            if ($emp_id <= 0) {
+                lpc_fail("Sélectionnez d'abord un employé. Un compte ne peut être créé que pour un employé existant.");
+            }
 
-            $stmt = $db->prepare("
-                INSERT INTO users (employee_code, email, first_name, last_name, role_id, password_hash, status, password_changed_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'active', NOW())
+            // The employee must exist, be active, and not already have a
+            // linked login. These three checks are the whole reason this
+            // refactor exists — they replace the old "just INSERT and hope"
+            // shape that let anyone with .edit fabricate a login for a person
+            // who did not work here.
+            $emp = $db->prepare("
+                SELECT e.id, e.employee_code, e.first_name, e.last_name, e.is_active,
+                       (SELECT u.id FROM users u WHERE u.employee_id = e.id LIMIT 1) AS existing_user_id
+                  FROM employees e
+                 WHERE e.id = ?
+                 LIMIT 1
             ");
-            $stmt->execute([$emp_code, $email, $first, $last, $role, $hash]);
+            $emp->execute([$emp_id]);
+            $empRow = $emp->fetch(PDO::FETCH_ASSOC);
+            if (!$empRow) {
+                lpc_fail("Employé introuvable.");
+            }
+            if ((int) $empRow['is_active'] !== 1) {
+                lpc_fail("Cet employé est inactif — réactivez-le dans Données de Base avant de créer un compte.");
+            }
+            if ($empRow['existing_user_id']) {
+                lpc_fail("Cet employé a déjà un compte de connexion. Modifiez celui-ci au lieu d'en créer un nouveau.");
+            }
+
+            $hash = lpc_password_hash($pass);
+            $db->prepare("
+                INSERT INTO users (employee_id, email, role_id, password_hash, status, password_changed_at)
+                VALUES (?, ?, ?, ?, 'active', NOW())
+            ")->execute([$emp_id, $email, $role, $hash]);
             $newId = (int) $db->lastInsertId();
 
+            $label = "{$empRow['first_name']} {$empRow['last_name']} ({$empRow['employee_code']})";
             $db->prepare("
                 INSERT INTO audit_logs (user_id, action, table_name, record_id, new_value)
                 VALUES (?, 'INSERT', 'users', ?, ?)
-            ")->execute([$admin_id, $newId, "Created user {$emp_code} <{$email}> role_id={$role}"]);
+            ")->execute([$admin_id, $newId, "Provisioned login for {$label} <{$email}> role_id={$role}"]);
 
             echo json_encode([
                 'status'        => 'success',
-                'employee_code' => $emp_code,
-                'message'       => "Compte créé. {$first} {$last} se connecte avec {$email}.",
+                'employee_code' => $empRow['employee_code'],
+                'message'       => "Compte créé. {$label} se connecte avec {$email}.",
             ], JSON_UNESCAPED_UNICODE);
             exit;
         }
 
-        // ---- UPDATE ----------------------------------------------------------
+        // ---- UPDATE (existing login) --------------------------------------
         $uid = (int) $id;
 
-        // Self-lockout guards. An admin editing their own row cannot change
+        // Self-lockout guard: an admin editing their own row cannot change
         // their role (which could strip admin.settings.edit and leave nobody
         // able to grant it back). Deliberate demotions go through the RBAC tab.
         $isSelf = ($uid === (int) $admin_id);
@@ -210,9 +236,9 @@ try {
             $hash = lpc_password_hash($pass);
             $db->prepare("
                 UPDATE users
-                   SET email=?, first_name=?, last_name=?, role_id=?, password_hash=?, password_changed_at=NOW()
+                   SET email=?, role_id=?, password_hash=?, password_changed_at=NOW()
                  WHERE id=?
-            ")->execute([$email, $first, $last, $role, $hash, $uid]);
+            ")->execute([$email, $role, $hash, $uid]);
 
             // An admin-set password is a credential the account owner did not
             // choose and may not yet know. Every existing session for that user
@@ -221,8 +247,8 @@ try {
             // defeats the whole exercise.
             //
             // The admin's own session is spared when they are resetting
-            // themselves — being logged out by your own click is confusing, and
-            // you self-evidently know the new password.
+            // themselves — being logged out by your own click is confusing,
+            // and you self-evidently know the new password.
             if ($isSelf) {
                 $currentHash = !empty($_SESSION['session_token']) ? hash('sha256', $_SESSION['session_token']) : '';
                 $db->prepare("
@@ -238,12 +264,12 @@ try {
         } else {
             $db->prepare("
                 UPDATE users
-                   SET email=?, first_name=?, last_name=?, role_id=?
+                   SET email=?, role_id=?
                  WHERE id=?
-            ")->execute([$email, $first, $last, $role, $uid]);
+            ")->execute([$email, $role, $uid]);
         }
 
-        $what = $pass !== '' ? 'Updated user + password reset' : 'Updated user';
+        $what = $pass !== '' ? 'Updated login + password reset' : 'Updated login';
         $db->prepare("
             INSERT INTO audit_logs (user_id, action, table_name, record_id, new_value)
             VALUES (?, 'UPDATE', 'users', ?, ?)
@@ -255,6 +281,30 @@ try {
                 ? 'Compte mis à jour. Le nouveau mot de passe est actif et les sessions ouvertes ont été fermées.'
                 : 'Compte mis à jour.',
         ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    /**
+     * Employees who have NO linked login yet — powers the "+ Provisionner un
+     * compte" picker in modules/settings/index.php.
+     *
+     * Only ACTIVE employees are eligible: an inactive employee is either on
+     * garden leave or no longer with the company, and giving them a login
+     * from here would be the very bug this refactor eliminates. Reactivate
+     * them in Données de Base first.
+     */
+    if ($action === 'list_unlinked_employees') {
+        $rows = $db->query("
+            SELECT e.id, e.employee_code,
+                   CONCAT(e.first_name, ' ', e.last_name) AS full_name,
+                   e.job_title, e.department
+              FROM employees e
+             WHERE e.is_active = 1
+               AND NOT EXISTS (SELECT 1 FROM users u WHERE u.employee_id = e.id)
+             ORDER BY e.last_name, e.first_name
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        echo json_encode(['status' => 'success', 'employees' => $rows], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
@@ -491,22 +541,31 @@ try {
 
         // ==========================================
         // TAB 1: USERS & ACCOUNTS
+        // ------------------------------------------------------------------
+        // Sprint 15: name and matricule come from `employees` (the SSOT), not
+        // from the auth row. INNER JOIN because an unlinked users row is a
+        // schema bug post-109 (users.employee_id is NOT NULL + FK) — a LEFT
+        // JOIN here would hide any orphan instead of surfacing it. The list
+        // only shows people WITH a login by design; employees without a login
+        // live in Données de Base.
         // ==========================================
         case 'users':
             $body   = "
                 FROM users u
+                JOIN employees e ON e.id = u.employee_id
                 LEFT JOIN roles r ON u.role_id = r.id
             ";
             $params = [];
             if ($lpc_q !== '') {
                 [$body, $params] = Paginator::addWhere(
                     $body, $params, $lpc_q,
-                    ['u.employee_code', 'u.first_name', 'u.last_name', 'u.email', 'r.name']
+                    ['e.employee_code', 'e.first_name', 'e.last_name', 'u.email', 'r.name']
                 );
             }
             $body .= " ORDER BY u.created_at DESC";
             $page = Paginator::paginate($db, $body, $params,
-                "u.id, u.employee_code, u.first_name, u.last_name, u.email, u.status, r.name as role_name",
+                "u.id, u.employee_id, u.email, u.status, r.name AS role_name,
+                 e.employee_code, e.first_name, e.last_name",
                 null, null, "settings.read.users");
             $responseData['table']      = $page['data'];
             $responseData['pagination'] = [
@@ -588,20 +647,28 @@ try {
         // ==========================================
         case 'audits':
             // Sprint 5: audit_logs grows without bound — must be paginated.
+            // Sprint 15: actor name comes from `employees` via the users join,
+            // so an audit row keeps naming the right person after 112 drops
+            // users.first_name / last_name. LEFT JOIN on employees because
+            // historical audit rows may reference a users.id whose employee
+            // link is somehow missing (shouldn't happen post-109, but a NULL
+            // here is preferable to a hidden row).
             $body   = "
                 FROM audit_logs a
-                LEFT JOIN users u ON a.user_id = u.id
+                LEFT JOIN users u    ON a.user_id = u.id
+                LEFT JOIN employees e ON e.id = u.employee_id
             ";
             $params = [];
             if ($lpc_q !== '') {
                 [$body, $params] = Paginator::addWhere(
                     $body, $params, $lpc_q,
-                    ['a.action', 'a.table_name', 'u.first_name', 'u.last_name']
+                    ['a.action', 'a.table_name', 'e.first_name', 'e.last_name']
                 );
             }
             $body .= " ORDER BY a.created_at DESC";
             $page = Paginator::paginate($db, $body, $params,
-                "a.id, a.created_at, a.action, a.table_name, a.record_id, u.first_name, u.last_name",
+                "a.id, a.created_at, a.action, a.table_name, a.record_id,
+                 e.first_name, e.last_name",
                 null, null, "settings.read.audits");
             $responseData['table']      = $page['data'];
             $responseData['pagination'] = [

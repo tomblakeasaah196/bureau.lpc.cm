@@ -349,24 +349,53 @@ try {
             $response['meta']['schema_v2'] = $has_v2;
         }
         elseif ($module === 'employees') {
+            // SPRINT 15 — `employees` is the SSOT for a person the company
+            // employs (see docs/SPRINT15_EMPLOYEES_SSOT.md).
+            //
+            // Auth (`users`) is joined LEFT because not every employee has a
+            // login: a driver or warehouse hand can be a full employee and
+            // never sign in. The login is provisioned separately in
+            // Paramètres → Utilisateurs. From this tab, an existing login is
+            // shown for context, but it is not editable — the "Modifier"
+            // modal here writes ONLY to `employees`.
+            //
+            // Manager display comes from a self-join on `employees.manager_id`.
             $body = "
-                FROM users u
-                JOIN roles r ON u.role_id = r.id
-                LEFT JOIN employee_profiles ep ON u.id = ep.user_id
+                FROM employees e
+                LEFT JOIN users u             ON u.employee_id = e.id
+                LEFT JOIN roles r             ON r.id = u.role_id
+                LEFT JOIN employees m         ON m.id = e.manager_id
             ";
             $params = [];
             if ($lpc_q !== '') {
                 [$body, $params] = Paginator::addWhere(
                     $body, $params, $lpc_q,
-                    ['u.first_name', 'u.last_name', 'u.employee_code', 'u.email', 'r.name', 'ep.job_title']
+                    ['e.first_name', 'e.last_name', 'e.employee_code',
+                     'u.email', 'r.name', 'e.job_title', 'e.department']
                 );
             }
-            $body .= " ORDER BY u.id DESC";
+            $body .= " ORDER BY e.id DESC";
             $page = Paginator::paginate($db, $body, $params,
-                "u.id, u.employee_code, u.first_name, u.last_name,
-                 CONCAT(u.first_name, ' ', u.last_name) as full_name, u.email, u.status,
-                 r.name as role_name, r.id as role_id,
-                 ep.job_title, ep.phone, ep.base_salary, ep.avatar",
+                "e.id,
+                 e.employee_code, e.first_name, e.last_name,
+                 CONCAT(e.first_name, ' ', e.last_name) AS full_name,
+                 e.gender, e.date_of_birth,
+                 e.national_id_number, e.cnps_number,
+                 e.marital_status, e.dependents_count,
+                 e.personal_phone, e.home_address,
+                 e.emergency_contact_name, e.emergency_contact_phone,
+                 e.hire_date, e.termination_date, e.is_active,
+                 e.base_salary, e.housing_allowance, e.transport_allowance,
+                 e.other_allowances, e.tax_regime, e.seniority_years,
+                 e.bank_name, e.bank_account_number, e.mobile_money_number,
+                 e.avatar_path, e.id_card_scan_path, e.contract_pdf_path,
+                 e.job_title, e.department,
+                 e.manager_id, m.employee_code AS manager_code,
+                 CONCAT(m.first_name, ' ', m.last_name) AS manager_name,
+                 e.working_days, e.working_hours_start, e.working_hours_end,
+                 -- Linked login, if any. NULLs mean 'not provisioned'.
+                 u.id AS user_id, u.email, u.status AS user_status,
+                 r.name AS role_name, r.id AS role_id",
                 null, null, "mdm.read.employees");
             $response['data'] = $page['data'];
             $response['pagination'] = [
@@ -377,7 +406,19 @@ try {
                 'has_prev'    => $page['has_prev'],
                 'has_next'    => $page['has_next'],
             ];
-            $response['meta']['roles'] = $db->query("SELECT id, name FROM roles ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+
+            // Manager picker source — every active employee EXCEPT the one being
+            // edited (self can't manage self; that check also lives in the save
+            // path). Frontend filters "self" client-side when opening the edit
+            // modal since it knows which id is being edited.
+            $response['meta']['managers'] = $db->query("
+                SELECT id, employee_code,
+                       CONCAT(first_name, ' ', last_name) AS full_name,
+                       job_title
+                  FROM employees
+                 WHERE is_active = 1
+                 ORDER BY last_name, first_name
+            ")->fetchAll(PDO::FETCH_ASSOC);
         }
         elseif ($module === 'pricing') {
             // -----------------------------------------------------------------
@@ -750,11 +791,18 @@ try {
         }
 
         // (table, column, on-value, off-value) per allowed module.
+        //
+        // SPRINT 15 — 'employees' now targets employees.is_active (the payroll
+        // filter). If the employee has a linked login, users.status is
+        // cascaded a moment later — see the post-write block below. The two
+        // states are conceptually distinct (is_active = still working here;
+        // users.status = login enabled) but a departure from Données de Base
+        // MUST also lock the login, or an ex-employee keeps signing in.
+        //
         // NOTE: 'fleet' is intentionally absent — the guard above rejects it
-        // before this map is consulted. Leaving the row here would be a
-        // liability the next time someone removes the guard "temporarily".
+        // before this map is consulted.
         static $TOGGLE_MAP = [
-            'employees' => ['table' => 'users',     'col' => 'status',    'on' => 'active', 'off' => 'inactive'],
+            'employees' => ['table' => 'employees', 'col' => 'is_active', 'on' => 1,        'off' => 0],
             'products'  => ['table' => 'products',  'col' => 'is_active', 'on' => 1,        'off' => 0],
             'suppliers' => ['table' => 'suppliers', 'col' => 'is_active', 'on' => 1,        'off' => 0],
             'clients'   => ['table' => 'clients',   'col' => 'is_active', 'on' => 1,        'off' => 0],
@@ -777,17 +825,34 @@ try {
         $sql = sprintf("UPDATE `%s` SET `%s` = ? WHERE id = ?", $map['table'], $map['col']);
         $db->prepare($sql)->execute([$val, $id]);
 
-        // Only 'employees' toggles a login — products/suppliers/clients are
-        // routine catalog management, not access control.
+        // Only 'employees' has knock-on effects on the login and warrants a
+        // notification — products/suppliers/clients are routine catalog
+        // management, not access control.
         if ($module === 'employees') {
-            $nameQ = $db->prepare("SELECT CONCAT(first_name, ' ', last_name) FROM users WHERE id = ?");
+            // Cascade to the linked login, if one exists. Deactivating an
+            // employee in Données de Base MUST close the login — otherwise a
+            // departed employee keeps signing in. A reactivation reopens it
+            // symmetrically. Kills active sessions on deactivation so a
+            // logged-in ex-employee is booted immediately.
+            $db->prepare("UPDATE users SET status = ? WHERE employee_id = ?")
+               ->execute([$newFlag ? 'active' : 'inactive', $id]);
+            if (!$newFlag) {
+                $db->prepare("
+                    UPDATE user_sessions us
+                      JOIN users u ON u.id = us.user_id
+                       SET us.logout_time = NOW()
+                     WHERE u.employee_id = ? AND us.logout_time IS NULL
+                ")->execute([$id]);
+            }
+
+            $nameQ = $db->prepare("SELECT CONCAT(first_name, ' ', last_name) FROM employees WHERE id = ?");
             $nameQ->execute([$id]);
             $empName2 = (string) ($nameQ->fetchColumn() ?: "#$id");
             lpc_notify_permission(
                 $db,
                 'admin.users.toggle_status',
-                $newFlag ? 'Utilisateur réactivé' : 'Utilisateur désactivé',
-                ($_SESSION['user_name'] ?? 'Un opérateur') . ($newFlag ? " a réactivé " : " a désactivé ") . "le compte de $empName2.",
+                $newFlag ? 'Employé réactivé' : 'Employé désactivé',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . ($newFlag ? " a réactivé " : " a désactivé ") . "la fiche de $empName2 (et le compte de connexion s'il existe).",
                 '/modules/admin/master_data.php',
                 $newFlag ? 'info' : 'warning',
                 [(int) $_SESSION['user_id']]
@@ -1092,128 +1157,263 @@ try {
             }
         }
         elseif ($module === 'employees') {
-            // SPRINT 14 — email is the login credential, the matricule is
-            // system-assigned, and the admin sets the initial password.
-            if (empty($_POST['role_id'])) throw new MdmValidationException("Le Rôle Système est obligatoire.");
-            if (empty($_POST['first_name']) || empty($_POST['last_name'])) throw new MdmValidationException("Le Nom et Prénom sont obligatoires.");
-            if (empty($_POST['email'])) throw new MdmValidationException("L'adresse email est obligatoire — c'est l'identifiant de connexion.");
+            // SPRINT 15 — SSOT rewrite. This action writes ONLY to the
+            // `employees` table. It does NOT create a login account: role,
+            // email, and password no longer live on this form. Provisioning a
+            // login is a separate action in Paramètres → Utilisateurs which
+            // takes an existing employee_id.
+            //
+            // What this form collects (four categories, matching the operator's
+            // scope decision):
+            //   · Identity & HR basics (name, DOB, gender, IDs, marital status,
+            //     dependents, contact, emergency contact, hire date)
+            //   · Payroll & compensation (base salary, allowances, tax regime,
+            //     seniority, bank / mobile money)
+            //   · Documents (avatar, ID card scan, contract PDF)
+            //   · Org chart & work pattern (job title, department, manager,
+            //     working days, working hours)
+            //
+            // The old "email is the login credential" validation belongs to
+            // the provisioning flow now. Nothing here touches `users`.
 
-            $emp_email = mb_strtolower(trim((string) $_POST['email']));
-            if (!filter_var($emp_email, FILTER_VALIDATE_EMAIL)) {
-                throw new MdmValidationException("Adresse email invalide : « {$emp_email} ».");
-            }
-
-            // Unique, because it is now the credential. Checked here so the
-            // user reads a sentence rather than a UNIQUE-constraint violation.
-            $dupeStmt = $db->prepare("SELECT id FROM users WHERE LOWER(TRIM(email)) = ? AND id <> ? LIMIT 1");
-            $dupeStmt->execute([$emp_email, (int) ($id ?: 0)]);
-            if ($dupeStmt->fetch()) {
-                throw new MdmValidationException("Cette adresse email est déjà utilisée par un autre compte.");
-            }
-
-            // Password: required when creating, optional when editing.
-            $emp_password = (string) ($_POST['password'] ?? '');
-            if (!$id && $emp_password === '') {
-                throw new MdmValidationException("Un mot de passe initial est obligatoire.");
-            }
-            if ($emp_password !== '') {
-                $pwPolicy = lpc_password_check($emp_password);
-                if (!$pwPolicy['ok']) throw new MdmValidationException($pwPolicy['message']);
-            }
-            // 1. Handle avatar upload — hardened via Uploads::saveUploaded.
-            //    Writes under /uploads/avatars/YYYY/MM/ (protected by uploads/.htaccess).
             require_once __DIR__ . '/../../includes/classes/Uploads.php';
-            $avatar_path = null;
+
+            // ---- required identity fields --------------------------------------
+            $first = trim((string) ($_POST['first_name'] ?? ''));
+            $last  = trim((string) ($_POST['last_name']  ?? ''));
+            if ($first === '' || $last === '') {
+                throw new MdmValidationException("Le prénom et le nom sont obligatoires.");
+            }
+
+            // ---- payroll: base_salary is NOT NULL, so it must be typed ---------
+            $base_salary = (float) ($_POST['base_salary'] ?? 0);
+            if ($base_salary <= 0) {
+                throw new MdmValidationException("Le salaire de base est obligatoire (positif).");
+            }
+
+            // ---- normalise / whitelist ENUMs so a bad value can't smuggle in ---
+            $gender = (string) ($_POST['gender'] ?? 'unspecified');
+            if (!in_array($gender, ['male','female','other','unspecified'], true)) $gender = 'unspecified';
+            $marital = (string) ($_POST['marital_status'] ?? 'single');
+            if (!in_array($marital, ['single','married','divorced','widowed'], true)) $marital = 'single';
+            $tax_regime = (string) ($_POST['tax_regime'] ?? 'standard');
+            if (!in_array($tax_regime, ['standard','expatriate','exempt'], true)) $tax_regime = 'standard';
+
+            // ---- working_days is a SET; the front sends a CSV of tokens --------
+            //      Empty / bad values collapse to the office-week default rather
+            //      than empty (which is legal in MySQL but nonsense for a payroll
+            //      grid).
+            $VALID_DAYS = ['mon','tue','wed','thu','fri','sat','sun'];
+            $days_raw   = (string) ($_POST['working_days'] ?? 'mon,tue,wed,thu,fri');
+            $days_clean = array_values(array_intersect(
+                array_map('trim', explode(',', $days_raw)),
+                $VALID_DAYS
+            ));
+            if (!$days_clean) $days_clean = ['mon','tue','wed','thu','fri'];
+            $working_days = implode(',', $days_clean);
+
+            // ---- reporting-line sanity: no self-management ---------------------
+            $manager_id = $_POST['manager_id'] ?? null;
+            $manager_id = ($manager_id === '' || $manager_id === null) ? null : (int) $manager_id;
+            if ($id && $manager_id !== null && $manager_id === (int) $id) {
+                throw new MdmValidationException("Un employé ne peut pas être son propre responsable.");
+            }
+
+            // ---- optional dates -------------------------------------------------
+            $hire_date = trim((string) ($_POST['hire_date'] ?? ''));
+            if ($hire_date === '') $hire_date = null;
+            $dob = trim((string) ($_POST['date_of_birth'] ?? ''));
+            if ($dob === '') $dob = null;
+            $termination = trim((string) ($_POST['termination_date'] ?? ''));
+            if ($termination === '') $termination = null;
+
+            // ---- file uploads: avatar, ID card scan, contract PDF --------------
+            //      Uploads::saveUploaded already sniffs MIME, enforces size and
+            //      re-encodes images. Each slot is independent — a missing file
+            //      leaves that column unchanged on update, or NULL on create.
+            $avatar_path   = null;
+            $id_card_path  = null;
+            $contract_path = null;
+
             if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
                 try {
                     $up = Uploads::saveUploaded('avatar', 'avatars', [
                         'allowed_mime' => ['image/jpeg','image/png','image/webp'],
-                        'max_bytes'    => 2 * 1024 * 1024,   // 2 MiB
-                        'sanitize_img' => true,              // GD re-encode strips EXIF & payloads
+                        'max_bytes'    => 2 * 1024 * 1024,
+                        'sanitize_img' => true,
                     ]);
                     $avatar_path = $up['path'];
                 } catch (Throwable $e) {
                     throw new Exception('Avatar refusé : ' . $e->getMessage());
                 }
             }
+            if (isset($_FILES['id_card_scan']) && $_FILES['id_card_scan']['error'] === UPLOAD_ERR_OK) {
+                try {
+                    $up = Uploads::saveUploaded('id_card_scan', 'employees', [
+                        'allowed_mime' => ['image/jpeg','image/png','image/webp','application/pdf'],
+                        'max_bytes'    => 5 * 1024 * 1024,
+                    ]);
+                    $id_card_path = $up['path'];
+                } catch (Throwable $e) {
+                    throw new Exception("Pièce d'identité refusée : " . $e->getMessage());
+                }
+            }
+            if (isset($_FILES['contract_pdf']) && $_FILES['contract_pdf']['error'] === UPLOAD_ERR_OK) {
+                try {
+                    $up = Uploads::saveUploaded('contract_pdf', 'employees', [
+                        'allowed_mime' => ['application/pdf'],
+                        'max_bytes'    => 10 * 1024 * 1024,
+                    ]);
+                    $contract_path = $up['path'];
+                } catch (Throwable $e) {
+                    throw new Exception('Contrat refusé : ' . $e->getMessage());
+                }
+            }
+
+            // Common bind values used by both branches. Ordered so the two
+            // execute() lists stay readable and the column order matches
+            // the SQL below one-for-one.
+            $common = [
+                'first_name'              => $first,
+                'last_name'               => $last,
+                'gender'                  => $gender,
+                'date_of_birth'           => $dob,
+                'national_id_number'      => trim((string) ($_POST['national_id_number'] ?? '')) ?: null,
+                'cnps_number'             => trim((string) ($_POST['cnps_number'] ?? '')) ?: null,
+                'marital_status'          => $marital,
+                'dependents_count'        => (int) ($_POST['dependents_count'] ?? 0),
+                'personal_phone'          => trim((string) ($_POST['personal_phone'] ?? '')) ?: null,
+                'home_address'            => trim((string) ($_POST['home_address'] ?? '')) ?: null,
+                'emergency_contact_name'  => trim((string) ($_POST['emergency_contact_name'] ?? '')) ?: null,
+                'emergency_contact_phone' => trim((string) ($_POST['emergency_contact_phone'] ?? '')) ?: null,
+                'hire_date'               => $hire_date,
+                'termination_date'        => $termination,
+                'base_salary'             => $base_salary,
+                'housing_allowance'       => (float) ($_POST['housing_allowance']   ?? 0),
+                'transport_allowance'     => (float) ($_POST['transport_allowance'] ?? 0),
+                'other_allowances'        => (float) ($_POST['other_allowances']    ?? 0),
+                'tax_regime'              => $tax_regime,
+                'seniority_years'         => (int)   ($_POST['seniority_years']     ?? 0),
+                'bank_name'               => trim((string) ($_POST['bank_name'] ?? '')) ?: null,
+                'bank_account_number'     => trim((string) ($_POST['bank_account_number'] ?? '')) ?: null,
+                'mobile_money_number'     => trim((string) ($_POST['mobile_money_number'] ?? '')) ?: null,
+                'job_title'               => trim((string) ($_POST['job_title'] ?? '')) ?: null,
+                'department'              => trim((string) ($_POST['department'] ?? '')) ?: null,
+                'manager_id'              => $manager_id,
+                'working_days'            => $working_days,
+                'working_hours_start'     => trim((string) ($_POST['working_hours_start'] ?? '')) ?: null,
+                'working_hours_end'       => trim((string) ($_POST['working_hours_end'] ?? '')) ?: null,
+            ];
 
             $db->beginTransaction();
             try {
                 if ($id) {
-                    // Update IAM
-                    $stmt = $db->prepare("UPDATE users SET first_name=?, last_name=?, email=?, role_id=? WHERE id=?");
-                    $stmt->execute([$_POST['first_name'], $_POST['last_name'], $emp_email, $_POST['role_id'], $id]);
+                    // ---- UPDATE ------------------------------------------------
+                    // File columns are only overwritten when a new file arrived,
+                    // so an admin editing an existing employee without re-uploading
+                    // does not blank the paths they already have.
+                    $file_set  = '';
+                    $file_bind = [];
+                    if ($avatar_path !== null)   { $file_set .= ', avatar_path = ?';        $file_bind[] = $avatar_path; }
+                    if ($id_card_path !== null)  { $file_set .= ', id_card_scan_path = ?';  $file_bind[] = $id_card_path; }
+                    if ($contract_path !== null) { $file_set .= ', contract_pdf_path = ?';  $file_bind[] = $contract_path; }
 
-                    // An admin-set password takes effect at once and closes
-                    // that person's open sessions — see the same reasoning in
-                    // settings_controller.php's save_users.
-                    if ($emp_password !== '') {
-                        $db->prepare("UPDATE users SET password_hash=?, password_changed_at=NOW() WHERE id=?")
-                           ->execute([lpc_password_hash($emp_password), $id]);
-                        $db->prepare("UPDATE user_sessions SET logout_time=NOW() WHERE user_id=? AND logout_time IS NULL")
-                           ->execute([$id]);
-                    }
-                    // Update HR Profile
-                    if ($avatar_path) {
-                        $stmt = $db->prepare("UPDATE employee_profiles SET job_title=?, phone=?, base_salary=?, avatar=? WHERE user_id=?");
-                        $stmt->execute([$_POST['job_title'], $_POST['phone'], $_POST['base_salary'], $avatar_path, $id]);
-                        if ($id == $_SESSION['user_id']) { $_SESSION['avatar'] = $avatar_path; }
-                    } else {
-                        $stmt = $db->prepare("UPDATE employee_profiles SET job_title=?, phone=?, base_salary=? WHERE user_id=?");
-                        $stmt->execute([$_POST['job_title'], $_POST['phone'], $_POST['base_salary'], $id]);
+                    $sql = "UPDATE employees SET
+                                first_name = ?, last_name = ?, gender = ?,
+                                date_of_birth = ?, national_id_number = ?, cnps_number = ?,
+                                marital_status = ?, dependents_count = ?,
+                                personal_phone = ?, home_address = ?,
+                                emergency_contact_name = ?, emergency_contact_phone = ?,
+                                hire_date = ?, termination_date = ?,
+                                base_salary = ?, housing_allowance = ?, transport_allowance = ?,
+                                other_allowances = ?, tax_regime = ?, seniority_years = ?,
+                                bank_name = ?, bank_account_number = ?, mobile_money_number = ?,
+                                job_title = ?, department = ?, manager_id = ?,
+                                working_days = ?, working_hours_start = ?, working_hours_end = ?,
+                                updated_by = ?
+                                {$file_set}
+                            WHERE id = ?";
+                    $params = array_merge(
+                        array_values($common),
+                        [(int) $_SESSION['user_id']],
+                        $file_bind,
+                        [(int) $id]
+                    );
+                    $db->prepare($sql)->execute($params);
+
+                    // If the admin edited their OWN employee record and uploaded
+                    // a new avatar, refresh the session copy so the topbar picks
+                    // it up on the next page without a re-login.
+                    if ($avatar_path !== null) {
+                        $ownUid = (int) ($_SESSION['user_id'] ?? 0);
+                        if ($ownUid > 0) {
+                            $q = $db->prepare("SELECT employee_id FROM users WHERE id = ?");
+                            $q->execute([$ownUid]);
+                            if ((int) $q->fetchColumn() === (int) $id) {
+                                $_SESSION['avatar'] = $avatar_path;
+                            }
+                        }
                     }
                 } else {
-                    // New Employee.
-                    //
-                    // TWO BUGS FIXED HERE (Sprint 14):
-                    //
-                    // 1. The password was the hardcoded shared secret
-                    //    'LPC2026' — the same string for every employee ever
-                    //    created through this form, never rotated, and
-                    //    documented in the help article. The admin now sets it.
-                    //
-                    // 2. The matricule was computed correctly and then thrown
-                    //    away. The original read:
-                    //
-                    //        $emp_code = 'EMP-' . str_pad($num + 1, 3, '0', ...);
-                    //        $stmt = $db->prepare("INSERT INTO users ...");
-                    //        $emp_code = 'LPC-' . time();     // <- overwrote it
-                    //        $stmt->execute([..., $emp_code, ...]);
-                    //
-                    //    so every employee onboarded here carries a
-                    //    LPC-<unix timestamp>. Those rows are left alone by
-                    //    migration 105 (the numbers are on payslips already),
-                    //    but nothing new is minted that way.
-                    //
-                    // Allocation now lives in lpc_next_employee_code(), shared
-                    // with settings_controller.php, so the two onboarding
-                    // surfaces cannot disagree again.
+                    // ---- CREATE ------------------------------------------------
+                    // Matricule is system-assigned and never accepted from the
+                    // request — same rule as before, same function, still the
+                    // one place any EMP-### is minted.
                     $emp_code = lpc_next_employee_code($db);
-                    $emp_hash = lpc_password_hash($emp_password);
 
-                    $stmt = $db->prepare("INSERT INTO users (role_id, employee_code, first_name, last_name, email, password_hash, status, password_changed_at) VALUES (?, ?, ?, ?, ?, ?, 'active', NOW())");
-                    $stmt->execute([$_POST['role_id'], $emp_code, $_POST['first_name'], $_POST['last_name'], $emp_email, $emp_hash]);
-                    $new_user_id = $db->lastInsertId();
-                    
-                    $stmt = $db->prepare("INSERT INTO employee_profiles (user_id, job_title, phone, base_salary, hire_date, avatar) VALUES (?, ?, ?, ?, CURDATE(), ?)");
-                    $stmt->execute([$new_user_id, $_POST['job_title'], $_POST['phone'], $_POST['base_salary'], $avatar_path]);
-                }
-                $db->commit();
+                    $sql = "INSERT INTO employees (
+                                employee_code,
+                                first_name, last_name, gender,
+                                date_of_birth, national_id_number, cnps_number,
+                                marital_status, dependents_count,
+                                personal_phone, home_address,
+                                emergency_contact_name, emergency_contact_phone,
+                                hire_date, termination_date,
+                                base_salary, housing_allowance, transport_allowance,
+                                other_allowances, tax_regime, seniority_years,
+                                bank_name, bank_account_number, mobile_money_number,
+                                job_title, department, manager_id,
+                                working_days, working_hours_start, working_hours_end,
+                                avatar_path, id_card_scan_path, contract_pdf_path,
+                                is_active, created_by
+                            ) VALUES (?,
+                                ?, ?, ?,
+                                ?, ?, ?,
+                                ?, ?,
+                                ?, ?,
+                                ?, ?,
+                                ?, ?,
+                                ?, ?, ?,
+                                ?, ?, ?,
+                                ?, ?, ?,
+                                ?, ?, ?,
+                                ?, ?, ?,
+                                ?, ?, ?,
+                                1, ?
+                            )";
+                    $params = array_merge(
+                        [$emp_code],
+                        array_values($common),
+                        [$avatar_path, $id_card_path, $contract_path,
+                         (int) $_SESSION['user_id']]
+                    );
+                    $db->prepare($sql)->execute($params);
+                    $new_id = (int) $db->lastInsertId();
 
-                if (!$id) {
-                    // Targets admin.users.create — this whole controller is
-                    // already hardcoded admin-only (line 13), so this reaches
-                    // every OTHER admin, not the one who just did it.
+                    // Broadcast to every OTHER admin. Wording no longer promises
+                    // a login — that step is separate now and reaches its own
+                    // audience through settings_controller.provision_account.
                     lpc_notify_permission(
                         $db,
                         'admin.users.create',
-                        'Nouvel utilisateur créé',
-                        ($_SESSION['user_name'] ?? 'Un opérateur') . " a créé le compte de {$_POST['first_name']} {$_POST['last_name']} — connexion par {$emp_email}.",
+                        'Nouvel employé enregistré',
+                        ($_SESSION['user_name'] ?? 'Un opérateur') . " a ajouté la fiche employé de {$first} {$last} ({$emp_code}). Un compte de connexion peut être provisionné dans Paramètres → Utilisateurs.",
                         '/modules/admin/master_data.php',
                         'info',
                         [(int) $_SESSION['user_id']]
                     );
                 }
+                $db->commit();
             } catch (Exception $e) {
                 $db->rollBack(); throw $e;
             }

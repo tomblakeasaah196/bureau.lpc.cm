@@ -208,14 +208,20 @@
             tbody.innerHTML = '';
             
             globalData.contracts.forEach(c => {
-                // LPC.raw: static markup. This is the green/red status dot before
-                // each employee name; unwrapped, every row in the contracts table
-                // printed the literal `<span class="w-2 h-2 rounded-full ...">`
-                // ahead of the name.
+                // LPC.raw: static markup — green/red status dot before the name.
                 let activeBadge = LPC.raw(c.is_active == 1
                     ? `<span class="w-2 h-2 rounded-full bg-emerald-500 inline-block mr-2"></span>`
                     : `<span class="w-2 h-2 rounded-full bg-rose-500 inline-block mr-2"></span>`);
                 const totalAllow = Number(c.housing_allowance || 0) + Number(c.transport_allowance || 0);
+                // Sprint 15 — this table is a READ-ONLY MIRROR of `employees`
+                // (the SSOT). Base salary, allowances, CNPS number and all
+                // other HR fields are edited only in Données de Base → Employés.
+                // The "Modifier" button is replaced by "Voir la fiche", a
+                // deep-link to the Master Data Hub. openContractModal() and
+                // submitContract() are kept in this file for now (dead code)
+                // so a stale bundle across the deploy doesn't hit undefined
+                // on click; the server-side save_contract endpoint returns
+                // 410 Gone in any case (payroll_controller.php).
                 tbody.innerHTML += LPC.html`
                     <tr class="hover:bg-gray-50 border-b border-gray-100">
                         <td class="py-3 px-6 text-sm font-black text-gray-800">${activeBadge}${c.employee_name}</td>
@@ -224,14 +230,11 @@
                         <td class="py-3 px-6 text-right text-xs font-bold text-gray-400">${fmt(totalAllow)}</td>
                         <td class="py-3 px-6 text-center text-xs font-mono text-gray-500">${c.cnps_number || '-'}</td>
                         <td class="py-3 px-6 text-right">
-                            <button data-uid="${c.user_id}" onclick="openContractModal(this)"
-                                    data-base="${c.base_salary}" data-housing="${c.housing_allowance || 0}" data-transport="${c.transport_allowance || 0}"
-                                    data-cnps="${c.cnps_number || ''}" data-active="${c.is_active}" data-marital="${c.marital_status || 'single'}"
-                                    data-dependents="${c.dependents_count || 0}" data-regime="${c.tax_regime || 'standard'}"
-                                    data-name="${c.employee_name}"
-                                    class="text-pay-highlight hover:text-pay-dark bg-pay-highlight/10 px-3 py-1.5 rounded-lg text-xs font-bold border border-pay-highlight/20">
-                                <i class="fas fa-edit mr-1"></i> Modifier
-                            </button>
+                            <a href="/modules/admin/master_data.php"
+                               title="Ouvrir la fiche employé (Données de Base)"
+                               class="inline-flex items-center gap-1 text-gray-600 hover:text-lpc-dark bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg text-xs font-bold border border-gray-200">
+                                <i class="fas fa-external-link-alt"></i> Voir la fiche
+                            </a>
                         </td>
                     </tr>`;
             });

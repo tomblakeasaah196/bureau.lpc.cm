@@ -58,22 +58,28 @@
     const TABS = {
         users: {
             shape: 'table',
-            title: 'Utilisateurs Système',
+            title: 'Comptes de connexion',
             api: 'users',
             showActionBtn: true,
-            btnText: 'Nouvel Utilisateur',
+            // Sprint 15 · button verb changed. This tab no longer creates
+            // people — it provisions a LOGIN for a person who already exists
+            // in Données de Base → Employés & RH. Copy in the modal explains
+            // this; the button label sets the expectation before the click.
+            btnText: 'Provisionner un compte',
             kpis: [
                 { id: 'kpi1', label: 'Total Comptes',  icon: 'fa-users',      color: 'text-blue-600',  bg: 'bg-blue-50' },
                 { id: 'kpi2', label: 'Comptes Actifs', icon: 'fa-user-check', color: 'text-green-600', bg: 'bg-green-50' },
                 { id: 'kpi3', label: 'Verrouillés',    icon: 'fa-user-lock',  color: 'text-red-600',   bg: 'bg-red-50' }
             ],
             columns: [
-                // Sprint 14: labelled "Matricule" because it is no longer the
-                // thing you log in with — the email is. Kept in the grid
-                // because payroll and the audit trail refer to it.
-                { key: 'employee_code', label: 'Matricule', render: v => `<span class="font-bold text-gray-500">${esc(v || '—')}</span>` },
+                // Sprint 15 · matricule + name come from the JOINed employees
+                // row (settings_controller `SELECT ... e.employee_code, e.first_name, e.last_name`).
+                // The matricule links to Données de Base so an admin can jump
+                // straight to the fiche employé from an audit or unfamiliar name.
+                { key: 'employee_code', label: 'Matricule', render: v =>
+                    `<a href="/modules/admin/master_data.php" title="Ouvrir la fiche employé" class="font-bold text-gray-500 hover:text-lpc-dark hover:underline">${esc(v || '—')}</a>` },
                 { key: 'email',         label: 'Connexion', render: v => `<span class="text-gray-700">${esc(v || '—')}</span>` },
-                { key: 'first_name',    label: 'Identité', render: (v, row) => `<span class="font-black text-gray-900">${esc(v)} ${esc(row.last_name)}</span>` },
+                { key: 'first_name',    label: 'Identité', render: (v, row) => `<span class="font-black text-gray-900">${esc(v || '')} ${esc(row.last_name || '')}</span>` },
                 { key: 'role_name',     label: 'Rôle',     render: v => `<span class="px-2 py-1 bg-gray-100 text-gray-700 rounded text-[10px] uppercase font-bold tracking-wider border border-gray-200">${esc(v || 'NON ASSIGNÉ')}</span>` },
                 { key: 'status',        label: 'Accès',    render: v => v === 'active'
                     ? '<span class="text-green-500 text-xs font-bold"><i class="fas fa-check-circle mr-1"></i>Actif</span>'
@@ -1119,19 +1125,16 @@
         form.innerHTML = '';
         if (currentTab !== 'users') return;
 
-        $('modal-title').innerText = id ? 'Modifier Utilisateur' : 'Nouvel Utilisateur';
-        const user = id ? (moduleData.find(u => u.id == id) || {}) : {};
+        const isEdit = !!id;
+        $('modal-title').innerText = isEdit ? 'Modifier le compte' : 'Provisionner un compte';
+        const user = isEdit ? (moduleData.find(u => u.id == id) || {}) : {};
 
-        // Roles come from the RBAC API rather than the hardcoded 1-4 list the
-        // previous version shipped. That list silently broke as soon as anyone
-        // created a custom role — migration 029 already added a fifth ('sales'),
-        // so editing a sales user through this modal reassigned them to Admin.
+        // Roles come from the RBAC API rather than a hardcoded list. Custom
+        // roles created via the RBAC tab therefore appear here without a
+        // parallel edit — the source of truth is the same.
         if (!rolesCache) {
-            try {
-                rolesCache = await apiGet(`${RBAC_API}?action=list_roles`);
-            } catch (e) {
-                rolesCache = [];
-            }
+            try { rolesCache = await apiGet(`${RBAC_API}?action=list_roles`); }
+            catch (e) { rolesCache = []; }
         }
 
         const roleOpts = rolesCache.length
@@ -1141,49 +1144,107 @@
               }).join('')
             : '<option value="">— aucun rôle disponible —</option>';
 
-        // Sprint 14:
-        //   · Email is the LOGIN field and leads the form.
-        //   · The matricule is assigned by the server. On create it is not
-        //     shown at all (there is nothing to show yet); on edit it is
-        //     displayed disabled, for reference. It is never submitted —
-        //     save_users ignores the key entirely.
-        //   · The password help text says who to talk to, because there is no
-        //     self-service recovery on this installation.
-        const pwHelp = id
-            ? 'Laisser vide pour conserver le mot de passe actuel. Si vous en saisissez un, il remplace l\'ancien immédiatement et ferme les sessions ouvertes de cette personne.'
-            : 'Mot de passe initial. Communiquez-le à la personne par un canal séparé ; elle pourra le changer elle-même depuis « Changer mon mot de passe ».';
+        const pwHelp = isEdit
+            ? "Laisser vide pour conserver le mot de passe actuel. Si vous en saisissez un, il remplace l'ancien immédiatement et ferme les sessions ouvertes de cette personne."
+            : "Mot de passe initial. Communiquez-le à la personne par un canal séparé ; elle pourra le changer elle-même depuis « Changer mon mot de passe ».";
+
+        if (isEdit) {
+            // ---- EDIT ------------------------------------------------------
+            // The linked employee is already resolved; name and matricule are
+            // shown for context (non-editable — they live on the employees
+            // row and change in Données de Base). This form edits ONLY the
+            // login-side fields: email, role, password.
+            form.innerHTML = `
+                <input type="hidden" name="id" value="${esc(id)}">
+                <div class="md:col-span-2 p-3 rounded-xl bg-gray-50 border border-gray-200 text-[12px] text-gray-700">
+                    <strong>Employé lié :</strong>
+                    ${esc(user.first_name || '')} ${esc(user.last_name || '')}
+                    · <span class="font-mono">${esc(user.employee_code || '—')}</span>
+                    · <a href="/modules/admin/master_data.php" class="text-lpc-dark underline">voir la fiche</a>
+                </div>
+                <div class="md:col-span-2">
+                    <label class="lpc-field-label">Email (identifiant de connexion) *</label>
+                    <input type="email" name="email" value="${esc(user.email || '')}" required
+                           autocomplete="off" inputmode="email" autocapitalize="none" spellcheck="false"
+                           placeholder="prenom.nom@lpc.cm" class="lpc-input font-bold">
+                    <p class="lpc-field-help">C'est avec cette adresse que la personne se connecte. Elle doit être unique parmi les comptes.</p>
+                </div>
+                <div>
+                    <label class="lpc-field-label">Rôle Système *</label>
+                    <select name="role_id" required class="lpc-input font-bold">${roleOpts}</select>
+                    <p class="lpc-field-help">Les permissions de chaque rôle se règlent dans l'onglet Rôles (RBAC).</p>
+                </div>
+                <div>
+                    <label class="lpc-field-label">Mot de passe (laisser vide pour conserver)</label>
+                    <input type="password" name="password" autocomplete="new-password"
+                           placeholder="••••••••" class="lpc-input">
+                    <p class="lpc-field-help">${pwHelp}</p>
+                </div>`;
+            $('actionModal').classList.remove('hidden');
+            return;
+        }
+
+        // ---- CREATE (provision) --------------------------------------------
+        // The picker is populated from `list_unlinked_employees` — active
+        // employees who don't yet have a login. Fetch it now so the modal
+        // never opens with an empty picker.
+        let candidates = [];
+        try {
+            const res = await apiGet(`${API}?action=list_unlinked_employees`);
+            candidates = (res && res.employees) || [];
+        } catch (e) {
+            candidates = [];
+        }
+
+        if (!candidates.length) {
+            // Nothing to provision — either every active employee already has
+            // a login, or Données de Base is empty. Say so plainly instead of
+            // showing a picker with no options.
+            form.innerHTML = `
+                <div class="md:col-span-2 p-4 rounded-xl bg-amber-50 border border-amber-100 text-sm text-amber-800">
+                    <p class="font-bold mb-2">Aucun employé disponible.</p>
+                    <p>Tous les employés actifs ont déjà un compte de connexion. Pour ajouter une nouvelle personne, commencez par
+                    <a href="/modules/admin/master_data.php" class="underline font-bold">Données de Base → Employés & RH</a>.</p>
+                </div>`;
+            $('actionModal').classList.remove('hidden');
+            return;
+        }
+
+        const empOpts = candidates.map(e => {
+            const detail = e.job_title ? ` — ${esc(e.job_title)}` : '';
+            return `<option value="${e.id}" data-code="${esc(e.employee_code)}" data-name="${esc(e.full_name)}">${esc(e.full_name)} (${esc(e.employee_code)})${detail}</option>`;
+        }).join('');
 
         form.innerHTML = `
-            <input type="hidden" name="id" value="${esc(id || '')}">
-            <div>
+            <input type="hidden" name="id" value="">
+            <div class="md:col-span-2 p-3 rounded-xl bg-blue-50 border border-blue-100 text-[12px] text-blue-800">
+                Un compte ne peut être créé que pour un employé existant. Si la personne n'apparaît pas dans la liste,
+                ajoutez-la d'abord dans
+                <a href="/modules/admin/master_data.php" class="underline font-bold">Données de Base → Employés & RH</a>.
+            </div>
+            <div class="md:col-span-2">
+                <label class="lpc-field-label">Employé *</label>
+                <select name="employee_id" required class="lpc-input font-bold">
+                    <option value="">— Sélectionner un employé —</option>
+                    ${empOpts}
+                </select>
+                <p class="lpc-field-help">Seuls les employés actifs sans compte de connexion apparaissent ici.</p>
+            </div>
+            <div class="md:col-span-2">
                 <label class="lpc-field-label">Email (identifiant de connexion) *</label>
-                <input type="email" name="email" value="${esc(user.email || '')}" required
+                <input type="email" name="email" required
                        autocomplete="off" inputmode="email" autocapitalize="none" spellcheck="false"
                        placeholder="prenom.nom@lpc.cm" class="lpc-input font-bold">
                 <p class="lpc-field-help">C'est avec cette adresse que la personne se connecte. Elle doit être unique.</p>
             </div>
-            <div>
-                <label class="lpc-field-label">Prénom *</label>
-                <input type="text" name="first_name" value="${esc(user.first_name || '')}" required class="lpc-input">
-            </div>
-            <div>
-                <label class="lpc-field-label">Nom *</label>
-                <input type="text" name="last_name" value="${esc(user.last_name || '')}" required class="lpc-input">
-            </div>
-            ${id ? `
-            <div>
-                <label class="lpc-field-label">Matricule</label>
-                <input type="text" value="${esc(user.employee_code || '—')}" disabled class="lpc-input bg-gray-50 text-gray-500">
-                <p class="lpc-field-help">Attribué automatiquement par le système. Non modifiable.</p>
-            </div>` : ''}
             <div>
                 <label class="lpc-field-label">Rôle Système *</label>
                 <select name="role_id" required class="lpc-input font-bold">${roleOpts}</select>
                 <p class="lpc-field-help">Les permissions de chaque rôle se règlent dans l'onglet Rôles (RBAC).</p>
             </div>
             <div>
-                <label class="lpc-field-label">Mot de passe ${id ? '(laisser vide pour conserver)' : '*'}</label>
-                <input type="password" name="password" ${id ? '' : 'required'} autocomplete="new-password"
+                <label class="lpc-field-label">Mot de passe initial *</label>
+                <input type="password" name="password" required autocomplete="new-password"
                        placeholder="••••••••" class="lpc-input">
                 <p class="lpc-field-help">${pwHelp}</p>
             </div>`;
@@ -1197,12 +1258,15 @@
         const formElement = $('dynamic-form');
         if (!formElement.reportValidity()) return;
 
+        // Sprint 15 · action name is now `provision_account`. It handles
+        // both branches — CREATE (payload has employee_id) and UPDATE
+        // (payload has id). The old `save_users` alias still routes to the
+        // same handler server-side, so a stale bundle across the deploy
+        // still succeeds; new bundles use the correct verb.
+        const action = currentTab === 'users' ? 'provision_account' : `save_${currentTab}`;
+
         try {
-            // save_users now answers with a sentence naming the login address
-            // and, on create, the matricule it assigned. Showing it closes the
-            // loop for the admin, who otherwise has to reopen the row to find
-            // out what the system decided.
-            const res = await apiPost(`${API}?action=save_${currentTab}`, new FormData(formElement));
+            const res = await apiPost(`${API}?action=${action}`, new FormData(formElement));
             closeModal();
             fetchTabData();
             if (res && res.message) toast(res.message);

@@ -74,31 +74,25 @@ const mdmConfig = {
     },
     employees: {
         title: "Employés & RH", addBtn: "Nouvel Employé", api: "employees",
+        // Sprint 15 — this form is `custom: true` because it now spans four
+        // sections (identity, payroll, documents, org chart) with mixed field
+        // types the generic renderer wasn't built for. buildEmployeeForm()
+        // owns the layout end to end and is the only writer of an employee.
+        // Nothing here creates a login — provisioning happens in Paramètres.
+        custom: true,
         columns: [
-            { key: 'avatar', label: 'Profil', render: v => `<img alt="" src="${v || '/assets/img/default_avatar.png'}" class="w-10 h-10 rounded-full object-cover border border-gray-200">` },
+            { key: 'avatar_path', label: 'Profil', render: v => `<img alt="" src="${v || '/assets/img/default_avatar.png'}" class="w-10 h-10 rounded-full object-cover border border-gray-200">` },
             { key: 'employee_code', label: 'Matricule', render: v => `<span class="font-bold text-gray-500">${v || 'N/A'}</span>` },
-            // Sprint 14: the login identifier, so it belongs in the grid.
-            { key: 'email', label: 'Connexion', render: v => `<span class="text-sm text-gray-600">${v || '-'}</span>` },
+            // Linked login shown as context, non-editable from here. "-" for
+            // employees without a login — those are provisioned separately.
+            { key: 'email', label: 'Connexion', render: v => `<span class="text-sm text-gray-600">${v || '<span class="italic text-gray-400">non provisionnée</span>'}</span>` },
             { key: 'full_name', label: 'Nom & Prénom', render: v => `<span class="font-black text-gray-900">${v}</span>` },
-            { key: 'role_name', label: 'Rôle Système', render: v => `<span class="px-2 py-1 bg-blue-50 text-blue-600 rounded text-[10px] font-bold uppercase">${v}</span>` },
+            { key: 'role_name', label: 'Rôle Système', render: v => v ? `<span class="px-2 py-1 bg-blue-50 text-blue-600 rounded text-[10px] font-bold uppercase">${v}</span>` : '<span class="text-xs text-gray-400 italic">—</span>' },
             { key: 'job_title', label: 'Poste', render: v => `<span class="text-sm text-gray-600">${v || '-'}</span>` },
-            { key: 'status', label: 'Statut', render: v => v === 'active' ? '<span class="text-green-500 text-xs font-bold">Actif</span>' : '<span class="text-red-500 text-xs font-bold">Inactif</span>' }
-        ],
-        form: [
-            { name: 'first_name', label: 'Prénom', type: 'text', width: 'col-span-1' },
-            { name: 'last_name', label: 'Nom', type: 'text', width: 'col-span-1' },
-            { name: 'email', label: 'Email (identifiant de connexion)', type: 'email', width: 'col-span-1' },
-            // Sprint 14: the admin sets the initial password here. It used to
-            // be the hardcoded shared string 'LPC2026' for every single
-            // employee — see the comment in mdm_controller.php. `optional`
-            // means "not required when editing": blank keeps the current one.
-            { name: 'password', label: 'Mot de passe', type: 'password', width: 'col-span-1', optional: 'edit',
-              help: "À la création : obligatoire. En modification : laisser vide pour conserver le mot de passe actuel." },
-            { name: 'role_id', label: 'Rôle Système', type: 'dynamic_select', source: 'roles', width: 'col-span-1' },
-            { name: 'job_title', label: 'Poste (ex: Chauffeur)', type: 'text', width: 'col-span-1' },
-            { name: 'phone', label: 'Téléphone', type: 'text', width: 'col-span-1' },
-            { name: 'base_salary', label: 'Salaire de Base', type: 'number', width: 'col-span-1' },
-            { name: 'avatar', label: 'Photo de Profil', type: 'file', width: 'col-span-1' }
+            // Statut reflects employees.is_active (payroll active), NOT
+            // users.status. Toggling from Actions cascades to the linked
+            // login when one exists — see mdm_controller.php toggle_status.
+            { key: 'is_active', label: 'Statut', render: v => parseInt(v) === 1 ? '<span class="text-green-500 text-xs font-bold">Actif</span>' : '<span class="text-red-500 text-xs font-bold">Inactif</span>' }
         ]
     },
     suppliers: {
@@ -735,7 +729,15 @@ function openModal(id = null) {
     }
 
     if (mdmConfig[currentModule].custom) {
-        buildProductForm(form, existingData);
+        // Purpose-built renderers per module. Products has always been
+        // custom (its fields are conditional on the category); Sprint 15
+        // adds employees, whose four-section form does not fit the flat
+        // grid the generic renderer paints.
+        if (currentModule === 'employees') {
+            buildEmployeeForm(form, existingData);
+        } else {
+            buildProductForm(form, existingData);
+        }
         document.getElementById('mdmModal').classList.remove('hidden');
         return;
     }
@@ -901,6 +903,279 @@ function sectionHeader(title, hint) {
         ${LPC.raw(hint ? LPC.html`<p class="text-[11px] text-gray-400 mt-1.5">${hint}</p>` : '')}
     </div>`;
 }
+
+/**
+ * Sprint 15 — the employee form owns the SSOT for a person the company
+ * employs (see docs/SPRINT15_EMPLOYEES_SSOT.md). It intentionally does NOT
+ * collect email / role / password: those belong to the login account, which
+ * is provisioned separately from Paramètres → Utilisateurs against an
+ * existing employees row.
+ *
+ * Four sections, matching the operator's scope decision:
+ *   1. Identité & RH — who they are.
+ *   2. Paie & rémunération — what they're paid, how they're paid, and to
+ *      whom the CNPS reports.
+ *   3. Documents — avatar + ID card scan + contract PDF, and (later) an
+ *      unbounded attachments list backed by the employee_documents table.
+ *   4. Organisation & rythme — job title, department, manager, working
+ *      days/hours pattern.
+ *
+ * Layout: one modal, four collapsible fieldsets, all visible on open so
+ * an admin can scroll through and see everything the form asks for at a
+ * glance. The alternative (a wizard) would hide fields behind "next"
+ * buttons and make it harder to review before saving. This is a form
+ * meant to be filled once per person, not repeatedly.
+ */
+function buildEmployeeForm(form, d) {
+    const isEdit = !!d.id;
+
+    // Working days — SET column, sent as a CSV. Default for a new hire is
+    // the standard office week. Existing rows keep whatever they have.
+    const weekdays = [
+        { v: 'mon', l: 'Lun' }, { v: 'tue', l: 'Mar' }, { v: 'wed', l: 'Mer' },
+        { v: 'thu', l: 'Jeu' }, { v: 'fri', l: 'Ven' }, { v: 'sat', l: 'Sam' }, { v: 'sun', l: 'Dim' }
+    ];
+    const daysSet = new Set(String(d.working_days || 'mon,tue,wed,thu,fri').split(','));
+    const daysHTML = weekdays.map(day => LPC.html`
+        <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 hover:bg-white cursor-pointer">
+            <input type="checkbox" name="working_days[]" value="${day.v}" ${daysSet.has(day.v) ? 'checked' : ''} class="w-4 h-4 accent-lpc-dark">
+            <span class="text-xs font-bold text-gray-700">${day.l}</span>
+        </label>
+    `).join('');
+
+    // Manager picker — the meta.managers list contains every ACTIVE employee.
+    // Self is filtered out client-side so an admin can't accidentally set the
+    // employee as their own manager (the server also rejects this).
+    const managers = (metaData.managers || []).filter(m => String(m.id) !== String(d.id || ''));
+    const managerOpts = managers.map(m => LPC.html`
+        <option value="${m.id}" ${String(d.manager_id || '') === String(m.id) ? 'selected' : ''}>${m.full_name}${m.job_title ? ' — ' + m.job_title : ''}</option>
+    `).join('');
+
+    // Enum options mirror the ENUMs in migration 108.
+    const genderOpts = [
+        { v: 'unspecified', l: 'Non précisé' },
+        { v: 'male',        l: 'Masculin' },
+        { v: 'female',      l: 'Féminin' },
+        { v: 'other',       l: 'Autre' }
+    ].map(o => LPC.html`<option value="${o.v}" ${(d.gender || 'unspecified') === o.v ? 'selected' : ''}>${o.l}</option>`).join('');
+
+    const maritalOpts = [
+        { v: 'single',   l: 'Célibataire' },
+        { v: 'married',  l: 'Marié·e' },
+        { v: 'divorced', l: 'Divorcé·e' },
+        { v: 'widowed',  l: 'Veuf·ve' }
+    ].map(o => LPC.html`<option value="${o.v}" ${(d.marital_status || 'single') === o.v ? 'selected' : ''}>${o.l}</option>`).join('');
+
+    const taxOpts = [
+        { v: 'standard',   l: 'Standard' },
+        { v: 'expatriate', l: 'Expatrié·e' },
+        { v: 'exempt',     l: 'Exonéré·e' }
+    ].map(o => LPC.html`<option value="${o.v}" ${(d.tax_regime || 'standard') === o.v ? 'selected' : ''}>${o.l}</option>`).join('');
+
+    // ---------- Section 1 · Identité & RH -----------------------------------
+    form.innerHTML += LPC.html`
+        ${LPC.raw(sectionHeader('Identité & RH'))}
+
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Prénom *</label>
+            <input required type="text" id="f_first_name" name="first_name" value="${d.first_name || ''}" class="${INPUT_CLS}">
+        </div>
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Nom *</label>
+            <input required type="text" id="f_last_name" name="last_name" value="${d.last_name || ''}" class="${INPUT_CLS}">
+        </div>
+
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Genre</label>
+            <select id="f_gender" name="gender" class="${INPUT_CLS}">${LPC.raw(genderOpts)}</select>
+        </div>
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Date de naissance</label>
+            <input type="date" id="f_date_of_birth" name="date_of_birth" value="${d.date_of_birth || ''}" class="${INPUT_CLS}">
+        </div>
+
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">N° pièce d'identité</label>
+            <input type="text" id="f_national_id_number" name="national_id_number" value="${d.national_id_number || ''}" class="${INPUT_CLS}">
+        </div>
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">N° CNPS</label>
+            <input type="text" id="f_cnps_number" name="cnps_number" value="${d.cnps_number || ''}" class="${INPUT_CLS}">
+        </div>
+
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Situation familiale</label>
+            <select id="f_marital_status" name="marital_status" class="${INPUT_CLS}">${LPC.raw(maritalOpts)}</select>
+        </div>
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Nombre d'enfants à charge</label>
+            <input type="number" min="0" max="20" step="1" id="f_dependents_count" name="dependents_count" value="${d.dependents_count || 0}" class="${INPUT_CLS}">
+        </div>
+
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Téléphone personnel</label>
+            <input type="text" id="f_personal_phone" name="personal_phone" value="${d.personal_phone || ''}" class="${INPUT_CLS}">
+        </div>
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Date d'embauche</label>
+            <input type="date" id="f_hire_date" name="hire_date" value="${d.hire_date || ''}" class="${INPUT_CLS}">
+        </div>
+
+        <div class="col-span-2">
+            <label class="${LABEL_CLS}">Adresse (domicile)</label>
+            <input type="text" id="f_home_address" name="home_address" value="${d.home_address || ''}" class="${INPUT_CLS}">
+        </div>
+
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Contact d'urgence — Nom</label>
+            <input type="text" id="f_emergency_contact_name" name="emergency_contact_name" value="${d.emergency_contact_name || ''}" class="${INPUT_CLS}">
+        </div>
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Contact d'urgence — Téléphone</label>
+            <input type="text" id="f_emergency_contact_phone" name="emergency_contact_phone" value="${d.emergency_contact_phone || ''}" class="${INPUT_CLS}">
+        </div>
+    `;
+
+    // Termination date is only meaningful once an employee has been hired
+    // and left. Hide it on create (nothing to terminate); show on edit so
+    // an admin can record a departure date without leaving the tab.
+    if (isEdit) {
+        form.innerHTML += LPC.html`
+            <div class="col-span-1">
+                <label class="${LABEL_CLS}">Date de départ (si applicable)</label>
+                <input type="date" id="f_termination_date" name="termination_date" value="${d.termination_date || ''}" class="${INPUT_CLS}">
+            </div>
+            <div class="col-span-1"></div>
+        `;
+    }
+
+    // ---------- Section 2 · Paie & rémunération -----------------------------
+    form.innerHTML += LPC.html`
+        ${LPC.raw(sectionHeader('Paie & rémunération', 'Ces valeurs pilotent la génération de la paie (module RH & Paie).'))}
+
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Salaire de base (FCFA) *</label>
+            <input required type="number" min="1" step="1" id="f_base_salary" name="base_salary" value="${d.base_salary || ''}" class="${INPUT_CLS}">
+        </div>
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Régime fiscal</label>
+            <select id="f_tax_regime" name="tax_regime" class="${INPUT_CLS}">${LPC.raw(taxOpts)}</select>
+        </div>
+
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Indemnité logement (FCFA)</label>
+            <input type="number" min="0" step="1" id="f_housing_allowance" name="housing_allowance" value="${d.housing_allowance || 0}" class="${INPUT_CLS}">
+        </div>
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Indemnité transport (FCFA)</label>
+            <input type="number" min="0" step="1" id="f_transport_allowance" name="transport_allowance" value="${d.transport_allowance || 0}" class="${INPUT_CLS}">
+        </div>
+
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Autres indemnités (FCFA)</label>
+            <input type="number" min="0" step="1" id="f_other_allowances" name="other_allowances" value="${d.other_allowances || 0}" class="${INPUT_CLS}">
+        </div>
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Ancienneté (années)</label>
+            <input type="number" min="0" step="1" id="f_seniority_years" name="seniority_years" value="${d.seniority_years || 0}" class="${INPUT_CLS}">
+        </div>
+
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Banque (nom)</label>
+            <input type="text" id="f_bank_name" name="bank_name" value="${d.bank_name || ''}" class="${INPUT_CLS}">
+        </div>
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">N° compte bancaire</label>
+            <input type="text" id="f_bank_account_number" name="bank_account_number" value="${d.bank_account_number || ''}" class="${INPUT_CLS}">
+        </div>
+
+        <div class="col-span-2">
+            <label class="${LABEL_CLS}">Mobile Money (numéro)</label>
+            <input type="text" id="f_mobile_money_number" name="mobile_money_number" value="${d.mobile_money_number || ''}" class="${INPUT_CLS}">
+        </div>
+    `;
+
+    // ---------- Section 3 · Documents ---------------------------------------
+    form.innerHTML += LPC.html`
+        ${LPC.raw(sectionHeader('Documents', 'Chaque champ est indépendant : laisser vide conserve le fichier actuel.'))}
+
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Photo de profil (JPG/PNG)</label>
+            <input type="file" id="f_avatar" name="avatar" accept="image/jpeg,image/png,image/webp" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-sm">
+            ${LPC.raw(d.avatar_path ? LPC.html`<p class="text-[10px] text-gray-500 mt-1">Actuel : ${String(d.avatar_path).split('/').pop()}</p>` : '')}
+        </div>
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Pièce d'identité (JPG/PNG/PDF)</label>
+            <input type="file" id="f_id_card_scan" name="id_card_scan" accept="image/*,application/pdf" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-sm">
+            ${LPC.raw(d.id_card_scan_path ? LPC.html`<p class="text-[10px] text-gray-500 mt-1">Actuel : ${String(d.id_card_scan_path).split('/').pop()}</p>` : '')}
+        </div>
+        <div class="col-span-2">
+            <label class="${LABEL_CLS}">Contrat signé (PDF)</label>
+            <input type="file" id="f_contract_pdf" name="contract_pdf" accept="application/pdf" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-sm">
+            ${LPC.raw(d.contract_pdf_path ? LPC.html`<p class="text-[10px] text-gray-500 mt-1">Actuel : ${String(d.contract_pdf_path).split('/').pop()}</p>` : '')}
+        </div>
+    `;
+
+    // ---------- Section 4 · Organisation & rythme ---------------------------
+    // manager_id is optional; the empty option is "Aucun (rapport direct au
+    // DG)". Only shown if there are candidate managers loaded — nothing to
+    // pick from on a brand-new install.
+    form.innerHTML += LPC.html`
+        ${LPC.raw(sectionHeader('Organisation & rythme'))}
+
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Poste (intitulé)</label>
+            <input type="text" id="f_job_title" name="job_title" value="${d.job_title || ''}" class="${INPUT_CLS}">
+        </div>
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Département</label>
+            <input type="text" id="f_department" name="department" value="${d.department || ''}" class="${INPUT_CLS}">
+        </div>
+
+        <div class="col-span-2">
+            <label class="${LABEL_CLS}">Responsable hiérarchique</label>
+            <select id="f_manager_id" name="manager_id" class="${INPUT_CLS}">
+                <option value="">— Aucun (rapport direct au DG) —</option>
+                ${LPC.raw(managerOpts)}
+            </select>
+        </div>
+
+        <div class="col-span-2">
+            <label class="${LABEL_CLS}">Jours travaillés</label>
+            <div class="flex flex-wrap gap-2">${LPC.raw(daysHTML)}</div>
+        </div>
+
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Heure de début</label>
+            <input type="time" id="f_working_hours_start" name="working_hours_start" value="${d.working_hours_start || ''}" class="${INPUT_CLS}">
+        </div>
+        <div class="col-span-1">
+            <label class="${LABEL_CLS}">Heure de fin</label>
+            <input type="time" id="f_working_hours_end" name="working_hours_end" value="${d.working_hours_end || ''}" class="${INPUT_CLS}">
+        </div>
+    `;
+
+    // Footer note if the employee has a linked login: nudge the admin to
+    // Paramètres for role / email / password changes rather than looking
+    // for those fields here (they were here before Sprint 15).
+    if (d.user_id) {
+        form.innerHTML += LPC.html`
+            <div class="col-span-2 mt-2 p-3 rounded-xl bg-blue-50 border border-blue-100 text-[12px] text-blue-800">
+                <strong>Compte de connexion lié :</strong> ${d.email || '—'} · rôle ${d.role_name || '—'}.
+                Pour modifier le rôle, l'adresse email ou réinitialiser le mot de passe,
+                utilisez <a href="/modules/settings/index.php?tab=users" class="underline font-bold">Paramètres → Utilisateurs</a>.
+            </div>`;
+    } else {
+        form.innerHTML += LPC.html`
+            <div class="col-span-2 mt-2 p-3 rounded-xl bg-amber-50 border border-amber-100 text-[12px] text-amber-800">
+                <strong>Aucun compte de connexion.</strong>
+                Cet employé n'a pas d'accès à l'application. Vous pouvez lui en provisionner
+                un depuis <a href="/modules/settings/index.php?tab=users" class="underline font-bold">Paramètres → Utilisateurs</a>
+                après l'enregistrement.
+            </div>`;
+    }
+}
+
 
 function buildProductForm(form, d) {
     codeTouched = !!d.id;   // never silently rewrite an existing SKU
@@ -1356,6 +1631,19 @@ async function saveRecord() {
 
     // Initialize form data ONCE (after compression has swapped the file in).
     const formData = new FormData(formElement);
+
+    // Sprint 15 · working_days is a SET column on `employees`. The form
+    // renders it as a set of independent checkboxes named `working_days[]`,
+    // which FormData sends as multiple entries with that literal key. The
+    // server-side PHP does not treat `working_days[]` as an array (there is
+    // no bracket-parse on this endpoint), so collapse the checked values
+    // into a single CSV field named `working_days` before posting.
+    if (currentModule === 'employees') {
+        const checked = Array.from(formElement.querySelectorAll('input[name="working_days[]"]:checked'))
+                             .map(el => el.value);
+        formData.delete('working_days[]');
+        formData.set('working_days', checked.join(','));
+    }
 
     try {
         const response = await fetch(`/api/v1/mdm_controller.php?action=save&module=${mdmConfig[currentModule].api}`, {

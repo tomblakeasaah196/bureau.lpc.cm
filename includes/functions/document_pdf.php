@@ -366,12 +366,17 @@ function lpc_load_document(PDO $db, string $type, string $token): ?array
             return lpc_normalize_audit($r, $items->fetchAll(PDO::FETCH_ASSOC));
 
         case 'payslip':
+            // Sprint 15: employee name and contract fields come from
+            // `employees` (SSOT) via users.employee_id. hr_contracts is gone
+            // as a data source; the payslip PDF still keys on p.token so a
+            // reprint link minted before the refactor still resolves.
             $stmt = $db->prepare("
-                SELECT p.*, CONCAT(u.first_name,' ',u.last_name) AS employee_name,
-                       c.cnps_number, c.marital_status, c.dependents_count
+                SELECT p.*,
+                       CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+                       e.cnps_number, e.marital_status, e.dependents_count
                   FROM hr_payslips p
-                  JOIN users u ON u.id = p.user_id
-                  LEFT JOIN hr_contracts c ON c.user_id = u.id
+                  JOIN users     u ON u.id = p.user_id
+                  LEFT JOIN employees e ON e.id = u.employee_id
                  WHERE p.token = ? LIMIT 1
             ");
             $stmt->execute([$token]);

@@ -501,7 +501,7 @@
                 from_id:   document.getElementById('tf_from').value,
                 to_id:     document.getElementById('tf_to').value,
                 amount:    parseFloat(document.getElementById('tf_amount').value) || 0,
-                reference: document.getElementById('tf_note')?.value || '',
+                reference: document.getElementById('tf_ref')?.value?.trim() || '',
             };
             if (!payload.from_id || !payload.to_id) return LPC.modal.alert("Compte source et destination obligatoires.");
             if (payload.from_id === payload.to_id)   return LPC.modal.alert("La source et la destination doivent être différentes.");
@@ -509,7 +509,9 @@
             const r = await treasuryPost(payload, 'wallets');
             if (r) {
                 LPC.modal.alert("Virement enregistré.");
-                closeModal('modal-transfer');
+                // Inline form on the "Opérations & Transferts" tab — no modal
+                // to close. Reset clears the amount + motif so the operator
+                // doesn't re-submit the same virement by accident.
                 document.getElementById('form-transfer')?.reset();
             }
         }

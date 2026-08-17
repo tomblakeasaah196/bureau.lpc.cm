@@ -105,34 +105,46 @@ try {
     // READ actions
     // -------------------------------------------------------------------------
     if ($action === 'list_contracts') {
+        // Sprint 15: `employees` is the SSOT for contract fields. The users
+        // join stays LEFT because payroll continues to key by users.id for
+        // now (hr_payslips.user_id FK) — an employee with no login therefore
+        // appears here as user_id NULL and the payroll grid skips them until
+        // a login is provisioned. Migrating hr_payslips / hr_advances to
+        // employee_id is scheduled for a follow-up sprint.
         $rows = $db->query("
-            SELECT u.id AS user_id,
-                   CONCAT(u.first_name,' ',u.last_name) AS employee_name,
-                   r.name AS role_name,
-                   COALESCE(c.base_salary, 0)         AS base_salary,
-                   COALESCE(c.housing_allowance, 0)   AS housing_allowance,
-                   COALESCE(c.transport_allowance, 0) AS transport_allowance,
-                   c.cnps_number,
-                   COALESCE(c.dependents_count, 0)    AS dependents_count,
-                   COALESCE(c.marital_status, 'single') AS marital_status,
-                   COALESCE(c.tax_regime, 'standard') AS tax_regime,
-                   COALESCE(c.seniority_years, 0)     AS seniority_years,
-                   COALESCE(c.is_active, 0)           AS is_active
-              FROM users u
-              JOIN roles r ON u.role_id = r.id
-              LEFT JOIN hr_contracts c ON c.user_id = u.id
-             WHERE u.status = 'active'
-             ORDER BY u.first_name ASC
+            SELECT u.id       AS user_id,
+                   e.id       AS employee_id,
+                   e.employee_code,
+                   CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+                   r.name     AS role_name,
+                   e.base_salary,
+                   e.housing_allowance,
+                   e.transport_allowance,
+                   e.cnps_number,
+                   e.dependents_count,
+                   e.marital_status,
+                   e.tax_regime,
+                   e.seniority_years,
+                   e.is_active
+              FROM employees e
+              LEFT JOIN users u ON u.employee_id = e.id
+              LEFT JOIN roles r ON r.id = u.role_id
+             WHERE e.is_active = 1
+             ORDER BY e.first_name ASC
         ")->fetchAll(PDO::FETCH_ASSOC);
         sendJson('success', '', ['contracts' => $rows]);
     }
 
     if ($action === 'list_advances') {
+        // Sprint 15: employee_name comes from `employees` via the users join.
+        // hr_advances.user_id still keys by the login row for now.
         $rows = $db->query("
-            SELECT a.*, CONCAT(u.first_name,' ',u.last_name) AS employee_name,
+            SELECT a.*,
+                   CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
                    DATE_FORMAT(a.request_date, '%d/%m/%Y') AS request_date_fr
               FROM hr_advances a
-              JOIN users u ON u.id = a.user_id
+              JOIN users     u ON u.id = a.user_id
+              LEFT JOIN employees e ON e.id = u.employee_id
              ORDER BY a.id DESC LIMIT 200
         ")->fetchAll(PDO::FETCH_ASSOC);
         sendJson('success', '', ['advances' => $rows]);
@@ -146,16 +158,21 @@ try {
         [$y, $m] = explode('-', $period);
         $y = (int) $y; $m = (int) $m;
 
+        // Sprint 15: read from `employees` (SSOT). Only employees with a
+        // linked login appear in the grid, because hr_payslips still keys by
+        // user_id. When payslips migrate to employee_id, this JOIN becomes
+        // LEFT and unpaid non-login employees start showing up.
         $emps = $db->query("
-            SELECT c.user_id, c.base_salary, c.housing_allowance, c.transport_allowance,
-                   c.dependents_count, c.marital_status, c.tax_regime, c.seniority_years,
-                   CONCAT(u.first_name,' ',u.last_name) AS employee_name,
+            SELECT u.id AS user_id,
+                   e.base_salary, e.housing_allowance, e.transport_allowance,
+                   e.dependents_count, e.marital_status, e.tax_regime, e.seniority_years,
+                   CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
                    r.name AS role_name
-              FROM hr_contracts c
-              JOIN users u ON u.id = c.user_id
+              FROM employees e
+              JOIN users u ON u.employee_id = e.id
               JOIN roles r ON r.id = u.role_id
-             WHERE c.is_active = 1
-             ORDER BY u.first_name ASC
+             WHERE e.is_active = 1
+             ORDER BY e.first_name ASC
         ")->fetchAll(PDO::FETCH_ASSOC);
 
         $stmt_paid = $db->prepare("
@@ -202,11 +219,14 @@ try {
         $period = (string) ($_GET['period'] ?? '');
         if (!preg_match('/^\d{4}-\d{2}$/', $period)) throw new Exception("Période invalide.");
         [$y, $m] = array_map('intval', explode('-', $period));
+        // Sprint 15: employee_name via employees join.
         $stmt = $db->prepare("
-            SELECT p.*, CONCAT(u.first_name,' ',u.last_name) AS employee_name
-              FROM hr_payslips p JOIN users u ON u.id = p.user_id
+            SELECT p.*, CONCAT(e.first_name, ' ', e.last_name) AS employee_name
+              FROM hr_payslips p
+              JOIN users     u ON u.id = p.user_id
+              LEFT JOIN employees e ON e.id = u.employee_id
              WHERE p.month = ? AND p.year = ?
-             ORDER BY u.first_name ASC
+             ORDER BY e.first_name ASC
         ");
         $stmt->execute([$m, $y]);
         sendJson('success', '', ['payslips' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
@@ -257,15 +277,17 @@ try {
         $where = "p.month = ? AND p.year = ? AND p.status = 'paid'";
         if ($has_col) $where .= " AND p.payment_je_id IS NULL";
 
+        // Sprint 15: employee_name via employees join.
         $stmt = $db->prepare("
             SELECT p.id, p.user_id, p.net_pay, p.payment_method,
-                   CONCAT(u.first_name,' ',u.last_name) AS employee_name,
+                   CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
                    r.name AS role_name
               FROM hr_payslips p
-              JOIN users u ON u.id = p.user_id
-              JOIN roles r ON r.id = u.role_id
+              JOIN users     u ON u.id = p.user_id
+              JOIN roles     r ON r.id = u.role_id
+              LEFT JOIN employees e ON e.id = u.employee_id
              WHERE {$where}
-             ORDER BY p.payment_method, u.last_name, u.first_name
+             ORDER BY p.payment_method, e.last_name, e.first_name
         ");
         $stmt->execute([$m, $y]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -366,16 +388,20 @@ try {
         [$y, $m] = array_map('intval', explode('-', $period));
         $month = new DateTimeImmutable(sprintf('%04d-%02d-01', $y, $m));
 
-        // 1. Identity + contract
+        // 1. Identity + contract — Sprint 15: employees is the SSOT.
+        // Payroll still keys by users.id, so the query anchors on users and
+        // JOINs employees. is_active reads from employees (payroll filter),
+        // not from users.status (login lock) — the two are distinct.
         $stmt = $db->prepare("
-            SELECT u.id AS user_id, u.first_name, u.last_name, u.email, u.status AS user_status,
-                   r.name AS role_name,
-                   c.base_salary, c.housing_allowance, c.transport_allowance,
-                   c.cnps_number, c.marital_status, c.dependents_count,
-                   c.seniority_years, c.tax_regime, c.hire_date, c.is_active
+            SELECT u.id AS user_id, u.email, u.status AS user_status,
+                   e.first_name, e.last_name, e.employee_code,
+                   e.base_salary, e.housing_allowance, e.transport_allowance,
+                   e.cnps_number, e.marital_status, e.dependents_count,
+                   e.seniority_years, e.tax_regime, e.hire_date, e.is_active,
+                   r.name AS role_name
               FROM users u
-              JOIN roles r ON r.id = u.role_id
-              LEFT JOIN hr_contracts c ON c.user_id = u.id
+              JOIN roles     r ON r.id = u.role_id
+              LEFT JOIN employees e ON e.id = u.employee_id
              WHERE u.id = ?
              LIMIT 1
         ");
@@ -385,7 +411,8 @@ try {
 
         $identity = [
             'user_id'         => (int) $row['user_id'],
-            'employee_name'   => trim($row['first_name'] . ' ' . $row['last_name']),
+            'employee_code'   => $row['employee_code'],
+            'employee_name'   => trim(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? '')),
             'email'           => $row['email'],
             'user_status'     => $row['user_status'],
             'role_name'       => $row['role_name'],
@@ -540,20 +567,27 @@ try {
     // PREVIEW — no writes, live breakdown for the UI
     // -------------------------------------------------------------------------
     if ($action === 'preview') {
-        $contract_id = (int) ($payload['contract_id'] ?? 0);
-        $user_id_p   = (int) ($payload['user_id']     ?? 0);
+        // Sprint 15: `contract_id` no longer exists as a separate row —
+        // employee IS the contract. Kept as a POST param name for
+        // backward-compat with any cached client bundle: if present, it is
+        // treated as a users.id (which was the old semantic in every caller).
+        $user_id_p   = (int) ($payload['user_id']     ?? $payload['contract_id'] ?? 0);
         $period      = (string) ($payload['period']   ?? '');
         if (!preg_match('/^\d{4}-\d{2}$/', $period)) throw new Exception("Période invalide.");
+        if ($user_id_p <= 0) throw new Exception("Utilisateur invalide.");
 
-        if ($contract_id > 0) {
-            $stmt = $db->prepare("SELECT * FROM hr_contracts WHERE id = ?");
-            $stmt->execute([$contract_id]);
-        } else {
-            $stmt = $db->prepare("SELECT * FROM hr_contracts WHERE user_id = ? AND is_active = 1 LIMIT 1");
-            $stmt->execute([$user_id_p]);
-        }
+        $stmt = $db->prepare("
+            SELECT e.base_salary, e.housing_allowance, e.transport_allowance,
+                   e.tax_regime, e.seniority_years, e.marital_status,
+                   e.dependents_count, e.cnps_number, e.is_active
+              FROM employees e
+              JOIN users u ON u.employee_id = e.id
+             WHERE u.id = ? AND e.is_active = 1
+             LIMIT 1
+        ");
+        $stmt->execute([$user_id_p]);
         $contract = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$contract) throw new Exception("Contrat introuvable.");
+        if (!$contract) throw new Exception("Employé actif introuvable.");
 
         [$y, $m] = array_map('intval', explode('-', $period));
         $month = new DateTimeImmutable(sprintf('%04d-%02d-01', $y, $m));
@@ -573,39 +607,18 @@ try {
     // -------------------------------------------------------------------------
     // WRITE actions
     // -------------------------------------------------------------------------
+    // Sprint 15 · save_contract removed.
+    // Contract fields (base_salary, allowances, CNPS, marital status,
+    // dependents, tax regime, seniority) now live on `employees` and are
+    // edited only in Données de Base → Employés & RH. This endpoint returns
+    // a plain 410 explaining where the write moved to, so any cached client
+    // bundle stops trying to write here rather than silently failing.
     if ($action === 'save_contract') {
-        $uid   = (int)   ($payload['user_id']            ?? 0);
-        $base  = (float) ($payload['base_salary']        ?? 0);
-        $hous  = (float) ($payload['housing_allowance']  ?? 0);
-        $trans = (float) ($payload['transport_allowance']?? 0);
-        $cnps  = trim((string) ($payload['cnps_number']  ?? ''));
-        $mar   = (string)($payload['marital_status']     ?? 'single');
-        $dep   = (int)   ($payload['dependents_count']   ?? 0);
-        $sen   = (int)   ($payload['seniority_years']    ?? 0);
-        $reg   = (string)($payload['tax_regime']         ?? 'standard');
-        $active = (int)  ($payload['is_active']          ?? 1);
-
-        if ($uid <= 0) throw new Exception("Utilisateur invalide.");
-
-        $stmt = $db->prepare("
-            INSERT INTO hr_contracts
-                (user_id, base_salary, housing_allowance, transport_allowance,
-                 cnps_number, marital_status, dependents_count, seniority_years,
-                 tax_regime, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE
-                base_salary=VALUES(base_salary),
-                housing_allowance=VALUES(housing_allowance),
-                transport_allowance=VALUES(transport_allowance),
-                cnps_number=VALUES(cnps_number),
-                marital_status=VALUES(marital_status),
-                dependents_count=VALUES(dependents_count),
-                seniority_years=VALUES(seniority_years),
-                tax_regime=VALUES(tax_regime),
-                is_active=VALUES(is_active)
-        ");
-        $stmt->execute([$uid, $base, $hous, $trans, $cnps, $mar, $dep, $sen, $reg, $active]);
-        sendJson('success', 'Contrat enregistré.');
+        http_response_code(410);
+        sendJson('error',
+            "Cette action a été déplacée. Les champs du contrat (salaire, indemnités, CNPS, ...) se modifient dans Données de Base → Employés & RH.",
+            ['moved_to' => '/modules/admin/master_data.php?module=employees']);
+        exit;
     }
 
     if ($action === 'request_advance') {
@@ -615,7 +628,13 @@ try {
         $stmt = $db->prepare("INSERT INTO hr_advances (user_id, amount, request_date, status) VALUES (?, ?, CURRENT_DATE(), 'pending')");
         $stmt->execute([$uid, $amt]);
 
-        $empName = $db->prepare("SELECT CONCAT(first_name, ' ', last_name) FROM users WHERE id = ?");
+        // Sprint 15: employee name via employees join.
+        $empName = $db->prepare("
+            SELECT CONCAT(e.first_name, ' ', e.last_name)
+              FROM users u
+              LEFT JOIN employees e ON e.id = u.employee_id
+             WHERE u.id = ?
+        ");
         $empName->execute([$uid]);
         lpc_notify_permission(
             $db,
@@ -764,7 +783,17 @@ try {
             $uid = (int) ($emp['user_id'] ?? 0);
             if ($uid <= 0) continue;
 
-            $stmt = $db->prepare("SELECT * FROM hr_contracts WHERE user_id = ? AND is_active = 1");
+            // Sprint 15: contract fields from `employees` via users.employee_id.
+            // No hr_contracts row → no compute (employee not on payroll).
+            $stmt = $db->prepare("
+                SELECT e.base_salary, e.housing_allowance, e.transport_allowance,
+                       e.tax_regime, e.seniority_years, e.marital_status,
+                       e.dependents_count, e.cnps_number, e.is_active
+                  FROM employees e
+                  JOIN users u ON u.employee_id = e.id
+                 WHERE u.id = ? AND e.is_active = 1
+                 LIMIT 1
+            ");
             $stmt->execute([$uid]);
             $contract = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$contract) continue;
@@ -801,7 +830,7 @@ try {
 
             // Post the per-employee balanced JE via post_journal_entry.
             $ref  = "PAIE-{$y}-{$m}-{$uid}";
-            $desc = "Paie {$m}/{$y} - " . $contract['user_id'];
+            $desc = "Paie {$m}/{$y} - #" . $uid;
             $db->prepare("
                 INSERT INTO journal_entries (reference, journal_code, date, description, status, created_by)
                 VALUES (?, 'OD', ?, ?, 'draft', ?)
