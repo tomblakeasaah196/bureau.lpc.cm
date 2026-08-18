@@ -261,7 +261,14 @@ if (empty($token)) {
         'docType'         => 'cre',
         'csrf'            => Csrf::token(),
         'csrfField'       => '_csrf',
-        'successRedirect' => '/print_cre.php?token=' . $token,
+        // Second receipt button — commented out, not deleted. This used to
+        // add a "Télécharger le reçu PDF" button that just opened print_cre.php
+        // without downloading anything, next to "Télécharger le document
+        // signé" which does the actual html2canvas/jsPDF autodownload. Two
+        // buttons that behaved differently was confusing (client-facing
+        // request: exactly one button, and it must autodownload). To restore
+        // the second button, uncomment the line below.
+        // 'successRedirect' => '/print_cre.php?token=' . $token,
         'signedDocumentUrl' => '/print_cre.php?token=' . $token . '&autodownload=1',
     ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
 <script src="<?= lpc_asset('/assets/js/modules/signature-universal.js') ?>" defer></script>

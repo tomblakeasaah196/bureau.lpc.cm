@@ -20,9 +20,10 @@
         function downloadPDF() {
             const element = document.getElementById('cre-document');
             const reference = window.PAGE_DATA.v1;
-            
+            const btn = document.querySelector('.print-btn');
+
             // Hide the print button
-            document.querySelector('.print-btn').style.display = 'none';
+            if (btn) btn.style.display = 'none';
 
             const opt = {
                 margin:       0,
@@ -32,9 +33,19 @@
                 jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
             };
 
-            html2pdf().set(opt).from(element).save().then(() => {
-                // Show the button again
-                document.querySelector('.print-btn').style.display = 'flex';
+            // Sprint: return the promise and always restore the button — a
+            // previous version had no .catch(), so a failed capture (slow
+            // fonts/logo, tainted canvas, etc.) left the print button hidden
+            // forever with no visible sign anything went wrong. That mattered
+            // more once the only button on the signing success screen became
+            // "Télécharger le document signé" (?autodownload=1): if the
+            // automatic capture silently fails, the print button reappearing
+            // is the client's only way to retry, so it must always come back.
+            return html2pdf().set(opt).from(element).save().then(() => {
+                if (btn) btn.style.display = 'flex';
+            }).catch((err) => {
+                console.error('[print_cre] échec de la génération PDF :', err);
+                if (btn) btn.style.display = 'flex';
             });
         }
 
@@ -44,8 +55,9 @@
         // (?autodownload=1) skips the extra tap and gets the PDF right away.
         // downloadPDF() uses html2pdf, not the html2canvas+jsPDF pairing the
         // other viewers use — kept as-is, just triggered automatically here.
-        // Fires once; failures surface however html2pdf() normally reports
-        // them, and the client can retry from the print button in this tab.
+        // Fires once; downloadPDF() now always restores the print button (see
+        // its own .catch()), so a failed automatic attempt still leaves the
+        // client a visible, working button to retry from in this same tab.
         // ---------------------------------------------------------------------
         let __autodownloadFired = false;
         function maybeAutodownload() {
