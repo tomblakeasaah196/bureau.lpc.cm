@@ -245,22 +245,27 @@ switch ($action) {
             sig_fail("Vous n'avez pas la permission de signer ce document.", 403, 'forbidden');
         }
 
-        // Sprint 12 (BL-2608-CB78 diagnosis fix) — sign_internal historically
-        // wrote only the document_signatures row and returned. That was fine
-        // for doc types whose side-effects layer is a no-op (quote, invoice,
-        // po, payslip, contract — see lpc_signature_side_effects_dispatch).
-        // For BL and CRE it silently broke business state: an operator who
-        // signed a BL from inside the ERP (the "Signer côté LPC" button)
-        // captured a signature but the delivery never flipped to completed,
-        // the empties ledger was never booked, and returned empties never
-        // restocked. We now run side effects too — but ONLY if the doc's
-        // business state is still in the trigger window. If the customer
-        // has already signed externally (BL: status=completed, CRE:
-        // status=signed) the ledger/state was already updated and running
-        // side effects again would throw "déjà traité" and abort the
-        // internal signature. State check keeps the internal button useful
-        // as either a "pre-attestation" (before the customer signs) or an
-        // "after-the-fact attestation" (after they signed).
+        // Sprint 12 (BL-2608-CB78 diagnosis fix) originally made sign_internal
+        // run the BL side effects too, flipping deliveries.status to
+        // 'completed' the moment an operator tapped "Signer côté LPC". That
+        // was a regression: an internal signature is an ATTESTATION, not the
+        // customer's receipt confirmation. Closing the BL from the internal
+        // button meant that, the instant LPC signed first, the "Faire Signer"
+        // share dropdown disappeared (bon_livraison.js hides it when
+        // signatures.status === 'completed') AND sign_bl.php refused the
+        // customer's link with "déjà signée et clôturée" — so the client could
+        // never sign at all.
+        //
+        // A BL is only ever "completed" when the CUSTOMER signs it externally:
+        // they are the party who confirms received quantities, empties
+        // returned and cash paid, and lpc_signature_side_effects_bl() books
+        // exactly those figures. The internal button therefore records its
+        // hash-only attestation row and does NOT touch business state — for a
+        // BL it must behave exactly like quote / invoice / po / payslip /
+        // contract. The CRE case is the one genuine exception (see the
+        // sign_external comment): the operator measures the empties and signs
+        // the CRE "closed" before it is ever handed to the customer, whose
+        // signature is then the acknowledgment.
         try {
             $db = Database::getInstance()->getConnection();
         } catch (Throwable $e) {
@@ -269,18 +274,12 @@ switch ($action) {
         }
 
         // Decide whether side effects should fire for THIS doc, from THIS
-        // party. Keep the rule table tiny and explicit — anything not
-        // listed here defaults to false and behaves exactly like the old
-        // no-side-effect internal sign, so quote / invoice / po / payslip
-        // / contract are unaffected by this change.
+        // party. Keep the rule table tiny and explicit — anything not listed
+        // here defaults to false, so quote / invoice / po / payslip /
+        // contract / bl are all pure attestations.
         $shouldRunSideEffects = false;
         try {
-            if ($type === 'bl') {
-                $s = $db->prepare("SELECT status FROM deliveries WHERE id = ? LIMIT 1");
-                $s->execute([$docId]);
-                $st = (string) $s->fetchColumn();
-                $shouldRunSideEffects = in_array($st, ['dispatched', 'driver_confirmed'], true);
-            } elseif ($type === 'cre') {
+            if ($type === 'cre') {
                 $s = $db->prepare("SELECT status FROM cre_documents WHERE id = ? LIMIT 1");
                 $s->execute([$docId]);
                 $shouldRunSideEffects = ((string) $s->fetchColumn() === 'en_transit');
@@ -292,12 +291,12 @@ switch ($action) {
             sig_fail('Service indisponible.', 503, 'db_down');
         }
 
-        // Internal signature carries no counterparty-editable extras (only
-        // BL sign_external posts items[]/payment/observations). Passing an
-        // empty items[] means the BL side-effects branch skips the
-        // "customer amended these lines" block and uses whatever the driver
-        // already recorded — the correct semantics for an operator-side
-        // attestation.
+        // An internal signature carries no counterparty-editable extras (only
+        // BL sign_external posts items[]/payment/observations). For the one
+        // type that can still reach the side-effects layer from here (CRE),
+        // those extras are unused — CRE has no customer-editable fields — but
+        // the dispatcher signature expects them, so pass empty values rather
+        // than branching the call.
         $extras = [
             'items'             => [],
             'payment_collected' => null,
