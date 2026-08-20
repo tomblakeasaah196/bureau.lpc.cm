@@ -472,9 +472,19 @@
                 reason: document.getElementById('dmg_reason').value
             };
             try {
-                await fetch('/api/v1/inventory_controller.php', { method: 'POST', body: JSON.stringify(payload) });
-                closeModal('damageModal'); switchTab('stock');
-            } catch(e) {}
+                const response = await fetch('/api/v1/inventory_controller.php', { method: 'POST', body: JSON.stringify(payload) });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    closeModal('damageModal');
+                    switchTab('stock');
+                } else {
+                    // Show the refusal (e.g. "Stock insuffisant : 0 en stock,
+                    // 15 demandés.") instead of silently "accepting" the avarie.
+                    LPC.modal.alert("Erreur: " + (result.message || "Opération refusée."));
+                }
+            } catch(e) {
+                LPC.modal.alert("Erreur système.");
+            }
         }
 
         let pendingAdjustments = [];

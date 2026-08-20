@@ -809,7 +809,7 @@ try {
         // ==========================================
         case 'submit_audit':
             $adjustments = $jsonData['adjustments'] ?? [];
-            if (empty($adjustments)) throw new Exception("Aucun ajustement fourni.");
+            if (empty($adjustments)) throw new UserFacingException("Aucun ajustement fourni.");
 
             // 1. Idempotency check. Client MUST send `idempotency_key`; the
             //    frontend generates it once per user click and re-sends it on
@@ -923,9 +923,15 @@ try {
             $db->beginTransaction();
             $pid    = (int) $jsonData['product_id'];
             $qty    = (int) $jsonData['quantity'];
-            $reason = trim($jsonData['reason']);
+            $reason = trim((string) ($jsonData['reason'] ?? ''));
 
-            if ($qty <= 0) throw new Exception("Quantité invalide.");
+            // These are operator-actionable refusals, not server failures:
+            // throw UserFacingException so the message reaches the UI (and
+            // does NOT pollute the error monitor). A plain Exception would
+            // fall into the blanket handler below, become a 500 "Erreur
+            // serveur", and be logged as a crash — exactly what happened with
+            // an out-of-stock avarie (see lpc_error.log "Stock insuffisant").
+            if ($qty <= 0) throw new UserFacingException("Quantité invalide.");
 
             // Sprint-4-Batch-B: lock the product row + verify sufficient stock
             // before decrementing. Wraps the read AND the write in the same
@@ -938,11 +944,11 @@ try {
             ");
             $stmtProdLock->execute([$pid]);
             $prod = $stmtProdLock->fetch(PDO::FETCH_ASSOC);
-            if (!$prod) throw new Exception("Produit introuvable.");
+            if (!$prod) throw new UserFacingException("Produit introuvable.");
             $pname = $prod['name'];
 
             if ((int) $prod['current_qty'] < $qty) {
-                throw new Exception("Stock insuffisant : {$prod['current_qty']} en stock, {$qty} demandés.");
+                throw new UserFacingException("Stock insuffisant : {$prod['current_qty']} en stock, {$qty} demandés.");
             }
 
             $stmtMove = $db->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, logged_by) VALUES (?, 'out_damaged', ?, ?)");
