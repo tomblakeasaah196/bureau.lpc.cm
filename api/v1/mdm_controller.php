@@ -129,13 +129,18 @@ function mdm_has_product_cost_price(PDO $db): bool
     static $has = null;
     if ($has !== null) return $has;
 
-    $cols = (int) $db->query("
-        SELECT COUNT(*) FROM information_schema.columns
-         WHERE table_schema = DATABASE() AND table_name = 'products'
-           AND column_name  = 'cost_price'
-    ")->fetchColumn();
+    try {
+        $cols = (int) $db->query("
+            SELECT COUNT(*) FROM information_schema.columns
+             WHERE table_schema = DATABASE() AND table_name = 'products'
+               AND column_name  = 'cost_price'
+        ")->fetchColumn();
 
-    return $has = ($cols === 1);
+        return $has = ($cols === 1);
+    } catch (Throwable $e) {
+        error_log('mdm_has_product_cost_price: ' . $e->getMessage());
+        return $has = false;
+    }
 }
 
 /**
