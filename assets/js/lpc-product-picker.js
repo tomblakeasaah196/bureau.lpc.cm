@@ -91,8 +91,13 @@
  *   Imperative — when you need the callback:
  *
  *       LPC.productPicker.mount(el, {
- *           purpose:  'sell',              // 'sell' (base_price) | 'buy' (cump)
- *           clientId: 42,                  // optional, for negotiated pricing
+ *           purpose:  'sell',              // 'sell' (base_price / client tariff)
+ *                                          // | 'buy' (supplier tariff →
+ *                                          // products.cost_price)
+ *           clientId:  42,                 // sell only: negotiated pricing
+ *           supplierId: 12,                // buy only: price from THIS
+ *                                          // supplier's tariff, else cost_price
+ *                                          // (never CUMP — migration 115)
  *           placeholder: 'Choisir un produit…',
  *           allowEmpties: false,           // show the footer toggle at all
  *           onSelect(product, picker) { … } // product is null when cleared
@@ -182,7 +187,11 @@
 
     function cacheKey(opts) {
         if (opts.fetchItems) return 'custom|' + (opts.cacheKey || opts.sourceName || 'anon');
-        return (opts.purpose || 'sell') + '|' + (opts.clientId || '');
+        // supplierId belongs in the key: a PO picker mounted for supplier A
+        // and one for supplier B show different tariffs, and must not share
+        // a cached catalogue (migration 115).
+        return (opts.purpose || 'sell') + '|' + (opts.clientId || '')
+             + '|' + (opts.supplierId || '');
     }
 
     /**
@@ -222,6 +231,7 @@
         } else {
             var url = ENDPOINT + '?purpose=' + encodeURIComponent(opts.purpose || 'sell');
             if (opts.clientId) url += '&client_id=' + encodeURIComponent(opts.clientId);
+            if (opts.supplierId) url += '&supplier_id=' + encodeURIComponent(opts.supplierId);
 
             run = fetch(url, {
                 credentials: 'same-origin',
@@ -262,6 +272,7 @@
         this._src = {
             purpose:    this.purpose,
             clientId:   this.opts.clientId,
+            supplierId: this.opts.supplierId,
             fetchItems: this.opts.fetchItems,
             cacheKey:   this.opts.cacheKey,
         };

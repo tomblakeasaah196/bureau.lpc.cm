@@ -1,67 +1,67 @@
 {
-  "hash": "sha384-znku44U6DxbpMqc6KJl+lSGBx5QJ7kyJpdbYasnwa+D0ZQhoZHLJtWMn6hewECKo",
-  "size": 68742,
+  "hash": "sha384-c2hcy4r/dlintH+xgl2PmbkRE5kXgrgDrrCXY6j5f/rHfLt3JU7zR3dMruGAwZz/",
+  "size": 69324,
   "files": [
     {
       "file": "lpc-dom.js",
-      "size": 5629,
-      "mtime": 1786559610295.8943
+      "size": 7026,
+      "mtime": 1787211345450.4446
     },
     {
       "file": "lpc-i18n.js",
       "size": 3473,
-      "mtime": 1786559610295.8943
+      "mtime": 1787211345450.4446
     },
     {
       "file": "lpc-modal.js",
       "size": 14329,
-      "mtime": 1786559610295.8943
+      "mtime": 1787211345450.4446
     },
     {
       "file": "lpc-toast.js",
       "size": 8738,
-      "mtime": 1786559610295.8943
+      "mtime": 1787211345450.4446
     },
     {
       "file": "lpc-a11y.js",
       "size": 8942,
-      "mtime": 1786559610291.8943
+      "mtime": 1787211345450.4446
     },
     {
       "file": "lpc-session-lock.js",
       "size": 18405,
-      "mtime": 1786559610295.8943
+      "mtime": 1787211345450.4446
     },
     {
       "file": "lpc-product-picker.js",
-      "size": 46868,
-      "mtime": 1786559610295.8943
+      "size": 47630,
+      "mtime": 1787212333858.429
     },
     {
       "file": "lpc-deeplink.js",
       "size": 9439,
-      "mtime": 1786559610291.8943
+      "mtime": 1787211345450.4446
     },
     {
       "file": "lpc-paginator.js",
       "size": 15416,
-      "mtime": 1786559610295.8943
+      "mtime": 1787211345450.4446
     },
     {
       "file": "lpc-kpi.js",
       "size": 37126,
-      "mtime": 1786559610295.8943
+      "mtime": 1787211345450.4446
     },
     {
       "file": "lpc-chart-theme.js",
       "size": 11151,
-      "mtime": 1786559610291.8943
+      "mtime": 1787211345450.4446
     },
     {
       "file": "lpc-turbo-init.js",
       "size": 8618,
-      "mtime": 1786559610295.8943
+      "mtime": 1787211345450.4446
     }
   ],
-  "builtAt": "2026-08-12T18:38:20.056Z"
+  "builtAt": "2026-08-20T07:52:21.306Z"
 }

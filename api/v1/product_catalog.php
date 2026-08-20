@@ -60,11 +60,22 @@
  *
  * CONTRACT
  * --------
- *   GET /api/v1/product_catalog.php[?purpose=sell|buy][&include_empties=1]
+ *   GET /api/v1/product_catalog.php[?purpose=sell|buy][&client_id=][&supplier_id=]
  *
- *   purpose=sell (default)  price = base_price      — what we charge
- *   purpose=buy             price = cump (or base)  — weighted average cost,
- *                                                     the sane default for a PO
+ *   purpose=sell (default)  price = the client's negotiated price when
+ *                           client_id is given (client_prices), else
+ *                           products.base_price — what we charge
+ *
+ *   purpose=buy             price = supplier_prices.custom_price for
+ *                           ?supplier_id when one is recorded, else
+ *                           products.cost_price (migration 115). CUMP is
+ *                           deliberately NOT a rung of this ladder: it is a
+ *                           weighted average of what we have PAID, a fact
+ *                           about our stock, not about a supplier's price
+ *                           list — migration 063's header says the same.
+ *
+ *   When purpose=buy and no supplier_id is given, the tariff rung is skipped
+ *   and the price resolves straight to cost_price.
  *
  *   {
  *     "status": "success",
@@ -73,7 +84,7 @@
  *     "data": [ {
  *        "id": 7, "code": "WAT-20L-OP", "name": "20L Opur", "format": "20L",
  *        "category": "Eau", "category_code": "eau", "category_sort": 10,
- *        "price": 1850, "base_price": 1850, "cump": 1180,
+ *        "price": 1850, "base_price": 1850, "cump": 1180, "cost_price": 1180,
  *        "unit_of_measure": "bonbonne", "units_per_pack": 1, "sold_by": "unit",
  *        "stock_qty": 412, "min_stock_level": 100, "stock_state": "ok",
  *        "is_empty": false,
@@ -201,14 +212,30 @@ try {
     // wrong and the operator learns to dismiss it without reading — which
     // costs more than never having asked.
     //
-    // Sell side only. `buy` prices from cump/base and has no client.
+    // Sell side only. `buy` prices from the supplier tariff (migration 115:
+    // supplier_prices → products.cost_price) and has no client.
     // -------------------------------------------------------------------------
     $client_id     = ($purpose === 'sell') ? (int) ($_GET['client_id'] ?? 0) : 0;
     $client_tariff = $client_id > 0 ? lpc_client_tariff($db, $client_id) : [];
 
+    // -------------------------------------------------------------------------
+    // Supplier tariff (migration 063 + 115).
+    //
+    // The PO picker mounts with the chosen supplier, so `buy` prices start
+    // from what THIS supplier charges (supplier_prices.custom_price) and fall
+    // back to products.cost_price — never CUMP. When no supplier_id is given
+    // (a picker mounted before the supplier was chosen), the tariff rung is
+    // skipped and the price is cost_price directly. supplier_prices is empty
+    // until the first PO records it (see 063's header), so in practice the
+    // cost_price rung is where most lines start.
+    // -------------------------------------------------------------------------
+    $supplier_id     = ($purpose === 'buy') ? (int) ($_GET['supplier_id'] ?? 0) : 0;
+    $supplier_tariff = $supplier_id > 0 ? lpc_supplier_tariff($db, $supplier_id) : [];
+
     $has_is_empty    = lpc_catalog_has_col($db, 'is_empty');
     $has_linked      = lpc_catalog_has_col($db, 'linked_empty_id');
     $has_cump        = lpc_catalog_has_col($db, 'cump');
+    $has_cost_price  = lpc_catalog_has_col($db, 'cost_price');
     $has_min_stock   = lpc_catalog_has_col($db, 'min_stock_level');
 
     // -------------------------------------------------------------------------
@@ -246,8 +273,9 @@ try {
     ];
     $joins = [];
 
-    if ($has_cump)      $select[] = 'p.cump';
-    if ($has_min_stock) $select[] = 'p.min_stock_level';
+    if ($has_cump)       $select[] = 'p.cump';
+    if ($has_cost_price) $select[] = 'p.cost_price';
+    if ($has_min_stock)  $select[] = 'p.min_stock_level';
 
     if ($has_v2) {
         $select[] = 'p.unit_of_measure';
@@ -285,18 +313,34 @@ try {
         $base = (float) ($r['base_price'] ?? 0);
         $cump = isset($r['cump']) ? (float) $r['cump'] : 0.0;
 
-        // A PO priced at 0 is worse than a PO priced at last-known cost, and
-        // cump is 0 until the first reception — fall back to base_price so the
-        // buyer edits a number instead of typing one from scratch.
+        // Migration 115 · the buy-side ladder.
+        //
+        //   supplier_prices.custom_price  → what THIS supplier charges
+        //   products.cost_price           → our standing cost, never CUMP
+        //
+        // A PO priced at 0 is a visible data problem (cost_price not set),
+        // not something to paper over with an average of what we have paid —
+        // CUMP says what OUR STOCK cost, not what the supplier on this order
+        // charges, and migration 063 already argued why the two must not be
+        // conflated. `cost_price` rides on `base_price` when the column is
+        // absent (pre-115 database) so an un-migrated install still shows a
+        // number instead of zeros.
         //
         // Sell side: the client's negotiated price when there is one, the
         // catalogue otherwise. `is_negotiated` is surfaced separately so the
         // picker can say WHICH it is showing rather than presenting a
         // client-specific figure as though it were the catalogue.
-        $pid_int      = (int) $r['id'];
+        $pid_int       = (int) $r['id'];
         $is_negotiated = ($purpose === 'sell') && array_key_exists($pid_int, $client_tariff);
+
+        $cost = isset($r['cost_price'])
+            ? (float) $r['cost_price']
+            : $base;   // pre-115 database: cost_price column does not exist
+
         $price = ($purpose === 'buy')
-            ? ($cump > 0 ? $cump : $base)
+            ? (array_key_exists($pid_int, $supplier_tariff)
+                ? (float) $supplier_tariff[$pid_int]
+                : $cost)
             : lpc_effective_price($client_tariff, $pid_int, $base);
 
         $stock = (int) ($r['stock_qty'] ?? 0);
@@ -339,6 +383,7 @@ try {
             // catalogue.
             'is_negotiated'   => $is_negotiated,
             'cump'            => $cump,
+            'cost_price'      => $cost,
             'unit_of_measure' => $r['unit_of_measure'] ?? 'unite',
             'units_per_pack'  => isset($r['units_per_pack']) ? (int) $r['units_per_pack'] : 1,
             'sold_by'         => $r['sold_by'] ?? 'unit',

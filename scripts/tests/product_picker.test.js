@@ -29,6 +29,11 @@
  *      as the options; arrowing onto one would highlight nothing and Enter
  *      would select nothing.
  *   8. CLEARING EMITS. A cleared line must tell its host to zero the price.
+ *   9. SUPPLIER-SCOPED BUY CATALOGUE (migration 115). A purpose=buy picker
+ *      mounted with supplierId must ask the endpoint for THAT supplier, must
+ *      not share its cached catalogue with another supplier's picker, must
+ *      keep the supplier on retry after a failed load, and must still load
+ *      when no supplier is given (server falls to products.cost_price).
  *
  * Run:  node scripts/tests/product_picker.test.js .
  * -----------------------------------------------------------------------------
@@ -196,6 +201,13 @@ function mk(id, code, name, format, category, sort, price, stock, state, isEmpty
 // Harness
 // =============================================================================
 const observers = [];
+// Every URL the picker fetches, in order — lets the tests assert what the
+// catalogue was asked for (purpose, client, supplier) rather than only that
+// something loaded.
+const fetchCalls = [];
+// When true, the next fetch fails with HTTP 500 — used to exercise the
+// error state and its Réessayer button.
+let failNextFetch = false;
 const sandbox = {
     window: {
         addEventListener() {}, removeEventListener() {},
@@ -205,13 +217,20 @@ const sandbox = {
     console,
     setTimeout, clearTimeout,
     Number, Math, Object, Array, String, Boolean, JSON, Set, Promise, Error, Date,
-    CustomEvent: class { constructor(t, o = {}) { this.type = t; this.bubbles = !!o.bubbles; this.detail = o.detail; } },
-    Event:       class { constructor(t, o = {}) { this.type = t; this.bubbles = !!o.bubbles; } },
+    CustomEvent: class { constructor(t, o = {}) { this.type = t; this.bubbles = !!o.bubbles; this.detail = o.detail; } preventDefault() {} },
+    Event:       class { constructor(t, o = {}) { this.type = t; this.bubbles = !!o.bubbles; } preventDefault() {} },
     MutationObserver: class { constructor(cb) { this.cb = cb; observers.push(this); } observe() {} },
-    fetch: () => Promise.resolve({
-        ok: true, status: 200,
-        json: () => Promise.resolve({ status: 'success', data: CATALOG }),
-    }),
+    fetch: (url) => {
+        fetchCalls.push(String(url));
+        if (failNextFetch) {
+            failNextFetch = false;
+            return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) });
+        }
+        return Promise.resolve({
+            ok: true, status: 200,
+            json: () => Promise.resolve({ status: 'success', data: CATALOG }),
+        });
+    },
     encodeURIComponent,
 };
 sandbox.window.LPC = {};
@@ -332,6 +351,62 @@ async function run() {
     eq('   parked in _pending', String(p2.hidden.value), '707');
     await new Promise(r => setTimeout(r, 0));
     eq('   resolved to the product after load', p2.selected && p2.selected.name, 'Jus 30L');
+
+    console.log('\nsupplier-scoped buy catalogue (migration 115)');
+    const supSel = new El('select');
+    supSel.className = 'po-prod-select';
+    doc.body.appendChild(supSel);
+    const pSup = API.mount(supSel, { purpose: 'buy', supplierId: 12 });
+    await new Promise(r => setTimeout(r, 0));
+
+    ok('buy picker asks for its supplier',
+       fetchCalls.some(u => u.includes('purpose=buy') && u.includes('supplier_id=12')),
+       'fetches: ' + fetchCalls.join(' | '));
+
+    const supSel2 = new El('select');
+    supSel2.className = 'po-prod-select';
+    doc.body.appendChild(supSel2);
+    const pSup2 = API.mount(supSel2, { purpose: 'buy', supplierId: 13 });
+    await new Promise(r => setTimeout(r, 0));
+
+    const for12 = fetchCalls.filter(u => u.includes('supplier_id=12')).length;
+    const for13 = fetchCalls.filter(u => u.includes('supplier_id=13')).length;
+    ok('a different supplier is a different catalogue (no shared cache)',
+       for12 === 1 && for13 === 1,
+       `supplier 12 fetched ${for12}x, supplier 13 fetched ${for13}x`);
+
+    // Retry must re-ask with the supplier still attached: fail the next
+    // fetch, click the real Réessayer button, and check the retry URL.
+    const supSel4 = new El('select');
+    supSel4.className = 'po-prod-select';
+    doc.body.appendChild(supSel4);
+    failNextFetch = true;
+    const pSup4 = API.mount(supSel4, { purpose: 'buy', supplierId: 14 });
+    await new Promise(r => setTimeout(r, 0));
+    const retryBtn = pSup4.list.querySelector('.lpc-pp__retry');
+    ok('a failed load renders the retry button', !!retryBtn);
+    if (retryBtn) {
+        const before = fetchCalls.length;
+        retryBtn.dispatchEvent(new sandbox.Event('click', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 0));
+        ok('retry keeps the supplier scoping',
+           fetchCalls.slice(before).some(u => u.includes('supplier_id=14')),
+           'fetches: ' + fetchCalls.slice(before).join(' | '));
+    }
+    pSup4.destroy();
+
+    // A buy picker mounted with NO supplier still loads (falls to cost_price
+    // server-side) and must not collide with a supplier-scoped cache.
+    const supSel3 = new El('select');
+    supSel3.className = 'po-prod-select';
+    doc.body.appendChild(supSel3);
+    const pSup3 = API.mount(supSel3, { purpose: 'buy' });
+    await new Promise(r => setTimeout(r, 0));
+    ok('buy without supplier loads too',
+       fetchCalls.some(u => u.includes('purpose=buy') && !u.includes('supplier_id')),
+       'fetches: ' + fetchCalls.join(' | '));
+
+    pSup.destroy(); pSup2.destroy(); pSup3.destroy();
 
     console.log('\ngeneric list mode (mountList)');
     // The Prix & Tarifs modal picks a CLIENT with the same component. Clients
