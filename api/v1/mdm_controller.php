@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/Paginator.php';   // Sprint 5
 require_once __DIR__ . '/../../includes/functions/notify.php';
+require_once __DIR__ . '/../../includes/functions/pricing.php';   // supplier tariff helpers (063/115)
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 Rbac::requirePermission('admin.master_data.view');
@@ -120,6 +121,21 @@ function mdm_has_product_master_v2(PDO $db): bool
     ")->fetchColumn();
 
     return $has = ($cols === 7 && $tbl === 1);
+}
+
+/** True once migration 115 is applied: products has a standalone cost price. */
+function mdm_has_product_cost_price(PDO $db): bool
+{
+    static $has = null;
+    if ($has !== null) return $has;
+
+    $cols = (int) $db->query("
+        SELECT COUNT(*) FROM information_schema.columns
+         WHERE table_schema = DATABASE() AND table_name = 'products'
+           AND column_name  = 'cost_price'
+    ")->fetchColumn();
+
+    return $has = ($cols === 1);
 }
 
 /**
@@ -489,6 +505,80 @@ try {
             // The fallback rung of the price ladder. See ACTION: SAVE_FALLBACK.
             $response['meta']['fallback_price'] = mdm_fallback_price($db);
         }
+        elseif ($module === 'supplier_pricing') {
+            // -----------------------------------------------------------------
+            // Migration 115 · Tarifs Fournisseurs.
+            //
+            // The buy-side mirror of client_prices: one row per
+            // (supplier, product) saying what THAT supplier charges. The PO
+            // picker reads exactly this table (api/v1/product_catalog.php,
+            // purpose=buy&supplier_id=…), falling back to products.cost_price
+            // when a pair has no row. supplier_prices starts empty and fills
+            // itself from real purchase orders (migration 063) — this screen
+            // is where an admin can also set, correct or clear a tariff by
+            // hand, before or without ever raising a PO.
+            //
+            // cost_price rides along as the reference the tariff is compared
+            // against, exactly as base_price rides along on the client side —
+            // a tariff is only meaningful next to what it replaces. Pre-115
+            // databases fall back to base_price (the old proxy) so the column
+            // never 500s.
+            // -----------------------------------------------------------------
+            $cost_expr = mdm_has_product_cost_price($db) ? 'p.cost_price' : 'p.base_price';
+
+            $body = "
+                FROM supplier_prices sp
+                JOIN suppliers s ON s.id = sp.supplier_id
+                JOIN products  p ON p.id = sp.product_id
+            ";
+            $params = [];
+            if ($lpc_q !== '') {
+                [$body, $params] = Paginator::addWhere(
+                    $body, $params, $lpc_q, ['s.name', 'p.name', 'p.code']
+                );
+            }
+            $body .= " ORDER BY s.name ASC, p.name ASC";
+
+            // Composite-key pivot with no surrogate id — the UI addresses a
+            // row as "supplierId_productId" (see the `pk` handling in
+            // admin-master_data.js).
+            $page = Paginator::paginate($db, $body, $params,
+                "sp.supplier_id, sp.product_id, sp.custom_price, sp.updated_at,
+                 s.name AS supplier_name,
+                 p.name AS product_name, p.code AS product_code,
+                 CONCAT(p.name, ' (', p.code, ')') AS product_label,
+                 {$cost_expr} AS cost_price,
+                 (sp.custom_price - {$cost_expr}) AS delta",
+                null, null, "mdm.read.supplier_pricing");
+
+            $response['data'] = $page['data'];
+            $response['pagination'] = [
+                'page'        => $page['page'],
+                'per_page'    => $page['per_page'],
+                'total'       => $page['total'],
+                'total_pages' => $page['total_pages'],
+                'has_prev'    => $page['has_prev'],
+                'has_next'    => $page['has_next'],
+            ];
+
+            // The two lists the modal's pickers read. Capped rather than
+            // paginated, same as the client side. Products carry their cost
+            // price (or the pre-115 base_price proxy) so the form can prefill
+            // and compare against the reference.
+            $response['meta']['suppliers'] = $db->query(
+                "SELECT id, name, lpc_code AS code
+                   FROM suppliers
+                  WHERE is_active = 1
+                  ORDER BY name ASC LIMIT 2000"
+            )->fetchAll(PDO::FETCH_ASSOC);
+
+            $response['meta']['products'] = $db->query(
+                "SELECT id, name, code, format, {$cost_expr} AS price
+                   FROM products
+                  WHERE is_active = 1
+                  ORDER BY name ASC LIMIT 1000"
+            )->fetchAll(PDO::FETCH_ASSOC);
+        }
         elseif ($module === 'suppliers') {
             // -----------------------------------------------------------------
             // Same latent bug as pricing had before it got its own branch: the
@@ -674,6 +764,64 @@ try {
 
         Prefs::flush();
         echo json_encode(['status' => 'success', 'fallback' => mdm_fallback_price($db)]);
+        exit;
+    }
+
+    // =========================================================================
+    // ACTION: SUPPLIER_PRICE_HISTORY — append-only log for one (supplier, product).
+    // -------------------------------------------------------------------------
+    // Reads supplier_price_history (migration 063) for the row the admin is
+    // looking at. Every entry here was written by lpc_apply_supplier_price_change:
+    // by a PO save (source 'purchase_order', the BC reference attached) or by
+    // this screen (source 'supplier_file'). The history is display-only.
+    // =========================================================================
+    if ($action === 'supplier_price_history') {
+        $sid = (int) ($_GET['supplier_id'] ?? 0);
+        $pid = (int) ($_GET['product_id']  ?? 0);
+        if ($sid <= 0 || $pid <= 0) {
+            throw new MdmValidationException("Fournisseur ou produit manquant.");
+        }
+
+        $stmt = $db->prepare("
+            SELECT h.old_price, h.new_price, h.source, h.source_reference,
+                   h.note, h.changed_at,
+                   CONCAT(u.first_name, ' ', u.last_name) AS user_name
+              FROM supplier_price_history h
+              LEFT JOIN users u ON u.id = h.changed_by
+             WHERE h.supplier_id = ? AND h.product_id = ?
+             ORDER BY h.changed_at DESC, h.id DESC
+             LIMIT 200
+        ");
+        $stmt->execute([$sid, $pid]);
+
+        echo json_encode(['status' => 'success', 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+        exit;
+    }
+
+    // =========================================================================
+    // ACTION: DELETE_SUPPLIER_PRICE — clear a tariff so the pair falls back to
+    // products.cost_price again.
+    // -------------------------------------------------------------------------
+    // supplier_prices is a current-state pivot (like client_prices): deleting
+    // the row removes the tariff and the picker falls back to the reference
+    // cost. The append-only log keeps every change that led to the deleted
+    // value, so the price's evolution remains auditable; the deletion itself
+    // is a state reset, not a price change, and is not written to it.
+    // =========================================================================
+    if ($action === 'delete_supplier_price') {
+        // Destructive — the edit gate, not just the view gate at the top.
+        Rbac::requirePermission('admin.master_data.edit');
+
+        $sid = (int) ($_POST['supplier_id'] ?? 0);
+        $pid = (int) ($_POST['product_id']  ?? 0);
+        if ($sid <= 0 || $pid <= 0) {
+            throw new MdmValidationException("Fournisseur ou produit manquant.");
+        }
+
+        $db->prepare("DELETE FROM supplier_prices WHERE supplier_id = ? AND product_id = ?")
+           ->execute([$sid, $pid]);
+
+        echo json_encode(['status' => 'success']);
         exit;
     }
 
@@ -1033,21 +1181,35 @@ try {
                     $id,
                 ]);
             } else {
-                $db->prepare("
-                    INSERT INTO products
-                        (code, name, format, category, category_id,
-                         unit_of_measure, units_per_pack, sold_by,
-                         base_price, is_active, linked_empty_id,
-                         is_empty, bottle_size, has_cork,
-                         revenue_account_id, stock_account_id, cogs_account_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
-                ")->execute([
+                // Migration 115 · a new product starts life with
+                // cost_price = base_price (a snapshot, not a sync — the
+                // column is deliberately never updated again). Without this,
+                // a fresh SKU would carry cost_price NULL and resolve to a
+                // 0 price in the buy-side picker. The column list is built
+                // conditionally so an un-migrated database (041 yes, 115
+                // not yet) is unaffected.
+                $insert_cols  = "code, name, format, category, category_id,
+                                 unit_of_measure, units_per_pack, sold_by,
+                                 base_price, is_active, linked_empty_id,
+                                 is_empty, bottle_size, has_cork,
+                                 revenue_account_id, stock_account_id, cogs_account_id";
+                $insert_vals  = "?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?";
+                $insert_params = [
                     $code, $name, $format, $cat['name'], $cat['id'],
                     $unit_of_measure, $units_per_pack, $sold_by,
                     $base_price, $linked_empty,
                     $is_empty, $bottle_size, $has_cork,
                     $revenue_account_id, $stock_account_id, $cogs_account_id,
-                ]);
+                ];
+
+                if (mdm_has_product_cost_price($db)) {
+                    $insert_cols  .= ", cost_price";
+                    $insert_vals  .= ", ?";
+                    $insert_params[] = $base_price;
+                }
+
+                $db->prepare("INSERT INTO products ({$insert_cols}) VALUES ({$insert_vals})")
+                   ->execute($insert_params);
                 $id = $db->lastInsertId();
             }
 
@@ -1100,6 +1262,55 @@ try {
             // Pricing uses ON DUPLICATE KEY UPDATE because it's a pivot table
             $stmt = $db->prepare("INSERT INTO client_prices (client_id, product_id, custom_price) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE custom_price=?");
             $stmt->execute([$cid, $pid, $price, $price]);
+        }
+        elseif ($module === 'supplier_pricing') {
+            // -----------------------------------------------------------------
+            // Migration 115 · Tarifs Fournisseurs.
+            //
+            // Mirror of the client branch above, with one deliberate upgrade:
+            // the write goes through lpc_apply_supplier_price_change() — the
+            // SAME function the PO save path uses — so a tariff set here lands
+            // in supplier_prices AND in supplier_price_history with
+            // source='supplier_file', a named user and a timestamp. The client
+            // branch predates 062's history and still writes the pivot only;
+            // the supplier side was born with history and uses it.
+            // -----------------------------------------------------------------
+            $sid   = (int) ($_POST['supplier_id'] ?? 0);
+            $pid   = (int) ($_POST['product_id']  ?? 0);
+            $price = $_POST['custom_price'] ?? null;
+
+            if ($sid <= 0)           throw new MdmValidationException("Sélectionnez un fournisseur.");
+            if ($pid <= 0)           throw new MdmValidationException("Sélectionnez un produit.");
+            if (!is_numeric($price)) throw new MdmValidationException("Tarif fournisseur invalide.");
+
+            $price = round((float) $price, 2);
+            if ($price < 0)           throw new MdmValidationException("Le prix ne peut pas être négatif.");
+            if ($price > 99999999.99) throw new MdmValidationException("Prix hors limites (99 999 999 max).");
+
+            // Fail with a readable message rather than a foreign-key error.
+            $chk = $db->prepare("SELECT 1 FROM suppliers WHERE id = ? LIMIT 1");
+            $chk->execute([$sid]);
+            if (!$chk->fetchColumn()) throw new MdmValidationException("Fournisseur introuvable.");
+
+            $chk = $db->prepare("SELECT 1 FROM products WHERE id = ? LIMIT 1");
+            $chk->execute([$pid]);
+            if (!$chk->fetchColumn()) throw new MdmValidationException("Produit introuvable.");
+
+            // FOR UPDATE lock + history row commit together with the tariff.
+            $db->beginTransaction();
+            try {
+                lpc_apply_supplier_price_change(
+                    $db, $sid, $pid, $price,
+                    (int) ($_SESSION['user_id'] ?? 0),
+                    'supplier_file',
+                    null,
+                    'Tarif saisi depuis Données de Base'
+                );
+                $db->commit();
+            } catch (Exception $e) {
+                $db->rollBack();
+                throw $e;
+            }
         }
         elseif ($module === 'suppliers') {
             $name = trim($_POST['name'] ?? '');
