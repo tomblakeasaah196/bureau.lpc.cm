@@ -725,20 +725,28 @@ function openRistourneModal() {
         /**
          * Append one purchase-order line.
          *
-         * Two changes beyond swapping the <select> for the shared picker:
+         * Three things this function has to get right:
          *
-         *  1. purpose:'buy'. The old dropdown auto-filled a PO with
-         *     `base_price` — the SELLING price. Every purchase order this
-         *     screen has ever generated started life priced at what we charge
-         *     the customer rather than what the supplier charges us, and the
-         *     buyer had to know to overwrite it. 'buy' asks the catalogue for
-         *     cump (weighted average cost), falling back to base_price only
-         *     when a product has never been received.
+         *  1. purpose:'buy' + supplierId. The old dropdown auto-filled a PO
+         *     with `base_price` — the SELLING price. Every purchase order
+         *     this screen has ever generated started life priced at what we
+         *     charge the customer rather than what the supplier charges us,
+         *     and the buyer had to know to overwrite it. The picker now asks
+         *     the catalogue for THIS supplier's standing tariff
+         *     (supplier_prices, migration 063), falling back to
+         *     products.cost_price — never CUMP (migration 115).
          *
          *  2. The catalogue excludes inactive products. procurement_controller
          *     built its list without `is_active = 1` — the one clause the sales
          *     copy of the same query had — so retired SKUs stayed orderable
          *     here long after they disappeared everywhere else.
+         *
+         *  3. A PO is per-supplier, and the picker prices from the supplier's
+         *     tariff — so a line added before the supplier is chosen has no
+         *     tariff to read. Refuse rather than guess (migration 115). Lines
+         *     added before the change keep the prices they were added with;
+         *     the save-side reconciliation (063) is what questions them
+         *     against the final supplier.
          *
          * rowId was Date.now(), which collides for two rows added in the same
          * millisecond and makes them share a total cell. Now a counter.
@@ -746,6 +754,14 @@ function openRistourneModal() {
         let poRowSeq = 0;
 
         function addPOLine() {
+            const supEl = document.getElementById('po_supplier');
+            const supplierId = parseInt(supEl.value, 10) || 0;
+            if (!supplierId) {
+                LPC.modal.alert("Veuillez d'abord sélectionner un fournisseur avant d'ajouter un produit.");
+                supEl.focus();
+                return;
+            }
+
             const container = document.getElementById('po-lines-container');
             const rowId = ++poRowSeq;
 
@@ -772,6 +788,7 @@ function openRistourneModal() {
 
             window.LPC?.productPicker?.mount(tr.querySelector('.po-prod-select'), {
                 purpose: 'buy',
+                supplierId: supplierId,
                 onSelect(product) {
                     const priceEl = document.getElementById(`price_${rowId}`);
                     priceEl.value = product ? Math.round(product.price) : 0;
