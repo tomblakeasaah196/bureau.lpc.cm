@@ -187,6 +187,8 @@ $PROFILES = [
       ['ref'=>'acc_tax',        'label_fr'=>'Déclarations Fiscales',    'label_en'=>'Tax Declarations'],
       ['ref'=>'acc_reports',    'label_fr'=>'États Financiers (Bilan · Résultat · TFT · Notes · Clôture)', 'label_en'=>'Financial Statements (Bilan · P&L · TFT · Notes · Closing)'],
       ['ref'=>'acc_budgets',    'label_fr'=>'Budgets & Performance',    'label_en'=>'Budgets & Performance'],
+      ['ref'=>'admin_coa',      'label_fr'=>'Plan Comptable',           'label_en'=>'Chart of Accounts'],
+      ['ref'=>'acc_opening',    'label_fr'=>"Bilan d'Ouverture",        'label_en'=>'Opening Balance'],
     ]],
     ['heading_fr'=>'Administration & RH', 'heading_en'=>'Administration & HR', 'items'=>[
       ['ref'=>'hr_payroll',     'label_fr'=>'Gestion du Personnel',     'label_en'=>'Staff Management'],
@@ -219,6 +221,8 @@ $PROFILES = [
       ['ref'=>'acc_assets',     'label_fr'=>'Immobilisations & Amortissements','label_en'=>'Assets & Depreciation'],
       ['ref'=>'acc_reports',    'label_fr'=>'États Financiers (Bilan)',     'label_en'=>'Financial Statements'],
       ['ref'=>'acc_tax',        'label_fr'=>'Déclarations Fiscales',        'label_en'=>'Tax Declarations'],
+      ['ref'=>'admin_coa',      'label_fr'=>'Plan Comptable',              'label_en'=>'Chart of Accounts'],
+      ['ref'=>'acc_opening',    'label_fr'=>"Bilan d'Ouverture",           'label_en'=>'Opening Balance'],
     ]],
     ['heading_fr'=>'Contrôle & RH', 'heading_en'=>'Control & HR', 'items'=>[
       ['ref'=>'acc_budgets',    'label_fr'=>'Budgets & Cibles',             'label_en'=>'Budgets & Targets'],
