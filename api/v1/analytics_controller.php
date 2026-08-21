@@ -196,7 +196,7 @@ function getLiquidityBalance($pdo, $prefix) {
         FROM journal_lines jl
         JOIN journal_entries je ON jl.journal_entry_id = je.id
         JOIN chart_of_accounts ca ON jl.account_id = ca.id
-        WHERE je.status = 'approved' AND ca.code LIKE ?
+        WHERE je.status = 'posted' AND ca.code LIKE ?
     ");
     $stmt->execute([$prefix . '%']);
     return (float)$stmt->fetchColumn();
@@ -209,7 +209,7 @@ function getPeriodicBalance($pdo, $prefix, $start_date, $end_date, $is_revenue =
         FROM journal_lines jl
         JOIN journal_entries je ON jl.journal_entry_id = je.id
         JOIN chart_of_accounts ca ON jl.account_id = ca.id
-        WHERE je.status = 'approved' AND ca.code LIKE ? AND je.date >= ? AND je.date <= ?
+        WHERE je.status = 'posted' AND ca.code LIKE ? AND je.date >= ? AND je.date <= ?
     ");
     $stmt->execute([$prefix . '%', $start_date, $end_date]);
     return (float)$stmt->fetchColumn();
@@ -292,7 +292,7 @@ if ($action === 'get_dashboard') {
             FROM journal_lines jl
             JOIN journal_entries je ON jl.journal_entry_id = je.id
             JOIN chart_of_accounts ca ON jl.account_id = ca.id
-            WHERE je.status = 'approved' AND ca.code LIKE '6%' AND je.date >= ? AND je.date <= ?
+            WHERE je.status = 'posted' AND ca.code LIKE '6%' AND je.date >= ? AND je.date <= ?
             GROUP BY ca.id
             ORDER BY actual DESC LIMIT 3
         ");
@@ -337,7 +337,7 @@ if ($action === 'get_dashboard') {
                       FROM journal_lines jl
                       JOIN journal_entries je ON jl.journal_entry_id = je.id
                       JOIN chart_of_accounts ca ON jl.account_id = ca.id
-                     WHERE je.status = 'approved' AND je.date >= ? AND je.date <= ?
+                     WHERE je.status = 'posted' AND je.date >= ? AND je.date <= ?
                        AND (ca.code LIKE '70%' OR ca.code LIKE '6%')
                      GROUP BY ca.id
                   ) gm
@@ -417,7 +417,7 @@ if ($action === 'get_dashboard') {
                   FROM journal_lines jl
                   JOIN journal_entries je ON jl.journal_entry_id = je.id
                   JOIN chart_of_accounts ca ON jl.account_id = ca.id
-                 WHERE je.status = 'approved'
+                 WHERE je.status = 'posted'
                    AND ca.type = 'expense'
                    AND je.date >= ? AND je.date <= ?
             ");
@@ -669,7 +669,7 @@ if ($action === 'drilldown_budget') {
         FROM chart_of_accounts ca
         LEFT JOIN journal_lines jl ON jl.account_id = ca.id
         LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
-             AND je.status = 'approved'
+             AND je.status = 'posted'
              AND je.date >= :start AND je.date <= :end
         WHERE ca.code LIKE '6%'
         GROUP BY ca.id, ca.code, ca.name
@@ -692,7 +692,7 @@ if ($action === 'drilldown_budget') {
               FROM chart_of_accounts ca
               LEFT JOIN journal_lines jl ON jl.account_id = ca.id
               LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
-                   AND je.status = 'approved'
+                   AND je.status = 'posted'
                    AND je.date >= :start AND je.date <= :end
              WHERE ca.code LIKE '6%'
              GROUP BY ca.id
@@ -769,7 +769,7 @@ if ($action === 'drilldown_gross_margin_cat') {
         FROM chart_of_accounts ca
         LEFT JOIN journal_lines   jl ON jl.account_id = ca.id
         LEFT JOIN journal_entries je ON jl.journal_entry_id = je.id
-            AND je.status = 'approved'
+            AND je.status = 'posted'
             AND je.date >= :start AND je.date <= :end
         WHERE ca.code LIKE '70%' OR ca.code LIKE '6%'
         GROUP BY ca.id
@@ -837,7 +837,7 @@ if ($action === 'drilldown_budget_execution') {
               FROM journal_lines jl
               JOIN journal_entries je ON jl.journal_entry_id = je.id
               JOIN chart_of_accounts ca ON jl.account_id = ca.id
-             WHERE je.status = 'approved'
+             WHERE je.status = 'posted'
                AND ca.type = 'expense'
                AND je.date >= :year_start AND je.date <= :year_end
              GROUP BY ca.code

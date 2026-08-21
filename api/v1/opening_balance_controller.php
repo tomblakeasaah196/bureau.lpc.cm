@@ -192,7 +192,13 @@ if ($method === 'GET' && $action === 'load') {
             'name'             => $r['name'],
             'type'             => $r['type'],
             'is_active'        => (int) $r['is_active'] === 1,
-            'class'            => substr((string)$r['code'], 0, 1),
+            // SYSCOHADA class comes from the OHADA PARENT's number, not from
+            // chart_of_accounts.code. Legacy auxiliary codes are LPC-prefixed
+            // (LPC40111, LPC52111 ...), so taking the code's first character
+            // grouped every one of them under a nonsense "CLASSE L" and made
+            // them slip past the 6/7/8 P&L filter. The parent account_number is
+            // the authoritative classification for any code shape.
+            'class'            => substr((string)$r['ohada_number'], 0, 1),
             'ohada_number'     => $r['ohada_number'],
             'ohada_name'       => $r['ohada_name'],
             'treasury_id'      => $r['treasury_id'] ? (int) $r['treasury_id'] : null,

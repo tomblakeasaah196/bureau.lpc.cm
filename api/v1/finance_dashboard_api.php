@@ -184,8 +184,9 @@ if ($__action === 'drilldown_cash') {
         FROM journal_lines jl
         JOIN journal_entries je ON jl.journal_entry_id = je.id
         JOIN chart_of_accounts coa ON jl.account_id = coa.id
-        WHERE coa.code IN ('LPC05711', 'LPC52111')
-          AND je.status = 'approved'
+        WHERE coa.ohada_account_id IN (SELECT id FROM ohada_accounts
+                                     WHERE account_number LIKE '52%' OR account_number LIKE '57%')
+          AND je.status = 'posted'
           AND je.date BETWEEN :s AND :e
         ORDER BY je.date DESC, je.id DESC
     ";
@@ -222,13 +223,14 @@ if ($__action === 'drilldown_ar') {
 
 if ($__action === 'drilldown_ap') {
     // Supplier balances as of end_date. supplier_invoices is the source of truth
-    // where it exists; falls back to journal_lines against LPC40111 otherwise.
+    // where it exists; falls back to journal_lines against 40x otherwise.
     $sql = "
         FROM journal_lines jl
         JOIN journal_entries je ON jl.journal_entry_id = je.id
         JOIN chart_of_accounts coa ON jl.account_id = coa.id
-        WHERE coa.code = 'LPC40111'
-          AND je.status = 'approved'
+        WHERE coa.ohada_account_id IN (SELECT id FROM ohada_accounts
+                                     WHERE account_number LIKE '40%')
+          AND je.status = 'posted'
           AND je.date <= :e
         ORDER BY je.date DESC
     ";
@@ -291,7 +293,7 @@ if ($__action === 'drilldown_margin') {
         FROM chart_of_accounts coa
         LEFT JOIN journal_lines jl ON jl.account_id = coa.id
         LEFT JOIN journal_entries je ON jl.journal_entry_id = je.id
-            AND je.status = 'approved'
+            AND je.status = 'posted'
             AND je.date BETWEEN :s AND :e
         WHERE coa.type IN ('revenue', 'expense')
         GROUP BY coa.id, coa.name, coa.type
@@ -317,10 +319,16 @@ if ($__action === 'drilldown_margin') {
 
 // -----------------------------------------------------------------------------
 // KPI closures.
-// Codes 'LPC05711' (caisse) and 'LPC52111' (banque) are the pinned cash and
-// bank accounts on this install. They are kept as literal filters here rather
-// than name-matched — an accountant renaming the account in the CoA should
-// NOT silently break the dashboard.
+// Cash and bank are resolved through the OHADA parent (52x Banques, 57x
+// Caisse), not through literal chart_of_accounts codes.
+//
+// These filters used to name 'LPC05711' and 'LPC52111' — two legacy
+// auxiliary rows from the original seed. Pinning to them meant the KPI
+// only ever saw those two accounts: a bank account added later showed up
+// nowhere, and removing the legacy rows would have zeroed the dashboard.
+// Resolving by OHADA prefix keeps the intent (renaming an account must not
+// break the dashboard) while covering every cash and bank account that
+// exists, whatever its code.
 // -----------------------------------------------------------------------------
 $q_cash = function () use ($db, $end_date): float {
     // Cumulative balance up to end_date — cash disponible is a stock KPI,
@@ -330,8 +338,9 @@ $q_cash = function () use ($db, $end_date): float {
           FROM journal_lines jl
           JOIN journal_entries je ON jl.journal_entry_id = je.id
           JOIN chart_of_accounts coa ON jl.account_id = coa.id
-         WHERE coa.code IN ('LPC05711', 'LPC52111')
-           AND je.status = 'approved'
+         WHERE coa.ohada_account_id IN (SELECT id FROM ohada_accounts
+                                     WHERE account_number LIKE '52%' OR account_number LIKE '57%')
+           AND je.status = 'posted'
            AND je.date <= :e
     ");
     $stmt->execute(['e' => $end_date]);
@@ -343,8 +352,9 @@ $q_cash_prev = function () use ($db, $prev_end): float {
           FROM journal_lines jl
           JOIN journal_entries je ON jl.journal_entry_id = je.id
           JOIN chart_of_accounts coa ON jl.account_id = coa.id
-         WHERE coa.code IN ('LPC05711', 'LPC52111')
-           AND je.status = 'approved'
+         WHERE coa.ohada_account_id IN (SELECT id FROM ohada_accounts
+                                     WHERE account_number LIKE '52%' OR account_number LIKE '57%')
+           AND je.status = 'posted'
            AND je.date <= :e
     ");
     $stmt->execute(['e' => $prev_end]);
@@ -357,14 +367,15 @@ $q_ar_total = function () use ($db): float {
 };
 
 $q_ap_total = function () use ($db, $end_date): float {
-    // OHADA supplier account: LPC40111 — credit increases, debit decreases.
+    // OHADA supplier accounts (40x Fournisseurs) — credit increases, debit decreases.
     $stmt = $db->prepare("
         SELECT COALESCE(SUM(jl.credit - jl.debit), 0) AS v
           FROM journal_lines jl
           JOIN journal_entries je ON jl.journal_entry_id = je.id
           JOIN chart_of_accounts coa ON jl.account_id = coa.id
-         WHERE coa.code = 'LPC40111'
-           AND je.status = 'approved'
+         WHERE coa.ohada_account_id IN (SELECT id FROM ohada_accounts
+                                     WHERE account_number LIKE '40%')
+           AND je.status = 'posted'
            AND je.date <= :e
     ");
     $stmt->execute(['e' => $end_date]);
@@ -376,8 +387,9 @@ $q_ap_prev = function () use ($db, $prev_end): float {
           FROM journal_lines jl
           JOIN journal_entries je ON jl.journal_entry_id = je.id
           JOIN chart_of_accounts coa ON jl.account_id = coa.id
-         WHERE coa.code = 'LPC40111'
-           AND je.status = 'approved'
+         WHERE coa.ohada_account_id IN (SELECT id FROM ohada_accounts
+                                     WHERE account_number LIKE '40%')
+           AND je.status = 'posted'
            AND je.date <= :e
     ");
     $stmt->execute(['e' => $prev_end]);
@@ -401,7 +413,7 @@ $q_revenue = function ($sd, $ed) use ($db): float {
           JOIN chart_of_accounts coa ON jl.account_id = coa.id
          WHERE coa.type = 'revenue'
            AND je.date BETWEEN :s AND :e
-           AND je.status = 'approved'
+           AND je.status = 'posted'
     ");
     $stmt->execute(['s' => $sd, 'e' => $ed]);
     return (float) $stmt->fetch()['v'];
@@ -414,7 +426,7 @@ $q_expenses = function ($sd, $ed) use ($db): float {
           JOIN chart_of_accounts coa ON jl.account_id = coa.id
          WHERE coa.type = 'expense'
            AND je.date BETWEEN :s AND :e
-           AND je.status = 'approved'
+           AND je.status = 'posted'
     ");
     $stmt->execute(['s' => $sd, 'e' => $ed]);
     return (float) $stmt->fetch()['v'];
@@ -530,8 +542,9 @@ try {
           FROM journal_lines jl
           JOIN journal_entries je ON jl.journal_entry_id = je.id
           JOIN chart_of_accounts coa ON jl.account_id = coa.id
-         WHERE coa.code IN ('LPC05711', 'LPC52111')
-           AND je.status = 'approved'
+         WHERE coa.ohada_account_id IN (SELECT id FROM ohada_accounts
+                                     WHERE account_number LIKE '52%' OR account_number LIKE '57%')
+           AND je.status = 'posted'
            AND je.date BETWEEN :s AND :e
          GROUP BY je.date
          ORDER BY je.date ASC

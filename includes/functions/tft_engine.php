@@ -122,7 +122,7 @@ function _tft_class_balance(PDO $pdo, string $prefix, int $year): float
         "SELECT COALESCE(SUM(jl.debit - jl.credit),0)
            FROM journal_lines jl
            JOIN chart_of_accounts ca ON ca.id = jl.account_id
-           JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status='approved'
+           JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status='posted'
           WHERE SUBSTRING(ca.code,1,LENGTH(?)) = ?
             AND YEAR(je.date) <= ?"
     );
@@ -145,7 +145,7 @@ function _tft_period_debit(PDO $pdo, string $prefix, int $year): float
         "SELECT COALESCE(SUM(jl.debit),0)
            FROM journal_lines jl
            JOIN chart_of_accounts ca ON ca.id = jl.account_id
-           JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status='approved'
+           JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status='posted'
           WHERE ca.code LIKE :pref AND YEAR(je.date) = :yr"
     );
     $st->execute(['pref' => $prefix . '%', 'yr' => $year]);
@@ -157,7 +157,7 @@ function _tft_period_credit(PDO $pdo, string $prefix, int $year): float
         "SELECT COALESCE(SUM(jl.credit),0)
            FROM journal_lines jl
            JOIN chart_of_accounts ca ON ca.id = jl.account_id
-           JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status='approved'
+           JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status='posted'
           WHERE ca.code LIKE :pref AND YEAR(je.date) = :yr"
     );
     $st->execute(['pref' => $prefix . '%', 'yr' => $year]);

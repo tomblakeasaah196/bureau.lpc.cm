@@ -67,7 +67,7 @@ function getFinancialAggregates($pdo, $year) {
             SUM(CASE WHEN YEAR(je.date) = ?  THEN jl.credit ELSE 0 END) as per_credit_n1
         FROM chart_of_accounts ca
         JOIN journal_lines jl ON ca.id = jl.account_id
-        JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'approved'
+        JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'posted'
         GROUP BY ca.id
     ");
     $yn  = $year;
@@ -255,7 +255,7 @@ if ($method === 'GET') {
                        SUM(jl.debit) as debit, SUM(jl.credit) as credit
                 FROM chart_of_accounts ca
                 JOIN journal_lines jl ON ca.id = jl.account_id
-                JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'approved'
+                JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'posted'
                 WHERE $wherePrefix AND $dateClause
                 GROUP BY ca.id
                 HAVING debit > 0 OR credit > 0
@@ -544,9 +544,17 @@ if ($method === 'POST') {
             $ref = "AN-$next_year";
             $desc = "A-Nouveaux (Reports d'ouverture exercice $next_year)";
             
-            $stmtH = $pdo->prepare("INSERT INTO journal_entries (reference, journal_code, date, description, status, created_by, approved_by) VALUES (?, 'OD', ?, ?, 'approved', ?, ?)");
-            $stmtH->execute([$ref, "$next_year-01-01", $desc, $user_id, $user_id]);
-            $an_entry_id = $pdo->lastInsertId();
+            // Insert as 'draft', never 'approved': migration 039 narrowed
+            // journal_entries.status to ENUM('draft','posted','reversed'), and
+            // there is no approved_by column (migration 004 adds posted_by /
+            // posted_at). The old statement therefore wrote an invalid enum
+            // and named a column that does not exist. Draft is also required:
+            // bi_journal_lines_check refuses to attach a line to a posted
+            // entry, so the transition happens after the lines, through
+            // post_journal_entry.
+            $stmtH = $pdo->prepare("INSERT INTO journal_entries (reference, journal_code, date, description, status, created_by) VALUES (?, 'OD', ?, ?, 'draft', ?)");
+            $stmtH->execute([$ref, "$next_year-01-01", $desc, $user_id]);
+            $an_entry_id = (int) $pdo->lastInsertId();
 
             $stmtL = $pdo->prepare("INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit) VALUES (?, ?, ?, ?)");
 
@@ -555,7 +563,7 @@ if ($method === 'POST') {
                 SELECT ca.id, SUM(jl.debit - jl.credit) as net
                 FROM chart_of_accounts ca
                 JOIN journal_lines jl ON ca.id = jl.account_id
-                JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'approved'
+                JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'posted'
                 WHERE SUBSTRING(ca.code, 1, 1) IN ('1','2','3','4','5') AND YEAR(je.date) <= ?
                 GROUP BY ca.id
                 HAVING net != 0
@@ -587,6 +595,13 @@ if ($method === 'POST') {
                     $stmtL->execute([$an_entry_id, $acc_13, $deb, $cre]);
                 }
             }
+
+            // Post the A-Nouveaux entry. The stored proc re-asserts
+            // SUM(debit) = SUM(credit) and stamps posted_at / posted_by;
+            // without it the entry stays a draft that no report reads.
+            $anPost = $pdo->prepare("CALL post_journal_entry(?, ?)");
+            $anPost->execute([$an_entry_id, $user_id]);
+            $anPost->closeCursor();
 
             // 5. Lock the Year
             $stmtClose = $pdo->prepare("
