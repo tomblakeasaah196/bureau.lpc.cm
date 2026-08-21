@@ -19,7 +19,7 @@ try {
     require_once __DIR__ . '/../../includes/functions/notify.php';
     $pdo = Database::getInstance()->getConnection();
 } catch (Exception $e) {
-    error_log('API error: ' . $e->getMessage());
+    error_log('API error: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     echo json_encode(['status' => 'error', 'message' => 'Erreur serveur. Veuillez réessayer.']);
     exit;
 }

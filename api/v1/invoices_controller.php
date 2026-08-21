@@ -32,7 +32,7 @@ try {
     // Initialize the PDO connection!
     $pdo = Database::getInstance()->getConnection(); 
 } catch (Exception $e) {
-    error_log('API error: ' . $e->getMessage());
+    error_log('API error: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     echo json_encode(['status' => 'error', 'message' => 'Erreur serveur. Veuillez réessayer.']);
     exit;
 }
@@ -457,7 +457,16 @@ try {
                     ];
                     $responseData['sort'] = ['key' => $sort_key, 'dir' => $dir];
                 } catch (Throwable $e) {
-                    error_log('to_invoice tab: ' . $e->getMessage());
+                    // One-off HY093 was reported here on 21-Aug-2026 with no
+                    // way to identify the offending param/placeholder combo.
+                    // Log the paginated SQL body + bound params + inputs that
+                    // shaped them so the next occurrence pinpoints itself.
+                    error_log('to_invoice tab: ' . $e->getMessage()
+                        . ' | body=' . $body
+                        . ' | params=' . json_encode($params)
+                        . ' | sort=' . $sort_key . '/' . $dir
+                        . ' | client_id=' . $filter_client
+                        . ' | q=' . $lpc_q);
                     $responseData['deliveries'] = [];
                 }
 

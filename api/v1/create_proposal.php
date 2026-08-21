@@ -173,11 +173,11 @@ try {
     if (isset($db)) $db->rollBack();
     // Keep outputting the raw error so we can catch any other mismatches!
     http_response_code(200); 
-    error_log('API error: ' . $e->getMessage());
+    error_log('API error: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     echo json_encode(['status' => 'error', 'message' => 'Erreur serveur. Veuillez réessayer.']);
 } catch (Exception $e) {
     if (isset($db)) $db->rollBack();
     http_response_code(200);
-    error_log('API error: ' . $e->getMessage());
+    error_log('API error: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     echo json_encode(['status' => 'error', 'message' => 'Erreur serveur. Veuillez réessayer.']);
 }

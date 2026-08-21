@@ -35,6 +35,6 @@ try {
     echo json_encode(['status' => 'success', 'data' => $clients]);
 
 } catch (PDOException $e) {
-    error_log('API error: ' . $e->getMessage());
+    error_log('API error: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     echo json_encode(['status' => 'error', 'message' => 'Erreur serveur. Veuillez réessayer.']);
 }
