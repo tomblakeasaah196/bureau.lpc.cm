@@ -142,10 +142,10 @@ if ($method === 'GET') {
                         ca.id as aux_id, ca.code as aux_code, ca.name as aux_name,
                         oa.account_number as master_code, oa.name as master_name,
                         SUBSTRING(oa.account_number, 1, 1) as class_code,
-                        COALESCE(SUM(CASE WHEN YEAR(je.date) < :yr THEN jl.debit  ELSE 0 END), 0) as ouv_d_raw,
-                        COALESCE(SUM(CASE WHEN YEAR(je.date) < :yr THEN jl.credit ELSE 0 END), 0) as ouv_c_raw,
-                        COALESCE(SUM(CASE WHEN YEAR(je.date) = :yr THEN jl.debit  ELSE 0 END), 0) as mvt_d,
-                        COALESCE(SUM(CASE WHEN YEAR(je.date) = :yr THEN jl.credit ELSE 0 END), 0) as mvt_c
+                        COALESCE(SUM(CASE WHEN YEAR(je.date) < :yr_ouv_d THEN jl.debit  ELSE 0 END), 0) as ouv_d_raw,
+                        COALESCE(SUM(CASE WHEN YEAR(je.date) < :yr_ouv_c THEN jl.credit ELSE 0 END), 0) as ouv_c_raw,
+                        COALESCE(SUM(CASE WHEN YEAR(je.date) = :yr_mvt_d THEN jl.debit  ELSE 0 END), 0) as mvt_d,
+                        COALESCE(SUM(CASE WHEN YEAR(je.date) = :yr_mvt_c THEN jl.credit ELSE 0 END), 0) as mvt_c
                     FROM chart_of_accounts ca
                     JOIN ohada_accounts oa ON ca.ohada_account_id = oa.id
                     LEFT JOIN journal_lines jl ON ca.id = jl.account_id
@@ -155,7 +155,15 @@ if ($method === 'GET') {
                     ORDER BY ca.code ASC
                 ";
                 $stmt = $pdo->prepare($sql);
-                $stmt->execute(['yr' => $year]);
+                // Real (non-emulated) PDO prepares require one bound value per
+                // placeholder occurrence — reusing :yr four times raised
+                // SQLSTATE[HY093]. Bind each occurrence separately.
+                $stmt->execute([
+                    'yr_ouv_d' => $year,
+                    'yr_ouv_c' => $year,
+                    'yr_mvt_d' => $year,
+                    'yr_mvt_c' => $year,
+                ]);
                 $rows = $stmt->fetchAll();
 
                 // Build the Hierarchical Tree

@@ -1640,6 +1640,6 @@ try {
     echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
 } catch (Exception $e) {
     if (isset($db) && $db instanceof PDO && $db->inTransaction()) $db->rollBack();
-    http_response_code(500); error_log('API error: ' . $e->getMessage());
+    http_response_code(500); error_log('API error: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     echo json_encode(['status' => 'error', 'message' => 'Erreur serveur. Veuillez réessayer.']);
 }

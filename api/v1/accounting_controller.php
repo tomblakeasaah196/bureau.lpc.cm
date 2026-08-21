@@ -39,7 +39,7 @@ try {
     require_once '../../includes/classes/Database.php';
     $pdo = Database::getInstance()->getConnection();
 } catch (Exception $e) {
-    error_log('API error: ' . $e->getMessage());
+    error_log('API error: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     echo json_encode(['status' => 'error', 'message' => 'Erreur serveur. Veuillez réessayer.']);
     exit;
 }
@@ -72,6 +72,40 @@ if ($method === 'GET') {
                 // 2. Fetch LPC Auxiliary Accounts
                 $stmtA = $pdo->query("SELECT id, ohada_account_id, code, name, type FROM chart_of_accounts WHERE is_active = 1 ORDER BY code ASC");
                 $response_data['lpc_accounts'] = $stmtA->fetchAll();
+                break;
+
+            case 'chart_admin':
+                // Full chart for the admin editor: every CoA row (active
+                // and inactive) with parent info and a usage count that
+                // decides whether Deactivate/Delete are safe.
+                Rbac::requirePermission('accounting.chart.view');
+
+                $ohada = $pdo->query("
+                    SELECT id, account_number, name, type
+                      FROM ohada_accounts
+                     ORDER BY account_number ASC
+                ")->fetchAll();
+
+                $coa = $pdo->query("
+                    SELECT c.id, c.ohada_account_id, c.code, c.name, c.type,
+                           c.is_active,
+                           o.account_number AS ohada_number,
+                           o.name           AS ohada_name,
+                           (SELECT COUNT(*) FROM journal_lines jl
+                             WHERE jl.account_id = c.id)              AS lines_count,
+                           (SELECT COUNT(*) FROM expense_categories ec
+                             WHERE ec.coa_account_id = c.id)          AS categories_count
+                      FROM chart_of_accounts c
+                      JOIN ohada_accounts    o ON o.id = c.ohada_account_id
+                     ORDER BY c.code ASC
+                ")->fetchAll();
+
+                $response_data['ohada_masters'] = $ohada;
+                $response_data['coa']           = $coa;
+                $response_data['can_edit']      =
+                    Rbac::hasPermission('accounting.chart.edit');
+                $response_data['can_create']    =
+                    Rbac::hasPermission('accounting.chart.create');
                 break;
 
             case 'queue':
@@ -152,6 +186,7 @@ else if ($method === 'POST') {
 
         // 1. CREATE AUXILIARY ACCOUNT (Plan Comptable LPC)
         if ($action === 'create_lpc_account') {
+            Rbac::requirePermission('accounting.chart.create');
             $ohada_id = (int)$payload['ohada_account_id'];
             $code = trim($payload['code']);
             $name = trim($payload['name']);
@@ -167,12 +202,158 @@ else if ($method === 'POST') {
             $stmtP = $pdo->prepare("SELECT type FROM ohada_accounts WHERE id = ?");
             $stmtP->execute([$ohada_id]);
             $type = $stmtP->fetchColumn();
+            if (!$type) throw new Exception("Compte OHADA parent introuvable.");
 
-            $stmtI = $pdo->prepare("INSERT INTO chart_of_accounts (ohada_account_id, code, name, type) VALUES (?, ?, ?, ?)");
+            $stmtI = $pdo->prepare("INSERT INTO chart_of_accounts (ohada_account_id, code, name, type, is_active) VALUES (?, ?, ?, ?, 1)");
             $stmtI->execute([$ohada_id, $code, $name, $type]);
 
             $pdo->commit();
-            sendResponse('success', 'Compte LPC créé avec succès.');
+            sendResponse('success', 'Compte LPC créé avec succès.',
+                ['id' => (int)$pdo->lastInsertId()]);
+        }
+
+        // -----------------------------------------------------------------
+        // CoA admin — add/rename/deactivate rows in ohada_accounts and
+        // chart_of_accounts without a migration.
+        //
+        // Rename touches display text only; historical journal lines
+        // reference chart_of_accounts.id and are unaffected. Deactivating a
+        // CoA row flips is_active off — the row still exists so old journal
+        // lines stay resolvable, but it disappears from the pickers.
+        //
+        // Codes (ohada_accounts.account_number and chart_of_accounts.code)
+        // are never mutated by the editor. Historical postings and the
+        // budget-bucket mappings in migration 091 both look accounts up by
+        // code, so a mutation would silently reroute posted history. If a
+        // code was wrong, fix it in a migration (like 117 for 6252) and let
+        // the reviewer trace it — never through a UI.
+        // -----------------------------------------------------------------
+        if ($action === 'create_ohada_account') {
+            Rbac::requirePermission('accounting.chart.create');
+            $number = trim((string)($payload['account_number'] ?? ''));
+            $name   = trim((string)($payload['name'] ?? ''));
+            $type   = trim((string)($payload['type'] ?? ''));
+
+            if (!preg_match('/^[0-9]{2,6}$/', $number)) {
+                throw new Exception("Le numéro OHADA doit être 2 à 6 chiffres.");
+            }
+            if ($name === '') throw new Exception("Nom obligatoire.");
+            $allowed = ['asset','liability','equity','revenue','expense'];
+            if (!in_array($type, $allowed, true)) {
+                throw new Exception("Type invalide.");
+            }
+
+            $chk = $pdo->prepare("SELECT id FROM ohada_accounts WHERE account_number = ?");
+            $chk->execute([$number]);
+            if ($chk->fetchColumn()) {
+                throw new Exception("Le compte OHADA $number existe déjà.");
+            }
+
+            $ins = $pdo->prepare("INSERT INTO ohada_accounts (account_number, name, type) VALUES (?, ?, ?)");
+            $ins->execute([$number, $name, $type]);
+            $ohada_id = (int)$pdo->lastInsertId();
+
+            // Auto-mirror a chart_of_accounts front — the same pattern
+            // migration 053 uses. Without it the new OHADA parent cannot be
+            // referenced by an expense category or journal line.
+            $insCoa = $pdo->prepare("
+                INSERT INTO chart_of_accounts (ohada_account_id, code, name, type, is_active)
+                VALUES (?, ?, ?, ?, 1)
+            ");
+            $insCoa->execute([$ohada_id, $number, $name, $type]);
+            $coa_id = (int)$pdo->lastInsertId();
+
+            $pdo->commit();
+            sendResponse('success', 'Compte OHADA créé.',
+                ['ohada_id' => $ohada_id, 'coa_id' => $coa_id]);
+        }
+
+        if ($action === 'update_ohada_account') {
+            Rbac::requirePermission('accounting.chart.edit');
+            $id   = (int)($payload['id'] ?? 0);
+            $name = trim((string)($payload['name'] ?? ''));
+            if (!$id || $name === '') throw new Exception("Paramètres manquants.");
+
+            $upd = $pdo->prepare("UPDATE ohada_accounts SET name = ? WHERE id = ?");
+            $upd->execute([$name, $id]);
+
+            // Keep the front CoA row in sync IF its name still matches what
+            // the OHADA row was called before. A CoA row an operator has
+            // customised is left alone.
+            $syncCoa = $pdo->prepare("
+                UPDATE chart_of_accounts c
+                  JOIN ohada_accounts    o ON o.id = c.ohada_account_id
+                   SET c.name = ?
+                 WHERE c.ohada_account_id = ?
+                   AND (c.name = o.name OR c.name = c.code)
+            ");
+            $syncCoa->execute([$name, $id]);
+
+            $pdo->commit();
+            sendResponse('success', 'Compte OHADA renommé.');
+        }
+
+        if ($action === 'update_lpc_account') {
+            Rbac::requirePermission('accounting.chart.edit');
+            $id   = (int)($payload['id'] ?? 0);
+            $name = trim((string)($payload['name'] ?? ''));
+            if (!$id || $name === '') throw new Exception("Paramètres manquants.");
+
+            $upd = $pdo->prepare("UPDATE chart_of_accounts SET name = ? WHERE id = ?");
+            $upd->execute([$name, $id]);
+
+            $pdo->commit();
+            sendResponse('success', 'Compte renommé.');
+        }
+
+        if ($action === 'set_lpc_account_active') {
+            Rbac::requirePermission('accounting.chart.edit');
+            $id     = (int)($payload['id'] ?? 0);
+            $active = !empty($payload['is_active']) ? 1 : 0;
+            if (!$id) throw new Exception("Paramètres manquants.");
+
+            // Refuse to deactivate a row that an expense category still
+            // points at — the category would silently start rejecting saves
+            // (postExpense throws when coaForCategory returns null). The
+            // operator must remap the category first.
+            if (!$active) {
+                $used = $pdo->prepare("
+                    SELECT COUNT(*) FROM expense_categories
+                     WHERE coa_account_id = ?
+                ");
+                $used->execute([$id]);
+                $n = (int)$used->fetchColumn();
+                if ($n > 0) {
+                    throw new Exception(
+                        "Ce compte est utilisé par $n catégorie(s) de dépense. Remappez-les avant de désactiver."
+                    );
+                }
+            }
+
+            $upd = $pdo->prepare("UPDATE chart_of_accounts SET is_active = ? WHERE id = ?");
+            $upd->execute([$active, $id]);
+
+            $pdo->commit();
+            sendResponse('success', $active ? 'Compte réactivé.' : 'Compte désactivé.');
+        }
+
+        if ($action === 'remap_expense_category') {
+            Rbac::requirePermission('accounting.chart.edit');
+            $cat_id = (int)($payload['category_id'] ?? 0);
+            $coa_id = (int)($payload['coa_account_id'] ?? 0);
+            if (!$cat_id || !$coa_id) throw new Exception("Paramètres manquants.");
+
+            $chk = $pdo->prepare("SELECT is_active FROM chart_of_accounts WHERE id = ?");
+            $chk->execute([$coa_id]);
+            $act = $chk->fetchColumn();
+            if ($act === false) throw new Exception("Compte cible introuvable.");
+            if ((int)$act !== 1) throw new Exception("Compte cible désactivé.");
+
+            $upd = $pdo->prepare("UPDATE expense_categories SET coa_account_id = ? WHERE id = ?");
+            $upd->execute([$coa_id, $cat_id]);
+
+            $pdo->commit();
+            sendResponse('success', 'Catégorie remappée.');
         }
 
         // 2. SAVE JOURNAL ENTRY (Draft or Post directly)

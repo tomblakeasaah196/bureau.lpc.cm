@@ -119,6 +119,9 @@ $CATALOGUE = [
   'analytics'      => ['href'=>'/modules/analytics/reports.php',                 'icon'=>$I['chart'],     'permission'=>'analytics.reports.view',       'label_fr'=>'Rapports Consolidés',     'label_en'=>'Consolidated Reports'],
 
   'admin_mdm'      => ['href'=>'/modules/admin/master_data.php',                 'icon'=>$I['building'],  'permission'=>'admin.master_data.view',       'label_fr'=>'Données de Base (GDB)',   'label_en'=>'Master Data'],
+  // Plan Comptable admin (migration 117): add / rename / deactivate OHADA
+  // and CoA rows, and remap expense categories at their target account.
+  'admin_coa'      => ['href'=>'/modules/admin/chart_of_accounts.php',            'icon'=>$I['calculator'],'permission'=>'accounting.chart.view',        'label_fr'=>'Plan Comptable',          'label_en'=>'Chart of Accounts'],
   // Sprint 8: points at the Settings module's RBAC tab, not the old standalone
   // page. modules/admin/roles.php still exists but only 302s here — two UIs
   // over one API (api/v1/rbac_controller.php) was the duplication that left the
@@ -295,7 +298,7 @@ $PROFILES['default'] = [
   ['heading_fr'=>'Ressources Humaines','heading_en'=>'Human Resources','items'=>[['ref'=>'hr_payroll']]],
   ['heading_fr'=>'Analyses','heading_en'=>'Analytics','items'=>[['ref'=>'analytics']]],
   ['heading_fr'=>'Administration','heading_en'=>'Administration','items'=>[
-    ['ref'=>'admin_mdm'],['ref'=>'admin_roles'],['ref'=>'admin_errors'],['ref'=>'admin_settings']]],
+    ['ref'=>'admin_mdm'],['ref'=>'admin_coa'],['ref'=>'admin_roles'],['ref'=>'admin_errors'],['ref'=>'admin_settings']]],
 ];
 
 return ['catalogue' => $CATALOGUE, 'profiles' => $PROFILES, 'aliases' => $PROFILE_ALIASES];
