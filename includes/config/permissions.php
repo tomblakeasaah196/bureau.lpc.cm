@@ -110,6 +110,7 @@ $LPC_PERMISSIONS = [
 
         'accounting.chart.view'            => 'Voir le plan comptable',
         'accounting.chart.create'          => 'Créer un compte',
+        'accounting.chart.edit'            => 'Renommer / désactiver un compte du plan comptable',
 
         'accounting.ledger.view'           => 'Voir le grand livre',
         'accounting.ledger.lettrage'       => 'Lettrer les écritures',
@@ -273,7 +274,7 @@ $LPC_DEFAULT_ROLE_PERMISSIONS = [
         'accounting.invoices.view', 'accounting.invoices.create',
         'accounting.invoices.record_payment', 'accounting.invoices.validate_cash',
         'accounting.journal.view', 'accounting.journal.create', 'accounting.journal.approve',
-        'accounting.chart.view', 'accounting.chart.create',
+        'accounting.chart.view', 'accounting.chart.create', 'accounting.chart.edit',
         'accounting.ledger.view', 'accounting.ledger.lettrage',
         'accounting.cashflow.view', 'accounting.cashflow.transfer',
         'accounting.cashflow.expense', 'accounting.cashflow.reconcile',
