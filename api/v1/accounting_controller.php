@@ -203,6 +203,13 @@ else if ($method === 'POST') {
             $stmtP->execute([$ohada_id]);
             $type = $stmtP->fetchColumn();
             if (!$type) throw new Exception("Compte OHADA parent introuvable.");
+            // ohada_accounts.type carries an 'other' member that
+            // chart_of_accounts.type does not accept — migration 084 maps it
+            // to 'asset' when it seeds its own mirrors. Copying the parent
+            // type raw would fail on a strict sql_mode, or write an empty
+            // type on a lax one. The parent picker on the new admin screen
+            // lists every OHADA row, so this is now reachable from the UI.
+            if ($type === 'other') $type = 'asset';
 
             $stmtI = $pdo->prepare("INSERT INTO chart_of_accounts (ohada_account_id, code, name, type, is_active) VALUES (?, ?, ?, ?, 1)");
             $stmtI->execute([$ohada_id, $code, $name, $type]);
@@ -249,6 +256,19 @@ else if ($method === 'POST') {
                 throw new Exception("Le compte OHADA $number existe déjà.");
             }
 
+            // The mirror below writes chart_of_accounts.code = $number, and
+            // chart_of_accounts.code does NOT carry a UNIQUE index on every
+            // install (migrations 038, 065 and 084 each say so and guard
+            // their own seeds with NOT EXISTS). Without this check a second
+            // row with the same code could be created, and every lookup that
+            // resolves an account by code — lpc_account_for(), the budget
+            // bucket map in migration 091 — would silently pick one of two.
+            $chkCoa = $pdo->prepare("SELECT id FROM chart_of_accounts WHERE code = ?");
+            $chkCoa->execute([$number]);
+            if ($chkCoa->fetchColumn()) {
+                throw new Exception("Un compte du plan porte déjà le code $number.");
+            }
+
             $ins = $pdo->prepare("INSERT INTO ohada_accounts (account_number, name, type) VALUES (?, ?, ?)");
             $ins->execute([$number, $name, $type]);
             $ohada_id = (int)$pdo->lastInsertId();
@@ -274,6 +294,16 @@ else if ($method === 'POST') {
             $name = trim((string)($payload['name'] ?? ''));
             if (!$id || $name === '') throw new Exception("Paramètres manquants.");
 
+            // Capture the OLD name BEFORE the update. The sync below has to
+            // compare each CoA row against what the OHADA row used to be
+            // called; joining ohada_accounts after the update would compare
+            // it against the NEW name, which only ever matches rows that
+            // already carry it — so the sync silently did nothing.
+            $prev = $pdo->prepare("SELECT name FROM ohada_accounts WHERE id = ?");
+            $prev->execute([$id]);
+            $old_name = $prev->fetchColumn();
+            if ($old_name === false) throw new Exception("Compte OHADA introuvable.");
+
             $upd = $pdo->prepare("UPDATE ohada_accounts SET name = ? WHERE id = ?");
             $upd->execute([$name, $id]);
 
@@ -281,13 +311,12 @@ else if ($method === 'POST') {
             // the OHADA row was called before. A CoA row an operator has
             // customised is left alone.
             $syncCoa = $pdo->prepare("
-                UPDATE chart_of_accounts c
-                  JOIN ohada_accounts    o ON o.id = c.ohada_account_id
-                   SET c.name = ?
-                 WHERE c.ohada_account_id = ?
-                   AND (c.name = o.name OR c.name = c.code)
+                UPDATE chart_of_accounts
+                   SET name = ?
+                 WHERE ohada_account_id = ?
+                   AND (name = ? OR name = code)
             ");
-            $syncCoa->execute([$name, $id]);
+            $syncCoa->execute([$name, $id, $old_name]);
 
             $pdo->commit();
             sendResponse('success', 'Compte OHADA renommé.');
@@ -312,20 +341,55 @@ else if ($method === 'POST') {
             $active = !empty($payload['is_active']) ? 1 : 0;
             if (!$id) throw new Exception("Paramètres manquants.");
 
-            // Refuse to deactivate a row that an expense category still
-            // points at — the category would silently start rejecting saves
-            // (postExpense throws when coaForCategory returns null). The
-            // operator must remap the category first.
+            // Refuse to deactivate a row that any CONFIGURATION still points
+            // at. Each of these columns stores a chart_of_accounts.id that a
+            // posting routine dereferences at run time; deactivating the
+            // target does not clear the pointer, so the breakage only shows
+            // up later, at the till, as a failed posting.
+            //
+            // journal_lines is deliberately NOT in this list: historical
+            // postings referencing the account are exactly why we deactivate
+            // instead of deleting, so they must never block.
+            //
+            // Each pair is probed against information_schema first, so an
+            // install that predates one of these modules is skipped rather
+            // than erroring on an unknown column.
             if (!$active) {
-                $used = $pdo->prepare("
-                    SELECT COUNT(*) FROM expense_categories
-                     WHERE coa_account_id = ?
+                $refs = [
+                    ['expense_categories', 'coa_account_id',             'catégorie(s) de dépense'],
+                    ['treasury_accounts',  'coa_account_id',             'compte(s) de trésorerie'],
+                    ['products',           'revenue_account_id',         'produit(s) — compte de vente'],
+                    ['products',           'stock_account_id',           'produit(s) — compte de stock'],
+                    ['products',           'cogs_account_id',            'produit(s) — compte de coût'],
+                    ['fixed_assets',       'expense_account_id',         'immobilisation(s) — charge'],
+                    ['fixed_assets',       'depr_account_id',            'immobilisation(s) — dotation'],
+                    ['fixed_assets',       'accumulated_depr_account_id','immobilisation(s) — amortissements'],
+                ];
+
+                $colExists = $pdo->prepare("
+                    SELECT COUNT(*) FROM information_schema.columns
+                     WHERE table_schema = DATABASE()
+                       AND table_name   = ?
+                       AND column_name  = ?
                 ");
-                $used->execute([$id]);
-                $n = (int)$used->fetchColumn();
-                if ($n > 0) {
+
+                $blockers = [];
+                foreach ($refs as [$table, $column, $label]) {
+                    $colExists->execute([$table, $column]);
+                    if ((int)$colExists->fetchColumn() === 0) continue;
+
+                    // Identifiers come from the literal list above, never from
+                    // input, so interpolating them is safe; only the id binds.
+                    $cnt = $pdo->prepare("SELECT COUNT(*) FROM `$table` WHERE `$column` = ?");
+                    $cnt->execute([$id]);
+                    $n = (int)$cnt->fetchColumn();
+                    if ($n > 0) $blockers[] = "$n $label";
+                }
+
+                if ($blockers) {
                     throw new Exception(
-                        "Ce compte est utilisé par $n catégorie(s) de dépense. Remappez-les avant de désactiver."
+                        "Ce compte est encore référencé par : " . implode(' ; ', $blockers)
+                        . ". Remappez ces éléments avant de désactiver."
                     );
                 }
             }
@@ -343,11 +407,23 @@ else if ($method === 'POST') {
             $coa_id = (int)($payload['coa_account_id'] ?? 0);
             if (!$cat_id || !$coa_id) throw new Exception("Paramètres manquants.");
 
-            $chk = $pdo->prepare("SELECT is_active FROM chart_of_accounts WHERE id = ?");
+            $chk = $pdo->prepare("SELECT is_active, type, code FROM chart_of_accounts WHERE id = ?");
             $chk->execute([$coa_id]);
-            $act = $chk->fetchColumn();
-            if ($act === false) throw new Exception("Compte cible introuvable.");
-            if ((int)$act !== 1) throw new Exception("Compte cible désactivé.");
+            $target = $chk->fetch(PDO::FETCH_ASSOC);
+            if (!$target) throw new Exception("Compte cible introuvable.");
+            if ((int)$target['is_active'] !== 1) throw new Exception("Compte cible désactivé.");
+
+            // An expense category posts a charge. Pointing one at a revenue,
+            // equity or liability account produces a journal entry on the
+            // wrong side of the books that nothing downstream would flag.
+            // 'asset' stays allowed — a capitalised purchase legitimately
+            // lands on a class 2 account.
+            if (in_array($target['type'], ['revenue', 'equity', 'liability'], true)) {
+                throw new Exception(
+                    "Le compte {$target['code']} est de type « {$target['type']} » : "
+                    . "une catégorie de dépense doit pointer sur un compte de charge (ou d'immobilisation)."
+                );
+            }
 
             $upd = $pdo->prepare("UPDATE expense_categories SET coa_account_id = ? WHERE id = ?");
             $upd->execute([$coa_id, $cat_id]);
