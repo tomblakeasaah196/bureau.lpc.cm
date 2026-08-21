@@ -152,7 +152,22 @@ if ($method === 'GET' && $action === 'load') {
     }
 
     // Every active CoA row + its OHADA parent + treasury linkage.
-    $rows = $pdo->query("
+    //
+    // Inactive accounts are included ONLY when the saved opening entry
+    // already carries an amount for them. Without that exception an account
+    // deactivated after the opening was keyed would vanish from this screen
+    // and be silently dropped from the entry on the next save — the totals
+    // would then stop balancing for a reason nothing on screen explains.
+    $keepInactive = array_keys($existing_amounts);
+    $inactiveClause = '';
+    $params = [];
+    if ($keepInactive) {
+        $ph = implode(',', array_fill(0, count($keepInactive), '?'));
+        $inactiveClause = " OR c.id IN ($ph)";
+        $params = $keepInactive;
+    }
+
+    $stmt = $pdo->prepare("
         SELECT c.id, c.code, c.name, c.type, c.is_active,
                o.account_number AS ohada_number,
                o.name           AS ohada_name,
@@ -162,9 +177,11 @@ if ($method === 'GET' && $action === 'load') {
           FROM chart_of_accounts c
           JOIN ohada_accounts    o ON o.id = c.ohada_account_id
           LEFT JOIN treasury_accounts t ON t.coa_account_id = c.id
-         WHERE c.is_active = 1
+         WHERE (c.is_active = 1{$inactiveClause})
          ORDER BY c.code ASC
-    ")->fetchAll(PDO::FETCH_ASSOC);
+    ");
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $accounts = array_map(function ($r) use ($existing_amounts) {
         $id = (int) $r['id'];
@@ -174,6 +191,7 @@ if ($method === 'GET' && $action === 'load') {
             'code'             => $r['code'],
             'name'             => $r['name'],
             'type'             => $r['type'],
+            'is_active'        => (int) $r['is_active'] === 1,
             'class'            => substr((string)$r['code'], 0, 1),
             'ohada_number'     => $r['ohada_number'],
             'ohada_name'       => $r['ohada_name'],
@@ -208,17 +226,41 @@ if ($method === 'POST' && $action === 'save') {
     if (!$lines) jr('error', 'Aucune ligne saisie.');
 
     // Filter zero-amount rows, normalise, validate.
+    //
+    // bi_journal_lines_check (migration 004) rejects a line that is negative,
+    // zero on both sides, or positive on both sides. We enforce the same rules
+    // here so the operator gets a readable message instead of a raw SQLSTATE
+    // 45000 from the trigger.
     $clean = [];
+    $seen  = [];
     foreach ($lines as $l) {
         $account_id = (int) ($l['account_id'] ?? 0);
         $debit  = (float) ($l['debit']  ?? 0);
         $credit = (float) ($l['credit'] ?? 0);
-        if ($account_id <= 0)          continue;
+        if ($account_id <= 0)            continue;
+        if ($debit < 0 || $credit < 0)   jr('error', "Montant négatif interdit (compte id $account_id).");
         if ($debit <= 0 && $credit <= 0) continue;
-        if ($debit > 0 && $credit > 0) jr('error', "Une ligne ne peut être à la fois débit et crédit (compte id $account_id).");
+        if ($debit > 0 && $credit > 0)   jr('error', "Une ligne ne peut être à la fois débit et crédit (compte id $account_id).");
+        // A repeated account would post two lines for the same account. The UI
+        // cannot produce that, but a hand-built payload could, and the result
+        // would be a ledger nobody can tie back to this screen.
+        if (isset($seen[$account_id]))   jr('error', "Compte en double dans la saisie (id $account_id).");
+        $seen[$account_id] = true;
         $clean[] = ['account_id' => $account_id, 'debit' => round($debit, 2), 'credit' => round($credit, 2)];
     }
     if (!$clean) jr('error', 'Aucune ligne non nulle.');
+
+    // Every account must actually exist. journal_lines carries no FK on
+    // account_id in migration 006, so an unknown id would insert an orphan
+    // line that the grand livre could never resolve to an account name.
+    $ph     = implode(',', array_fill(0, count($clean), '?'));
+    $chkAcc = $pdo->prepare("SELECT id FROM chart_of_accounts WHERE id IN ($ph)");
+    $chkAcc->execute(array_column($clean, 'account_id'));
+    $known  = array_map('intval', $chkAcc->fetchAll(PDO::FETCH_COLUMN));
+    $unknown = array_diff(array_column($clean, 'account_id'), $known);
+    if ($unknown) {
+        jr('error', 'Compte inconnu dans la saisie : id ' . implode(', ', $unknown) . '.');
+    }
 
     $sum_d = array_sum(array_column($clean, 'debit'));
     $sum_c = array_sum(array_column($clean, 'credit'));
@@ -268,41 +310,77 @@ if ($method === 'POST' && $action === 'save') {
             jr('error', "L'exercice $year contient déjà $others écriture(s) autres que l'ouverture — le bilan d'ouverture est figé. Utilisez une écriture de correction (OD) pour ajuster.");
         }
 
-        // 3. Delete the previous opening JE (lines cascade via FK).
-        if ($existing_id) {
-            $pdo->prepare("DELETE FROM journal_lines WHERE journal_entry_id = ?")->execute([$existing_id]);
-            $pdo->prepare("DELETE FROM journal_entries WHERE id = ?")->execute([$existing_id]);
+        // 3. Ensure the fiscal year row exists BEFORE any journal write —
+        //    bi_je_closed_period (migration 005) and bi_je_state_lock
+        //    (migration 088) both read financial_years for YEAR(date), so the
+        //    row has to be there and unlocked first.
+        //
+        //    financial_years.year carries a unique key (financials_controller
+        //    upserts on it with ON DUPLICATE KEY UPDATE), but we check-then-
+        //    insert rather than rely on INSERT IGNORE so a missing index on a
+        //    given install can never silently produce a duplicate year row.
+        $chkYear = $pdo->prepare("SELECT status FROM financial_years WHERE year = ? FOR UPDATE");
+        $chkYear->execute([$year]);
+        $yearStatus = $chkYear->fetchColumn();
+        if ($yearStatus === false) {
+            $pdo->prepare("INSERT INTO financial_years (year, status) VALUES (?, 'open')")
+                ->execute([$year]);
+        } elseif ($yearStatus === 'closed') {
+            $pdo->rollBack();
+            jr('error', "L'exercice $year est clôturé — le bilan d'ouverture ne peut plus être saisi.");
         }
 
-        // 4. Ensure the fiscal year row exists (unlocked).
-        $pdo->prepare("
-            INSERT IGNORE INTO financial_years (year, status) VALUES (?, 'open')
-        ")->execute([$year]);
+        // 4. Remove the previous opening JE.
+        //
+        //    Two triggers from migration 004 constrain this and BOTH would
+        //    reject a naive delete of a posted entry:
+        //      · bd_journal_entries_no_post_delete — refuses DELETE while
+        //        status = 'posted'.
+        //      · bi_journal_lines_check — refuses INSERT of a line whose
+        //        parent entry is already 'posted'.
+        //
+        //    So we demote the entry back to 'draft' first, then delete its
+        //    lines, then the header. This is only ever reached when the
+        //    freeze check above proved this entry is the ONLY journal entry
+        //    for the year, so no posted history is being rewritten — the
+        //    opening balance is still the only thing in the books.
+        //
+        //    journal_lines has no ON DELETE CASCADE in migration 006, so the
+        //    lines are deleted explicitly. There is no BEFORE DELETE trigger
+        //    on journal_lines, so this passes cleanly.
+        if ($existing_id) {
+            $pdo->prepare("UPDATE journal_entries SET status = 'draft' WHERE id = ?")
+                ->execute([$existing_id]);
+            $pdo->prepare("DELETE FROM journal_lines WHERE journal_entry_id = ?")
+                ->execute([$existing_id]);
+            $pdo->prepare("DELETE FROM journal_entries WHERE id = ?")
+                ->execute([$existing_id]);
+        }
 
         // 5. Insert the new opening JE.
+        //
+        //    Status vocabulary after migration 039 is strictly
+        //    ENUM('draft','posted','reversed') — 'approved' is NOT a member
+        //    and must never be written. And the entry MUST start as 'draft':
+        //    bi_journal_lines_check refuses to attach lines to a posted
+        //    entry, so posting can only happen after the lines exist.
+        //
+        //    The draft → posted transition goes through post_journal_entry
+        //    (migration 004), which re-asserts SUM(debit) = SUM(credit)
+        //    inside the database and stamps posted_at / posted_by. That is
+        //    the same path accounting_controller uses, and it means the
+        //    balance rule is enforced server-side even if this controller's
+        //    own check were ever bypassed.
         $ref  = opening_ref($year);
         $date = sprintf('%04d-01-01', $year);
         $desc = "Bilan d'ouverture exercice $year — saisi manuellement";
 
-        // journal_entries can be either 'draft'/'posted' or 'draft'/'approved'
-        // depending on when the migration set landed. Try 'posted' first and
-        // fall back — either terminal state means the ledger consumes it.
         $insHeader = $pdo->prepare("
             INSERT INTO journal_entries
-                (reference, journal_code, date, description, status, created_by, approved_by)
-            VALUES (?, 'OD', ?, ?, 'posted', ?, ?)
+                (reference, journal_code, date, description, status, created_by)
+            VALUES (?, 'OD', ?, ?, 'draft', ?)
         ");
-        try {
-            $insHeader->execute([$ref, $date, $desc, $user_id, $user_id]);
-        } catch (PDOException $e) {
-            // Retry with 'approved' if the enum on this DB rejects 'posted'.
-            $insHeader = $pdo->prepare("
-                INSERT INTO journal_entries
-                    (reference, journal_code, date, description, status, created_by, approved_by)
-                VALUES (?, 'OD', ?, ?, 'approved', ?, ?)
-            ");
-            $insHeader->execute([$ref, $date, $desc, $user_id, $user_id]);
-        }
+        $insHeader->execute([$ref, $date, $desc, $user_id]);
         $je_id = (int) $pdo->lastInsertId();
 
         $insLine = $pdo->prepare("
@@ -313,6 +391,15 @@ if ($method === 'POST' && $action === 'save') {
             $insLine->execute([$je_id, $l['account_id'], $l['debit'], $l['credit']]);
         }
 
+        // Post it. Raises SQLSTATE 45000 if the ledger does not balance.
+        // closeCursor() because queries follow this CALL in the same
+        // transaction — the proc only does SELECT ... INTO so it returns no
+        // rowset today, but releasing the handle keeps that an implementation
+        // detail of the proc rather than a dependency of this file.
+        $post = $pdo->prepare("CALL post_journal_entry(?, ?)");
+        $post->execute([$je_id, $user_id]);
+        $post->closeCursor();
+
         // 6. Pin it on financial_years.
         $pdo->prepare("
             UPDATE financial_years
@@ -320,29 +407,54 @@ if ($method === 'POST' && $action === 'save') {
              WHERE year = ?
         ")->execute([$je_id, $year]);
 
-        // 7. Mirror to treasury_accounts.balance so the cashflow screen
-        //    matches. For a treasury CoA row the "opening balance" IS the
-        //    starting cash: whichever side (debit for asset accounts, credit
-        //    for liability) becomes the signed balance.
+        // 7. Mirror to the treasury module.
         //
-        //    Asset side (521/571/etc) → balance = debit − credit.
-        //    We look up which of the entered rows are linked to a treasury
-        //    account and write that.
-        $treasuryMap = $pdo->prepare("
-            SELECT t.id AS treasury_id, c.id AS coa_id
+        //    treasury_accounts.balance is a stored running total that the
+        //    cashflow screen reads directly, and every other treasury write
+        //    pairs a balance change with a treasury_transactions row so the
+        //    ledger explains the number. We do the same here instead of
+        //    silently overwriting the balance: the prior opening marker is
+        //    removed and re-inserted, so re-saving does not stack duplicate
+        //    markers.
+        //
+        //    EVERY mapped treasury account is reconciled, not just the ones
+        //    present in $clean — an account the operator cleared back to zero
+        //    must have its stored balance cleared too, otherwise it would keep
+        //    a stale figure that no longer appears anywhere in the books.
+        //
+        //    Sign convention: treasury accounts are asset accounts (class 5),
+        //    so balance = debit − credit.
+        $treasuryRows = $pdo->query("
+            SELECT t.id AS treasury_id, t.coa_account_id AS coa_id
               FROM treasury_accounts t
-              JOIN chart_of_accounts c ON c.id = t.coa_account_id
-        ");
-        $treasuryMap->execute();
-        $coa_to_treasury = [];
-        foreach ($treasuryMap->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            $coa_to_treasury[(int)$r['coa_id']] = (int)$r['treasury_id'];
-        }
-        $updTreasury = $pdo->prepare("UPDATE treasury_accounts SET balance = ? WHERE id = ?");
+             WHERE t.coa_account_id IS NOT NULL
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        $entered = [];
         foreach ($clean as $l) {
-            if (isset($coa_to_treasury[$l['account_id']])) {
-                $balance = $l['debit'] - $l['credit']; // asset convention
-                $updTreasury->execute([$balance, $coa_to_treasury[$l['account_id']]]);
+            $entered[$l['account_id']] = $l['debit'] - $l['credit'];
+        }
+
+        $updTreasury = $pdo->prepare("UPDATE treasury_accounts SET balance = ? WHERE id = ?");
+        $delMarker   = $pdo->prepare("
+            DELETE FROM treasury_transactions
+             WHERE account_id = ? AND description = ?
+        ");
+        $insMarker   = $pdo->prepare("
+            INSERT INTO treasury_transactions
+                (account_id, transaction_type, amount, description, logged_by)
+            VALUES (?, 'in_other', ?, ?, ?)
+        ");
+        $markerLabel = "Solde Initial Ouverture $year";
+
+        foreach ($treasuryRows as $tr) {
+            $tid     = (int) $tr['treasury_id'];
+            $balance = (float) ($entered[(int) $tr['coa_id']] ?? 0);
+
+            $updTreasury->execute([$balance, $tid]);
+            $delMarker->execute([$tid, $markerLabel]);
+            if ($balance != 0.0) {
+                $insMarker->execute([$tid, abs($balance), $markerLabel, $user_id]);
             }
         }
 

@@ -145,7 +145,10 @@
         document.getElementById('ob-show-empty').addEventListener('change', renderTableOnly);
         document.getElementById('ob-show-pnl').addEventListener('change', renderTableOnly);
 
-        wireAmountInputs();
+        // renderTable() only emits the table shell — the rows themselves are
+        // painted by renderTableOnly(), which is also what the filter and the
+        // two toggles call. Without this the page would render an empty tbody.
+        renderTableOnly();
     }
 
     function renderHeader(totals, balanced, diff) {
@@ -299,12 +302,17 @@
                 const treasuryTag = a.treasury_id
                     ? `<span class="ml-2 text-[10px] font-bold text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded">TRÉSORERIE · ${esc(a.treasury_name || '')}</span>`
                     : '';
+                // Only ever shown for a deactivated account that still carries
+                // a saved opening amount (the server includes those on purpose).
+                const inactiveTag = a.is_active === false
+                    ? `<span class="ml-2 text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">COMPTE DÉSACTIVÉ</span>`
+                    : '';
                 const attrs = readonly ? 'readonly disabled' : '';
                 const tint  = PNL_CLASSES.has(a.class) ? 'bg-gray-50/40' : '';
                 parts.push(`
                     <tr class="${tint}">
                         <td class="px-4 py-2 font-mono font-bold">${esc(a.code)}</td>
-                        <td class="px-4 py-2">${esc(a.name)}${treasuryTag}</td>
+                        <td class="px-4 py-2">${esc(a.name)}${treasuryTag}${inactiveTag}</td>
                         <td class="px-4 py-2 text-xs text-gray-500">
                             <span class="font-mono">${esc(a.ohada_number)}</span> ${esc(a.ohada_name)}
                         </td>
