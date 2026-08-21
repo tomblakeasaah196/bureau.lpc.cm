@@ -1804,6 +1804,43 @@ function lpc_render_payslip_body(array $doc): string
 {
     $r  = $doc['raw'] ?? [];
     $e  = $doc['employee'];
+    $bd = $doc['breakdown'] ?? [];   // decoded breakdown_json — post-fix rows
+                                     // carry housing_allowance /
+                                     // transport_allowance / allowances_total
+                                     // at the top level. Rows written before
+                                     // the Payroll::compute change may not,
+                                     // so fall back to breakdown_lines (the
+                                     // "Indemnités (logement/transport)"
+                                     // line has always been there) and
+                                     // finally to reconstructing the total
+                                     // from Gross − Base − Bonuses.
+
+    $base       = (float) ($r['base_salary'] ?? 0);
+    $bonuses    = (float) ($r['bonuses']     ?? 0);
+    $gross      = (float) ($r['gross_salary'] ?? 0);
+
+    $housing    = (float) ($bd['housing_allowance']   ?? 0);
+    $transport  = (float) ($bd['transport_allowance'] ?? 0);
+    $allowances = (float) ($bd['allowances_total']    ?? ($housing + $transport));
+
+    if ($allowances <= 0 && !empty($bd['breakdown_lines']) && is_array($bd['breakdown_lines'])) {
+        foreach ($bd['breakdown_lines'] as $line) {
+            if (stripos((string)($line['label'] ?? ''), 'indemnit') !== false) {
+                $allowances = (float) ($line['debit'] ?? 0);
+                break;
+            }
+        }
+    }
+    if ($allowances <= 0) {
+        // Legacy row (breakdown_json empty or malformed): infer from what
+        // the PDF used to show. absences already subtracted in $gross, and
+        // we don't have their amount at top level, so the closest honest
+        // reconstruction is (Gross − Base − Bonuses), clamped at 0. If it
+        // comes out negative the row is a real edge case (absences bigger
+        // than allowances) and we hide the row rather than show a lie.
+        $inferred = $gross - $base - $bonuses;
+        if ($inferred > 0) $allowances = $inferred;
+    }
     ob_start(); ?>
     <h2>Employé</h2>
     <div class="box">
@@ -1817,9 +1854,23 @@ function lpc_render_payslip_body(array $doc): string
 
     <h2>Détail des calculs</h2>
     <table class="items-table"><thead><tr><th>Rubrique</th><th class="num">Montant (FCFA)</th></tr></thead><tbody>
-        <tr><td>Salaire de base</td><td class="num"><?= lpc_fcfa((float)($r['base_salary'] ?? 0), '') ?></td></tr>
-        <tr><td>Primes</td><td class="num"><?= lpc_fcfa((float)($r['bonuses'] ?? 0), '') ?></td></tr>
-        <tr style="font-weight: bold; background: #F3F4F6;"><td>Salaire brut</td><td class="num"><?= lpc_fcfa((float)($r['gross_salary'] ?? 0), '') ?></td></tr>
+        <tr><td>Salaire de base</td><td class="num"><?= lpc_fcfa($base, '') ?></td></tr>
+        <?php if ($allowances > 0): ?>
+        <tr>
+            <td>
+                Indemnités (logement + transport)
+                <?php if ($housing > 0 || $transport > 0): ?>
+                    <span class="muted" style="font-size: 8pt;">
+                        &nbsp;·&nbsp; Logement <?= lpc_fcfa($housing, '') ?>
+                        &nbsp;·&nbsp; Transport <?= lpc_fcfa($transport, '') ?>
+                    </span>
+                <?php endif; ?>
+            </td>
+            <td class="num"><?= lpc_fcfa($allowances, '') ?></td>
+        </tr>
+        <?php endif; ?>
+        <tr><td>Primes</td><td class="num"><?= lpc_fcfa($bonuses, '') ?></td></tr>
+        <tr style="font-weight: bold; background: #F3F4F6;"><td>Salaire brut</td><td class="num"><?= lpc_fcfa($gross, '') ?></td></tr>
         <tr><td>Base imposable (post frais pro./abattement)</td><td class="num"><?= lpc_fcfa((float)($r['taxable_base'] ?? 0), '') ?></td></tr>
         <tr><td>CNPS (part salariale 4,2%)</td><td class="num">-<?= lpc_fcfa((float)($r['cnps_employee'] ?? 0), '') ?></td></tr>
         <tr><td>IRPP</td><td class="num">-<?= lpc_fcfa((float)($r['irpp'] ?? 0), '') ?></td></tr>

@@ -180,6 +180,18 @@ final class Payroll
         ];
 
         return [
+            // Contract-level inputs, echoed back at the top level so consumers
+            // (payslip PDF, downstream reports) can render an explicit
+            // "Indemnités" line without having to reach into breakdown_lines
+            // or re-query hr_contracts. The gross is Base + Housing +
+            // Transport + Primes − Absences; if the PDF only shows Base and
+            // Primes the Housing + Transport gap makes the total look wrong,
+            // which is exactly the bug this key set exists to prevent.
+            'base_salary'           => self::roundFcfa($base),
+            'housing_allowance'     => self::roundFcfa($housing),
+            'transport_allowance'   => self::roundFcfa($transport),
+            'allowances_total'      => self::roundFcfa($housing + $transport),
+            'bonuses'               => self::roundFcfa($bonuses),
             'gross_salary'          => self::roundFcfa($gross),
             'taxable_base'          => self::roundFcfa($taxable_base),
             'cnps_employee'         => $cnps_employee,
