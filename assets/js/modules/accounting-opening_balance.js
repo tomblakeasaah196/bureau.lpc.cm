@@ -59,6 +59,14 @@
     // absence.
     const PNL_CLASSES = new Set(['6', '7', '8']);
 
+    // Legacy demo rows from the original seed carry an LPC-prefixed code
+    // (LPC40111, LPC52111, ...) instead of a SYSCOHADA account number. They
+    // are hidden by default so they stop cluttering a real opening balance,
+    // but NOT deactivated: 401 / 411 / 521 / 571 currently exist only as
+    // these rows, so postings still resolve to them. The toggle exposes
+    // them, and any row already carrying an amount is always shown.
+    const isLegacy = a => /^LPC/i.test(String(a.code || ''));
+
     // ---------- utils ----------------------------------------------------
     const esc = s => String(s ?? '').replace(/[&<>"']/g,
         c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -144,6 +152,7 @@
         document.getElementById('ob-filter').addEventListener('input', renderTableOnly);
         document.getElementById('ob-show-empty').addEventListener('change', renderTableOnly);
         document.getElementById('ob-show-pnl').addEventListener('change', renderTableOnly);
+        document.getElementById('ob-show-legacy').addEventListener('change', renderTableOnly);
 
         // renderTable() only emits the table shell — the rows themselves are
         // painted by renderTableOnly(), which is also what the filter and the
@@ -249,6 +258,10 @@
                     <label class="text-xs text-gray-600 font-bold flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" id="ob-show-pnl"> Afficher classes 6/7/8 (P&amp;L)
                     </label>
+                    <label class="text-xs text-gray-600 font-bold flex items-center gap-2 cursor-pointer"
+                           title="Comptes de démonstration hérités du jeu initial (codes LPC…). Ils seront supprimés lors de la remise à zéro.">
+                        <input type="checkbox" id="ob-show-legacy"> Afficher les comptes hérités (LPC…)
+                    </label>
                 </header>
                 <div class="overflow-x-auto">
                     <table class="min-w-full text-sm">
@@ -273,6 +286,7 @@
         const q    = document.getElementById('ob-filter').value.trim().toLowerCase();
         const showEmpty = document.getElementById('ob-show-empty').checked;
         const showPnl   = document.getElementById('ob-show-pnl').checked;
+        const showLegacy= document.getElementById('ob-show-legacy').checked;
         const readonly  = !STATE.editable || !STATE.can_save;
 
         let lastClass = null;
@@ -280,6 +294,9 @@
 
         STATE.accounts
             .filter(a => {
+                // A legacy row with an amount already keyed stays visible
+                // regardless, so saving can never silently drop it.
+                if (!showLegacy && isLegacy(a) && !a.debit && !a.credit) return false;
                 if (!showPnl && PNL_CLASSES.has(a.class)) return false;
                 if (!showEmpty && a.debit === 0 && a.credit === 0) return false;
                 if (q) {

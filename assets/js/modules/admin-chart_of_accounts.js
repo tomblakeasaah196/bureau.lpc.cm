@@ -38,6 +38,11 @@
         can_create: false,
     };
 
+    // Legacy demo rows from the original seed (LPC40111, LPC52111, ...).
+    // Hidden by default so the chart reads as SYSCOHADA; the toggle brings
+    // them back for anyone who needs to inspect or reactivate one.
+    const isLegacy = c => /^LPC/i.test(String(c.code || ''));
+
     const TYPE_LABEL = {
         asset:     'Actif',
         liability: 'Passif',
@@ -212,6 +217,10 @@
                     <label class="flex items-center gap-2 text-gray-600 font-bold cursor-pointer">
                         <input type="checkbox" id="show-inactive"> Afficher les comptes désactivés
                     </label>
+                    <label class="flex items-center gap-2 text-gray-600 font-bold cursor-pointer"
+                           title="Comptes de démonstration hérités du jeu initial (codes LPC…), supprimés à la remise à zéro.">
+                        <input type="checkbox" id="show-legacy"> Afficher les comptes hérités (LPC…)
+                    </label>
                     <input type="text" id="coa-search" placeholder="Rechercher code ou nom..."
                            class="flex-1 max-w-xs px-3 py-1.5 border border-gray-200 rounded-lg text-sm">
                 </div>
@@ -242,6 +251,7 @@
             document.getElementById('btn-add-coa')  ?.addEventListener('click', addCoaModal);
         }
         document.getElementById('show-inactive').addEventListener('change', renderCoa);
+        document.getElementById('show-legacy')  .addEventListener('change', renderCoa);
         document.getElementById('coa-search')   .addEventListener('input',  renderCoa);
     }
 
@@ -301,9 +311,11 @@
     function renderCoa() {
         const body = document.getElementById('coa-body');
         const showInactive = document.getElementById('show-inactive').checked;
+        const showLegacy   = document.getElementById('show-legacy').checked;
         const q = document.getElementById('coa-search').value.trim().toLowerCase();
 
         const rows = STATE.coa.filter(c => {
+            if (!showLegacy && isLegacy(c)) return false;
             if (!showInactive && !c.is_active) return false;
             if (q) {
                 const hay = (c.code + ' ' + c.name + ' ' + c.ohada_number + ' ' + c.ohada_name).toLowerCase();
