@@ -122,6 +122,10 @@ $CATALOGUE = [
   // Plan Comptable admin (migration 117): add / rename / deactivate OHADA
   // and CoA rows, and remap expense categories at their target account.
   'admin_coa'      => ['href'=>'/modules/admin/chart_of_accounts.php',            'icon'=>$I['calculator'],'permission'=>'accounting.chart.view',        'label_fr'=>'Plan Comptable',          'label_en'=>'Chart of Accounts'],
+  // Bilan d'Ouverture — first-year opening balances across every account.
+  // View gate is chart.view; POST save requires accounting.opening_balance.enter
+  // (migration 118), enforced by the controller.
+  'acc_opening'    => ['href'=>'/modules/accounting/opening_balance.php',          'icon'=>$I['calculator'],'permission'=>'accounting.chart.view',        'label_fr'=>"Bilan d'Ouverture",       'label_en'=>'Opening Balance'],
   // Sprint 8: points at the Settings module's RBAC tab, not the old standalone
   // page. modules/admin/roles.php still exists but only 302s here — two UIs
   // over one API (api/v1/rbac_controller.php) was the duplication that left the
@@ -294,7 +298,7 @@ $PROFILES['default'] = [
     ['ref'=>'fleet_vehicles'],['ref'=>'fleet_fuel'],['ref'=>'fleet_break']]],
   ['heading_fr'=>'Comptabilité','heading_en'=>'Accounting','items'=>[
     ['ref'=>'acc_invoices'],['ref'=>'acc_expenses'],['ref'=>'acc_journal'],['ref'=>'acc_ledger'],['ref'=>'acc_cashflow'],
-    ['ref'=>'acc_budgets'],['ref'=>'acc_assets'],['ref'=>'acc_reports'],['ref'=>'acc_tax']]],
+    ['ref'=>'acc_budgets'],['ref'=>'acc_assets'],['ref'=>'acc_reports'],['ref'=>'acc_tax'],['ref'=>'acc_opening']]],
   ['heading_fr'=>'Ressources Humaines','heading_en'=>'Human Resources','items'=>[['ref'=>'hr_payroll']]],
   ['heading_fr'=>'Analyses','heading_en'=>'Analytics','items'=>[['ref'=>'analytics']]],
   ['heading_fr'=>'Administration','heading_en'=>'Administration','items'=>[
