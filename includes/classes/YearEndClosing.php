@@ -122,7 +122,7 @@ class YearEndClosing
         $bal = $this->pdo->prepare(
             "SELECT COALESCE(SUM(debit),0) AS d, COALESCE(SUM(credit),0) AS c
                FROM journal_lines jl
-               JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'approved'
+               JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
               WHERE YEAR(je.date) = ?"
         );
         $bal->execute([$year]);
@@ -255,7 +255,7 @@ class YearEndClosing
                     COALESCE(SUM(jl.credit - jl.debit), 0) AS bal
                FROM journal_lines jl
                JOIN chart_of_accounts ca ON ca.id = jl.account_id
-               JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status='approved'
+               JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status='posted'
               WHERE YEAR(je.date) = ? AND SUBSTRING(ca.code,1,1) IN ('6','7')
               GROUP BY SUBSTRING(ca.code,1,1)"
         );

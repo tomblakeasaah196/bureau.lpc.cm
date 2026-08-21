@@ -107,13 +107,13 @@ function _note_immo_brut(PDO $pdo, int $year): array
         $st = $pdo->prepare(
             "SELECT ca.code, ca.name,
                     (SELECT COALESCE(SUM(jl.debit-jl.credit),0)
-                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='approved'
+                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='posted'
                       WHERE jl.account_id=ca.id AND YEAR(je.date)<?) AS opening,
                     (SELECT COALESCE(SUM(jl.debit),0)
-                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='approved'
+                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='posted'
                       WHERE jl.account_id=ca.id AND YEAR(je.date)=?) AS acq,
                     (SELECT COALESCE(SUM(jl.credit),0)
-                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='approved'
+                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='posted'
                       WHERE jl.account_id=ca.id AND YEAR(je.date)=?) AS ces
                FROM chart_of_accounts ca
               WHERE SUBSTRING(ca.code,1,1)='2' AND SUBSTRING(ca.code,1,2) NOT IN ('28','29')
@@ -137,13 +137,13 @@ function _note_immo_amort(PDO $pdo, int $year): array
         $st = $pdo->prepare(
             "SELECT ca.code, ca.name,
                     (SELECT COALESCE(SUM(jl.credit-jl.debit),0)
-                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='approved'
+                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='posted'
                       WHERE jl.account_id=ca.id AND YEAR(je.date)<?) AS opening,
                     (SELECT COALESCE(SUM(jl.credit),0)
-                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='approved'
+                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='posted'
                       WHERE jl.account_id=ca.id AND YEAR(je.date)=?) AS dotations,
                     (SELECT COALESCE(SUM(jl.debit),0)
-                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='approved'
+                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='posted'
                       WHERE jl.account_id=ca.id AND YEAR(je.date)=?) AS reprises
                FROM chart_of_accounts ca
               WHERE SUBSTRING(ca.code,1,2)='28'
@@ -226,10 +226,10 @@ function _note_capital(PDO $pdo, int $year): array
         $st = $pdo->prepare(
             "SELECT ca.code, ca.name,
                     (SELECT COALESCE(SUM(jl.credit-jl.debit),0)
-                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='approved'
+                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='posted'
                       WHERE jl.account_id=ca.id AND YEAR(je.date)<?) AS opening,
                     (SELECT COALESCE(SUM(jl.credit-jl.debit),0)
-                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='approved'
+                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='posted'
                       WHERE jl.account_id=ca.id AND YEAR(je.date)=?) AS movement
                FROM chart_of_accounts ca
               WHERE SUBSTRING(ca.code,1,1)='1' AND SUBSTRING(ca.code,1,2) NOT IN ('15','16','17','18','19')
@@ -298,7 +298,7 @@ function _note_financier(PDO $pdo, int $year): array {
                     SUM(jl.credit) AS c
                FROM journal_lines jl
                JOIN chart_of_accounts ca ON ca.id=jl.account_id
-               JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='approved'
+               JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='posted'
               WHERE (ca.code LIKE '67%' OR ca.code LIKE '77%') AND YEAR(je.date)=?
               GROUP BY ca.id ORDER BY ca.code"
         );
@@ -383,10 +383,10 @@ function _note_class_balance(PDO $pdo, int $id, string $code, string $title,
         $st = $pdo->prepare(
             "SELECT ca.code, ca.name,
                     (SELECT COALESCE(SUM(jl.debit-jl.credit),0)
-                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='approved'
+                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='posted'
                       WHERE jl.account_id=ca.id AND YEAR(je.date)<=?) AS bal_n,
                     (SELECT COALESCE(SUM(jl.debit-jl.credit),0)
-                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='approved'
+                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='posted'
                       WHERE jl.account_id=ca.id AND YEAR(je.date)<=?) AS bal_n1
                FROM chart_of_accounts ca
               WHERE ca.code LIKE ? ORDER BY ca.code"
@@ -409,10 +409,10 @@ function _note_period_balance(PDO $pdo, int $id, string $code, string $title,
         $st = $pdo->prepare(
             "SELECT ca.code, ca.name,
                     (SELECT COALESCE(SUM(jl.debit),0)
-                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='approved'
+                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='posted'
                       WHERE jl.account_id=ca.id AND YEAR(je.date)=?) AS d,
                     (SELECT COALESCE(SUM(jl.credit),0)
-                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='approved'
+                       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id AND je.status='posted'
                       WHERE jl.account_id=ca.id AND YEAR(je.date)=?) AS c
                FROM chart_of_accounts ca
               WHERE ca.code LIKE ? ORDER BY ca.code"

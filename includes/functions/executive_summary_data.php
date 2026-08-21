@@ -339,7 +339,7 @@ if (!function_exists('fetch_executive_summary')) {
               FROM journal_lines jl
               JOIN journal_entries je ON je.id = jl.journal_entry_id
               JOIN chart_of_accounts ca ON ca.id = jl.account_id
-             WHERE je.status = 'approved' AND ca.code LIKE ?
+             WHERE je.status = 'posted' AND ca.code LIKE ?
                AND je.date >= ? AND je.date <= ?
         ");
         $stmt->execute([$prefix . '%', $start, $end]);
@@ -352,7 +352,7 @@ if (!function_exists('fetch_executive_summary')) {
               FROM journal_lines jl
               JOIN journal_entries je ON je.id = jl.journal_entry_id
               JOIN chart_of_accounts ca ON ca.id = jl.account_id
-             WHERE je.status = 'approved' AND ca.code LIKE ?
+             WHERE je.status = 'posted' AND ca.code LIKE ?
                AND je.date <= ?
         ");
         $stmt->execute([$prefix . '%', $end]);

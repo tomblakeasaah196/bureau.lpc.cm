@@ -89,7 +89,7 @@ function build_tax_simulation(PDO $pdo, int $year, array $resultat = []): array
                     SUM(jl.credit) AS cre
                FROM journal_lines jl
                JOIN chart_of_accounts ca ON ca.id = jl.account_id
-               JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'approved'
+               JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
               WHERE YEAR(je.date) = :yr
                 AND SUBSTRING(ca.code, 1, 1) IN ('6','7')
               GROUP BY SUBSTRING(ca.code, 1, 1)"
@@ -170,7 +170,7 @@ function _sum_debit_credit(PDO $pdo, string $prefix, int $year): float
             "SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
                FROM journal_lines jl
                JOIN chart_of_accounts ca ON ca.id = jl.account_id
-               JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'approved'
+               JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
               WHERE ca.code LIKE :pref AND YEAR(je.date) = :yr"
         );
         $stmt->execute(['pref' => $prefix . '%', 'yr' => $year]);

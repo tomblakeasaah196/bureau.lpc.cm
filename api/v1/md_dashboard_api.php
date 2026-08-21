@@ -290,7 +290,7 @@ if ($__action === 'drilldown_revenue') {
         JOIN journal_entries je ON jl.journal_entry_id = je.id
         JOIN chart_of_accounts coa ON jl.account_id = coa.id
         WHERE coa.type = 'revenue'
-          AND je.status = 'approved'
+          AND je.status = 'posted'
           AND je.date BETWEEN :s AND :e
         ORDER BY je.date DESC, je.id DESC
     ";
@@ -335,7 +335,7 @@ if ($__action === 'drilldown_margin') {
         FROM chart_of_accounts coa
         LEFT JOIN journal_lines jl ON jl.account_id = coa.id
         LEFT JOIN journal_entries je ON jl.journal_entry_id = je.id
-            AND je.status = 'approved'
+            AND je.status = 'posted'
             AND je.date BETWEEN :s AND :e
         WHERE coa.type IN ('revenue', 'expense')
         GROUP BY coa.id, coa.name, coa.type
@@ -392,7 +392,7 @@ if ($__action === 'drilldown_cash') {
     $sql = "
         FROM chart_of_accounts coa
         LEFT JOIN journal_lines jl ON jl.account_id = coa.id
-        LEFT JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'approved'
+        LEFT JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'posted'
         WHERE coa.type = 'asset'
           AND (LOWER(coa.name) LIKE '%caisse%' OR LOWER(coa.name) LIKE '%banque%'
                OR coa.code LIKE '52%' OR coa.code LIKE '57%')
@@ -425,7 +425,7 @@ $q_revenue = function () use ($db, $start_date, $end_date): float {
           JOIN chart_of_accounts coa ON jl.account_id = coa.id
          WHERE coa.type = 'revenue'
            AND je.date BETWEEN :s AND :e
-           AND je.status = 'approved'
+           AND je.status = 'posted'
     ");
     $stmt->execute(['s' => $start_date, 'e' => $end_date]);
     return (float) $stmt->fetch()['v'];
@@ -439,7 +439,7 @@ $q_revenue_prev = function () use ($db, $prev_start, $prev_end): float {
           JOIN chart_of_accounts coa ON jl.account_id = coa.id
          WHERE coa.type = 'revenue'
            AND je.date BETWEEN :s AND :e
-           AND je.status = 'approved'
+           AND je.status = 'posted'
     ");
     $stmt->execute(['s' => $prev_start, 'e' => $prev_end]);
     return (float) $stmt->fetch()['v'];
@@ -466,7 +466,7 @@ $q_expenses = function ($sd, $ed) use ($db): float {
           JOIN chart_of_accounts coa ON jl.account_id = coa.id
          WHERE coa.type = 'expense'
            AND je.date BETWEEN :s AND :e
-           AND je.status = 'approved'
+           AND je.status = 'posted'
     ");
     $stmt->execute(['s' => $sd, 'e' => $ed]);
     return (float) $stmt->fetch()['v'];
@@ -524,7 +524,7 @@ $q_cash = function () use ($db): float {
           JOIN journal_entries je ON jl.journal_entry_id = je.id
           JOIN chart_of_accounts coa ON jl.account_id = coa.id
          WHERE coa.type = 'asset'
-           AND je.status = 'approved'
+           AND je.status = 'posted'
            AND (LOWER(coa.name) LIKE '%caisse%' OR LOWER(coa.name) LIKE '%banque%' OR coa.code LIKE '52%' OR coa.code LIKE '57%')
     ");
     return (float) $stmt->fetch()['v'];
@@ -656,7 +656,7 @@ try {
           JOIN chart_of_accounts coa ON jl.account_id = coa.id
          WHERE coa.type = 'revenue'
            AND je.date BETWEEN :s AND :e
-           AND je.status = 'approved'
+           AND je.status = 'posted'
     ");
     foreach ($revenueBuckets as [$bs, $be]) {
         $stmt->execute(['s' => $bs, 'e' => $be]);
@@ -687,7 +687,7 @@ try {
           FROM journal_lines jl
           JOIN journal_entries je ON jl.journal_entry_id = je.id
           JOIN chart_of_accounts coa ON jl.account_id = coa.id
-         WHERE coa.type = 'revenue' AND je.date BETWEEN :s AND :e AND je.status = 'approved'
+         WHERE coa.type = 'revenue' AND je.date BETWEEN :s AND :e AND je.status = 'posted'
          GROUP BY DATE_FORMAT(je.date, '%Y-%m')
          ORDER BY ym ASC
     ");
