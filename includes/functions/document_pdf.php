@@ -1870,6 +1870,9 @@ function lpc_render_payslip_body(array $doc): string
         </tr>
         <?php endif; ?>
         <tr><td>Primes</td><td class="num"><?= lpc_fcfa($bonuses, '') ?></td></tr>
+        <?php if ((float)($r['absences_deducted'] ?? 0) > 0): ?>
+        <tr><td>Absences (déduites du brut)</td><td class="num">-<?= lpc_fcfa((float)$r['absences_deducted'], '') ?></td></tr>
+        <?php endif; ?>
         <tr style="font-weight: bold; background: #F3F4F6;"><td>Salaire brut</td><td class="num"><?= lpc_fcfa($gross, '') ?></td></tr>
         <tr><td>Base imposable (post frais pro./abattement)</td><td class="num"><?= lpc_fcfa((float)($r['taxable_base'] ?? 0), '') ?></td></tr>
         <tr><td>CNPS (part salariale 4,2%)</td><td class="num">-<?= lpc_fcfa((float)($r['cnps_employee'] ?? 0), '') ?></td></tr>
@@ -1880,13 +1883,26 @@ function lpc_render_payslip_body(array $doc): string
         <tr><td>TDL</td><td class="num">-<?= lpc_fcfa((float)($r['tdl'] ?? 0), '') ?></td></tr>
         <tr><td>Acomptes déduits</td><td class="num">-<?= lpc_fcfa((float)($r['advances_deducted'] ?? 0), '') ?></td></tr>
         <tr><td>Dettes chauffeur déduites</td><td class="num">-<?= lpc_fcfa((float)($r['driver_debt_deducted'] ?? 0), '') ?></td></tr>
-        <tr><td>Absences</td><td class="num">-<?= lpc_fcfa((float)($r['absences_deducted'] ?? 0), '') ?></td></tr>
         <tr style="font-weight: bold; background: #ECFDF5; color: #065F46;"><td>NET À PAYER</td><td class="num"><?= lpc_fcfa((float)($r['net_pay'] ?? 0), '') ?></td></tr>
     </tbody></table>
 
+    <?php
+    // Employer charges — kept in breakdown_json (Payroll::compute emits both).
+    // hr_payslips has a cnps_employer column but not cfc_employer, so CFC has
+    // to come from the breakdown; the JE (see Payroll::compute lines 173-174)
+    // has always tracked both.
+    $cfc_employer = (float) ($bd['cfc_employer'] ?? 0);
+    ?>
     <h2>Charges patronales</h2>
     <table class="items-table"><thead><tr><th>Rubrique</th><th class="num">Montant (FCFA)</th></tr></thead><tbody>
         <tr><td>CNPS (part patronale 16,2%)</td><td class="num"><?= lpc_fcfa((float)($r['cnps_employer'] ?? 0), '') ?></td></tr>
+        <?php if ($cfc_employer > 0): ?>
+        <tr><td>CFC (part patronale 1,5%)</td><td class="num"><?= lpc_fcfa($cfc_employer, '') ?></td></tr>
+        <tr style="font-weight: bold; background: #F3F4F6;">
+            <td>Total charges patronales</td>
+            <td class="num"><?= lpc_fcfa((float)($r['cnps_employer'] ?? 0) + $cfc_employer, '') ?></td>
+        </tr>
+        <?php endif; ?>
     </tbody></table>
 
     <div class="muted" style="margin-top: 12pt;">
