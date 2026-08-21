@@ -26,12 +26,21 @@ INSERT INTO `permissions` (`name`, `module`, `description`) VALUES
    "Saisir / modifier le bilan d'ouverture d'un exercice")
 ON DUPLICATE KEY UPDATE description = VALUES(description);
 
-INSERT IGNORE INTO role_permissions (role_id, permission_id)
+-- NOT EXISTS rather than INSERT IGNORE: role_permissions is not guaranteed
+-- to carry a UNIQUE key on (role_id, permission_id) — migration 053 guards
+-- its own grants the same way rather than relying on one. INSERT IGNORE
+-- would silently create duplicate grant rows on an install without that
+-- index.
+INSERT INTO role_permissions (role_id, permission_id)
 SELECT rp.role_id, np.id
   FROM role_permissions rp
   JOIN permissions        cp ON cp.id = rp.permission_id
                             AND cp.name = 'accounting.journal.approve'
-  JOIN permissions        np ON np.name = 'accounting.opening_balance.enter';
+  JOIN permissions        np ON np.name = 'accounting.opening_balance.enter'
+ WHERE NOT EXISTS (
+   SELECT 1 FROM role_permissions x
+    WHERE x.role_id = rp.role_id AND x.permission_id = np.id
+ );
 
 COMMIT;
 

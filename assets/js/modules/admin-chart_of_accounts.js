@@ -32,7 +32,8 @@
     let STATE = {
         ohada: [],         // [{id, account_number, name, type}]
         coa:   [],         // [{id, code, name, type, is_active, ohada_*, lines_count, categories_count}]
-        cats:  [],         // [{id, name, slug, coa_account_id, coa_code, coa_name}] filled by loadCategories
+        cats:  [],         // [{id, name, slug, coa_account_id, coa_code, coa_name}] filled by loadAll
+        cats_denied: false,// true when the categories endpoint refused us (403)
         can_edit: false,
         can_create: false,
     };
@@ -75,8 +76,13 @@
         // categories list. Both are cheap; parallel keeps the page snappy.
         const [chartRes, catsRes] = await Promise.all([
             fetch(`${API}?tab=chart_admin`).then(r => r.json()),
-            fetch('/api/v1/expenses_controller.php?action=categories').then(r => r.json())
-                .catch(() => ({ status: 'error' })),
+            // This endpoint is gated by accounting.expenses.view, which a
+            // chart-only role may not hold. A 403 still returns valid JSON,
+            // so we read the status rather than treating it as a hard error
+            // and record WHY the panel is empty.
+            fetch('/api/v1/expenses_controller.php?action=categories')
+                .then(r => r.json().then(j => ({ ok: r.ok, body: j })))
+                .catch(() => ({ ok: false, body: { status: 'error' } })),
         ]);
         if (chartRes.status !== 'success') {
             throw new Error(chartRes.message || 'Chargement du plan comptable échoué.');
@@ -86,9 +92,20 @@
         STATE.can_edit   = !!chartRes.data.can_edit;
         STATE.can_create = !!chartRes.data.can_create;
 
-        STATE.cats = (catsRes?.status === 'success' && Array.isArray(catsRes.data?.categories))
-            ? catsRes.data.categories
-            : [];
+        // expenses_controller answers `categories` with the row list as the
+        // data payload itself — jr('success','',$rows) — not wrapped under a
+        // `categories` key. Reading data.categories therefore always yielded
+        // undefined and the panel rendered permanently empty. Accept either
+        // shape so this keeps working if the endpoint is ever wrapped.
+        const catBody = catsRes?.body;
+        if (catBody?.status === 'success') {
+            const d = catBody.data;
+            STATE.cats = Array.isArray(d) ? d : (Array.isArray(d?.categories) ? d.categories : []);
+            STATE.cats_denied = false;
+        } else {
+            STATE.cats = [];
+            STATE.cats_denied = true;
+        }
     }
 
     // ---------- modal ----------------------------------------------------
@@ -232,7 +249,9 @@
         const body = document.getElementById('cats-body');
         if (!STATE.cats.length) {
             body.innerHTML = `<tr><td colspan="3" class="px-6 py-6 text-center text-gray-400 text-sm">
-                Aucune catégorie chargée (endpoint indisponible ou catégories non seedées).
+                ${STATE.cats_denied
+                    ? 'Catégories non accessibles — la permission <code class="text-xs">accounting.expenses.view</code> est requise pour les lire et les remapper.'
+                    : 'Aucune catégorie de dépense enregistrée.'}
             </td></tr>`;
             return;
         }
