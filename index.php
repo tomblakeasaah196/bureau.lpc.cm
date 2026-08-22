@@ -88,20 +88,22 @@ $lang = lpc_i18n_current_lang();
             <?php endif; ?>
         </div>
         
-        <?php if (isset($_GET['error'])): ?>
+        <?php
+            $error = isset($_GET['error']) ? htmlspecialchars((string)$_GET['error'], ENT_QUOTES, 'UTF-8') : null;
+        ?>
+        <?php if ($error !== null): ?>
             <div class="mb-6 p-4 rounded-xl backdrop-blur-md border 
-                <?php echo $_GET['error'] === 'system_error' ? 'bg-amber-500/10 border-amber-500/30 text-amber-200' : 'bg-red-500/10 border-red-500/30 text-red-200'; ?> 
+                <?php echo $error === 'system_error' ? 'bg-amber-500/10 border-amber-500/30 text-amber-200' : 'bg-red-500/10 border-red-500/30 text-red-200'; ?>
                 animate-fade-in-up flex items-start">
                 
                 <svg class="w-5 h-5 mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                        d="<?php echo $_GET['error'] === 'system_error' ? 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z' : 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'; ?>">
+                        d="<?php echo $error === 'system_error' ? 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z' : 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'; ?>">
                     </path>
                 </svg>
 
                 <div class="text-sm font-medium">
                     <?php 
-                        $error = $_GET['error'];
                         if ($error === 'invalid_credentials') {
                             echo $lang == 'fr' ? 'Adresse email ou mot de passe incorrect.' : 'Invalid email address or password.';
                         } elseif ($error === 'empty_fields') {
