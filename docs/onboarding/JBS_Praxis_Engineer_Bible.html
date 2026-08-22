@@ -3324,8 +3324,210 @@ MAIL_FROM_NAME="JBS Praxis"</code></pre>
   </div>
 </section>
 
-<section class="lesson" id="p9-cicd" data-title="CI/CD with GitHub Actions" data-part="Part 9 · DevOps">
+<section class="lesson" id="p9-vps" data-title="Shared Hosting vs VPS" data-part="Part 9 · DevOps">
   <div class="eyebrow">Part 9 · Lesson 3</div>
+  <h1 class="title">Shared hosting <span class="sn">vs VPS</span></h1>
+  <div class="title-rule"></div>
+  <p class="lead">JBS runs projects on <strong>both</strong> shared hosting (like the ERP's cPanel box) and self-managed <strong>VPS</strong> servers. They are two different worlds with the same goal. This lesson teaches you to choose between them, and to deploy to a VPS two ways: the <strong>plain</strong> way (nginx + a process manager) and the <strong>Dockerised</strong> way.</p>
+
+  <h2>The choice, in one table</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th></th><th>Shared hosting (cPanel)</th><th>VPS (your own server)</th></tr>
+    <tr><td><b>You control</b></td><td>Your files &amp; database only</td><td>The whole machine (root access)</td></tr>
+    <tr><td><b>Build tools</b></td><td>None &mdash; build on your laptop, commit the output</td><td>Anything you install &mdash; build on the server or in CI</td></tr>
+    <tr><td><b>Deploy</b></td><td>git pull + <code>deploy.sh</code> in the cPanel Terminal (manual)</td><td>Fully scriptable &mdash; CI can auto-deploy over SSH</td></tr>
+    <tr><td><b>Runs</b></td><td>Whatever the host offers (usually PHP + MySQL)</td><td>Any stack: Node/Fastify, Python/FastAPI, Postgres, Docker</td></tr>
+    <tr><td><b>Security &amp; updates</b></td><td>The host patches the OS for you</td><td><b>Your job</b> &mdash; OS patching, firewall, hardening</td></tr>
+    <tr><td><b>Cost / scale</b></td><td>Cheap; limited; can't scale much</td><td>Costs more; scales; full performance control</td></tr>
+    <tr><td><b>Good for</b></td><td>The PHP/MySQL ERP; small, cost-sensitive projects</td><td>The TypeScript/Postgres field stack; anything needing background workers, containers, or real scale</td></tr>
+  </table></div>
+
+  <div class="callout gold">
+    <div class="ct">&#128161; The rule of thumb</div>
+    <p>If the stack fits a cheap PHP/MySQL host and the client is cost-sensitive &rarr; <strong>shared hosting</strong> (like the ERP). If you need Node/Python services, background jobs, containers, WebSockets, or room to scale &rarr; <strong>VPS</strong> (like FieldForce on Azure). The ERP's own roadmap even lists "migrate off shared cPanel to VPS" as a future step &mdash; systems often <em>graduate</em> from shared to VPS as they grow.</p>
+  </div>
+
+  <h2>Deploying to a VPS &mdash; Option A: plain (nginx + systemd/PM2)</h2>
+  <p>The classic setup for a Node/Fastify app: your app runs as a long-lived process; <strong>nginx</strong> sits in front as a reverse proxy (handling TLS and serving on ports 80/443); a <strong>process manager</strong> keeps your app alive and restarts it on crash or reboot.</p>
+
+  <div class="figure">
+    <svg viewBox="0 0 700 150" width="700">
+      <defs><marker id="arvps" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#00B8D4"/></marker></defs>
+      <rect x="20" y="55" width="130" height="48" rx="8" fill="#0A1128"/><text x="85" y="76" fill="#00E5FF" font-size="11" text-anchor="middle" font-family="Montserrat" font-weight="700">USER</text><text x="85" y="92" fill="#9fb2c9" font-size="9" text-anchor="middle" font-family="Fira Code">https :443</text>
+      <rect x="230" y="55" width="130" height="48" rx="8" fill="#141E3C"/><text x="295" y="76" fill="#00E5FF" font-size="11" text-anchor="middle" font-family="Montserrat" font-weight="700">NGINX</text><text x="295" y="92" fill="#9fb2c9" font-size="9" text-anchor="middle" font-family="Fira Code">TLS + reverse proxy</text>
+      <rect x="440" y="55" width="130" height="48" rx="8" fill="#1D2A50"/><text x="505" y="76" fill="#00E5FF" font-size="11" text-anchor="middle" font-family="Montserrat" font-weight="700">YOUR APP</text><text x="505" y="92" fill="#9fb2c9" font-size="9" text-anchor="middle" font-family="Fira Code">node :3000 (systemd)</text>
+      <rect x="620" y="55" width="60" height="48" rx="8" fill="#0E2A24"/><text x="650" y="82" fill="#10B981" font-size="10" text-anchor="middle" font-family="Montserrat" font-weight="700">DB</text>
+      <line x1="152" y1="79" x2="228" y2="79" stroke="#00B8D4" stroke-width="2" marker-end="url(#arvps)"/>
+      <line x1="362" y1="79" x2="438" y2="79" stroke="#00B8D4" stroke-width="2" marker-end="url(#arvps)"/>
+      <line x1="572" y1="79" x2="618" y2="79" stroke="#00B8D4" stroke-width="2" marker-end="url(#arvps)"/>
+    </svg>
+    <div class="cap">Figure 9 — nginx terminates TLS and proxies to your app process; the app talks to the database</div>
+  </div>
+
+  <p><strong>1. Get in and create a non-root user.</strong> Never run your app as root.</p>
+  <div class="code">
+    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">first login &amp; hardening</span><span class="lang">bash</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
+    <pre><code>ssh root@your-server-ip
+adduser deploy &amp;&amp; usermod -aG sudo deploy   <span class="cm"># a non-root user</span>
+<span class="cm"># copy your SSH key so you log in as 'deploy' with no password</span>
+ufw allow OpenSSH &amp;&amp; ufw allow <span class="st">'Nginx Full'</span> &amp;&amp; ufw enable   <span class="cm"># firewall: only SSH + web</span></code></pre>
+  </div>
+
+  <p><strong>2. Run the app under systemd</strong> so it starts on boot and restarts on crash:</p>
+  <div class="code">
+    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">/etc/systemd/system/fieldforce.service</span><span class="lang">ini</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
+    <pre><code>[Unit]
+Description=FieldForce API
+After=network.target
+
+[Service]
+User=deploy
+WorkingDirectory=/home/deploy/fieldforce
+EnvironmentFile=/home/deploy/fieldforce/.env   <span class="cm"># secrets, not in git</span>
+ExecStart=/usr/bin/node dist/server.js
+Restart=always                                 <span class="cm"># crash → auto-restart</span>
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+  </div>
+  <div class="code">
+    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">enable &amp; start it</span><span class="lang">bash</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
+    <pre><code>sudo systemctl enable --now fieldforce
+sudo systemctl status fieldforce        <span class="cm"># is it running?</span>
+journalctl -u fieldforce -f             <span class="cm"># live logs</span></code></pre>
+  </div>
+  <p class="mini-note">Prefer <strong>PM2</strong> instead of systemd? Same idea, friendlier for Node: <code>pm2 start dist/server.js --name fieldforce</code>, then <code>pm2 startup</code> + <code>pm2 save</code> so it survives reboots. Systemd is more "native"; PM2 is quicker and gives clustering and log tooling out of the box. Either is fine &mdash; pick one per project and be consistent.</p>
+
+  <p><strong>3. Put nginx in front</strong> as the reverse proxy:</p>
+  <div class="code">
+    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">/etc/nginx/sites-available/fieldforce</span><span class="lang">nginx</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
+    <pre><code>server {
+    server_name app.jbspraxis.com;
+    location / {
+        proxy_pass http://127.0.0.1:3000;      <span class="cm"># your app</span>
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}</code></pre>
+  </div>
+
+  <p><strong>4. Add free TLS</strong> with certbot &mdash; it edits the nginx config and auto-renews:</p>
+  <div class="code">
+    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">HTTPS in one command</span><span class="lang">bash</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
+    <pre><code>sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d app.jbspraxis.com   <span class="cm"># issues + installs the cert, sets auto-renew</span></code></pre>
+  </div>
+
+  <p><strong>5. The deploy step</strong> is the same idea as the ERP's <code>deploy.sh</code>, now able to build on the server and restart the service &mdash; and because <em>you</em> own the machine, CI can run this over SSH (no firewall blocking it like the shared host):</p>
+  <div class="code">
+    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">deploy.sh (plain VPS)</span><span class="lang">bash</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
+    <pre><code>cd /home/deploy/fieldforce
+git fetch origin main &amp;&amp; git reset --hard origin/main
+npm ci &amp;&amp; npm run build          <span class="cm"># build ON the server — it has the tools</span>
+npm run migrate                   <span class="cm"># apply pending migrations</span>
+sudo systemctl restart fieldforce <span class="cm"># pick up the new code</span>
+curl -fsS http://127.0.0.1:3000/health || exit 1   <span class="cm"># smoke test</span></code></pre>
+  </div>
+
+  <h2>Deploying to a VPS &mdash; Option B: Dockerised</h2>
+  <p>Docker packages your app <em>and</em> its exact environment into an <strong>image</strong> that runs identically everywhere &mdash; no more "works on my machine." <strong>Docker Compose</strong> then runs the whole system (app + database + nginx) as one unit.</p>
+  <div class="code">
+    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">Dockerfile</span><span class="lang">docker</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
+    <pre><code><span class="cm"># build stage — compile with the full toolchain</span>
+FROM node:20 AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+<span class="cm"># run stage — a small image with only what runs</span>
+FROM node:20-slim
+WORKDIR /app
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/node_modules ./node_modules
+EXPOSE 3000
+CMD ["node", "dist/server.js"]</code></pre>
+  </div>
+  <div class="code">
+    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">docker-compose.yml</span><span class="lang">yaml</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
+    <pre><code>services:
+  app:
+    build: .
+    env_file: .env            <span class="cm"># secrets injected at runtime, never baked into the image</span>
+    depends_on: [db]
+    restart: always
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASS}
+    volumes: ["pgdata:/var/lib/postgresql/data"]   <span class="cm"># data survives restarts</span>
+    restart: always
+  nginx:
+    image: nginx:stable
+    ports: ["80:80", "443:443"]
+    volumes: ["./nginx.conf:/etc/nginx/conf.d/default.conf:ro"]
+    depends_on: [app]
+    restart: always
+volumes: { pgdata: {} }</code></pre>
+  </div>
+  <div class="code">
+    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">the Dockerised deploy</span><span class="lang">bash</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
+    <pre><code>git pull &amp;&amp; docker compose build          <span class="cm"># or: pull a prebuilt image from CI</span>
+docker compose run --rm app npm run migrate   <span class="cm"># migrations as a one-off</span>
+docker compose up -d                       <span class="cm"># start/replace containers, detached</span>
+docker compose logs -f app                 <span class="cm"># watch it come up</span></code></pre>
+  </div>
+
+  <div class="callout indigo">
+    <div class="ct">&#128161; Plain vs Dockerised &mdash; when to pick which</div>
+    <p><strong>Plain (nginx + systemd/PM2)</strong> is simplest for one app on one server &mdash; fewer moving parts, less to learn. <strong>Dockerised</strong> wins when you have multiple services, want identical dev/prod environments, or plan to scale across machines. FieldForce's containerised, cloud (Azure) direction leans Docker; a single-service VPS is happy plain. Either way, the <em>concepts</em> you already know carry over: <code>.env</code> for secrets, migrations on release, a smoke test after, a health check.</p>
+  </div>
+
+  <div class="callout red">
+    <div class="ct">&#128721; On a VPS, security is now YOUR job</div>
+    <p>Shared hosting patched the OS for you; on a VPS <em>you</em> own it. The baseline: a <strong>non-root deploy user</strong>, <strong>SSH keys only</strong> (disable password login), a <strong>firewall</strong> (<code>ufw</code>: allow only SSH + web), <strong>automatic security updates</strong>, <strong>fail2ban</strong> against brute-force, and <strong>never expose the database port</strong> to the internet (bind it to localhost / the Docker network). Freedom and responsibility arrive together.</p>
+  </div>
+
+  <div class="quiz" data-quiz="q-vps-1" data-correct="1">
+    <div class="qk">&#9998; Knowledge check</div>
+    <div class="qq">On a plain VPS, what is nginx's job in front of your Node app?</div>
+    <div class="opt">It compiles your TypeScript to JavaScript.</div>
+    <div class="opt">It's the reverse proxy &mdash; terminates TLS on 443 and forwards requests to the app on localhost.</div>
+    <div class="opt">It stores the database.</div>
+    <div class="opt">It replaces the need for a process manager.</div>
+    <div class="fb" data-exp="nginx handles TLS and proxies to your app process; a process manager (systemd/PM2) keeps the app alive. Different jobs — you need both.">&nbsp;</div>
+  </div>
+
+  <div class="quiz" data-quiz="q-vps-2" data-correct="2">
+    <div class="qk">&#9998; Knowledge check</div>
+    <div class="qq">Why does the Dockerfile use a separate "build" stage and a smaller "run" stage?</div>
+    <div class="opt">To make the build slower on purpose.</div>
+    <div class="opt">Docker requires exactly two stages.</div>
+    <div class="opt">So the final image ships only what runs, not the full build toolchain &mdash; smaller and more secure.</div>
+    <div class="opt">To store secrets inside the image.</div>
+    <div class="fb" data-exp="Multi-stage builds compile in a fat image, then copy only the output into a slim run image. Never bake secrets into an image — inject them at runtime via .env.">&nbsp;</div>
+  </div>
+
+  <div class="assign">
+    <div class="ah"><span class="ic">&#9998;</span><b>Assignment 9.3 — Deploy to a real VPS</b><span class="lvl">Hands-on · ~2.5 hrs</span></div>
+    <div class="abody">
+      <div class="task"><input type="checkbox" data-task="t-9v-1" id="t-9v-1"><label for="t-9v-1">Spin up a cheap VPS (any provider). Log in, create a non-root <code>deploy</code> user, set up SSH-key login, and enable a firewall (SSH + web only).</label></div>
+      <div class="task"><input type="checkbox" data-task="t-9v-2" id="t-9v-2"><label for="t-9v-2"><b>Plain path:</b> run a small Node app under systemd or PM2, put nginx in front as a reverse proxy, and add HTTPS with certbot. Reach it at a real domain over https.</label></div>
+      <div class="task"><input type="checkbox" data-task="t-9v-3" id="t-9v-3"><label for="t-9v-3"><b>Docker path:</b> write a multi-stage Dockerfile + a compose file (app + postgres), and bring the whole thing up with <code>docker compose up -d</code>.</label></div>
+      <div class="task"><input type="checkbox" data-task="t-9v-4" id="t-9v-4"><label for="t-9v-4">Write a one-page note: for a given project, would you choose shared hosting, a plain VPS, or Docker &mdash; and exactly why?</label></div>
+    </div>
+  </div>
+
+  <div class="lesson-foot">
+    <button class="btn primary lc-btn" data-complete="p9-vps">Mark complete &amp; continue &rarr;</button>
+    <span class="done-note" data-note="p9-vps">Not yet complete</span>
+  </div>
+</section>
+
+<section class="lesson" id="p9-cicd" data-title="CI/CD with GitHub Actions" data-part="Part 9 · DevOps">
+  <div class="eyebrow">Part 9 · Lesson 4</div>
   <h1 class="title">CI/CD with <span class="sn">GitHub Actions</span></h1>
   <div class="title-rule"></div>
   <p class="lead"><strong>CI</strong> (Continuous Integration) runs your checks automatically on every push, so broken code is caught in minutes, not in production. <strong>CD</strong> (Continuous Delivery/Deployment) extends that to automatically shipping code that passes. GitHub Actions is how JBS wires this up.</p>
@@ -3352,6 +3554,7 @@ jobs:
   <div class="callout gold">
     <div class="ct">&#128161; CD is a goal, not always a given</div>
     <p>Full auto-deploy is ideal, but real infrastructure sometimes blocks it. The ERP <em>has</em> a deploy workflow, but the host's firewall blocks the runner from reaching the server &mdash; so the deploy step stays manual (pull + <code>deploy.sh</code> on the server) while CI still runs on every push. The lesson: <strong>automate what you can, script the rest so it's still repeatable, and be honest in your docs about what is and isn't automated.</strong> A half-automated pipeline you understand beats a "fully automated" one you're wrong about.</p>
+  <p class="mini-note">On a VPS you control (previous lesson), that firewall problem disappears: CI can SSH in and run your deploy script on every merge to <code>main</code> &mdash; true continuous deployment. That's one more reason a project graduates from shared hosting to a VPS.</p>
   </div>
 
   <h2>Secrets in CI</h2>
@@ -3383,7 +3586,7 @@ jobs:
 </section>
 
 <section class="lesson" id="p9-ops" data-title="Cron, Backups, Rollback & Monitoring" data-part="Part 9 · DevOps">
-  <div class="eyebrow">Part 9 · Lesson 4</div>
+  <div class="eyebrow">Part 9 · Lesson 5</div>
   <h1 class="title">Cron, backups, rollback &amp; <span class="sn">monitoring</span></h1>
   <div class="title-rule"></div>
   <p class="lead">Shipping is the start, not the end. A live system needs scheduled jobs, backups you've actually tested, a way to undo a bad deploy, and eyes on its health. This is the difference between "it launched" and "it runs."</p>
