@@ -4087,6 +4087,105 @@ jobs:
   </div>
 </section>
 
+<section class="lesson" id="refmap" data-title="&#128279; Praxis LS Reference Map" data-part="Appendix">
+  <div class="eyebrow">Appendix &middot; Jump into the code</div>
+  <h1 class="title">Praxis LS <span class="sn">reference map</span></h1>
+  <div class="title-rule"></div>
+  <p class="lead">Every concept in this Bible lives somewhere real in the Praxis LS repository. Use this map to jump straight from an idea to the exact file &mdash; the fastest way to go from reading to reading <em>the actual code</em>. Open each link in a new tab (you'll need repo access and to be signed in to GitHub).</p>
+  <div style="text-align:center;margin:6px 0 18px;"><a class="btn primary" href="https://github.com/tomblakeasaah196/praxis-ls" target="_blank" rel="noopener" style="text-decoration:none;">&#128193; Open the Praxis LS repo &rarr;</a></div>
+  <div class="callout gold"><div class="ct">&#128161; How to use this</div><p>Don't read these files top-to-bottom. Pick the concept you just learned, open its file, and read the <em>header comment</em> first &mdash; Praxis LS documents the <strong>why</strong>, not just the what. Paths are current as of this writing; a living codebase moves, so if a link 404s, search the repo for the filename. This page is a reference &mdash; it isn't gated and doesn't count toward your progress.</p></div>
+  <h2>Architecture &amp; the module pattern <em>&mdash; Parts 2 &amp; 5</em></h2>
+  <div class="tbl-wrap"><table class="tbl"><tr><th style="width:42%%;">Concept</th><th>Praxis LS file</th></tr>
+    <tr><td>Product spec, PRD &amp; knowledge base</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/doc" target="_blank" rel="noopener"><code>doc</code></a> &middot; <a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/README.md" target="_blank" rel="noopener"><code>README.md</code></a></td></tr>
+    <tr><td>App entry point (Express)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/server.js" target="_blank" rel="noopener"><code>src/server.js</code></a></td></tr>
+    <tr><td>Route registry (all modules wired here)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/routes/index.js" target="_blank" rel="noopener"><code>src/routes/index.js</code></a></td></tr>
+    <tr><td>A full feature module (the pattern)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/src/modules/operations/milestone" target="_blank" rel="noopener"><code>src/modules/operations/milestone</code></a></td></tr>
+    <tr><td>&nbsp;&nbsp;&bull; routes &rarr; controller &rarr; service &rarr; repo</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/modules/operations/milestone/milestone.routes.js" target="_blank" rel="noopener"><code>src/modules/operations/milestone/milestone.routes.js</code></a> &middot; <a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/modules/operations/milestone/milestone.service.js" target="_blank" rel="noopener"><code>src/modules/operations/milestone/milestone.service.js</code></a></td></tr>
+    <tr><td>&nbsp;&nbsp;&bull; validator (Zod) for the request body</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/modules/operations/milestone/milestone.validator.js" target="_blank" rel="noopener"><code>src/modules/operations/milestone/milestone.validator.js</code></a></td></tr>
+  </table></div>
+  <h2>Multi-tenancy <em>&mdash; Part 5</em></h2>
+  <div class="tbl-wrap"><table class="tbl"><tr><th style="width:42%%;">Concept</th><th>Praxis LS file</th></tr>
+    <tr><td>Host &rarr; tenant resolver (subdomain &rarr; tenant)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/middleware/host-tenent-resolver.js" target="_blank" rel="noopener"><code>src/middleware/host-tenent-resolver.js</code></a></td></tr>
+    <tr><td>Tenant request context &amp; <code>req.tenantDb()</code></td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/middleware/tenant-context.js" target="_blank" rel="noopener"><code>src/middleware/tenant-context.js</code></a></td></tr>
+    <tr><td>Tenant connection registry</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/services/tenant/registry.service.js" target="_blank" rel="noopener"><code>src/services/tenant/registry.service.js</code></a></td></tr>
+    <tr><td>Per-tenant DB credentials</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/services/tenant/db-credential.service.js" target="_blank" rel="noopener"><code>src/services/tenant/db-credential.service.js</code></a></td></tr>
+    <tr><td>Provision a brand-new tenant database</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/scripts/db/provision-tenant.js" target="_blank" rel="noopener"><code>scripts/db/provision-tenant.js</code></a></td></tr>
+    <tr><td>Platform vs tenant migrations</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/migrations/platform" target="_blank" rel="noopener"><code>migrations/platform</code></a> &middot; <a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/migrations/tenant" target="_blank" rel="noopener"><code>migrations/tenant</code></a></td></tr>
+  </table></div>
+  <h2>Authentication, RBAC &amp; security <em>&mdash; Part 5</em></h2>
+  <div class="tbl-wrap"><table class="tbl"><tr><th style="width:42%%;">Concept</th><th>Praxis LS file</th></tr>
+    <tr><td>Authentication (login, sessions)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/modules/portal_auth/portal_auth.service.js" target="_blank" rel="noopener"><code>src/modules/portal_auth/portal_auth.service.js</code></a> &middot; <a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/middleware/auth.js" target="_blank" rel="noopener"><code>src/middleware/auth.js</code></a></td></tr>
+    <tr><td>RBAC middleware (&ldquo;RBAC as data&rdquo;)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/middleware/rbac.js" target="_blank" rel="noopener"><code>src/middleware/rbac.js</code></a></td></tr>
+    <tr><td>Roles</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/src/modules/security/iam_role" target="_blank" rel="noopener"><code>src/modules/security/iam_role</code></a></td></tr>
+    <tr><td>RBAC schema (permission table)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/migrations/tenant/0110_rbac.sql" target="_blank" rel="noopener"><code>migrations/tenant/0110_rbac.sql</code></a></td></tr>
+    <tr><td>Feature gating (config-as-data)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/middleware/feature-gate.js" target="_blank" rel="noopener"><code>src/middleware/feature-gate.js</code></a> &middot; <a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/migrations/platform/0020_modules_features.sql" target="_blank" rel="noopener"><code>migrations/platform/0020_modules_features.sql</code></a></td></tr>
+    <tr><td>Idempotency (safe retries on writes)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/middleware/idempotency.js" target="_blank" rel="noopener"><code>src/middleware/idempotency.js</code></a></td></tr>
+    <tr><td>Central error handler (honest failures)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/middleware/error-handler.js" target="_blank" rel="noopener"><code>src/middleware/error-handler.js</code></a></td></tr>
+  </table></div>
+  <h2>Data, migrations &amp; the OHADA accounting core <em>&mdash; Parts 2, 5 &amp; 7</em></h2>
+  <div class="tbl-wrap"><table class="tbl"><tr><th style="width:42%%;">Concept</th><th>Praxis LS file</th></tr>
+    <tr><td>Migration runners</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/scripts/db/migrate-platform.js" target="_blank" rel="noopener"><code>scripts/db/migrate-platform.js</code></a> &middot; <a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/scripts/db/migrate-tenants.js" target="_blank" rel="noopener"><code>scripts/db/migrate-tenants.js</code></a></td></tr>
+    <tr><td>OHADA chart of accounts</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/migrations/tenant/0200_coa_dictionary.sql" target="_blank" rel="noopener"><code>migrations/tenant/0200_coa_dictionary.sql</code></a></td></tr>
+    <tr><td>Ledger + double-entry invariants</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/migrations/tenant/0220_ledger.sql" target="_blank" rel="noopener"><code>migrations/tenant/0220_ledger.sql</code></a></td></tr>
+    <tr><td>Accounting services</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/src/services/accounting" target="_blank" rel="noopener"><code>src/services/accounting</code></a></td></tr>
+  </table></div>
+  <h2>AI integration <em>&mdash; Parts 3 &amp; 7</em></h2>
+  <div class="tbl-wrap"><table class="tbl"><tr><th style="width:42%%;">Concept</th><th>Praxis LS file</th></tr>
+    <tr><td>AI modules (assistant, governance)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/src/modules/ai" target="_blank" rel="noopener"><code>src/modules/ai</code></a></td></tr>
+    <tr><td>AI governance rules (what AI may do)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/modules/ai/governance/governance.rules.js" target="_blank" rel="noopener"><code>src/modules/ai/governance/governance.rules.js</code></a></td></tr>
+    <tr><td>AI services (embeddings / RAG)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/src/services/ai" target="_blank" rel="noopener"><code>src/services/ai</code></a></td></tr>
+    <tr><td>Nightly reindex job</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/scripts/ai/reindex.js" target="_blank" rel="noopener"><code>scripts/ai/reindex.js</code></a></td></tr>
+    <tr><td>AI gate (feature flag before any spend)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/middleware/ai-gate.js" target="_blank" rel="noopener"><code>src/middleware/ai-gate.js</code></a></td></tr>
+    <tr><td>AI vendor config</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/migrations/platform/0060_ai_vendor.sql" target="_blank" rel="noopener"><code>migrations/platform/0060_ai_vendor.sql</code></a></td></tr>
+  </table></div>
+  <h2>Mail, storage, secrets &amp; integration <em>&mdash; Part 7</em></h2>
+  <div class="tbl-wrap"><table class="tbl"><tr><th style="width:42%%;">Concept</th><th>Praxis LS file</th></tr>
+    <tr><td>Mail service</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/modules/mail/mail/mail.service.js" target="_blank" rel="noopener"><code>src/modules/mail/mail/mail.service.js</code></a></td></tr>
+    <tr><td>Mail provider interface + Microsoft Graph</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/modules/mail/mail/providers/provider.interface.js" target="_blank" rel="noopener"><code>src/modules/mail/mail/providers/provider.interface.js</code></a> &middot; <a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/modules/mail/mail/providers/microsoftGraph.provider.js" target="_blank" rel="noopener"><code>src/modules/mail/mail/providers/microsoftGraph.provider.js</code></a></td></tr>
+    <tr><td>Object storage (files &rarr; S3, key in DB)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/services/storage.service.js" target="_blank" rel="noopener"><code>src/services/storage.service.js</code></a></td></tr>
+    <tr><td>Upload safety (media guard)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/shared/http/media-guard.js" target="_blank" rel="noopener"><code>src/shared/http/media-guard.js</code></a></td></tr>
+    <tr><td>Secret encryption (AES) at rest</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/services/encryption.service.js" target="_blank" rel="noopener"><code>src/services/encryption.service.js</code></a></td></tr>
+  </table></div>
+  <h2>Documents, PDF &amp; e-signatures <em>&mdash; Part 7</em></h2>
+  <div class="tbl-wrap"><table class="tbl"><tr><th style="width:42%%;">Concept</th><th>Praxis LS file</th></tr>
+    <tr><td>PDF renderer (Puppeteer)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/services/pdf.service.js" target="_blank" rel="noopener"><code>src/services/pdf.service.js</code></a></td></tr>
+    <tr><td>Documents service</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/src/services/documents" target="_blank" rel="noopener"><code>src/services/documents</code></a></td></tr>
+    <tr><td>Signatures</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/src/services/signatures" target="_blank" rel="noopener"><code>src/services/signatures</code></a></td></tr>
+    <tr><td>Qualified e-signatures (QES)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/src/modules/vault/qes" target="_blank" rel="noopener"><code>src/modules/vault/qes</code></a></td></tr>
+  </table></div>
+  <h2>Jobs, queues &amp; realtime <em>&mdash; Parts 7 &amp; 9</em></h2>
+  <div class="tbl-wrap"><table class="tbl"><tr><th style="width:42%%;">Concept</th><th>Praxis LS file</th></tr>
+    <tr><td>Background jobs (BullMQ)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/src/jobs" target="_blank" rel="noopener"><code>src/jobs</code></a></td></tr>
+    <tr><td>Worker process entry</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/jobs/workers.js" target="_blank" rel="noopener"><code>src/jobs/workers.js</code></a></td></tr>
+    <tr><td>Redis config</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/config/redis.js" target="_blank" rel="noopener"><code>src/config/redis.js</code></a></td></tr>
+    <tr><td>Socket.IO realtime</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/src/config/socket.js" target="_blank" rel="noopener"><code>src/config/socket.js</code></a> &middot; <a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/src/realtime" target="_blank" rel="noopener"><code>src/realtime</code></a></td></tr>
+  </table></div>
+  <h2>Frontend &amp; PWA <em>&mdash; Part 6</em></h2>
+  <div class="tbl-wrap"><table class="tbl"><tr><th style="width:42%%;">Concept</th><th>Praxis LS file</th></tr>
+    <tr><td>Client app (React + Vite)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/client" target="_blank" rel="noopener"><code>client</code></a></td></tr>
+    <tr><td>Vite + PWA config</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/client/vite.config.ts" target="_blank" rel="noopener"><code>client/vite.config.ts</code></a></td></tr>
+    <tr><td>Feature-first UI structure</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/client/src/features" target="_blank" rel="noopener"><code>client/src/features</code></a></td></tr>
+    <tr><td>End-to-end tests (Playwright)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/client/playwright.config.ts" target="_blank" rel="noopener"><code>client/playwright.config.ts</code></a></td></tr>
+  </table></div>
+  <h2>Testing, DevOps &amp; deploy <em>&mdash; Parts 8 &amp; 9</em></h2>
+  <div class="tbl-wrap"><table class="tbl"><tr><th style="width:42%%;">Concept</th><th>Praxis LS file</th></tr>
+    <tr><td>Jest config (coverage on functions/branches)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/jest.config.js" target="_blank" rel="noopener"><code>jest.config.js</code></a></td></tr>
+    <tr><td>Integration tests</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/tests/integration" target="_blank" rel="noopener"><code>tests/integration</code></a></td></tr>
+    <tr><td>Local CI runner</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/scripts/ci-local.js" target="_blank" rel="noopener"><code>scripts/ci-local.js</code></a></td></tr>
+    <tr><td>CI/CD workflows (CI, deploy, CodeQL, secret-scan)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/.github/workflows" target="_blank" rel="noopener"><code>.github/workflows</code></a></td></tr>
+    <tr><td>Dockerfile &amp; Compose stack</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/Dockerfile" target="_blank" rel="noopener"><code>Dockerfile</code></a> &middot; <a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/docker-compose.yml" target="_blank" rel="noopener"><code>docker-compose.yml</code></a></td></tr>
+    <tr><td>PM2 process config</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/ecosystem.config.js" target="_blank" rel="noopener"><code>ecosystem.config.js</code></a></td></tr>
+    <tr><td>Per-tenant backups</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/scripts/db/backup-tenant.js" target="_blank" rel="noopener"><code>scripts/db/backup-tenant.js</code></a></td></tr>
+    <tr><td>Secrets template (never the real .env)</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/blob/main/.env.example" target="_blank" rel="noopener"><code>.env.example</code></a></td></tr>
+  </table></div>
+  <h2>Shared contracts <em>&mdash; one definition, FE + BE</em></h2>
+  <div class="tbl-wrap"><table class="tbl"><tr><th style="width:42%%;">Concept</th><th>Praxis LS file</th></tr>
+    <tr><td>Shared Zod schemas, types &amp; libraries</td><td><a href="https://github.com/tomblakeasaah196/praxis-ls/tree/main/packages/shared" target="_blank" rel="noopener"><code>packages/shared</code></a></td></tr>
+  </table></div>
+  <div class="callout green"><div class="ct">&#127891; Ready?</div><p>You've seen the ideas and where they live. When every page is complete, open the <strong>Final Exam</strong> from the sidebar &mdash; then earn your certificate.</p></div>
+  <div class="lesson-foot"><span class="done-note" style="color:var(--muted);">Reference page &mdash; nothing to complete here. Use it whenever you're in the code.</span></div>
+</section>
+
 <!-- ============================ FINAL EXAM ============================ -->
 <section class="lesson" id="exam" data-title="&#127891; Final Examination" data-part="Certification">
   <div class="eyebrow">Certification</div>
@@ -4273,7 +4372,7 @@ window.JBS_EXAM = [
     });
   }
 
-  function contentLessons(){ return lessons.filter(function(l){ return l.id!=="exam" && l.id!=="cert"; }); }
+  function contentLessons(){ return lessons.filter(function(l){ return l.id!=="exam" && l.id!=="cert" && l.id!=="refmap"; }); }
   function allContentComplete(){
     var cl = contentLessons();
     for(var i=0;i<cl.length;i++){ if(!state.completed[cl[i].id]) return false; }
