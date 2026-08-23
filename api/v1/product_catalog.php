@@ -178,13 +178,17 @@ function lpc_catalog_has_col(PDO $db, string $col): bool
 {
     static $cache = [];
     if (isset($cache[$col])) return $cache[$col];
-
-    $stmt = $db->prepare("
-        SELECT COUNT(*) FROM information_schema.columns
-         WHERE table_schema = DATABASE() AND table_name = 'products' AND column_name = ?
-    ");
-    $stmt->execute([$col]);
-    return $cache[$col] = ((int) $stmt->fetchColumn() > 0);
+    try {
+        $stmt = $db->prepare("
+            SELECT COUNT(*) FROM information_schema.columns
+             WHERE table_schema = DATABASE() AND table_name = 'products' AND column_name = ?
+        ");
+        $stmt->execute([$col]);
+        return $cache[$col] = ((int) $stmt->fetchColumn() > 0);
+    } catch (Throwable $e) {
+        error_log('lpc_catalog_has_col(' . $col . '): ' . $e->getMessage());
+        return $cache[$col] = false;
+    }
 }
 
 require_once __DIR__ . '/../../includes/functions/pricing.php';
