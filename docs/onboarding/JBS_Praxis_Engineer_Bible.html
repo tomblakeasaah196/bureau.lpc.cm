@@ -390,7 +390,7 @@ kbd{background:#fff;border:1px solid #cfd6e2;border-bottom-width:2px;border-radi
           <span class="cover-logo" data-jbslogo="grey" data-h="64" role="img" aria-label="JBS Praxis" style="display:block;margin-bottom:20px;"></span>
           <div class="k">JBS Praxis &middot; Standard Operating Procedure for Engineers</div>
           <h1>The Full-Stack<br>Engineer's <span>Bible</span></h1>
-          <p class="sub">Everything you need to design, build, test, ship, and support a production-grade ERP or field-force system the way JBS Praxis builds them &mdash; from your first line of code to training the client. Written for people who are starting from very little, and are ready to become dangerous in a month.</p>
+          <p class="sub">Everything you need to design, build, test, ship, and support a production-grade ERP or logistics platform the way JBS Praxis builds them &mdash; from your first line of code to training the client. Written for people who are starting from very little, and are ready to become dangerous in a month.</p>
           <div class="meta">
             <div><b id="coverLessons">45+</b> LESSONS</div>
             <div><b>11</b> PARTS</div>
@@ -454,7 +454,7 @@ kbd{background:#fff;border:1px solid #cfd6e2;border-bottom-width:2px;border-radi
   <p>We design and build <strong>production business systems</strong> &mdash; the software a company logs into every morning to run its operations. Two kinds dominate our work, and this Bible teaches you both:</p>
   <ul>
     <li><strong>ERPs (Enterprise Resource Planning systems)</strong> &mdash; the accounting, inventory, sales, HR, payroll and treasury brain of a business. Our reference ERP in this Bible is a live system: <span class="tok-inline">bureau.lpc.cm</span>, a full accounting &amp; distribution platform built to the West-African <span class="tok-inline">SYSCOHADA</span> accounting standard.</li>
-    <li><strong>Field-force / operational platforms</strong> &mdash; apps that people use out in the world: sales reps visiting pharmacies, drivers delivering stock, agents capturing leads offline. Our reference field system is the <strong>Fidson FieldForce Programme</strong>, a React PWA delivered milestone-by-milestone.</li>
+    <li><strong>Logistics &amp; operational platforms</strong> &mdash; systems that run a business's day-to-day operations: freight forwarding, customs clearance, warehousing, fleet, delivery tracking. Our reference here is <strong>Praxis LS</strong>, JBS Praxis's own multi-tenant logistics ERP &mdash; a React PWA on a Node/PostgreSQL backend.</li>
   </ul>
 
   <div class="callout">
@@ -494,7 +494,7 @@ kbd{background:#fff;border:1px solid #cfd6e2;border-bottom-width:2px;border-radi
   <div class="assign">
     <div class="ah"><span class="ic">&#9998;</span><b>Assignment 1.1 — Orient yourself</b><span class="lvl">Warm-up · ~20 min</span></div>
     <div class="abody">
-      <div class="task"><input type="checkbox" data-task="t-1.1-1" id="t-1.1-1"><label for="t-1.1-1">Write, in your own words (a note file on your machine), what an <b>ERP</b> is and what a <b>field-force app</b> is. One paragraph each.</label></div>
+      <div class="task"><input type="checkbox" data-task="t-1.1-1" id="t-1.1-1"><label for="t-1.1-1">Write, in your own words (a note file on your machine), what an <b>ERP</b> is and what a <b>logistics/operations app</b> is. One paragraph each.</label></div>
       <div class="task"><input type="checkbox" data-task="t-1.1-2" id="t-1.1-2"><label for="t-1.1-2">List three businesses near you that could use one of these systems, and what problem it would solve for them.</label></div>
       <div class="task"><input type="checkbox" data-task="t-1.1-3" id="t-1.1-3"><label for="t-1.1-3">Memorise the five values. Write them from memory without looking.</label></div>
     </div>
@@ -525,41 +525,43 @@ kbd{background:#fff;border:1px solid #cfd6e2;border-bottom-width:2px;border-radi
     <tr><td><b>Deploy</b></td><td>Git &rarr; cPanel &rarr; <code>deploy.sh</code></td><td>Migrations, permission locks, smoke tests, all scripted</td></tr>
   </table></div>
 
-  <h2>Reference B &mdash; the FieldForce PWA <em>(Fidson programme)</em></h2>
-  <p>A field-sales platform for pharmaceutical reps, delivered in <strong>eleven weekly milestones</strong>. Each milestone ships three things: a mobile PWA that feels native, a desktop PWA that feels like standalone software, and a manager web experience. Its declared stack &mdash; the kind you will meet on modern greenfield JBS projects:</p>
+  <h2>Reference B &mdash; Praxis LS <em>(the multi-tenant logistics ERP)</em></h2>
+  <p><strong>Praxis LS</strong> (working name <em>SmartLS</em> in the code) is JBS Praxis's own white-label, <strong>multi-tenant SaaS ERP</strong> for heavyweight logistics operators &mdash; freight forwarding, customs clearance, warehouse and fleet management &mdash; built on the same OHADA/SYSCOHADA accounting core as the ERP above. It is a <em>modern rebuild</em> of a legacy PHP/MySQL system on a modern stack, which is exactly why it pairs so well with Reference A: together they show the <strong>same domain, two eras</strong>. This is its real, shipped stack:</p>
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>Layer</th><th>Technology</th></tr>
-    <tr><td><b>Core API</b></td><td>TypeScript, Fastify, Zod contracts, Drizzle ORM</td></tr>
-    <tr><td><b>AI tier</b></td><td>Python, FastAPI</td></tr>
-    <tr><td><b>Database</b></td><td>PostgreSQL</td></tr>
-    <tr><td><b>Client</b></td><td>React + TypeScript PWA (iOS, Android, desktop &mdash; all mandatory)</td></tr>
-    <tr><td><b>Mapping / Testing / Cloud</b></td><td>Azure Maps &middot; Vitest with disposable container databases &middot; Microsoft Azure</td></tr>
+    <tr><td><b>Backend API</b></td><td>Node.js + <b>Express</b> (JavaScript), a modular monolith &mdash; one <code>modules/&lt;domain&gt;/</code> folder per feature</td></tr>
+    <tr><td><b>Database</b></td><td>PostgreSQL 16 (pgvector) &mdash; <b>one dedicated database per tenant</b></td></tr>
+    <tr><td><b>Cache / jobs / realtime</b></td><td>Redis + BullMQ (background workers) &middot; Socket.IO (live updates)</td></tr>
+    <tr><td><b>Client</b></td><td>React 18 + Vite + TypeScript, installable <b>PWA</b></td></tr>
+    <tr><td><b>Validation / PDF / mail</b></td><td>Zod (shared FE/BE) &middot; Puppeteer + headless Chromium &middot; SMTP + Microsoft Graph</td></tr>
+    <tr><td><b>Ops</b></td><td>Docker + Docker Compose &middot; PM2 &middot; self-managed VPS &middot; per-tenant scaling</td></tr>
   </table></div>
+  <p class="mini-note">Note the reality vs. the roadmap: Praxis LS's own README describes a <em>target</em> of NestJS + TypeScript, but the code that actually ships &mdash; and that you'll learn from &mdash; is a lean Express app in JavaScript. We teach the code that exists, not the code that's planned. (That, too, is a JBS habit.)</p>
 
   <div class="callout indigo">
     <div class="ct">&#128161; Why teach two stacks?</div>
-    <p>Because a JBS engineer is <strong>stack-agnostic</strong>. The <em>ideas</em> &mdash; a login, roles, migrations, an API, a safe front-end, integrations, tests, a deploy pipeline &mdash; are identical. Only the spelling changes: a PHP <code>*_controller.php</code> and a Fastify route with a Zod schema are the same idea. Learn the ideas here on the codebase you can actually read, and you'll pick up any framework in days.</p>
+    <p>Because a JBS engineer is <strong>stack-agnostic</strong>. The <em>ideas</em> &mdash; a login, roles, migrations, an API, a safe front-end, integrations, tests, a deploy pipeline &mdash; are identical. Only the spelling changes: a PHP <code>*_controller.php</code> and an Express route with a Zod validator are the same idea. In fact Praxis LS organises each feature as <code>modules/&lt;domain&gt;/&lt;domain&gt;.{routes,controller,service,repo,validator}.js</code> &mdash; the ERP's controller pattern, grown up. Learn the ideas on codebases you can actually read, and you'll pick up any framework in days.</p>
   </div>
 
-  <h2>The two-client mandate</h2>
-  <p>One FieldForce rule is worth burning in early because it reflects a JBS quality obsession. The mobile PWA must feel like a <strong>native app in full</strong> (installed to the home screen, full-screen, native gestures, safe areas). The desktop PWA must feel like <strong>full standalone desktop software</strong> (its own window, keyboard-first, dense layouts). <em>Neither adapts from the other</em> &mdash; each is designed for its device. "Responsive" is the floor, not the goal.</p>
+  <h2>The multi-tenant mandate</h2>
+  <p>Praxis LS's defining trait is <strong>multi-tenancy</strong>: one codebase serves many client companies ("tenants"), each with its <strong>own dedicated database</strong>, reached at its own subdomain (<code>&lt;tenant&gt;.praxis-ls.com</code>). It has three distinct surfaces: the <strong>tenant app</strong> (a logistics company's staff), the <strong>platform console</strong> (JBS super-admins who provision and manage tenants), and a <strong>public portal</strong> (a tenant's own clients tracking their shipments). One tenant's data must <em>never</em> leak into another's &mdash; that isolation is a hard architectural rule you'll study in Part 5.</p>
 
   <div class="quiz" data-quiz="q-what-1" data-correct="2">
     <div class="qk">&#9998; Knowledge check</div>
-    <div class="qq">A teammate says "a Fastify route with a Zod schema is a totally different thing from a PHP controller, so nothing I learn on the ERP transfers." Are they right?</div>
+    <div class="qq">A teammate says "an Express route with a Zod validator is a totally different thing from a PHP controller, so nothing I learn on the ERP transfers." Are they right?</div>
     <div class="opt">Yes &mdash; different languages mean different concepts entirely.</div>
     <div class="opt">Yes &mdash; only Python skills transfer between projects.</div>
     <div class="opt">No &mdash; both are "an endpoint that validates input, checks permission, and returns JSON." Same idea, different spelling.</div>
-    <div class="opt">No &mdash; because both use MySQL.</div>
-    <div class="fb" data-exp="The whole point of learning on one readable codebase is that the architecture transfers. A validated, permission-gated endpoint is the same concept in every language.">&nbsp;</div>
+    <div class="opt">No &mdash; because both use the same database.</div>
+    <div class="fb" data-exp="The whole point of learning on readable codebases is that the architecture transfers. A validated, permission-gated endpoint is the same concept in every language.">&nbsp;</div>
   </div>
 
   <div class="assign">
     <div class="ah"><span class="ic">&#9998;</span><b>Assignment 1.2 — Map the two stacks</b><span class="lvl">Warm-up · ~30 min</span></div>
     <div class="abody">
-      <div class="task"><input type="checkbox" data-task="t-1.2-1" id="t-1.2-1"><label for="t-1.2-1">Draw a table with two columns (ERP / FieldForce) and rows for: language, database, front-end, how it deploys. Fill it in from this lesson.</label></div>
+      <div class="task"><input type="checkbox" data-task="t-1.2-1" id="t-1.2-1"><label for="t-1.2-1">Draw a table with two columns (LPC ERP / Praxis LS) and rows for: language, database, front-end, how it deploys. Fill it in from this lesson.</label></div>
       <div class="task"><input type="checkbox" data-task="t-1.2-2" id="t-1.2-2"><label for="t-1.2-2">For each layer, write one sentence: "the <b>idea</b> that is the same in both is ___."</label></div>
-      <div class="task"><input type="checkbox" data-task="t-1.2-3" id="t-1.2-3"><label for="t-1.2-3">Explain the two-client mandate to a non-technical friend and note the question they ask.</label></div>
+      <div class="task"><input type="checkbox" data-task="t-1.2-3" id="t-1.2-3"><label for="t-1.2-3">Explain "multi-tenancy" (one app, many companies, isolated data) to a non-technical friend and note the question they ask.</label></div>
     </div>
   </div>
 
@@ -576,7 +578,7 @@ kbd{background:#fff;border:1px solid #cfd6e2;border-bottom-width:2px;border-radi
   <p class="lead">If terms like "server", "request", "API" and "database" are fuzzy, this lesson fixes that permanently. Everything else in the Bible sits on this mental model, so go slowly.</p>
 
   <h2>The life of a click</h2>
-  <p>Imagine a sales rep taps <strong>"Save visit"</strong> in the FieldForce app. Here is what actually happens, and it is the same story for every button in every system we build:</p>
+  <p>Imagine a clearing agent taps <strong>"Advance milestone"</strong> on a shipment in Praxis LS. Here is what actually happens, and it is the same story for every button in every system we build:</p>
 
   <div class="figure">
     <svg viewBox="0 0 720 250" width="720">
@@ -664,10 +666,10 @@ kbd{background:#fff;border:1px solid #cfd6e2;border-bottom-width:2px;border-radi
     <tr><th>Tool</th><th>What it's for</th><th>Check it installed</th></tr>
     <tr><td><b>Git</b></td><td>Version control &mdash; tracks every change, enables teamwork</td><td><code>git --version</code></td></tr>
     <tr><td><b>VS Code</b></td><td>Your code editor (with the Claude Code extension)</td><td>opens</td></tr>
-    <tr><td><b>Node.js (LTS)</b></td><td>Runs JS/TS tooling: Tailwind, esbuild, Vitest, Fastify</td><td><code>node -v</code> &amp; <code>npm -v</code></td></tr>
+    <tr><td><b>Node.js (LTS)</b></td><td>Runs JS/TS tooling: Express, React/Vite, Jest, Tailwind, esbuild</td><td><code>node -v</code> &amp; <code>npm -v</code></td></tr>
     <tr><td><b>PHP 8.3</b></td><td>Runs the ERP reference codebase locally</td><td><code>php -v</code></td></tr>
     <tr><td><b>MySQL / MariaDB</b></td><td>The ERP's database (or use Docker)</td><td><code>mysql --version</code></td></tr>
-    <tr><td><b>PostgreSQL</b></td><td>The FieldForce database</td><td><code>psql --version</code></td></tr>
+    <tr><td><b>PostgreSQL</b></td><td>The Praxis LS database (one per tenant)</td><td><code>psql --version</code></td></tr>
     <tr><td><b>Docker Desktop</b></td><td>Disposable databases for tests; consistent environments</td><td><code>docker --version</code></td></tr>
     <tr><td><b>Composer</b></td><td>PHP package manager (dompdf, QR code)</td><td><code>composer --version</code></td></tr>
     <tr><td><b>Claude Code CLI</b></td><td>Your AI pair-engineer in the terminal</td><td><code>claude --version</code></td></tr>
@@ -734,7 +736,7 @@ git config --global init.defaultBranch main</code></pre>
     <tr><td><b>GitHub</b></td><td>Storing code, pull requests, code review, CI/CD</td><td>Free</td></tr>
     <tr><td><b>Anthropic (Claude)</b></td><td>Claude Code &mdash; your AI pair engineer</td><td>Paid / plan</td></tr>
     <tr><td><b>An LLM API key</b></td><td>In-app AI features (Gemini, or an OpenAI-compatible provider)</td><td>Usage-based</td></tr>
-    <tr><td><b>A cloud provider</b></td><td>Hosting: Azure (FieldForce), or cPanel/VPS (ERP)</td><td>Varies</td></tr>
+    <tr><td><b>A cloud provider</b></td><td>Hosting: a VPS + Docker (Praxis LS), or cPanel shared hosting (ERP)</td><td>Varies</td></tr>
     <tr><td><b>An email/SMTP provider</b></td><td>Sending mail (password resets, notifications)</td><td>Free tier available</td></tr>
     <tr><td><b>A push service (VAPID keys)</b></td><td>Web push notifications &mdash; you generate these yourself, free</td><td>Free</td></tr>
   </table></div>
@@ -860,7 +862,7 @@ Rbac::<span class="fnn">requirePermission</span>(<span class="st">'crm.clients.v
 
   <div class="callout indigo">
     <div class="ct">&#128161; The pattern behind the pattern</div>
-    <p>Notice the shape: <strong>a shared foundation that every entry point is forced to go through.</strong> In Fastify you'd express this as a set of <em>plugins</em> and <em>hooks</em> that run before every route. Different words, identical idea: never let a developer accidentally skip security by forgetting to add it to a new page.</p>
+    <p>Notice the shape: <strong>a shared foundation that every entry point is forced to go through.</strong> In Express (Praxis LS) you'd express this as an ordered chain of <em>middleware</em> &mdash; resolve the tenant, authenticate, check permission &mdash; that runs before every route handler. Different words, identical idea: never let a developer accidentally skip security by forgetting to add it to a new page.</p>
   </div>
 
   <div class="quiz" data-quiz="q-anat-1" data-correct="2">
@@ -904,9 +906,9 @@ Rbac::<span class="fnn">requirePermission</span>(<span class="st">'crm.clients.v
       <text x="34" y="48" fill="#00E5FF" font-size="12" font-weight="700" font-family="Montserrat">clients</text>
       <text x="34" y="78" font-size="11" font-family="Fira Code" fill="#0a2540"><tspan font-weight="700">id</tspan>  name             created_at</text>
       <line x1="30" y1="86" x2="310" y2="86" stroke="#EEF1F6"/>
-      <text x="34" y="106" font-size="11" font-family="Fira Code" fill="#2D3142">12  Pharmacie Bleu    2026-01-04</text>
-      <text x="34" y="128" font-size="11" font-family="Fira Code" fill="#2D3142">13  Clinique Nord     2026-01-06</text>
-      <text x="34" y="150" font-size="11" font-family="Fira Code" fill="#2D3142">14  Depot Sud         2026-02-01</text>
+      <text x="34" y="106" font-size="11" font-family="Fira Code" fill="#2D3142">12  Douala Freight    2026-01-04</text>
+      <text x="34" y="128" font-size="11" font-family="Fira Code" fill="#2D3142">13  Kribi Port Co     2026-01-06</text>
+      <text x="34" y="150" font-size="11" font-family="Fira Code" fill="#2D3142">14  Transit Nord         2026-02-01</text>
       <rect x="380" y="30" width="300" height="160" rx="8" fill="#fff" stroke="#E2E6EC"/>
       <rect x="380" y="30" width="300" height="26" rx="8" fill="#0E2A24"/>
       <text x="394" y="48" fill="#10B981" font-size="12" font-weight="700" font-family="Montserrat">invoices</text>
@@ -925,7 +927,7 @@ Rbac::<span class="fnn">requirePermission</span>(<span class="st">'crm.clients.v
   <div class="code">
     <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">SQL basics</span><span class="lang">sql</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
     <pre><code><span class="cm">-- CREATE a row</span>
-<span class="kw">INSERT INTO</span> clients (name) <span class="kw">VALUES</span> (<span class="st">'Clinique Nord'</span>);
+<span class="kw">INSERT INTO</span> clients (name) <span class="kw">VALUES</span> (<span class="st">'Kribi Port Co'</span>);
 
 <span class="cm">-- READ rows (with a relationship)</span>
 <span class="kw">SELECT</span> c.name, <span class="fnn">SUM</span>(i.amount) <span class="kw">AS</span> total
@@ -935,7 +937,7 @@ Rbac::<span class="fnn">requirePermission</span>(<span class="st">'crm.clients.v
 <span class="kw">GROUP BY</span> c.name;
 
 <span class="cm">-- UPDATE a row</span>
-<span class="kw">UPDATE</span> clients <span class="kw">SET</span> name = <span class="st">'Clinique du Nord'</span> <span class="kw">WHERE</span> id = <span class="nm">13</span>;
+<span class="kw">UPDATE</span> clients <span class="kw">SET</span> name = <span class="st">'Kribi Port Co Ltd'</span> <span class="kw">WHERE</span> id = <span class="nm">13</span>;
 
 <span class="cm">-- DELETE (rarely — we prefer a "soft delete": deleted_at = NOW())</span>
 <span class="kw">UPDATE</span> clients <span class="kw">SET</span> deleted_at = <span class="fnn">NOW</span>() <span class="kw">WHERE</span> id = <span class="nm">14</span>;</code></pre>
@@ -1027,7 +1029,7 @@ $stmt-&gt;<span class="fnn">execute</span>([$id]);</code></pre>
 
   <h2>The JavaScript rules</h2>
   <ul>
-    <li><strong>Vanilla JS + Fetch</strong> on the ERP &mdash; no jQuery, no new libraries without discussion. (FieldForce uses React; same discipline, different tool.)</li>
+    <li><strong>Vanilla JS + Fetch</strong> on the ERP &mdash; no jQuery, no new libraries without discussion. (Praxis LS uses React; same discipline, different tool.)</li>
     <li><strong>Render user data with <code>textContent</code></strong>, never <code>innerHTML += apiString</code>. Building HTML from server strings is how XSS gets in.</li>
     <li><strong>Every fetch shows a loading state and handles errors</strong> &mdash; never a silent <code>catch{}</code>.</li>
   </ul>
@@ -1373,7 +1375,7 @@ claude</code></pre>
   <p>Ask for the test <em>with</em> the code &mdash; or first. A failing test that then passes is proof, not vibes.</p>
   <div class="promptbox">
     <div class="ph">&#128172; Test-anchored<span class="tag">WORKFLOW</span></div>
-    <div class="pbody"><div class="qq">Write a Vitest test that asserts the payroll compute() function returns net = gross - deductions for a known example, then implement compute() until the test passes. Show me the test first.</div></div>
+    <div class="pbody"><div class="qq">Write a Jest test that asserts the payroll compute() function returns net = gross - deductions for a known example, then implement compute() until the test passes. Show me the test first.</div></div>
   </div>
 
   <h2>Pattern 4 — The reproduce-then-fix loop (debugging)</h2>
@@ -1698,7 +1700,7 @@ git log --oneline -10            <span class="cm"># recent history</span></code>
   <p class="lead">No JBS code reaches the main branch without a pull request that another human reviewed. This is not bureaucracy &mdash; it is how quality and shared understanding are enforced. It's also how you learn fastest.</p>
 
   <h2>The pull request (PR)</h2>
-  <p>A <strong>pull request</strong> proposes merging your branch into <code>main</code>. It shows the exact diff, lets reviewers comment line-by-line, runs automated checks (CI), and records the decision. The FieldForce programme states the rule flatly: <em>"All work by pull request into the repository, reviewed before merge, reviewer never the author; documentation updated in the same PR."</em></p>
+  <p>A <strong>pull request</strong> proposes merging your branch into <code>main</code>. It shows the exact diff, lets reviewers comment line-by-line, runs automated checks (CI), and records the decision. The JBS rule is flat: <em>all work goes in by pull request, reviewed before merge, the reviewer is never the author, and the documentation is updated in the same PR.</em> Praxis LS lives by this &mdash; 250+ merged PRs, each reviewed.</p>
 
   <div class="flow">
     <div class="fstep"><div class="fn">1</div><div class="ft">Branch</div><div class="fb">One feature = one branch, named for the work.</div></div>
@@ -1859,25 +1861,34 @@ $action = $_POST[<span class="st">'action'</span>] ?? $_GET[<span class="st">'ac
 
   <p>Read what this guarantees: <strong>auth first</strong>, then <strong>per-action permission</strong>, then <strong>CSRF on writes</strong>, then the work, and a <strong>uniform JSON shape</strong> out. Every controller is boringly identical &mdash; and boring is exactly what you want in security-critical code.</p>
 
-  <h2>The same idea in the FieldForce stack</h2>
-  <p>On a Fastify + Zod backend, the shape is the same, spelled differently. A <strong>Zod schema</strong> validates the request body <em>before</em> your handler runs; a <strong>pre-handler hook</strong> checks the permission; the handler returns typed JSON:</p>
+  <h2>The same idea in Praxis LS (Express modules)</h2>
+  <p>Praxis LS splits each feature into a folder &mdash; <code>modules/&lt;domain&gt;/&lt;domain&gt;.{routes,controller,service,repo,validator}.js</code> &mdash; and wires the guards as a <strong>middleware chain</strong> on each route. This is the ERP's controller pattern, refined into layers. Here is real code (lightly trimmed) from the logistics <em>milestone</em> module:</p>
   <div class="code">
-    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">the same idea in TypeScript / Fastify + Zod</span><span class="lang">ts</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
-    <pre><code><span class="kw">const</span> CreateClient = z.<span class="fnn">object</span>({ name: z.<span class="fnn">string</span>().<span class="fnn">min</span>(<span class="nm">2</span>) });
+    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">src/modules/operations/milestone/milestone.routes.js (Praxis LS)</span><span class="lang">js</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
+    <pre><code><span class="kw">const</span> express = <span class="fnn">require</span>(<span class="st">"express"</span>);
+<span class="kw">const</span> { authMiddleware } = <span class="fnn">require</span>(<span class="st">"../../../middleware/auth"</span>);
+<span class="kw">const</span> { requirePermission } = <span class="fnn">require</span>(<span class="st">"../../../middleware/rbac"</span>);
+<span class="kw">const</span> controller = <span class="fnn">require</span>(<span class="st">"./milestone.controller"</span>);
+<span class="kw">const</span> validator  = <span class="fnn">require</span>(<span class="st">"./milestone.validator"</span>);
+<span class="kw">const</span> MODULE = <span class="st">"MOD-31"</span>;
+<span class="kw">const</span> router = express.<span class="fnn">Router</span>();
 
-app.<span class="fnn">post</span>(<span class="st">'/clients'</span>, {
-  preHandler: <span class="fnn">requirePermission</span>(<span class="st">'crm.clients.create'</span>),
-  schema: { body: CreateClient },        <span class="cm">// Zod validates before handler</span>
-}, <span class="kw">async</span> (req, reply) =&gt; {
-  <span class="kw">const</span> { name } = req.body;              <span class="cm">// already validated &amp; typed</span>
-  <span class="kw">const</span> row = <span class="kw">await</span> db.<span class="fnn">insert</span>(clients).<span class="fnn">values</span>({ name }).<span class="fnn">returning</span>();
-  <span class="kw">return</span> reply.<span class="fnn">send</span>({ status: <span class="st">'ok'</span>, client: row[<span class="nm">0</span>] });
-});</code></pre>
+router.<span class="fnn">use</span>(authMiddleware);                              <span class="cm">// 1. must be logged in</span>
+router.<span class="fnn">get</span>(<span class="st">"/templates"</span>,
+  <span class="fnn">requirePermission</span>(MODULE, <span class="st">"view"</span>),                    <span class="cm">// 2. permission gate</span>
+  controller.listTemplates);
+router.<span class="fnn">post</span>(<span class="st">"/instantiate"</span>,
+  <span class="fnn">requirePermission</span>(MODULE, <span class="st">"create"</span>),
+  validator.instantiate,                             <span class="cm">// 3. Zod validates the body</span>
+  controller.instantiate);                           <span class="cm">// 4. the work</span>
+
+module.exports = { basePath: <span class="st">"/milestones"</span>, feature: <span class="st">"operations"</span>, router };</code></pre>
   </div>
+  <p>Read the chain left to right on the <code>POST</code>: <strong>authenticate &rarr; check the <code>create</code> permission on module MOD-31 &rarr; validate the body with Zod &rarr; run the controller</strong>. The controller stays thin and calls a <code>service</code> (business logic) which calls a <code>repo</code> (database). Same discipline as the ERP, just separated into more files.</p>
 
   <div class="callout indigo">
-    <div class="ct">&#128161; One shape, two spellings</div>
-    <p>Validate &rarr; authorise &rarr; do the work &rarr; return uniform JSON. Whether it's a PHP <code>switch</code> on <code>$_POST['action']</code> or a Fastify route with a Zod schema, that is the contract. Recognising the shared skeleton is what lets you move between JBS projects without friction.</p>
+    <div class="ct">&#128161; One shape, three spellings</div>
+    <p>Validate &rarr; authorise &rarr; do the work &rarr; return uniform JSON. Whether it's a PHP <code>switch</code> on <code>$_POST['action']</code>, or an Express route with an <code>authMiddleware &rarr; requirePermission &rarr; validator</code> chain, that is the contract. And note what the middleware chain hides: in Praxis LS, a <em>tenant-resolver</em> middleware has already run before all of these, so by the time the controller executes it is talking to the right tenant's database (Part 5, Multi-Tenancy). Recognising the shared skeleton is what lets you move between JBS projects without friction.</p>
   </div>
 
   <div class="quiz" data-quiz="q-api-1" data-correct="2">
@@ -1976,8 +1987,96 @@ app.<span class="fnn">post</span>(<span class="st">'/clients'</span>, {
   </div>
 </section>
 
-<section class="lesson" id="p5-auth" data-title="Authentication" data-part="Part 5 · The Backend">
+<section class="lesson" id="p5-tenancy" data-title="Multi-Tenancy: One DB per Tenant" data-part="Part 5 · The Backend">
   <div class="eyebrow">Part 5 · Lesson 3</div>
+  <h1 class="title">Multi-tenancy &mdash; <span class="sn">one DB per tenant</span></h1>
+  <div class="title-rule"></div>
+  <p class="lead">A <strong>multi-tenant</strong> product runs one codebase for many separate customer companies ("tenants") &mdash; and the cardinal rule is that no tenant can <em>ever</em> see another's data. Praxis LS is JBS's flagship multi-tenant system, so this is a pattern you must own. It's the biggest idea the ERP (single-tenant) doesn't teach.</p>
+
+  <h2>Three ways to isolate tenants</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>Strategy</th><th>How</th><th>Isolation</th></tr>
+    <tr><td>Shared table + <code>tenant_id</code></td><td>One database; every row tagged; every query filters by tenant</td><td>Weakest &mdash; one forgotten <code>WHERE tenant_id=?</code> leaks everything</td></tr>
+    <tr><td>Schema per tenant</td><td>One database cluster, a schema per tenant</td><td>Medium &mdash; better, but still one blast radius</td></tr>
+    <tr><td><b>Database per tenant</b> <span class="badge teal">Praxis LS</span></td><td>Each tenant gets its <b>own dedicated PostgreSQL database</b></td><td>Strongest &mdash; a query simply <em>cannot</em> reach another tenant's DB</td></tr>
+  </table></div>
+  <p>Praxis LS chose <strong>one database per tenant</strong>: the strongest isolation, and it lets a big tenant be backed up, tuned, or moved to its own server independently. The cost is orchestration &mdash; provisioning, migrating and connecting to many databases &mdash; which is exactly what the platform layer automates.</p>
+
+  <h2>How a request finds its tenant</h2>
+  <div class="figure">
+    <svg viewBox="0 0 700 210" width="700">
+      <defs><marker id="art" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#00B8D4"/></marker></defs>
+      <rect x="18" y="80" width="150" height="52" rx="9" fill="#0A1128"/><text x="93" y="102" fill="#00E5FF" font-size="10.5" text-anchor="middle" font-family="Montserrat" font-weight="700">REQUEST</text><text x="93" y="119" fill="#9fb2c9" font-size="8.5" text-anchor="middle" font-family="Fira Code">acme.praxis-ls.com</text>
+      <rect x="205" y="80" width="160" height="52" rx="9" fill="#141E3C"/><text x="285" y="100" fill="#00E5FF" font-size="10.5" text-anchor="middle" font-family="Montserrat" font-weight="700">HOST RESOLVER</text><text x="285" y="117" fill="#9fb2c9" font-size="8.5" text-anchor="middle" font-family="Fira Code">host → tenant (registry)</text>
+      <rect x="402" y="80" width="150" height="52" rx="9" fill="#1D2A50"/><text x="477" y="100" fill="#00E5FF" font-size="10.5" text-anchor="middle" font-family="Montserrat" font-weight="700">req.tenantDb()</text><text x="477" y="117" fill="#9fb2c9" font-size="8.5" text-anchor="middle" font-family="Fira Code">that tenant's pool</text>
+      <rect x="590" y="80" width="95" height="52" rx="9" fill="#0E2A24"/><text x="637" y="102" fill="#10B981" font-size="10" text-anchor="middle" font-family="Montserrat" font-weight="700">acme_db</text><text x="637" y="119" fill="#9fb2c9" font-size="8" text-anchor="middle" font-family="Fira Code">isolated</text>
+      <line x1="170" y1="106" x2="203" y2="106" stroke="#00B8D4" stroke-width="2" marker-end="url(#art)"/>
+      <line x1="367" y1="106" x2="400" y2="106" stroke="#00B8D4" stroke-width="2" marker-end="url(#art)"/>
+      <line x1="554" y1="106" x2="588" y2="106" stroke="#00B8D4" stroke-width="2" marker-end="url(#art)"/>
+      <text x="350" y="175" fill="#6B7280" font-size="11" text-anchor="middle" font-family="Inter">The subdomain decides the database — before any controller runs.</text>
+    </svg>
+    <div class="cap">Figure 5 — subdomain → tenant → that tenant's own database, resolved by middleware</div>
+  </div>
+  <p>In Praxis LS the very first middleware, <code>hostTenantResolver</code>, reads the request's <code>Host</code> header, looks the tenant up in a <strong>connection registry</strong>, and attaches <code>req.tenant</code>. Then <code>tenantContext</code> exposes <code>req.tenantDb(fn)</code> &mdash; a handle to <em>that tenant's</em> database pool. Every query in the request flows through it, so a controller physically cannot query the wrong tenant:</p>
+  <div class="code">
+    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">src/middleware/host-tenent-resolver.js (essence)</span><span class="lang">js</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
+    <pre><code><span class="cm">// Resolve the Host header to a tenant, or answer with the RIGHT status.</span>
+<span class="kw">const</span> host = String(req.headers.host || <span class="st">""</span>).<span class="fnn">toLowerCase</span>().<span class="fnn">split</span>(<span class="st">":"</span>)[<span class="nm">0</span>];
+<span class="kw">if</span> (PLATFORM_HOSTS.<span class="fnn">has</span>(host)) { req.isPlatform = <span class="kw">true</span>; <span class="kw">return</span> <span class="fnn">next</span>(); }
+
+<span class="kw">const</span> tenant = <span class="kw">await</span> registry.<span class="fnn">resolveByHost</span>(host);
+<span class="kw">if</span> (!tenant)            <span class="kw">return</span> <span class="fnn">next</span>(<span class="kw">new</span> AppError(<span class="st">"UNKNOWN_HOST"</span>, <span class="st">"No such tenant"</span>, <span class="nm">404</span>));
+<span class="kw">if</span> (tenant.suspended)  <span class="kw">return</span> <span class="fnn">next</span>(<span class="kw">new</span> AppError(<span class="st">"SUSPENDED"</span>, <span class="st">"Tenant suspended"</span>, <span class="nm">403</span>));
+<span class="kw">if</span> (!tenant.is_live)   <span class="kw">return</span> <span class="fnn">next</span>(<span class="kw">new</span> AppError(<span class="st">"NOT_LIVE"</span>, <span class="st">"Not yet live"</span>, <span class="nm">423</span>));
+req.tenant = tenant;   <span class="cm">// everything downstream now targets this tenant's DB</span>
+<span class="fnn">next</span>();</code></pre>
+  </div>
+
+  <div class="callout gold">
+    <div class="ct">&#128161; Honest errors are part of isolation</div>
+    <p>Look at the status codes: unknown host &rarr; <code>404</code>, suspended &rarr; <code>403</code>, not-yet-live &rarr; <code>423</code>. And Praxis LS carefully separates two failures that both used to return a lazy <code>500</code>: hitting the tenant API on a <em>platform</em> host is a <strong>client</strong> error (<code>400 WRONG_HOST</code>, with a message telling you to use the tenant's subdomain), whereas a missing tenant because the middleware chain was <em>misordered</em> is a <strong>programming</strong> error (<code>500</code>, loud and logged). Same "fail honestly" value from Part 1 &mdash; a wrong status code sends the caller hunting in the wrong place.</p>
+  </div>
+
+  <h2>Platform migrations vs tenant migrations</h2>
+  <p>Because there are two <em>kinds</em> of database, there are two migration sets:</p>
+  <ul>
+    <li><strong><code>migrations/platform/</code></strong> &mdash; the one control-plane DB: the tenant registry, module catalogue, platform RBAC, AI vendor config.</li>
+    <li><strong><code>migrations/tenant/</code></strong> &mdash; the schema every tenant DB gets: identity, RBAC, the OHADA chart of accounts, ledger, operations, WMS, fleet&hellip;</li>
+  </ul>
+  <p>Provisioning a new customer is then just: create a fresh database and run the entire <code>tenant/</code> migration set into it (<code>npm run db:provision -- --slug=acme</code>). Every tenant reaches an identical schema by replaying the same files &mdash; the migration discipline from the last lesson, applied at fleet scale.</p>
+
+  <div class="callout red">
+    <div class="ct">&#128721; The one rule you never break</div>
+    <p><strong>A query must only ever run against the current request's tenant database.</strong> Never build a "just this once" connection to another tenant, never accept a <code>tenant_id</code> from the request body to pick the database, never cache one tenant's data where another request could read it. Isolation is the entire promise of a multi-tenant product; breaking it once can end the product.</p>
+  </div>
+
+  <div class="quiz" data-quiz="q-ten-1" data-correct="1">
+    <div class="qk">&#9998; Knowledge check</div>
+    <div class="qq">In Praxis LS, what decides which database a request reads from?</div>
+    <div class="opt">A <code>tenant_id</code> field the browser sends in the request body.</div>
+    <div class="opt">The request's host/subdomain, resolved to that tenant's own database by middleware before any controller runs.</div>
+    <div class="opt">Whichever database was used by the previous request.</div>
+    <div class="opt">A random pool chosen at login.</div>
+    <div class="fb" data-exp="The host resolver maps the subdomain to the tenant and binds that tenant's DB pool. Trusting a body-supplied tenant_id would let a caller pick someone else's data — never do that.">&nbsp;</div>
+  </div>
+
+  <div class="assign">
+    <div class="ah"><span class="ic">&#9998;</span><b>Assignment 5.3 — Reason about tenancy</b><span class="lvl">Analytical · ~45 min</span></div>
+    <div class="abody">
+      <div class="task"><input type="checkbox" data-task="t-5t-1" id="t-5t-1"><label for="t-5t-1">Write out the three isolation strategies and one real risk of each. Say why Praxis LS picked DB-per-tenant.</label></div>
+      <div class="task"><input type="checkbox" data-task="t-5t-2" id="t-5t-2"><label for="t-5t-2">Sketch the middleware order for a tenant request (resolve tenant &rarr; authenticate &rarr; permission &rarr; validate &rarr; controller) and explain what breaks if two are swapped.</label></div>
+      <div class="task"><input type="checkbox" data-task="t-5t-3" id="t-5t-3"><label for="t-5t-3">Explain, in writing, why accepting a <code>tenant_id</code> from the request body to choose the database is a critical security bug.</label></div>
+    </div>
+  </div>
+
+  <div class="lesson-foot">
+    <button class="btn primary lc-btn" data-complete="p5-tenancy">Mark complete &amp; continue &rarr;</button>
+    <span class="done-note" data-note="p5-tenancy">Not yet complete</span>
+  </div>
+</section>
+
+<section class="lesson" id="p5-auth" data-title="Authentication" data-part="Part 5 · The Backend">
+  <div class="eyebrow">Part 5 · Lesson 4</div>
   <h1 class="title">Authentication &mdash; <span class="sn">who are you?</span></h1>
   <div class="title-rule"></div>
   <p class="lead">Authentication answers "who is this?". It is the front door of the system, and front doors are where attacks concentrate. This lesson covers passwords, sessions, and a real account-takeover bug that teaches the deepest lesson of all.</p>
@@ -2018,7 +2117,7 @@ app.<span class="fnn">post</span>(<span class="st">'/clients'</span>, {
   </div>
 
   <div class="assign">
-    <div class="ah"><span class="ic">&#9998;</span><b>Assignment 5.3 — Reason about auth</b><span class="lvl">Analytical · ~45 min</span></div>
+    <div class="ah"><span class="ic">&#9998;</span><b>Assignment 5.4 — Reason about auth</b><span class="lvl">Analytical · ~45 min</span></div>
     <div class="abody">
       <div class="task"><input type="checkbox" data-task="t-5.3-1" id="t-5.3-1"><label for="t-5.3-1">Explain in writing why passwords are hashed, not encrypted or stored plainly.</label></div>
       <div class="task"><input type="checkbox" data-task="t-5.3-2" id="t-5.3-2"><label for="t-5.3-2">Rewrite the "WRONG guard" into a correct one (authenticated <b>and</b> owner-matches) and explain both halves.</label></div>
@@ -2033,7 +2132,7 @@ app.<span class="fnn">post</span>(<span class="st">'/clients'</span>, {
 </section>
 
 <section class="lesson" id="p5-rbac" data-title="Authorization: RBAC Deep Dive" data-part="Part 5 · The Backend">
-  <div class="eyebrow">Part 5 · Lesson 4</div>
+  <div class="eyebrow">Part 5 · Lesson 5</div>
   <h1 class="title">Authorization &mdash; <span class="sn">RBAC deep dive</span></h1>
   <div class="title-rule"></div>
   <p class="lead">Authentication asks "who are you?"; authorization asks "what are you allowed to do?". JBS uses <strong>RBAC</strong> &mdash; Role-Based Access Control. Master this; it appears in every project and it is where sloppy code becomes a breach.</p>
@@ -2078,6 +2177,11 @@ app.<span class="fnn">post</span>(<span class="st">'/clients'</span>, {
   </ol>
   <p class="mini-note">A permission in the catalog but not inserted by a migration shows in the UI but can never be granted. One inserted but not in the catalog works but is invisible on the Roles screen. <strong>Both halves are required</strong> &mdash; a classic "two sources of truth must agree" trap.</p>
 
+  <div class="callout indigo">
+    <div class="ct">&#128161; The same model in Praxis LS &mdash; "RBAC as data"</div>
+    <p>Praxis LS expresses the identical idea in Express. Its permission table is <code>permission(role_id, module_key, can_create, can_read, can_update, can_delete, can_approve)</code>, where <code>module_key</code> is a catalogue entry like <code>MOD-31</code>. A route guards itself with <code>requirePermission('MOD-31', 'create')</code> in its middleware chain (you saw this in the API lesson). It even adds <strong>record-level scope</strong> (a user may be limited to certain branches/entities) and a <code>CEO</code> role that bypasses checks. Dot-notation strings vs. module-key + boolean columns &mdash; different spelling, one concept: <em>roles hold permissions; the server checks them before the work.</em></p>
+  </div>
+
   <div class="quiz" data-quiz="q-rbac-1" data-correct="1">
     <div class="qk">&#9998; Knowledge check</div>
     <div class="qq">You hid the "Approve journal entry" button with <code>data-perm</code> for non-accountants. Is approval now secure?</div>
@@ -2089,7 +2193,7 @@ app.<span class="fnn">post</span>(<span class="st">'/clients'</span>, {
   </div>
 
   <div class="assign">
-    <div class="ah"><span class="ic">&#9998;</span><b>Assignment 5.4 — Build an RBAC feature</b><span class="lvl">Hands-on · ~1.5 hrs</span></div>
+    <div class="ah"><span class="ic">&#9998;</span><b>Assignment 5.5 — Build an RBAC feature</b><span class="lvl">Hands-on · ~1.5 hrs</span></div>
     <div class="abody">
       <div class="task"><input type="checkbox" data-task="t-5.4-1" id="t-5.4-1"><label for="t-5.4-1">Design a tiny RBAC schema (users, roles, permissions, role_permissions) and seed two roles with different permissions.</label></div>
       <div class="task"><input type="checkbox" data-task="t-5.4-2" id="t-5.4-2"><label for="t-5.4-2">Write a <code>requirePermission</code>-style check and gate one API action with it. Prove a forbidden role gets 403 even when calling the endpoint directly.</label></div>
@@ -2104,7 +2208,7 @@ app.<span class="fnn">post</span>(<span class="st">'/clients'</span>, {
 </section>
 
 <section class="lesson" id="p5-security" data-title="Security Non-Negotiables" data-part="Part 5 · The Backend">
-  <div class="eyebrow">Part 5 · Lesson 5</div>
+  <div class="eyebrow">Part 5 · Lesson 6</div>
   <h1 class="title">Security <span class="sn">non-negotiables</span></h1>
   <div class="title-rule"></div>
   <p class="lead">These are the trip-wires. On the ERP, violating any one of them blocks the merge &mdash; no debate. Learn them as a single list you can recite, because a JBS engineer is trusted with other people's money and data.</p>
@@ -2143,7 +2247,7 @@ app.<span class="fnn">post</span>(<span class="st">'/clients'</span>, {
   </div>
 
   <div class="assign">
-    <div class="ah"><span class="ic">&#9998;</span><b>Assignment 5.5 — Audit for the trip-wires</b><span class="lvl">Hands-on · ~1 hr</span></div>
+    <div class="ah"><span class="ic">&#9998;</span><b>Assignment 5.6 — Audit for the trip-wires</b><span class="lvl">Hands-on · ~1 hr</span></div>
     <div class="abody">
       <div class="task"><input type="checkbox" data-task="t-5.5-1" id="t-5.5-1"><label for="t-5.5-1">Write the ten trip-wires from memory. Keep the card by your desk.</label></div>
       <div class="task"><input type="checkbox" data-task="t-5.5-2" id="t-5.5-2"><label for="t-5.5-2">Take any code you (or an AI) wrote earlier in the Bible and audit it against all ten. Fix anything that fails.</label></div>
@@ -2289,7 +2393,7 @@ row.<span class="fnn">appendChild</span>(td);</code></pre></div>
   <div class="eyebrow">Part 6 · Lesson 3</div>
   <h1 class="title">Making it a <span class="sn">PWA</span></h1>
   <div class="title-rule"></div>
-  <p class="lead">A Progressive Web App is a website that behaves like an installed app: it lives on the home screen, launches full-screen, and &mdash; crucially for field work &mdash; keeps working with no signal. For FieldForce reps in areas with patchy data, offline isn't a nice-to-have; it's the product.</p>
+  <p class="lead">A Progressive Web App is a website that behaves like an installed app: it lives on the home screen, launches full-screen, and &mdash; crucially for field work &mdash; keeps working with no signal. For a Praxis LS warehouse or port operator in a spot with patchy data, offline capture isn't a nice-to-have; it's the product.</p>
 
   <h2>The two pieces that make a PWA</h2>
   <div class="flow">
@@ -2301,8 +2405,8 @@ row.<span class="fnn">appendChild</span>(td);</code></pre></div>
   <div class="code">
     <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">manifest.webmanifest</span><span class="lang">json</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
     <pre><code>{
-  <span class="st">"name"</span>: <span class="st">"FieldForce"</span>,
-  <span class="st">"short_name"</span>: <span class="st">"FieldForce"</span>,
+  <span class="st">"name"</span>: <span class="st">"Praxis LS"</span>,
+  <span class="st">"short_name"</span>: <span class="st">"Praxis LS"</span>,
   <span class="st">"display"</span>: <span class="st">"standalone"</span>,
   <span class="st">"start_url"</span>: <span class="st">"/"</span>,
   <span class="st">"background_color"</span>: <span class="st">"#0A1128"</span>,
@@ -2338,7 +2442,7 @@ self.<span class="fnn">addEventListener</span>(<span class="st">"fetch"</span>, 
 
   <div class="callout gold">
     <div class="ct">&#128161; Offline field logging is a discipline, not a checkbox</div>
-    <p>The FieldForce mandate ships "offline field logging" in milestone 2, with two field pilots to prove it in the real world. Real offline means: a rep records a visit with no signal, the data is stored <em>locally</em>, and it <em>syncs</em> when signal returns &mdash; with conflict handling if the same record changed elsewhere. Caching files is the easy 20%; reliable data sync is the hard 80%. Plan for it explicitly.</p>
+    <p>For Praxis LS, real offline means: a warehouse operator records a goods-received note (or a driver logs a delivery) with no signal, the data is stored <em>locally</em>, and it <em>syncs</em> when signal returns &mdash; with conflict handling if the same record changed elsewhere. Caching files is the easy 20%; reliable data sync is the hard 80%. Plan for it explicitly.</p>
   </div>
 
   <div class="quiz" data-quiz="q-pwa-1" data-correct="2">
@@ -2675,6 +2779,11 @@ DeepSeekClient::<span class="fnn">chat</span>([
     </ul>
   </div>
 
+  <div class="callout indigo">
+    <div class="ct">&#128161; How Praxis LS does this at scale</div>
+    <p>Praxis LS runs the same pattern with a few production upgrades worth knowing: it stores embeddings <em>inside</em> PostgreSQL using the <strong>pgvector</strong> extension (the DB is the vector store &mdash; no separate service), it routes AI calls across providers as <strong>primary + fallback</strong> (if one vendor is down, the next answers), and it puts every AI feature behind an <strong>AI gate</strong> &mdash; a middleware that requires the tenant to have that AI feature enabled before a single token is spent. Grounding, retrieval, and citations stay exactly as above; the gate and the routing just make it robust and billable per tenant.</p>
+  </div>
+
   <div class="quiz" data-quiz="q-llm2-1" data-correct="2">
     <div class="qk">&#9998; Knowledge check</div>
     <div class="qq">Your RAG assistant shows source links under each answer. Where should those links come from?</div>
@@ -2880,60 +2989,58 @@ MAIL_FROM_NAME="JBS Praxis"</code></pre>
   </div>
 </section>
 
-<section class="lesson" id="p7-maps" data-title="Maps, Location & External ERP Integration" data-part="Part 7 · Integrations">
+<section class="lesson" id="p7-maps" data-title="External Systems, Storage & Integration" data-part="Part 7 · Integrations">
   <div class="eyebrow">Part 7 · Lesson 6</div>
-  <h1 class="title">Maps, location &amp; <span class="sn">external systems</span></h1>
+  <h1 class="title">External systems, storage &amp; <span class="sn">integration</span></h1>
   <div class="title-rule"></div>
-  <p class="lead">Field systems live and die on location, and business systems must talk to <em>other</em> business systems. This lesson covers the integration patterns that make the difference between a demo and a production platform.</p>
+  <p class="lead">Real systems don't live alone &mdash; they store files somewhere durable, talk to <em>other</em> companies' systems (carriers, customs portals, banks), and run heavy work in the background. This lesson covers the integration patterns that separate a demo from a production platform, grounded in what Praxis LS actually does.</p>
 
-  <h2>Maps &amp; location</h2>
-  <p>FieldForce uses <strong>Azure Maps</strong> for routing, itineraries and visualising where reps are. The core capabilities you integrate:</p>
-  <ul>
-    <li><strong>Geocoding</strong> &mdash; turn an address into coordinates, and back.</li>
-    <li><strong>Maps &amp; markers</strong> &mdash; show clients, routes and territories.</li>
-    <li><strong>Background location</strong> &mdash; track a rep's route during the workday (with consent), even when the app is backgrounded. This is licensed and privacy-sensitive &mdash; a pass-through cost the client provisions.</li>
-  </ul>
-  <div class="callout gold">
-    <div class="ct">&#128161; Location is privacy, and privacy is design</div>
-    <p>Tracking a person's location is powerful and sensitive. Capture <em>consent</em> explicitly (FieldForce ships a whole "Leads, Consent &amp; Customer 360" milestone), collect only what the job needs, and be transparent about it. "We can, therefore we should" is not a JBS value.</p>
-  </div>
+  <h2>Object storage &mdash; files don't belong in the database</h2>
+  <p>Logistics runs on documents: bills of lading, customs declarations, delivery notes, scans. Storing these as blobs in the database bloats it and wrecks backups. Praxis LS keeps them in <strong>object storage</strong> (AWS S3; local disk in dev) and stores only the <em>key/URL</em> in the database. The rules mirror the upload rules from the security lesson: validate type &amp; size, randomise the stored name, and serve private files through a <strong>signed, expiring URL</strong> &mdash; never a public bucket.</p>
 
-  <h2>Integrating with an external ERP</h2>
-  <p>FieldForce integrates with the client's <strong>Microsoft Business Central</strong> ERP. Building an adapter to someone else's system is a distinct skill, and the contract scope shows exactly what a real integration includes: <em>"the adapter, contract, sync, error handling, retries, reconciliation, and order/invoice/statement flows."</em> Read that list &mdash; the happy-path "send the order" is maybe 20% of the work.</p>
+  <h2>Background jobs make integration survivable</h2>
+  <p>Praxis LS uses <strong>Redis + BullMQ</strong> to run work outside the request: sending mail, generating PDFs, reindexing AI content, and talking to slow external systems. This matters for integration because an external API <em>will</em> be down sometimes &mdash; a durable job queue lets you <strong>retry with backoff and never lose the message</strong>, instead of failing the user's click.</p>
+
+  <h2>Integrating with an external system</h2>
+  <p>Whether it's a carrier's tracking API, a customs portal, or exporting OHADA statements to a bank, building an adapter to someone else's system is a distinct skill &mdash; and the happy-path "send the request" is maybe 20% of the work. A real integration is four things:</p>
   <div class="flow">
-    <div class="fstep"><div class="fn">ADAPTER</div><div class="ft">Translate</div><div class="fb">Map your data model to theirs and back.</div></div>
-    <div class="fstep"><div class="fn">SYNC</div><div class="ft">Move data</div><div class="fb">Push/pull orders, invoices, statements on a schedule or event.</div></div>
-    <div class="fstep"><div class="fn">RETRIES</div><div class="ft">Survive failure</div><div class="fb">Their system will be down sometimes. Retry with backoff; never lose a message.</div></div>
-    <div class="fstep"><div class="fn">RECONCILE</div><div class="ft">Prove it matches</div><div class="fb">Regularly verify both sides agree; surface mismatches.</div></div>
+    <div class="fstep"><div class="fn">ADAPTER</div><div class="ft">Translate</div><div class="fb">Map your data model to theirs and back &mdash; one place, well tested.</div></div>
+    <div class="fstep"><div class="fn">SYNC</div><div class="ft">Move data</div><div class="fb">Push/pull on a schedule or event, via a durable queue.</div></div>
+    <div class="fstep"><div class="fn">RETRIES</div><div class="ft">Survive failure</div><div class="fb">Their system will be down sometimes. Back off; never drop a message.</div></div>
+    <div class="fstep"><div class="fn">RECONCILE</div><div class="ft">Prove it matches</div><div class="fb">Regularly verify both sides agree; surface mismatches loudly.</div></div>
+  </div>
+  <div class="callout indigo">
+    <div class="ct">&#128161; A real integration detail from Praxis LS</div>
+    <p>Its mail integration (Microsoft Graph, Part 7 &middot; Email) can't register a redirect URL per tenant &mdash; providers forbid wildcards and thousands of subdomains don't scale. So the OAuth <em>callback</em> lands on one canonical host and the tenant rides inside a <strong>signed <code>state</code> token</strong>, which the host-resolver verifies to route the returned token into the correct tenant's database. That's the kind of real-world constraint integration work is made of &mdash; and why you design the adapter carefully, not just the happy call.</p>
   </div>
 
   <div class="callout red">
-    <div class="ct">&#128721; What's in scope vs. out of scope &mdash; get it in writing</div>
-    <p>Notice what FieldForce <em>excludes</em>: historical data migration, bulk record migration, data cleansing, and configuration inside the client's own ERP. The integration adapter is in scope; cleaning up ten years of the client's messy data is not. On every project, <strong>the boundary of your responsibility is a contractual fact, not a vibe.</strong> Any scope expansion needs a signed change order <em>before</em> work begins &mdash; "no verbal scope."</p>
+    <div class="ct">&#128721; Scope is a contractual fact, not a vibe</div>
+    <p>Integrations are where scope creep hides. Historical data migration, bulk record clean-up, and configuration inside the <em>client's own</em> system are classic out-of-scope items &mdash; the adapter is in scope; cleaning up ten years of someone's messy data is a separate job. On every project, write the boundary down: what you will and won't do. Any expansion needs a <strong>signed change order before work begins</strong> &mdash; no verbal scope. (More in Part 10.)</p>
   </div>
 
   <div class="quiz" data-quiz="q-maps-1" data-correct="1">
     <div class="qk">&#9998; Knowledge check</div>
-    <div class="qq">You're integrating with a client's ERP. Their system goes down for an hour mid-sync. A production-grade adapter should&hellip;</div>
-    <div class="opt">Drop the failed messages and move on.</div>
-    <div class="opt">Retry with backoff and never lose a message, then reconcile to confirm both sides agree.</div>
+    <div class="qq">You're integrating with a carrier's tracking API. It goes down for an hour mid-sync. A production-grade adapter should&hellip;</div>
+    <div class="opt">Drop the failed updates and move on.</div>
+    <div class="opt">Queue the work and retry with backoff (never losing a message), then reconcile to confirm both sides agree.</div>
     <div class="opt">Crash your own system too.</div>
     <div class="opt">Email the client to re-enter the data by hand.</div>
-    <div class="fb" data-exp="External systems fail routinely. Retries + durable queuing + reconciliation are the 80% of integration work beyond the happy path.">&nbsp;</div>
+    <div class="fb" data-exp="External systems fail routinely. A durable queue + retries with backoff + reconciliation is the 80% of integration work beyond the happy path.">&nbsp;</div>
   </div>
 
   <div class="assign">
     <div class="ah"><span class="ic">&#9998;</span><b>Assignment 7.6 — Integrate something</b><span class="lvl">Hands-on · ~1.5 hrs</span></div>
     <div class="abody">
-      <div class="task"><input type="checkbox" data-task="t-7.6-1" id="t-7.6-1"><label for="t-7.6-1">Use any free maps API to geocode an address and drop a marker on a map in a small page.</label></div>
-      <div class="task"><input type="checkbox" data-task="t-7.6-2" id="t-7.6-2"><label for="t-7.6-2">Sketch an integration design between two systems including: adapter, sync trigger, retry policy, and reconciliation check.</label></div>
+      <div class="task"><input type="checkbox" data-task="t-7.6-1" id="t-7.6-1"><label for="t-7.6-1">Wire up object storage: upload a file to S3 (or any S3-compatible/local store), save only its key in your DB, and serve it back via a signed, expiring URL.</label></div>
+      <div class="task"><input type="checkbox" data-task="t-7.6-2" id="t-7.6-2"><label for="t-7.6-2">Sketch an integration design between two systems including: adapter, sync trigger, a durable retry policy, and a reconciliation check.</label></div>
       <div class="task"><input type="checkbox" data-task="t-7.6-3" id="t-7.6-3"><label for="t-7.6-3">Write a "scope boundary" note for a hypothetical integration: three things in scope, three explicitly out.</label></div>
     </div>
   </div>
 
   <div class="callout green">
     <div class="ct">&#127881; End of Part 7</div>
-    <p>You can wire in AI (calls + RAG), encrypt secrets, send mail, generate signed documents, and integrate maps and external systems. That's the hard, high-value stuff. Now we make sure it all actually works &mdash; testing and QA.</p>
+    <p>You can wire in AI (calls + RAG), encrypt secrets, send mail, generate signed documents, store files in object storage, and integrate external systems durably. That's the hard, high-value stuff. Now we make sure it all actually works &mdash; testing and QA.</p>
   </div>
 
   <div class="lesson-foot">
@@ -3013,13 +3120,12 @@ MAIL_FROM_NAME="JBS Praxis"</code></pre>
   <div class="eyebrow">Part 8 · Lesson 2</div>
   <h1 class="title">Writing <span class="sn">tests</span></h1>
   <div class="title-rule"></div>
-  <p class="lead">Now the mechanics. You'll write a Vitest unit test (the FieldForce stack) and see the lightweight checks the ERP runs (lint + smoke tests). The tooling differs; the discipline is identical.</p>
+  <p class="lead">Now the mechanics. You'll write a <strong>Jest</strong> unit test (the tool Praxis LS actually uses) and see the lightweight checks the ERP runs (lint + smoke tests). The tooling differs across projects; the discipline is identical.</p>
 
-  <h2>A Vitest unit test</h2>
+  <h2>A Jest unit test</h2>
   <div class="code">
-    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">payroll.test.ts</span><span class="lang">ts</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
-    <pre><code><span class="kw">import</span> { describe, it, expect } <span class="kw">from</span> <span class="st">"vitest"</span>;
-<span class="kw">import</span> { computeNet } <span class="kw">from</span> <span class="st">"./payroll"</span>;
+    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">payroll.test.js</span><span class="lang">js</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
+    <pre><code><span class="kw">const</span> { computeNet } = <span class="fnn">require</span>(<span class="st">"./payroll"</span>);
 
 <span class="fnn">describe</span>(<span class="st">"computeNet"</span>, () =&gt; {
   <span class="fnn">it</span>(<span class="st">"returns gross minus deductions"</span>, () =&gt; {
@@ -3036,10 +3142,14 @@ MAIL_FROM_NAME="JBS Praxis"</code></pre>
   });
 });</code></pre>
   </div>
-  <p>Run it with <code>npx vitest</code>. Red (fail) &rarr; write code &rarr; green (pass). That loop is the heartbeat of test-driven development.</p>
+  <p>Run it with <code>npm test</code> (Jest). Red (fail) &rarr; write code &rarr; green (pass). That loop is the heartbeat of test-driven development.</p>
 
-  <h2>Integration tests with disposable databases</h2>
-  <p>FieldForce mandates "Vitest with disposable container databases." The idea (<strong>testcontainers</strong>): before the test run, spin up a real PostgreSQL in a throwaway Docker container; run migrations into it; run your integration tests against a <em>real</em> database; then destroy it. You get the fidelity of a real database with the cleanliness of a fresh one every time &mdash; no shared test database that slowly fills with junk and makes tests flaky.</p>
+  <h2>Integration tests against a real database</h2>
+  <p>Unit tests check one function; <strong>integration tests</strong> check several parts together against a <em>real</em> PostgreSQL. Praxis LS keeps these in <code>tests/integration/</code> and runs them against a freshly-migrated tenant database (its <code>db:reset:local</code> script provisions a clean <code>smartls</code> tenant). The principle: a test database must be <strong>clean and real</strong> &mdash; real, so it catches what an in-memory fake wouldn't; clean, so leftover rows from a previous run can't make a test pass or fail by accident. (Spinning up a throwaway container database per run &mdash; "testcontainers" &mdash; is one common way to get both.)</p>
+  <div class="callout indigo">
+    <div class="ct">&#128161; A real Jest detail from Praxis LS</div>
+    <p>Praxis LS sets its coverage threshold on <strong>functions and branches, not lines</strong> &mdash; because every <code>*.routes.js</code> reports 100% of statements just by being <code>require</code>d (loading the file registers the routes), which would let a line-based gate pass with almost nothing actually tested. Measure the thing that means "this code ran in a test," not the thing that's easy to inflate. That's the honesty value applied to your own metrics.</p>
+  </div>
 
   <h2>The ERP's lightweight checks</h2>
   <p>Not every project has a heavy test suite from day one. The ERP leans on cheap, high-value checks that run on every deploy:</p>
@@ -3068,7 +3178,7 @@ MAIL_FROM_NAME="JBS Praxis"</code></pre>
   <div class="assign">
     <div class="ah"><span class="ic">&#9998;</span><b>Assignment 8.2 — Write real tests</b><span class="lvl">Hands-on · ~1.5 hrs</span></div>
     <div class="abody">
-      <div class="task"><input type="checkbox" data-task="t-8.2-1" id="t-8.2-1"><label for="t-8.2-1">Set up Vitest in a small TS project and write two passing unit tests (happy path + one edge case).</label></div>
+      <div class="task"><input type="checkbox" data-task="t-8.2-1" id="t-8.2-1"><label for="t-8.2-1">Set up Jest in a small project and write two passing unit tests (happy path + one edge case).</label></div>
       <div class="task"><input type="checkbox" data-task="t-8.2-2" id="t-8.2-2"><label for="t-8.2-2">Do TDD once: write a failing test first, then make it pass.</label></div>
       <div class="task"><input type="checkbox" data-task="t-8.2-3" id="t-8.2-3"><label for="t-8.2-3">Ask Claude Code to add tests for existing code, then <b>audit</b> them &mdash; do they test behaviour, and do they cover edge cases, or just re-assert the happy path?</label></div>
     </div>
@@ -3089,13 +3199,13 @@ MAIL_FROM_NAME="JBS Praxis"</code></pre>
   <h2>The golden rule of JBS QA</h2>
   <div class="callout red">
     <div class="ct">&#128721; Run it on the frontend, not the code</div>
-    <p>The FieldForce QA pages say it in capitals: <em>"RUN ON THE FRONTEND, NOT THE CODE"</em> and <em>"EVERY ITEM PROVEN ON SCREEN WITH REAL ACCOUNTS &amp; REAL DATA."</em> Reading the code and concluding "this should work" is not QA. QA is opening the actual app, as an actual role, clicking the actual button, and watching the actual result. If you didn't see it happen on screen, it didn't happen.</p>
+    <p>The JBS QA rule, in capitals: <em>"RUN ON THE FRONTEND, NOT THE CODE"</em> and <em>"EVERY ITEM PROVEN ON SCREEN WITH REAL ACCOUNTS &amp; REAL DATA."</em> Reading the code and concluding "this should work" is not QA. QA is opening the actual app, as an actual role, clicking the actual button, and watching the actual result. If you didn't see it happen on screen, it didn't happen. On Praxis LS that also means proving it <em>as a real tenant</em> &mdash; on a tenant subdomain with that tenant's own data.</p>
   </div>
 
   <h2>The four sections of a JBS QA pass</h2>
   <div class="flow">
     <div class="fstep"><div class="fn">A</div><div class="ft">Functional walkthrough</div><div class="fb">Every feature proven on screen, with real accounts and real data.</div></div>
-    <div class="fstep"><div class="fn">B</div><div class="ft">Each client structure</div><div class="fb">Mobile <em>and</em> desktop <em>and</em> manager web &mdash; each must feel purpose-built.</div></div>
+    <div class="fstep"><div class="fn">B</div><div class="ft">Each surface</div><div class="fb">Tenant app, platform console &amp; public portal &mdash; each proven, on a real tenant.</div></div>
     <div class="fstep"><div class="fn">C</div><div class="ft">Regression &amp; gates</div><div class="fb">Confirm nothing that used to work is now broken.</div></div>
     <div class="fstep"><div class="fn">D</div><div class="ft">Sign-off</div><div class="fb">A named person attests it passed. Accountability.</div></div>
   </div>
@@ -3108,7 +3218,7 @@ MAIL_FROM_NAME="JBS Praxis"</code></pre>
 
   <div class="callout gold">
     <div class="ct">&#128161; Write the QA script before you build</div>
-    <p>The best time to define "how we'll prove this works" is <em>before</em> you write the feature &mdash; it clarifies what "done" even means. FieldForce baselines "work items + acceptance criteria in the tracker <em>before</em> the milestone begins." Acceptance criteria written up front are a target; written afterward they're an excuse.</p>
+    <p>The best time to define "how we'll prove this works" is <em>before</em> you write the feature &mdash; it clarifies what "done" even means. JBS baselines work items + acceptance criteria in the tracker <em>before</em> the milestone begins. Acceptance criteria written up front are a target; written afterward they're an excuse.</p>
   </div>
 
   <div class="quiz" data-quiz="q-qa-1" data-correct="1">
@@ -3155,14 +3265,14 @@ MAIL_FROM_NAME="JBS Praxis"</code></pre>
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>Gate</th><th>Must be true to pass</th></tr>
     <tr><td><b>PR gate</b></td><td>Reviewed by a non-author; CI green; docs updated in the same PR.</td></tr>
-    <tr><td><b>QA gate</b></td><td>Every acceptance item proven on the frontend, as each role, on each client structure.</td></tr>
+    <tr><td><b>QA gate</b></td><td>Every acceptance item proven on the frontend, as each role, on each surface (and, for a multi-tenant product, as a real tenant).</td></tr>
     <tr><td><b>Demo gate</b></td><td>"If it cannot be demonstrated, it is not complete." No demo &rarr; not done.</td></tr>
     <tr><td><b>Deploy gate</b></td><td>Migrations run clean; smoke tests pass; the deploy script reports zero fails.</td></tr>
   </table></div>
 
   <div class="callout indigo">
     <div class="ct">&#128161; "Deemed accepted" &mdash; why gates protect <em>you</em></div>
-    <p>In the FieldForce contract, once a milestone is demonstrated and accepted (or 10 business days pass with no objective rejection), it's locked and payment follows. Gates aren't bureaucracy that slows you down &mdash; they're the evidence trail that says "this was proven, on this date, by this person." When a dispute comes, the engineer with a passed QA gate and a recorded demo is the one who's safe.</p>
+    <p>In a typical JBS engagement, once a milestone is demonstrated and accepted (or a set window passes with no objective rejection), it's locked and payment follows. Gates aren't bureaucracy that slows you down &mdash; they're the evidence trail that says "this was proven, on this date, by this person." When a dispute comes, the engineer with a passed QA gate and a recorded demo is the one who's safe.</p>
   </div>
 
   <div class="callout red">
@@ -3332,7 +3442,7 @@ MAIL_FROM_NAME="JBS Praxis"</code></pre>
     <tr><td><b>You control</b></td><td>Your files &amp; database only</td><td>The whole machine (root access)</td></tr>
     <tr><td><b>Build tools</b></td><td>None &mdash; build on your laptop, commit the output</td><td>Anything you install &mdash; build on the server or in CI</td></tr>
     <tr><td><b>Deploy</b></td><td>git pull + <code>deploy.sh</code> in the cPanel Terminal (manual)</td><td>Fully scriptable &mdash; CI can auto-deploy over SSH</td></tr>
-    <tr><td><b>Runs</b></td><td>Whatever the host offers (usually PHP + MySQL)</td><td>Any stack: Node/Fastify, Python/FastAPI, Postgres, Docker</td></tr>
+    <tr><td><b>Runs</b></td><td>Whatever the host offers (usually PHP + MySQL)</td><td>Any stack: Node/Express, Python, Postgres, Docker</td></tr>
     <tr><td><b>Security &amp; updates</b></td><td>The host patches the OS for you</td><td><b>Your job</b> &mdash; OS patching, firewall, hardening</td></tr>
     <tr><td><b>Cost / scale</b></td><td>Cheap; limited; can't scale much</td><td>Costs more; scales; full performance control</td></tr>
     <tr><td><b>Good for</b></td><td>The PHP/MySQL ERP; small, cost-sensitive projects</td><td>The TypeScript/Postgres field stack; anything needing background workers, containers, or real scale</td></tr>
@@ -3340,11 +3450,11 @@ MAIL_FROM_NAME="JBS Praxis"</code></pre>
 
   <div class="callout gold">
     <div class="ct">&#128161; The rule of thumb</div>
-    <p>If the stack fits a cheap PHP/MySQL host and the client is cost-sensitive &rarr; <strong>shared hosting</strong> (like the ERP). If you need Node/Python services, background jobs, containers, WebSockets, or room to scale &rarr; <strong>VPS</strong> (like FieldForce on Azure). The ERP's own roadmap even lists "migrate off shared cPanel to VPS" as a future step &mdash; systems often <em>graduate</em> from shared to VPS as they grow.</p>
+    <p>If the stack fits a cheap PHP/MySQL host and the client is cost-sensitive &rarr; <strong>shared hosting</strong> (like the ERP). If you need Node/Python services, background jobs, containers, WebSockets, or room to scale &rarr; <strong>VPS</strong> (like Praxis LS on a Docker VPS). The ERP's own roadmap even lists "migrate off shared cPanel to VPS" as a future step &mdash; systems often <em>graduate</em> from shared to VPS as they grow.</p>
   </div>
 
   <h2>Deploying to a VPS &mdash; Option A: plain (nginx + systemd/PM2)</h2>
-  <p>The classic setup for a Node/Fastify app: your app runs as a long-lived process; <strong>nginx</strong> sits in front as a reverse proxy (handling TLS and serving on ports 80/443); a <strong>process manager</strong> keeps your app alive and restarts it on crash or reboot.</p>
+  <p>The classic setup for a Node/Express app (like Praxis LS): your app runs as a long-lived process; <strong>nginx</strong> sits in front as a reverse proxy (handling TLS and serving on ports 80/443); a <strong>process manager</strong> keeps your app alive and restarts it on crash or reboot.</p>
 
   <div class="figure">
     <svg viewBox="0 0 700 150" width="700">
@@ -3371,15 +3481,15 @@ ufw allow OpenSSH &amp;&amp; ufw allow <span class="st">'Nginx Full'</span> &amp
 
   <p><strong>2. Run the app under systemd</strong> so it starts on boot and restarts on crash:</p>
   <div class="code">
-    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">/etc/systemd/system/fieldforce.service</span><span class="lang">ini</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
+    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">/etc/systemd/system/praxis-ls.service</span><span class="lang">ini</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
     <pre><code>[Unit]
-Description=FieldForce API
+Description=Praxis LS API
 After=network.target
 
 [Service]
 User=deploy
-WorkingDirectory=/home/deploy/fieldforce
-EnvironmentFile=/home/deploy/fieldforce/.env   <span class="cm"># secrets, not in git</span>
+WorkingDirectory=/home/deploy/praxis-ls
+EnvironmentFile=/home/deploy/praxis-ls/.env   <span class="cm"># secrets, not in git</span>
 ExecStart=/usr/bin/node dist/server.js
 Restart=always                                 <span class="cm"># crash → auto-restart</span>
 
@@ -3388,15 +3498,15 @@ WantedBy=multi-user.target</code></pre>
   </div>
   <div class="code">
     <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">enable &amp; start it</span><span class="lang">bash</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
-    <pre><code>sudo systemctl enable --now fieldforce
-sudo systemctl status fieldforce        <span class="cm"># is it running?</span>
-journalctl -u fieldforce -f             <span class="cm"># live logs</span></code></pre>
+    <pre><code>sudo systemctl enable --now praxis-ls
+sudo systemctl status praxis-ls        <span class="cm"># is it running?</span>
+journalctl -u praxis-ls -f             <span class="cm"># live logs</span></code></pre>
   </div>
-  <p class="mini-note">Prefer <strong>PM2</strong> instead of systemd? Same idea, friendlier for Node: <code>pm2 start dist/server.js --name fieldforce</code>, then <code>pm2 startup</code> + <code>pm2 save</code> so it survives reboots. Systemd is more "native"; PM2 is quicker and gives clustering and log tooling out of the box. Either is fine &mdash; pick one per project and be consistent.</p>
+  <p class="mini-note">Prefer <strong>PM2</strong> instead of systemd? Same idea, friendlier for Node: <code>pm2 start dist/server.js --name praxis-ls</code>, then <code>pm2 startup</code> + <code>pm2 save</code> so it survives reboots. Systemd is more "native"; PM2 is quicker and gives clustering and log tooling out of the box. Either is fine &mdash; pick one per project and be consistent.</p>
 
   <p><strong>3. Put nginx in front</strong> as the reverse proxy:</p>
   <div class="code">
-    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">/etc/nginx/sites-available/fieldforce</span><span class="lang">nginx</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
+    <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">/etc/nginx/sites-available/praxis-ls</span><span class="lang">nginx</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
     <pre><code>server {
     server_name app.jbspraxis.com;
     location / {
@@ -3418,11 +3528,11 @@ sudo certbot --nginx -d app.jbspraxis.com   <span class="cm"># issues + installs
   <p><strong>5. The deploy step</strong> is the same idea as the ERP's <code>deploy.sh</code>, now able to build on the server and restart the service &mdash; and because <em>you</em> own the machine, CI can run this over SSH (no firewall blocking it like the shared host):</p>
   <div class="code">
     <div class="ch"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="fn">deploy.sh (plain VPS)</span><span class="lang">bash</span><button class="copy" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.closest('.code').querySelector('code').innerText);this.textContent='copied!';">copy</button></div>
-    <pre><code>cd /home/deploy/fieldforce
+    <pre><code>cd /home/deploy/praxis-ls
 git fetch origin main &amp;&amp; git reset --hard origin/main
 npm ci &amp;&amp; npm run build          <span class="cm"># build ON the server — it has the tools</span>
 npm run migrate                   <span class="cm"># apply pending migrations</span>
-sudo systemctl restart fieldforce <span class="cm"># pick up the new code</span>
+sudo systemctl restart praxis-ls <span class="cm"># pick up the new code</span>
 curl -fsS http://127.0.0.1:3000/health || exit 1   <span class="cm"># smoke test</span></code></pre>
   </div>
 
@@ -3478,7 +3588,7 @@ docker compose logs -f app                 <span class="cm"># watch it come up</
 
   <div class="callout indigo">
     <div class="ct">&#128161; Plain vs Dockerised &mdash; when to pick which</div>
-    <p><strong>Plain (nginx + systemd/PM2)</strong> is simplest for one app on one server &mdash; fewer moving parts, less to learn. <strong>Dockerised</strong> wins when you have multiple services, want identical dev/prod environments, or plan to scale across machines. FieldForce's containerised, cloud (Azure) direction leans Docker; a single-service VPS is happy plain. Either way, the <em>concepts</em> you already know carry over: <code>.env</code> for secrets, migrations on release, a smoke test after, a health check.</p>
+    <p><strong>Plain (nginx + systemd/PM2)</strong> is simplest for one app on one server &mdash; fewer moving parts, less to learn. <strong>Dockerised</strong> wins when you have multiple services, want identical dev/prod environments, or plan to scale across machines. Praxis LS ships a Dockerfile, a docker-compose stack and a PM2 ecosystem file and runs on a self-managed VPS &mdash; so it can go either way; a single-service app is happy plain. Either way, the <em>concepts</em> you already know carry over: <code>.env</code> for secrets, migrations on release, a smoke test after, a health check.</p>
   </div>
 
   <div class="callout red">
@@ -3649,7 +3759,7 @@ jobs:
   <p class="lead">Great code that never ships helps no one. JBS delivers in <strong>milestones</strong> &mdash; regular, demonstrable, accepted increments &mdash; so the client sees progress, pays against value, and steers early. Understanding this rhythm makes you an engineer a client trusts.</p>
 
   <h2>The cadence</h2>
-  <p>FieldForce runs on a fixed weekly beat that you can adopt on any project:</p>
+  <p>JBS runs projects on a fixed weekly beat that you can adopt on any engagement:</p>
   <div class="flow">
     <div class="fstep"><div class="fn">DAILY</div><div class="ft">Stand-up</div><div class="fb">Short, mandatory: what I did, what's next, what's blocking me.</div></div>
     <div class="fstep"><div class="fn">WEEKLY</div><div class="ft">Checkpoint</div><div class="fb">Delivery review; the client attends.</div></div>
@@ -3714,13 +3824,13 @@ jobs:
     <li><strong>Rehearse the exact walkthrough</strong> &mdash; the ERP describes "the walkthrough we run" for each milestone. Know every click.</li>
     <li><strong>Use real accounts and real data</strong> &mdash; a demo on fake data invites "but will it work with ours?". Pre-empt it.</li>
     <li><strong>Prepare the environment</strong> &mdash; stable connection, the right browser, seeded data, a backup plan if something's offline.</li>
-    <li><strong>Prove each client structure</strong> &mdash; for FieldForce, mobile <em>and</em> desktop <em>and</em> manager web, each shown feeling purpose-built for its device.</li>
+    <li><strong>Prove each surface</strong> &mdash; for Praxis LS, the tenant app, the platform console and the public portal, each shown working on a real tenant.</li>
     <li><strong>Have your acceptance checklist open</strong> &mdash; demo <em>against</em> it, item by item, so acceptance is obvious.</li>
   </ul>
 
   <h2>During the demo</h2>
   <ul>
-    <li><strong>Tell the story, not the tech.</strong> "A rep arrives at a pharmacy with no signal and logs a visit" beats "we call the IndexedDB API." Speak the client's language.</li>
+    <li><strong>Tell the story, not the tech.</strong> "A warehouse operator receives a container with no signal, and it syncs the moment they're back online" beats "we call the IndexedDB API." Speak the client's language.</li>
     <li><strong>Show, then explain.</strong> Do the action, let them see the result, then a sentence of what happened.</li>
     <li><strong>Narrate the value</strong> &mdash; connect each feature to the client's problem it solves.</li>
   </ul>
@@ -3814,10 +3924,10 @@ jobs:
   <div class="eyebrow">Part 10 · Lesson 4</div>
   <h1 class="title">Hypercare &amp; <span class="sn">support</span></h1>
   <div class="title-rule"></div>
-  <p class="lead">The riskiest moment in a system's life is right after go-live, when real users hit it for the first time in ways you never imagined. <strong>Hypercare</strong> is the intense support period that carries a launch safely into steady state &mdash; FieldForce dedicates its entire final milestone to "National Rollout, Training &amp; Hypercare."</p>
+  <p class="lead">The riskiest moment in a system's life is right after go-live, when real users hit it for the first time in ways you never imagined. <strong>Hypercare</strong> is the intense support period that carries a launch safely into steady state. For a multi-tenant product like Praxis LS, every new tenant gets its own mini go-live: provision, migrate, train, then hypercare.</p>
 
   <h2>Go-live is a plan, not an event</h2>
-  <p>FieldForce reaches production through a deliberate ramp: <strong>field pilots</strong> during the build (milestones 2 and 6), then <strong>UAT &amp; a pilot go-live</strong> (milestone 10), then <strong>national rollout with hypercare</strong> (milestone 11). You don't flip a switch for everyone at once &mdash; you prove it with a small group, learn, then widen. <strong>UAT</strong> (User Acceptance Testing) is the client's own users confirming it works for <em>them</em> before the whole company depends on it.</p>
+  <p>You reach production through a deliberate ramp: an internal <strong>pilot</strong>, then <strong>UAT</strong> with a small group of the client's real users, then a <strong>staged rollout</strong> with hypercare. For Praxis LS this maps onto tenants: onboard one pilot tenant (or a sandbox), prove it, then bring on the rest &mdash; you never flip a switch for everyone at once. <strong>UAT</strong> (User Acceptance Testing) is the client's own users confirming it works for <em>them</em> before the whole company depends on it.</p>
 
   <h2>What hypercare looks like</h2>
   <ul>
@@ -3880,7 +3990,7 @@ jobs:
   <h2>The brief</h2>
   <div class="callout">
     <div class="ct">&#127919; Build a vertical slice of a real system</div>
-    <p>Choose <strong>one</strong>: a <em>Mini-ERP</em> (clients &amp; invoices with roles and PDFs) or a <em>Field Logger PWA</em> (offline visit logging with sync and push). Either way, build a <strong>thin but complete slice</strong> &mdash; not every feature, but every <em>layer</em>, working together and demonstrable. Depth of stack over breadth of features.</p>
+    <p>Choose <strong>one</strong>: a <em>Mini-ERP</em> (clients &amp; invoices with roles and PDFs) or a <em>Shipment Tracker PWA</em> (offline status updates with sync and push). Either way, build a <strong>thin but complete slice</strong> &mdash; not every feature, but every <em>layer</em>, working together and demonstrable. Depth of stack over breadth of features.</p>
   </div>
 
   <h2>Required capabilities &mdash; your slice must have all of these</h2>
@@ -3916,7 +4026,7 @@ jobs:
   <div class="assign">
     <div class="ah"><span class="ic">&#127919;</span><b>Capstone — the big one</b><span class="lvl">Project · the whole point</span></div>
     <div class="abody">
-      <div class="task"><input type="checkbox" data-task="t-cap-1" id="t-cap-1"><label for="t-cap-1"><b>Choose &amp; scope:</b> pick Mini-ERP or Field Logger; write a one-page spec with 3&ndash;4 milestones and acceptance criteria.</label></div>
+      <div class="task"><input type="checkbox" data-task="t-cap-1" id="t-cap-1"><label for="t-cap-1"><b>Choose &amp; scope:</b> pick Mini-ERP or Shipment Tracker; write a one-page spec with 3&ndash;4 milestones and acceptance criteria.</label></div>
       <div class="task"><input type="checkbox" data-task="t-cap-2" id="t-cap-2"><label for="t-cap-2"><b>Repo &amp; foundation:</b> scaffold the JBS skeleton, <code>CLAUDE.md</code>, <code>.env.example</code>, migrations, first tables.</label></div>
       <div class="task"><input type="checkbox" data-task="t-cap-3" id="t-cap-3"><label for="t-cap-3"><b>Backend:</b> login + sessions, two roles with server-side RBAC, a validated prepared-statement API.</label></div>
       <div class="task"><input type="checkbox" data-task="t-cap-4" id="t-cap-4"><label for="t-cap-4"><b>Frontend:</b> a branded shell, safe data rendering, permission-gated UI.</label></div>
