@@ -218,7 +218,19 @@
             // sources are merged segment by segment and a segment whose digits
             // are already on the line is dropped rather than printed twice.
             const seen = [];
-            const norm = s => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            // Two spellings of one identifier are still one identifier. On this
+            // profile the structured rccm_number reads "CM-DLA-03-2026-B-01777"
+            // while the hand-typed document_footer_fr carries the same number as
+            // "CM-DLA-03-2026-8-01777" — a typed 8 for a B — so comparing the
+            // characters exactly saw two different segments and printed the RCCM
+            // twice. Fold the glyph pairs that get confused when a registration
+            // number is transcribed by hand (O/0, I/L/1, B/8, S/5, Z/2) before
+            // comparing. Only the COMPARISON is folded: what prints is the first
+            // spelling seen, and the structured field is always read first, so
+            // the authoritative value is the one that survives.
+            const norm = s => s.toUpperCase().replace(/[^A-Z0-9]/g, '')
+                .replace(/O/g, '0').replace(/[IL]/g, '1')
+                .replace(/B/g, '8').replace(/S/g, '5').replace(/Z/g, '2');
             for (const chunk of [co.name, co.legal_mentions, co.fiscal_regime_label, co.footer]) {
                 for (const raw of String(chunk || '').split('·')) {
                     const part = raw.trim();

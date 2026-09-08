@@ -165,7 +165,17 @@ if (($_GET['pdf'] ?? '') === '1') {
                         <p class="text-[10px] text-gray-500 mt-1 leading-relaxed font-bold" id="dyn_co_contact">...</p>
                     </div>
                     <div class="w-1/2 text-right">
-                        <h1 class="text-4xl font-black text-gray-900 uppercase tracking-tighter" data-i18n="doc_title">Facture</h1>
+                        <!-- HEADER BALANCE. The title sits in a band exactly as tall
+                             as the logo opposite it (h-24 on both), centred inside
+                             that band — so FACTURE lines up with the middle of the
+                             logo rather than its top edge. The band then carries the
+                             same mb-3 the logo carries, which puts the meta card's
+                             top edge on the raison sociale's line. Change the logo's
+                             height and both columns move together; there is no
+                             hardcoded offset to keep in sync. -->
+                        <div class="h-24 mb-3 flex items-center justify-end">
+                            <h1 class="text-4xl font-black text-gray-900 uppercase tracking-tighter" data-i18n="doc_title">Facture</h1>
+                        </div>
                         <!-- The PAYÉE / PARTIEL / NON PAYÉE badge used to sit here,
                              under the title. Removed on request: stamping NON PAYÉE
                              in red across a freshly issued invoice tells the customer
@@ -193,7 +203,7 @@ if (($_GET['pdf'] ?? '') === '1') {
                              the capture to get wrong. Échéance and Devise were dropped
                              from the print at the same time (the due date still drives
                              the overdue status; it is simply not printed). -->
-                        <div class="mt-4 ml-auto text-left bg-gray-50 p-4 rounded-xl border border-gray-200" style="display: block; width: 300px;">
+                        <div class="ml-auto text-left bg-gray-50 p-4 rounded-xl border border-gray-200" style="display: block; width: 300px;">
                             <div class="flex justify-between items-center gap-4 mb-2">
                                 <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap" data-i18n="lbl_inv_num">N° Facture :</span>
                                 <span class="text-sm font-black text-gray-900 whitespace-nowrap" id="dyn_ref">...</span>
