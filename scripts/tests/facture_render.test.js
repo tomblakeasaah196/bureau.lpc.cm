@@ -5,11 +5,17 @@
  * scraped out of public/documents/facture.php — meaning the test can only pass
  * if the JS and the template actually agree on every id.
  *
- * Two fixtures, because they exercise opposite branches:
- *   A. exonerated water sale, no withholding  -> optional rows must stay hidden,
- *      and the exemption basis must be printed instead of a bare "0 %".
+ * Three fixtures, because they exercise different branches:
+ *   A. exonerated water sale, no withholding  -> optional rows must stay hidden.
  *   B. 19,25 % sale with accises + précompte + AIR to a withholding agent
  *      -> every optional row appears and net-to-transfer < TTC.
+ *   C. the live profile's company identity, whose RCCM is stored twice in two
+ *      spellings -> the statutory footer must print it once.
+ *
+ * Then a static section D over the template and the module text, for the two
+ * capture properties no fixture can observe: the invoice-meta card must stay a
+ * block box with a stated width (as an inline-block it captured BLANK), and the
+ * PDF path must keep its one-page scale floor.
  */
 const fs = require('fs');
 const vm = require('vm');
@@ -222,19 +228,64 @@ failures += run('B · 19,25 % + accises + précompte + AIR', B, () => [
 ]);
 
 // ---------------------------------------------------------------------------
-// C · the capture contract. These are the two properties the PDF depends on
+// C · ONE IDENTIFIER, TWO SPELLINGS.
+// The live profile stores the RCCM twice: the structured rccm_number reads
+// "CM-DLA-03-2026-B-01777" and the free-text document_footer_fr carries the
+// same number as "CM-DLA-03-2026-8-01777" — a typed 8 for a B. Compared
+// character by character those are two different segments, so the footer
+// printed the registration number twice. injectData() folds the glyph pairs a
+// hand-typed registration number confuses before comparing, and prints the
+// first spelling seen — which is the structured one.
+// ---------------------------------------------------------------------------
+const C = {
+    ...base,
+    company: {
+        ...base.company,
+        name: 'LA PETITE COUR SARL',
+        legal_mentions: 'RCCM CM-DLA-03-2026-B-01777 · NIU M082618940346W · Capital social 2 000 000 FCFA',
+        fiscal_regime_label: 'Régime du Réel',
+        footer: 'La Petite Cour SARL ·CM-DLA-03-2026-8-01777 · B.P. 5120 Douala, Cameroun · info@lpc.cm',
+    },
+    invoice: A.invoice,
+};
+
+failures += run('C · one identifier, two spellings', C, () => [
+    ['the RCCM prints exactly once',
+        (txt('dyn_legal_footer').match(/CM-DLA-03-2026-[B8]-01777/g) || []).length, 1],
+    ['the structured spelling is the one that survives',
+        /CM-DLA-03-2026-B-01777/.test(txt('dyn_legal_footer')), 'true'],
+    ['the typed 8 never reaches the document',
+        /CM-DLA-03-2026-8-01777/.test(txt('dyn_legal_footer')), 'false'],
+    ['the company name prints exactly once',
+        (txt('dyn_legal_footer').match(/Petite Cour/gi) || []).length, 1],
+    ['what only the free-text footer carries is still printed',
+        /B\.P\. 5120 Douala/.test(txt('dyn_legal_footer')) && /info@lpc\.cm/.test(txt('dyn_legal_footer')), 'true'],
+]);
+
+// ---------------------------------------------------------------------------
+// D · the capture contract. These are the two properties the PDF depends on
 // and neither is visible from the data: the invoice-meta card must stay
 // BLOCK-level with a stated width (as an `inline-block` it captured blank —
 // see the comment on that block in the template), and the one-page path must
 // keep its scale floor rather than silently paginating a 5-line invoice.
 // ---------------------------------------------------------------------------
 {
-    console.log('\n─── C · html2canvas capture contract ───');
-    const metaCard = /<div class="mt-4 ml-auto[^"]*"[^>]*style="([^"]*)"/.exec(tpl);
+    console.log('\n─── D · html2canvas capture contract ───');
+    // Matched by what makes the card correct — right-aligned block with an
+    // explicit width — not by whichever spacing utility it happens to carry.
+    const metaCard = /<div class="[^"]*\bml-auto\b[^"]*bg-gray-50[^"]*"[^>]*style="([^"]*)"/.exec(tpl);
     const checks = [
         ['invoice-meta card declares display:block', /display:\s*block/.test(metaCard ? metaCard[1] : ''), true],
         ['invoice-meta card states an explicit width', /width:\s*\d+px/.test(metaCard ? metaCard[1] : ''), true],
         ['invoice-meta card is not inline-block', /inline-block/.test(metaCard ? metaCard[0] : ''), false],
+        // Header balance: the title band must stay the same height as the logo
+        // (that is what centres FACTURE on it), and the meta card must not
+        // reintroduce a top margin of its own (the band's mb-3 is what puts it
+        // on the raison sociale's line).
+        ['title band matches the logo height',
+            /<img[^>]*class="h-24[^"]*"/.test(tpl) && /<div class="h-24 mb-3 flex items-center justify-end">/.test(tpl), true],
+        ['meta card carries no top margin of its own',
+            /<div class="mt-\d+ ml-auto text-left bg-gray-50/.test(tpl), false],
         ['capture scales to one page before paginating', /ONE_PAGE_MIN_SCALE/.test(js), true],
         ['scale floor keeps small type legible', /ONE_PAGE_MIN_SCALE = 0\.8/.test(js), true],
     ];
