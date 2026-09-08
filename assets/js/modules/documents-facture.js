@@ -94,6 +94,60 @@
         const show = (id, on) => { const e = $(id); if (e) e.classList.toggle('hidden', !on); };
         const setText = (id, v) => { const e = $(id); if (e) e.innerText = v; };
 
+        /**
+         * Print "A · B · C" on ONE line when it fits, and on TWO deliberate
+         * lines when it does not.
+         *
+         * Left to wrap by itself, a joined string strands the separator at the
+         * fold. The letterhead came out as
+         *
+         *     1030, Avenue Douala Manga Bell · B.P. 5120 ·
+         *     Douala Littoral · Cameroun
+         *
+         *     Tél. +237 696 291 800 / +237 233 42 02 81 · info@lpc.cm ·
+         *     https://lpc.cm
+         *
+         * — a "·" dangling at the end of both lines, which reads as a typo, and
+         * a URL orphaned under a very long phone line. Breaking at a separator
+         * ourselves CONSUMES it, so no line can begin or end on one.
+         *
+         * Fill the first line as far as it goes; then, rather than leave a
+         * single segment stranded below, move one segment down when the first
+         * line can spare it and the second still fits. On this profile that
+         * gives street / city the way a reader expects an address to break, and
+         * puts the two digital contacts together under the phones.
+         *
+         * Falls back to the plain joined line where there is no layout to
+         * measure — the id-contract test runs injectData() against a stub DOM.
+         */
+        function setSegmentedLine(id, segments) {
+            const el = $(id);
+            if (!el) return;
+            const parts = segments.map(s => String(s == null ? '' : s).trim()).filter(Boolean);
+            el.innerText = parts.join(' · ');
+            if (parts.length < 2) return;
+            if (typeof getComputedStyle !== 'function' || typeof el.getBoundingClientRect !== 'function') return;
+
+            const lh = parseFloat(getComputedStyle(el).lineHeight) || 0;
+            const fitsOneLine = () => el.getBoundingClientRect().height < lh * 1.5;
+            if (!lh || fitsOneLine()) return;      // it did not wrap — leave it alone
+
+            // Largest prefix that still occupies a single line.
+            let split = 1;
+            for (let i = parts.length - 1; i >= 1; i--) {
+                el.innerText = parts.slice(0, i).join(' · ');
+                if (fitsOneLine()) { split = i; break; }
+            }
+            // A lone segment below reads as an orphan; give it company when the
+            // first line can spare one and the second line still fits.
+            if (parts.length - split === 1 && split > 1) {
+                el.innerText = parts.slice(split - 1).join(' · ');
+                if (fitsOneLine()) split -= 1;
+            }
+            // Assigning innerText turns the newline into a real line break.
+            el.innerText = parts.slice(0, split).join(' · ') + '\n' + parts.slice(split).join(' · ');
+        }
+
         // 3. INJECT DATA INTO DOM
         function injectData() {
             if(!apiData) return;
@@ -114,8 +168,11 @@
 
             // -- Seller letterhead. Formerly hardcoded, placeholder NIU included.
             setText('dyn_co_name', co.name || '');
-            setText('dyn_co_address', (co.address_lines || []).join(' · '));
-            setText('dyn_co_contact', co.contact || '');
+            // address_lines already arrives structured; the contact line arrives
+            // pre-joined from CompanyProfile::contactLine(), so it is split back
+            // into its segments to give the same treatment.
+            setSegmentedLine('dyn_co_address', co.address_lines || []);
+            setSegmentedLine('dyn_co_contact', String(co.contact || '').split('·'));
 
             // Client. A dash, not the literal "N/A": this is a document a
             // customer reads, and every one of these fields is optional in the
