@@ -157,14 +157,16 @@ if (($_GET['pdf'] ?? '') === '1') {
                      the API, editable at Administration → Paramètres → Entreprise.
                      Raison sociale + forme juridique, RCCM, NIU, capital social,
                      régime fiscal and centre des impôts are the identifiers a
-                     Cameroonian invoice is required to carry. -->
-                <div class="px-16 pt-12 pb-6 flex justify-between items-start shrink-0">
+                     Cameroonian invoice is required to carry — they are all
+                     still on the document, but they print in the statutory
+                     footer at the bottom of the page now instead of competing
+                     with the letterhead. See #dyn_legal_footer below. -->
+                <div class="px-16 pt-6 pb-4 flex justify-between items-start shrink-0">
                     <div class="w-1/2 pr-6">
-                        <img src="/assets/img/full_logo.svg" alt="Logo" class="h-16 w-auto mb-3" onerror="this.outerHTML='<h2 class=\\'text-3xl font-black text-lpc-dark\\'>LPC</h2>'">
+                        <img src="/assets/img/full_logo.svg" alt="Logo" class="h-24 w-auto mb-3" onerror="this.outerHTML='<h2 class=\\'text-3xl font-black text-lpc-dark\\'>LPC</h2>'">
                         <p class="text-sm font-black text-gray-900 leading-tight" id="dyn_co_name">...</p>
                         <p class="text-[10px] text-gray-500 mt-1.5 leading-relaxed font-bold uppercase tracking-wider" id="dyn_co_address">...</p>
                         <p class="text-[10px] text-gray-500 mt-1 leading-relaxed font-bold" id="dyn_co_contact">...</p>
-                        <p class="text-[9px] text-gray-600 mt-2 leading-relaxed font-bold border-t border-gray-200 pt-2" id="dyn_co_legal">...</p>
                     </div>
                     <div class="w-1/2 text-right">
                         <h1 class="text-4xl font-black text-gray-900 uppercase tracking-tighter" data-i18n="doc_title">Facture</h1>
@@ -172,29 +174,40 @@ if (($_GET['pdf'] ?? '') === '1') {
                             NON PAYÉE
                         </div>
 
-                        <div class="mt-6 inline-block text-left bg-gray-50 p-4 rounded-xl border border-gray-200 min-w-[250px]">
-                            <div class="flex justify-between items-center gap-6 mb-2">
-                                <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest" data-i18n="lbl_inv_num">N° Facture :</span>
-                                <span class="text-sm font-black text-gray-900" id="dyn_ref">...</span>
+                        <!-- DOCUMENT META — BLOCK-LEVEL, EXPLICIT WIDTH. DO NOT MAKE THIS
+                             `inline-block` AGAIN.
+                             This card printed COMPLETELY BLANK in every html2canvas PDF
+                             (FAC-2607-6341, FAC-2609-2EE8 …): the rounded background and
+                             the border painted, every label and value inside vanished.
+                             It was blamed on a capture race and on webfonts; it is
+                             neither — the capture already waits for document.fonts.ready
+                             and a frame. It is the shrink-to-fit `inline-block`: when the
+                             card sizes itself to its contents, html2canvas lays its block
+                             children out against a width the cloned document never had,
+                             so the text lands outside the painted card and is clipped
+                             away. Proven by isolating one property at a time against the
+                             vendored html2canvas — `text-right`, `min-w-[…]` and the flex
+                             rows are all innocent; `display` alone flips the box between
+                             blank and correct.
+                             A block box with a stated width has no shrink-to-fit step for
+                             the capture to get wrong. Échéance and Devise were dropped
+                             from the print at the same time (the due date still drives
+                             the overdue status; it is simply not printed). -->
+                        <div class="mt-4 ml-auto text-left bg-gray-50 p-4 rounded-xl border border-gray-200" style="display: block; width: 300px;">
+                            <div class="flex justify-between items-center gap-4 mb-2">
+                                <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap" data-i18n="lbl_inv_num">N° Facture :</span>
+                                <span class="text-sm font-black text-gray-900 whitespace-nowrap" id="dyn_ref">...</span>
                             </div>
-                            <div class="flex justify-between items-center gap-6 mb-2">
-                                <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest" data-i18n="lbl_date">Date :</span>
-                                <span class="text-sm font-bold text-gray-800" id="dyn_date">...</span>
-                            </div>
-                            <div class="flex justify-between items-center gap-6 mb-2">
-                                <span class="text-[10px] font-black text-red-400 uppercase tracking-widest" data-i18n="lbl_due_date">Échéance :</span>
-                                <span class="text-sm font-black text-red-600" id="dyn_due_date">...</span>
-                            </div>
-                            <div class="flex justify-between items-center gap-6 border-t border-gray-200 pt-2">
-                                <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest" data-i18n="lbl_currency">Devise :</span>
-                                <span class="text-xs font-bold text-gray-800">FCFA (XAF)</span>
+                            <div class="flex justify-between items-center gap-4">
+                                <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap" data-i18n="lbl_date">Date :</span>
+                                <span class="text-sm font-bold text-gray-800 whitespace-nowrap" id="dyn_date">...</span>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="px-16 pb-6 shrink-0">
-                    <div class="bg-gray-50 p-6 rounded-xl border border-gray-100">
+                <div class="px-16 pb-4 shrink-0">
+                    <div class="bg-gray-50 p-4 rounded-xl border border-gray-100">
                         <h3 class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 border-b-2 border-gray-200 inline-block pb-1" data-i18n="lbl_client">Facturé à</h3>
                         <p class="text-xl font-black text-gray-900" id="dyn_client_name">...</p>
                         <p class="text-sm font-medium text-gray-600 mt-1" id="dyn_client_address">...</p>
@@ -204,17 +217,14 @@ if (($_GET['pdf'] ?? '') === '1') {
                             <i class="fas fa-envelope text-gray-400 text-xs mr-1"></i> <span id="dyn_client_email">...</span>
                         </p>
                         <!-- The buyer's NIU is what makes the transaction deductible
-                             for them. Its absence is flagged rather than hidden, so
-                             whoever issues the invoice sees the gap before the
-                             client's accountant does. -->
+                             for them. The missing-NIU warning that used to print under
+                             this line was removed on request: it is a message for
+                             whoever issues the invoice, not for the customer holding
+                             it. The gap belongs in the ERP, not on the document. -->
                         <p class="text-xs font-bold text-gray-700 mt-2 pt-2 border-t border-gray-200" id="client_fiscal_line">
                             <span data-i18n="lbl_client_niu">NIU :</span> <span id="dyn_client_niu" class="font-mono">—</span>
                             <span class="mx-2 text-gray-300">|</span>
                             <span data-i18n="lbl_client_rccm">RCCM :</span> <span id="dyn_client_rccm" class="font-mono">—</span>
-                        </p>
-                        <p id="dyn_client_niu_warning" class="hidden mt-2 text-[10px] font-black uppercase tracking-widest text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 inline-block">
-                            <i class="fas fa-triangle-exclamation mr-1"></i>
-                            <span data-i18n="warn_no_niu">NIU client manquant — requis pour la déductibilité B2B</span>
                         </p>
                     </div>
                 </div>
@@ -223,19 +233,19 @@ if (($_GET['pdf'] ?? '') === '1') {
                     <table class="w-full text-left inv-table">
                         <thead>
                             <tr>
-                                <th class="py-3 px-2 text-[10px] uppercase text-gray-400 font-black tracking-widest" data-i18n="tbl_desc">Désignation</th>
-                                <th class="py-3 px-2 text-[10px] uppercase text-gray-400 font-black tracking-widest text-center" data-i18n="tbl_qty">Qté</th>
-                                <th class="py-3 px-2 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right" data-i18n="tbl_up">P.U. (FCFA)</th>
-                                <th class="py-3 px-2 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right" data-i18n="tbl_total">Montant (FCFA)</th>
+                                <th class="py-2 px-2 text-[10px] uppercase text-gray-400 font-black tracking-widest" data-i18n="tbl_desc">Désignation</th>
+                                <th class="py-2 px-2 text-[10px] uppercase text-gray-400 font-black tracking-widest text-center" data-i18n="tbl_qty">Qté</th>
+                                <th class="py-2 px-2 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right" data-i18n="tbl_up">P.U. (FCFA)</th>
+                                <th class="py-2 px-2 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right" data-i18n="tbl_total">Montant (FCFA)</th>
                             </tr>
                         </thead>
                         <tbody id="dyn_items_table" class="text-sm text-gray-900">
                             </tbody>
                     </table>
 
-                    <div class="mt-8 flex justify-between items-start gap-12">
+                    <div class="mt-5 flex justify-between items-start gap-12">
                         
-                        <div class="w-1/2 space-y-6">
+                        <div class="w-1/2 space-y-4">
                             <div id="notes_container" class="hidden">
                                 <h4 class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1" data-i18n="lbl_notes">Notes / Conditions</h4>
                                 <p class="text-xs text-gray-600 font-medium whitespace-pre-line" id="dyn_notes"></p>
@@ -246,9 +256,8 @@ if (($_GET['pdf'] ?? '') === '1') {
                                 <!-- Rendered from company_profile.bank_* / mobile_money_number.
                                      The IBAN printed here was previously a literal in the
                                      markup, so changing bank meant editing a PHP file. -->
-                                <div id="dyn_bank_block" class="bg-gray-50 p-4 rounded-lg border border-gray-100 text-xs text-gray-600 space-y-1.5 font-medium">
+                                <div id="dyn_bank_block" class="bg-gray-50 p-3 rounded-lg border border-gray-100 text-xs text-gray-600 space-y-1.5 font-medium">
                                 </div>
-                                <p class="mt-2 text-[10px] text-gray-400 italic" data-i18n="pay_reference_hint">Merci de préciser le N° de facture en motif du règlement.</p>
                             </div>
 
                             <div id="bl_refs_container" class="hidden">
@@ -267,7 +276,7 @@ if (($_GET['pdf'] ?? '') === '1') {
                                  untouched and instead split it between us and the DGI —
                                  hence the separate "net à nous virer" line. Rows with a
                                  zero amount are hidden by injectData(). -->
-                            <div class="bg-gray-50 p-5 rounded-xl border border-gray-200">
+                            <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
                                 <div class="flex justify-between items-center mb-2.5">
                                     <span class="text-xs font-bold text-gray-600" data-i18n="tot_sub">Total Hors Taxe (HT)</span>
                                     <span class="text-sm font-black text-gray-900" id="dyn_subtotal">...</span>
@@ -283,13 +292,11 @@ if (($_GET['pdf'] ?? '') === '1') {
                                     <span class="text-sm font-black text-gray-900" id="dyn_tva_amount">...</span>
                                 </div>
 
-                                <!-- A bare "TVA 0%" is the single most common reason a
-                                     Cameroonian invoice gets rejected: the buyer cannot
-                                     tell an exoneration from an omission. The basis is
-                                     printed instead. -->
-                                <p id="row_tva_exemption" class="hidden text-[9px] italic text-gray-500 leading-snug -mt-1 mb-2.5 pl-1 border-l-2 border-gray-300">
-                                    <span id="dyn_tva_exemption"></span>
-                                </p>
+                                <!-- The legal basis for a nil TVA ("Exonéré de TVA —
+                                     … art. 128 CGI") used to print here. Removed on
+                                     request. inv.tva_exemption is still sent by
+                                     get_invoice.php and still stored on the invoice,
+                                     so restoring the line is markup-only. -->
 
                                 <div class="border-t-2 border-gray-900 pt-2.5 mb-2.5 flex justify-between items-center">
                                     <span class="text-sm font-black text-gray-900" data-i18n="tot_grand">NET À PAYER (TTC)</span>
@@ -314,7 +321,7 @@ if (($_GET['pdf'] ?? '') === '1') {
 
                                 <div id="payment_history_block" class="border-t border-gray-200 pt-3 space-y-2 mt-2">
                                     <div class="flex justify-between items-center text-emerald-600">
-                                        <span class="text-[10px] font-black uppercase tracking-widest" data-i18n="tot_paid">Déjà Réglé (Avances)</span>
+                                        <span class="text-[10px] font-black uppercase tracking-widest" data-i18n="tot_paid">Déjà Réglé</span>
                                         <span class="text-sm font-black" id="dyn_paid_amount">0 F</span>
                                     </div>
                                     <div class="flex justify-between items-center text-red-600 bg-red-50 p-2 rounded">
@@ -326,7 +333,7 @@ if (($_GET['pdf'] ?? '') === '1') {
                         </div>
                     </div>
 
-                    <div class="mt-auto pt-12 pb-8">
+                    <div class="mt-auto pt-3 pb-2">
                         <p class="text-xs italic text-gray-500 font-medium text-right">
                             <span data-i18n="legal_text">Arrêtée la présente facture à la somme de</span><br>
                             <strong class="text-gray-900 text-sm not-italic" id="dyn_amount_words">...</strong>
@@ -354,7 +361,7 @@ if (($_GET['pdf'] ?? '') === '1') {
                             'external' => array_filter([$sig_doc['client']['name'] ?? '']),
                         ];
                         ?>
-                        <div class="pb-6">
+                        <div class="pb-2">
                             <?php require __DIR__ . '/../../includes/components/signature_block.php'; ?>
                         </div>
                         <?php
@@ -364,9 +371,15 @@ if (($_GET['pdf'] ?? '') === '1') {
                     <!-- Statutory footer. Required on every page of a Cameroonian
                          invoice and previously absent from the HTML view entirely
                          (the dompdf path already had it). Sourced from
-                         company_profile so it can never drift from the letterhead. -->
-                    <div class="pb-8 -mt-4">
-                        <p class="text-[8px] text-gray-400 text-center leading-relaxed border-t border-gray-200 pt-3" id="dyn_legal_footer"></p>
+                         company_profile so it can never drift from the letterhead.
+                         It now also carries RCCM · NIU · capital social · régime
+                         fiscal, which used to sit under the logo: the identifiers
+                         are still on the document, just where a reader looks for
+                         them instead of competing with the letterhead. injectData()
+                         merges them with company_profile.footer and drops whatever
+                         the two lines already had in common. -->
+                    <div class="pb-2">
+                        <p class="text-[8px] text-gray-400 text-center leading-relaxed border-t border-gray-200 pt-2" id="dyn_legal_footer"></p>
                     </div>
                 </div>
             </div>

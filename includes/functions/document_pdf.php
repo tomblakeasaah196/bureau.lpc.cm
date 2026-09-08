@@ -1015,11 +1015,13 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
     // below — the classic invoice header (issuer left, doc metadata right).
     // See includes/pdf_templates/document_header.php for the layout modes.
     'identity' => 'inline',
+    // Échéance and Devise were dropped from the printed invoice; the due date
+    // still drives the overdue status and the reminders. Keep this list in
+    // step with the live html2canvas document (public/documents/facture.php)
+    // so re-enabling dompdf never resurrects a removed row.
     'meta'     => [
         ['N° Facture', $doc['reference']],
         ['Date',       $fdate($doc['date'])],
-        ['Échéance',   $fdate($doc['due_date']), 'danger'],
-        ['Devise',     'FCFA (XAF)', 'rule'],
     ],
 ]) ?>
 </div>
@@ -1034,24 +1036,19 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
             <div class="muted" style="margin-top: 1mm; font-size: 8.5pt;"><?= nl2br($e($client['address'])) ?></div>
         <?php endif; ?>
         <div class="muted" style="margin-top: 1mm; font-size: 8.5pt;">
-            Tél : <?= $e($client['phone'] ?: 'N/A') ?>
-            &nbsp;|&nbsp; Email : <?= $e($client['email'] ?: 'N/A') ?>
+            Tél : <?= $e($client['phone'] ?: '—') ?>
+            &nbsp;|&nbsp; Email : <?= $e($client['email'] ?: '—') ?>
         </div>
         <?php
         // The buyer's NIU is what makes the purchase deductible for them; art.
-        // 150 CGI requires it on a B2B invoice. Print it, and say so plainly
-        // when it is missing rather than leaving a silent blank.
+        // 150 CGI requires it on a B2B invoice. The banner that used to shout
+        // about a missing one was removed from both renderers: it addresses
+        // whoever issues the invoice, not the customer reading it.
         ?>
         <div class="b" style="margin-top: 2mm; padding-top: 1.8mm; border-top: 0.5pt solid #E5E7EB; font-size: 8pt;">
             NIU : <?= $e($client['niu'] ?: '—') ?>
             &nbsp;|&nbsp; RCCM : <?= $e($client['rccm'] ?: '—') ?>
         </div>
-        <?php if (empty($client['niu']) && !empty($client['is_b2b'])): ?>
-            <div class="xtiny b caps" style="margin-top: 2mm; color: #B45309; background: #FFFBEB;
-                        border: 0.5pt solid #FDE68A; border-radius: 1.5mm; padding: 1.5mm 2.5mm;">
-                NIU client manquant — requis pour la déductibilité B2B
-            </div>
-        <?php endif; ?>
     </div>
 </div>
 
@@ -1113,9 +1110,6 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
                     <div class="muted" style="font-style: italic;">Coordonnées de règlement non renseignées.</div>
                 <?php endif; ?>
             </div>
-            <div class="xtiny muted" style="margin-top: 1.5mm; font-style: italic;">
-                Merci de préciser le N° de facture en motif du règlement.
-            </div>
 
             <?php
             // Bordereaux de Livraison — replaces the old "Conditions de
@@ -1159,10 +1153,9 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
                     <td class="num b"><?= $e(lpc_fcfa($t['tax'])) ?></td>
                 </tr>
 
-                <?php if ($t['tva_rate'] <= 0 && !empty($t['tva_exemption'])): ?>
-                    <?php // A bare "TVA 0 %" cannot be told apart from an omission. ?>
-                    <tr><td colspan="2" class="exempt"><?= $e($t['tva_exemption']) ?></td></tr>
-                <?php endif; ?>
+                <?php // The exoneration basis line ("… art. 128 CGI") was removed
+                      // from the invoice on request. $t['tva_exemption'] is still
+                      // normalised above; the devis renderer still prints its own. ?>
 
                 <tr class="grand">
                     <td>NET À PAYER (TTC)</td>
@@ -1203,7 +1196,7 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
 
                 <tr><td colspan="2" style="padding-top: 2.5mm; border-top: 0.5pt solid #E5E7EB;"></td></tr>
                 <tr>
-                    <td class="caps xtiny" style="color: #059669;">Déjà réglé (avances)</td>
+                    <td class="caps xtiny" style="color: #059669;">Déjà réglé</td>
                     <td class="num b" style="color: #059669;"><?= $e(lpc_fcfa($t['paid'])) ?></td>
                 </tr>
                 <tr>

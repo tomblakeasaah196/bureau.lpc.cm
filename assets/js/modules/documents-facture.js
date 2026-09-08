@@ -16,13 +16,10 @@
         const dictionary = {
             en: {
                 btn_pdf: "Download PDF", btn_email: "Email", btn_whatsapp: "WhatsApp",
-                doc_title: "Invoice", lbl_inv_num: "Invoice No:", lbl_date: "Issue Date:", lbl_due_date: "Due Date:",
-                lbl_currency: "Currency:",
+                doc_title: "Invoice", lbl_inv_num: "Invoice No:", lbl_date: "Issue Date:",
                 lbl_client: "Billed To", lbl_notes: "Notes & Terms", lbl_payment_info: "Payment Information",
                 lbl_client_niu: "TIN:", lbl_client_rccm: "Trade Reg.:",
-                warn_no_niu: "Customer TIN missing — required for B2B deductibility",
                 lbl_terms: "Delivery Notes (BL)", lbl_withholding: "Withholding at source",
-                pay_reference_hint: "Please quote the invoice number as the payment reference.",
                 tbl_desc: "Description", tbl_qty: "Qty", tbl_up: "Unit Price", tbl_total: "Amount",
                 tot_sub: "Subtotal", tot_excise: "Excise duty", tot_grand: "TOTAL DUE",
                 tot_precompte: "Withholding on purchases", tot_air: "AIR — Income tax instalment",
@@ -33,18 +30,15 @@
             },
             fr: {
                 btn_pdf: "Télécharger PDF", btn_email: "Email", btn_whatsapp: "WhatsApp",
-                doc_title: "Facture", lbl_inv_num: "N° Facture :", lbl_date: "Date :", lbl_due_date: "Échéance :",
-                lbl_currency: "Devise :",
+                doc_title: "Facture", lbl_inv_num: "N° Facture :", lbl_date: "Date :",
                 lbl_client: "Facturé à", lbl_notes: "Notes / Conditions", lbl_payment_info: "Informations de Paiement",
                 lbl_client_niu: "NIU :", lbl_client_rccm: "RCCM :",
-                warn_no_niu: "NIU client manquant — requis pour la déductibilité B2B",
                 lbl_terms: "Bordereaux de Livraison", lbl_withholding: "Retenues à la source",
-                pay_reference_hint: "Merci de préciser le N° de facture en motif du règlement.",
                 tbl_desc: "Désignation", tbl_qty: "Qté", tbl_up: "P.U. (FCFA)", tbl_total: "Montant (FCFA)",
                 tot_sub: "Total Hors Taxe (HT)", tot_excise: "Droit d'accises", tot_grand: "NET À PAYER (TTC)",
                 tot_precompte: "Précompte sur achats", tot_air: "AIR — Acompte d'Impôt sur le Revenu",
                 tot_net_transfer: "Net à virer au fournisseur",
-                tot_paid: "Déjà Réglé (Avances)", tot_balance: "Reste à Payer",
+                tot_paid: "Déjà Réglé", tot_balance: "Reste à Payer",
                 legal_text: "Arrêtée la présente facture à la somme de :",
                 status_paid: "PAYÉE", status_partial: "PARTIEL", status_unpaid: "NON PAYÉE"
             }
@@ -110,36 +104,33 @@
             const stamp = apiData.stamp;
             const co = apiData.company || {};
 
-            // Dates
+            // Dates. inv.due_date is deliberately NOT printed any more — the
+            // Échéance and Devise rows were dropped from the document. The field
+            // still arrives in the payload and still drives the overdue status
+            // and the reminders, so nothing downstream changed.
             const fDate = new Date(inv.date).toLocaleDateString('fr-FR');
-            const fDue = new Date(inv.due_date).toLocaleDateString('fr-FR');
 
             document.getElementById('nav-ref').innerText = inv.reference;
             document.getElementById('dyn_ref').innerText = inv.reference;
             document.getElementById('dyn_date').innerText = fDate;
-            document.getElementById('dyn_due_date').innerText = fDue;
 
             // -- Seller letterhead. Formerly hardcoded, placeholder NIU included.
             setText('dyn_co_name', co.name || '');
             setText('dyn_co_address', (co.address_lines || []).join(' · '));
             setText('dyn_co_contact', co.contact || '');
-            // RCCM · NIU · Capital · Centre des impôts — the statutory identifier
-            // line. Built server-side by CompanyProfile::legalMentions() so the
-            // PDF and the HTML can never disagree about it.
-            const mentions = [co.legal_mentions, co.fiscal_regime_label]
-                .filter(Boolean).join(' · ');
-            setText('dyn_co_legal', mentions);
 
-            // Client
+            // Client. A dash, not the literal "N/A": this is a document a
+            // customer reads, and every one of these fields is optional in the
+            // CRM. get_invoice.php now resolves the NIU across both columns the
+            // clients table carries (niu, then the legacy tax_id), so a number
+            // saved through any version of the client form reaches the invoice.
+            const orDash = v => (v === null || v === undefined || String(v).trim() === '') ? '—' : String(v).trim();
             document.getElementById('dyn_client_name').innerText = client.name;
-            document.getElementById('dyn_client_address').innerText = client.address || 'N/A';
-            document.getElementById('dyn_client_phone').innerText = client.phone || 'N/A';
-            document.getElementById('dyn_client_email').innerText = client.email || 'N/A';
-            setText('dyn_client_niu', client.niu || '—');
-            setText('dyn_client_rccm', client.rccm || '—');
-            // Surface the gap rather than print a silent dash: a B2B invoice
-            // without the buyer's NIU is not deductible for them.
-            show('dyn_client_niu_warning', client.is_b2b && !client.niu);
+            document.getElementById('dyn_client_address').innerText = orDash(client.address);
+            document.getElementById('dyn_client_phone').innerText = orDash(client.phone);
+            document.getElementById('dyn_client_email').innerText = orDash(client.email);
+            setText('dyn_client_niu', orDash(client.niu));
+            setText('dyn_client_rccm', orDash(client.rccm));
 
             // Status Badge
             const badge = document.getElementById('dyn_status_badge');
@@ -152,10 +143,10 @@
             apiData.items.forEach(item => {
                 tbody.innerHTML += LPC.html`
                     <tr>
-                        <td class="py-4 px-2 font-bold text-gray-900">${item.description}</td>
-                        <td class="py-4 px-2 text-center font-black text-gray-700">${item.quantity}</td>
-                        <td class="py-4 px-2 text-right text-gray-800">${LPC.fmt.int(item.unit_price)}</td>
-                        <td class="py-4 px-2 text-right font-black text-gray-900">${LPC.fmt.int(item.total_price)}</td>
+                        <td class="py-2.5 px-2 font-bold text-gray-900">${item.description}</td>
+                        <td class="py-2.5 px-2 text-center font-black text-gray-700">${item.quantity}</td>
+                        <td class="py-2.5 px-2 text-right text-gray-800">${LPC.fmt.int(item.unit_price)}</td>
+                        <td class="py-2.5 px-2 text-right font-black text-gray-900">${LPC.fmt.int(item.total_price)}</td>
                     </tr>
                 `;
             });
@@ -177,11 +168,9 @@
             setText('dyn_tva_rate', trimRate(inv.tva_rate));
             setText('dyn_tva_amount', LPC.fmt.fcfa(inv.tva_amount));
 
-            // Print the legal basis whenever TVA is nil. "TVA (0%) — 0 FCFA"
-            // on its own tells an auditor nothing.
-            const exempt = Number(inv.tva_rate) <= 0 && inv.tva_exemption;
-            show('row_tva_exemption', !!exempt);
-            if (exempt) setText('dyn_tva_exemption', inv.tva_exemption);
+            // The exoneration basis ("… art. 128 CGI") used to print under a nil
+            // TVA. Removed from the document on request; inv.tva_exemption still
+            // arrives in the payload for whoever wants it back.
 
             setText('dyn_grandtotal', LPC.fmt.fcfa(inv.total_amount));
 
@@ -225,7 +214,29 @@
             }
 
             // -- Statutory footer ---------------------------------------------
-            setText('dyn_legal_footer', co.footer || '');
+            // RCCM · NIU · capital social · régime fiscal used to sit under the
+            // logo (#dyn_co_legal); they print here now. company_profile.footer
+            // repeats some of them — on this profile the RCCM number appears in
+            // both, once bare and once behind its "RCCM" label — so the two
+            // sources are merged segment by segment and a segment whose digits
+            // are already on the line is dropped rather than printed twice.
+            const seen = [];
+            const norm = s => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            for (const chunk of [co.name, co.legal_mentions, co.fiscal_regime_label, co.footer]) {
+                for (const raw of String(chunk || '').split('·')) {
+                    const part = raw.trim();
+                    if (!part) continue;
+                    const k = norm(part);
+                    // Short segments are compared exactly; anything long enough to
+                    // be an identifier also matches when one form contains the
+                    // other ("CM-DLA-03-2026-B-01777" inside "RCCM CM-DLA-…").
+                    const dup = seen.some(s => k.length >= 6 || s.k.length >= 6
+                        ? (s.k.includes(k) || k.includes(s.k))
+                        : s.k === k);
+                    if (!dup) seen.push({ k, part });
+                }
+            }
+            setText('dyn_legal_footer', seen.map(s => s.part).join(' · '));
 
             // Amount in words (Expect backend to provide this for perfection, else fallback to JS)
             document.getElementById('dyn_amount_words').innerText = inv.amount_in_words || numberToWordsFR(inv.total_amount);
@@ -422,7 +433,17 @@
             triggerDownload(blob, filename);
         }
 
-        /** Fallback path — the original html2canvas capture, now multi-page. */
+        // How far the capture may be scaled down to keep an invoice on a single
+        // sheet. 0.80 keeps the smallest type on the document (8 px statutory
+        // footer, 10 px labels) at roughly 6.4 px / 4.8 pt — still legible in
+        // print. Below that the document paginates instead of shrinking.
+        const ONE_PAGE_MIN_SCALE = 0.80;
+
+        /**
+         * Fallback path — the original html2canvas capture. One A4 page for a
+         * normal invoice, scaled to fit for a slightly longer one, paginated
+         * only when the content genuinely cannot be read at one page.
+         */
         async function downloadCanvasPDF(filename) {
             const element = document.getElementById('pdf-container');
             element.classList.add('force-a4-width');
@@ -448,17 +469,32 @@
                 const imgH  = (canvas.height * pageW) / canvas.width;
                 const imgData = canvas.toDataURL('image/jpeg', 0.92);
 
-                // Slide the same image up by one page height per sheet, so an
-                // invoice with 30 lines no longer loses everything below 297 mm.
-                let remaining = imgH;
-                let offset = 0;
-                pdf.addImage(imgData, 'JPEG', 0, 0, pageW, imgH);
-                remaining -= pageH;
-                while (remaining > 1) {
-                    offset += pageH;
-                    pdf.addPage();
-                    pdf.addImage(imgData, 'JPEG', 0, -offset, pageW, imgH);
+                if (imgH <= pageH + 1) {
+                    // The normal invoice. The template is budgeted so that four
+                    // line items still land inside 297 mm at full size.
+                    pdf.addImage(imgData, 'JPEG', 0, 0, pageW, imgH);
+                } else if (pageH / imgH >= ONE_PAGE_MIN_SCALE) {
+                    // A longer invoice that only just overflows: shrink it onto
+                    // ONE sheet rather than sending a second, near-empty page —
+                    // a customer should never receive a 4-line invoice split in
+                    // two. The floor below stops this from producing unreadable
+                    // 5 pt type on a genuinely long document.
+                    const fit = pageH / imgH;
+                    pdf.addImage(imgData, 'JPEG', (pageW - pageW * fit) / 2, 0, pageW * fit, pageH);
+                } else {
+                    // Genuinely long: slide the same image up by one page height
+                    // per sheet, so an invoice with 30 lines no longer loses
+                    // everything below 297 mm.
+                    let remaining = imgH;
+                    let offset = 0;
+                    pdf.addImage(imgData, 'JPEG', 0, 0, pageW, imgH);
                     remaining -= pageH;
+                    while (remaining > 1) {
+                        offset += pageH;
+                        pdf.addPage();
+                        pdf.addImage(imgData, 'JPEG', 0, -offset, pageW, imgH);
+                        remaining -= pageH;
+                    }
                 }
 
                 pdf.save(filename);
