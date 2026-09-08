@@ -44,6 +44,23 @@ $errors   = [];
 $warnings = [];
 
 // ---------------------------------------------------------------------------
+// Migrations whose bare ALTER TABLE ... ADD COLUMN is FROZEN: already applied
+// in production, therefore unfixable in place. scripts/migrate.php records a
+// SHA-256 per migration and refuses to run at all when a recorded file changes
+// ("REFUSING to skip ...", exit 1), so editing one of these would block the
+// deploy rather than improve it — the runner's own message says to write a new
+// migration instead. Each entry maps the frozen file to the guarded migration
+// that makes its column re-runnable; check 6 skips the former and check 7
+// insists the latter still exists.
+//
+// This list is for HISTORY ONLY. A new migration with a bare ADD COLUMN does
+// not belong here — it belongs rewritten with the 047 idiom before it is
+// applied anywhere.
+$frozenAddColumn = [
+    '074_empties_in_flight.sql' => '122_empties_in_flight_column_ensure.sql',
+];
+
+// ---------------------------------------------------------------------------
 // 1. Duplicate numbers. The prefix is the identity of a migration; two files
 //    sharing one means whichever sorts second may never be recorded, and the
 //    sequence check in verify.sh reports it only as a confusing "gap".
@@ -184,11 +201,38 @@ foreach ($files as $f) {
     //    045 / 047 / 055 is the fix. Warning, not an error — a genuinely
     //    one-shot data migration is a legitimate exception.
     // -----------------------------------------------------------------------
+    //
+    //    FROZEN FILES (see $frozenAddColumn near the top) are exempt, because
+    //    the fix for them is NOT to edit the file: scripts/migrate.php stores a
+    //    checksum per migration and exits 1 on any recorded file that changed
+    //    on disk, so "fixing" an applied migration blocks the entire deploy.
+    //    The exemption is not a mute button — the superseding file named in the
+    //    list has to exist, and its absence is an ERROR in check 7 below.
+    // -----------------------------------------------------------------------
     if (preg_match('/ALTER TABLE\s+\S+\s+ADD COLUMN/i', $code)
         && stripos($code, 'information_schema.columns') === false
-        && stripos($code, 'ADD COLUMN IF NOT EXISTS') === false) {
+        && stripos($code, 'ADD COLUMN IF NOT EXISTS') === false
+        && !isset($frozenAddColumn[$base])) {
         $warnings[] = "{$base}: bare ALTER TABLE ... ADD COLUMN — not re-runnable; "
                     . "see 047 for the guarded idiom";
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 7. Every frozen exemption must still be covered. A file is only excused its
+//    bare ADD COLUMN because a later guarded migration guarantees the same
+//    column exists; delete that one and the exemption is a lie, so this is an
+//    error rather than a warning.
+// ---------------------------------------------------------------------------
+foreach ($frozenAddColumn as $frozen => $supersededBy) {
+    if (!is_file($dir . '/' . $frozen)) {
+        $warnings[] = $frozen . ': listed as a frozen ADD COLUMN but no longer present'
+                    . ' — drop it from $frozenAddColumn in this file';
+        continue;
+    }
+    if (!is_file($dir . '/' . $supersededBy)) {
+        $errors[] = $frozen . ': exempted from the ADD COLUMN rule by '
+                  . $supersededBy . ', which does not exist';
     }
 }
 
