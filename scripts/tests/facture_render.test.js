@@ -186,6 +186,11 @@ failures += run('A · exonerated water sale, no withholding', A, () => [
     ['accises row hidden', hidden('row_excise'), 'true'],
     ['withholding block hidden', hidden('withholding_block'), 'true'],
     ['the missing-NIU banner is gone from the document', absent('dyn_client_niu_warning'), 'true'],
+    ['the PAYÉE / NON PAYÉE status badge is gone from the document', absent('dyn_status_badge'), 'true'],
+    // Markup and dictionary, not prose — the comments that explain the removal
+    // legitimately still name the badge.
+    ['no status badge markup remains', /id="dyn_status_badge"|class="[^"]*status-(paid|partial|unpaid)/.test(tpl), 'false'],
+    ['the status_* dictionary entries are gone', /status_(paid|partial|unpaid)\s*:/.test(js), 'false'],
     ['client NIU placeholder', txt('dyn_client_niu'), '—'],
     ['a missing email prints a dash, not "N/A"', txt('dyn_client_email'), '—'],
     ['grand total', txt('dyn_grandtotal'), '150 000 FCFA'],

@@ -25,8 +25,7 @@
                 tot_precompte: "Withholding on purchases", tot_air: "AIR — Income tax instalment",
                 tot_net_transfer: "Net transferable to supplier",
                 tot_paid: "Amount Paid", tot_balance: "Balance Due",
-                legal_text: "This invoice is closed at the sum of:",
-                status_paid: "PAID", status_partial: "PARTIAL", status_unpaid: "UNPAID"
+                legal_text: "This invoice is closed at the sum of:"
             },
             fr: {
                 btn_pdf: "Télécharger PDF", btn_email: "Email", btn_whatsapp: "WhatsApp",
@@ -39,8 +38,7 @@
                 tot_precompte: "Précompte sur achats", tot_air: "AIR — Acompte d'Impôt sur le Revenu",
                 tot_net_transfer: "Net à virer au fournisseur",
                 tot_paid: "Déjà Réglé", tot_balance: "Reste à Payer",
-                legal_text: "Arrêtée la présente facture à la somme de :",
-                status_paid: "PAYÉE", status_partial: "PARTIEL", status_unpaid: "NON PAYÉE"
+                legal_text: "Arrêtée la présente facture à la somme de :"
             }
         };
 
@@ -132,10 +130,9 @@
             setText('dyn_client_niu', orDash(client.niu));
             setText('dyn_client_rccm', orDash(client.rccm));
 
-            // Status Badge
-            const badge = document.getElementById('dyn_status_badge');
-            badge.className = `mt-2 inline-block px-3 py-1 rounded text-xs font-black uppercase tracking-widest status-${inv.status}`;
-            badge.setAttribute('data-status-key', `status_${inv.status}`);
+            // The status badge that used to be painted here (PAYÉE / PARTIEL /
+            // NON PAYÉE) was removed from the document. inv.status is untouched
+            // and still drives every internal view and the reminders.
 
             // Items
             const tbody = document.getElementById('dyn_items_table');
@@ -315,13 +312,6 @@
                 const key = el.getAttribute('data-i18n');
                 if (dictionary[lang][key]) el.innerHTML = dictionary[lang][key]; 
             });
-
-            // Dynamic Badge Status Translation
-            const badge = document.getElementById('dyn_status_badge');
-            const statusKey = badge.getAttribute('data-status-key');
-            if(statusKey && dictionary[lang][statusKey]) {
-                badge.innerText = dictionary[lang][statusKey];
-            }
         }
 
         // 6. PDF GENERATOR

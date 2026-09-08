@@ -81,10 +81,6 @@ if (($_GET['pdf'] ?? '') === '1') {
             background-image: url('data:image/svg+xml;utf8,<svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="none" stroke="%23005A2B" stroke-width="1" stroke-dasharray="4" opacity="0.2"/></svg>');
         }
         
-        /* Status Badges for Print */
-        .status-paid { border: 2px solid #10B981; color: #10B981; background: #ECFDF5; }
-        .status-partial { border: 2px solid #F59E0B; color: #F59E0B; background: #FFFBEB; }
-        .status-unpaid { border: 2px solid #EF4444; color: #EF4444; background: #FEF2F2; }
     </style>
     <script src="<?= lpc_asset('/assets/js/lpc-dom.js') ?>"></script>
     <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
@@ -170,9 +166,13 @@ if (($_GET['pdf'] ?? '') === '1') {
                     </div>
                     <div class="w-1/2 text-right">
                         <h1 class="text-4xl font-black text-gray-900 uppercase tracking-tighter" data-i18n="doc_title">Facture</h1>
-                        <div id="dyn_status_badge" class="mt-2 inline-block px-3 py-1 rounded text-xs font-black uppercase tracking-widest status-unpaid">
-                            NON PAYÉE
-                        </div>
+                        <!-- The PAYÉE / PARTIEL / NON PAYÉE badge used to sit here,
+                             under the title. Removed on request: stamping NON PAYÉE
+                             in red across a freshly issued invoice tells the customer
+                             nothing the totals do not already say, and the ladder at
+                             the foot of the page states it as fact — DÉJÀ RÉGLÉ and
+                             RESTE À PAYER, in figures. invoice.status still arrives in
+                             the payload and still drives the ERP's own views. -->
 
                         <!-- DOCUMENT META — BLOCK-LEVEL, EXPLICIT WIDTH. DO NOT MAKE THIS
                              `inline-block` AGAIN.

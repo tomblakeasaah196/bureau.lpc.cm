@@ -934,15 +934,10 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
         return $v ? date('d/m/Y', strtotime((string) $v)) : '—';
     };
 
-    $status_labels = ['paid' => 'PAYÉE', 'partial' => 'PARTIEL', 'unpaid' => 'NON PAYÉE'];
-    $status_key    = (string) ($doc['status'] ?? 'unpaid');
-    $status_label  = $status_labels[$status_key] ?? strtoupper($status_key);
-    $status_colors = [
-        'paid'    => ['#10B981', '#ECFDF5'],
-        'partial' => ['#F59E0B', '#FFFBEB'],
-        'unpaid'  => ['#EF4444', '#FEF2F2'],
-    ];
-    [$sc_border, $sc_bg] = $status_colors[$status_key] ?? $status_colors['unpaid'];
+    // The PAYÉE / PARTIEL / NON PAYÉE badge was removed from the invoice, here
+    // as well as in the live html2canvas document, so the two renderers cannot
+    // drift. lpc_document_header() takes 'badge' as optional and simply prints
+    // no badge when it is absent — the devis passes its own and is unaffected.
 
     // The accounts this invoice advertised, frozen at issue (migration 044).
     // Read the snapshot, never the live treasury_accounts rows — a reprint has
@@ -1010,7 +1005,6 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
 <?= lpc_document_header([
     'title'    => 'Facture',
     'logo'     => $lhLogo,
-    'badge'    => [$status_label, $sc_border, $sc_bg],
     // Issuer identity moves under the logo instead of into a full-width strip
     // below — the classic invoice header (issuer left, doc metadata right).
     // See includes/pdf_templates/document_header.php for the layout modes.
