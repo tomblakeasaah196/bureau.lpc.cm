@@ -52,6 +52,14 @@ try {
     //    is_withholding_agent + withholding_air_rate — cf. migration 020).
     //    If the checkbox is off, force the rate to 0.0 so the invoice
     //    controller never applies a stray rate to an ordinary client.
+    // The NIU has two homes in this table: `niu` (canonical, what every
+    // document reads) and `tax_id` (legacy, still selected by fetch_clients.php
+    // and still read by the CRM edit modal). Write the same value to both so a
+    // client saved here can never show a number in one place and a dash in
+    // another. Accept tax_id as the source when only that one was posted.
+    $niu_value = trim($data['niu'] ?? '');
+    if ($niu_value === '') { $niu_value = trim($data['tax_id'] ?? ''); }
+
     $is_wa    = !empty($data['is_withholding_agent']) ? 1 : 0;
     $wa_rate  = $is_wa ? (float)($data['withholding_air_rate'] ?? 0) : 0.0;
     // Guard: only the four legal AIR rates per LF 2026.
@@ -76,11 +84,11 @@ try {
         'type'           => $data['type'] ?? 'B2B',
         'contact_person' => trim($data['contact_person'] ?? ''),
         'email'          => trim($data['email'] ?? ''),
-        'niu'            => trim($data['niu'] ?? ''),
+        'niu'            => $niu_value,
         'rc'             => trim($data['rc'] ?? ''),
         'phone'          => trim($data['phone'] ?? ''),
         'address'        => trim($data['address'] ?? ''),
-        'tax_id'         => trim($data['tax_id'] ?? ''),
+        'tax_id'         => $niu_value,
         'credit_limit'   => (float)($data['credit_limit'] ?? 0),
         'account_id'     => $account_id,
         'status'         => $data['status'] ?? 'active',

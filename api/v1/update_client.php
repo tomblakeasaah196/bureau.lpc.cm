@@ -64,6 +64,14 @@ try {
         throw new Exception("Taux de retenue AIR invalide. Valeurs autorisées : 2.2 %, 5.5 %, 10 %, 15 %.");
     }
 
+    // Same NIU rule as create_client.php: one value, both columns. This UPDATE
+    // used to set `tax_id = :tax_id` from a key the client form has never
+    // posted, so every save of an existing client silently blanked tax_id —
+    // which is where older records keep their NIU. A client could therefore
+    // lose their NIU simply by having their phone number corrected.
+    $niu_value = trim($data['niu'] ?? '');
+    if ($niu_value === '') { $niu_value = trim($data['tax_id'] ?? ''); }
+
     // Ensure we safely map data
     $stmt = $db->prepare("
         UPDATE clients SET
@@ -90,11 +98,11 @@ try {
         'type'           => $data['type'] ?? 'B2B',
         'contact_person' => trim($data['contact_person'] ?? ''),
         'email'          => trim($data['email'] ?? ''),
-        'niu'            => trim($data['niu'] ?? ''),
+        'niu'            => $niu_value,
         'rc'             => trim($data['rc'] ?? ''),
         'phone'          => trim($data['phone'] ?? ''),
         'address'        => trim($data['address'] ?? ''),
-        'tax_id'         => trim($data['tax_id'] ?? ''),
+        'tax_id'         => $niu_value,
         'credit_limit'   => (float)($data['credit_limit'] ?? 0),
         'account_id'     => $account_id,
         'status'         => $new_status,

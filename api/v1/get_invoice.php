@@ -76,7 +76,15 @@ try {
         SELECT
             i.*,
             c.name as client_name, c.address as client_address, c.phone as client_phone,
-            c.email as client_email, c.niu as client_niu, c.rc as client_rc, c.type as client_type,
+            c.email as client_email, c.rc as client_rc, c.type as client_type,
+            -- The buyer's NIU lives in clients.niu, but older records (and any
+            -- client last saved by a form version that posted tax_id) carry it
+            -- in clients.tax_id instead. The CRM edit modal has always read
+            -- both (client.niu || client.tax_id), so a number could show up in
+            -- the ERP and still print as a dash on the invoice. Resolve it the
+            -- same way here. Migration 120 backfills the column; this COALESCE
+            -- keeps the document correct on any database where it has not run.
+            COALESCE(NULLIF(TRIM(c.niu), ''), NULLIF(TRIM(c.tax_id), '')) as client_niu,
             cr.first_name as creator_fn, cr.last_name as creator_ln,
             r.name as role_name
         FROM invoices i

@@ -135,7 +135,19 @@ foreach ($pending as [$f, $ver, $sum, $why]) {
         if ($pdo->inTransaction()) $pdo->commit();
         printf("OK (%d ms)\n", $ms);
     } catch (Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        // The rollback must never be able to replace the diagnosis with its
+        // own failure. rollBack() throws in its own right when the connection
+        // still holds an unread result set ("General error: 2014 …"), and
+        // because that throw happens INSIDE this catch it was uncaught: PHP
+        // died on the rollback line, the two lines below never ran, and the
+        // deploy printed "migrations failed — see output above" above a blank
+        // space. A migration failure has to say what failed.
+        try {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+        } catch (Throwable $rollbackFailure) {
+            fwrite(STDERR, "Migration $ver: rollback also failed: "
+                         . $rollbackFailure->getMessage() . "\n");
+        }
         printf("FAIL\n");
         fwrite(STDERR, "Migration $ver failed:\n" . $e->getMessage() . "\n");
         exit(1);
@@ -220,14 +232,27 @@ function execute_sql_file(PDO $pdo, string $path): void {
             continue;
         }
 
-        $buffer .= $line . "\n";
-
-        // Walk the line, maintaining state, and note where a delimiter lands
-        // at statement level. Only the LAST such position on the line matters:
-        // it is where this statement ends and the next begins.
-        $dlen   = strlen($delimiter);
-        $len    = strlen($line);
-        $cut    = null;   // byte offset within $line, just past the delimiter
+        // Walk the line, maintaining state, and run a statement at EVERY
+        // delimiter that lands at statement level.
+        //
+        // This used to record only the LAST delimiter on the line and send
+        // everything up to it as ONE statement, which quietly turned the
+        // house guard idiom —
+        //
+        //     PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+        //
+        // written on a single line in 040 / 045 / 047 / 055 — into a single
+        // multi-statement blast, working only because MULTI_STATEMENTS is on.
+        // The same three statements spread over three lines (115 / 116) went
+        // one at a time and hit "General error: 2014" the moment the guard
+        // took its `SELECT 1` no-op branch. Same idiom, same file even, two
+        // different execution paths depending on where the newlines fell.
+        // Splitting at every delimiter makes the two forms identical and
+        // matches both the intent stated above and the mysql CLI that
+        // scripts/tests/migration_check.sh validates these files against.
+        $dlen     = strlen($delimiter);
+        $len      = strlen($line);
+        $segStart = 0;    // byte offset in $line where the pending statement begins
 
         for ($i = 0; $i < $len; $i++) {
             $ch = $line[$i];
@@ -258,23 +283,19 @@ function execute_sql_file(PDO $pdo, string $path): void {
             if ($ch === '/' && ($i + 1) < $len && $line[$i + 1] === '*') { $inComment = true; $i++; continue; }
 
             if ($dlen > 0 && substr($line, $i, $dlen) === $delimiter) {
-                $cut = $i + $dlen;
-                $i  += $dlen - 1;
+                // Everything buffered from earlier lines, plus this line up to
+                // the delimiter, is one complete statement.
+                run_sql_statement($pdo, $buffer . substr($line, $segStart, $i - $segStart));
+                $buffer   = '';
+                $segStart = $i + $dlen;
+                $i       += $dlen - 1;
             }
         }
 
-        if ($cut !== null) {
-            // Everything buffered up to the delimiter is one statement. Any
-            // remainder on the same line (rare, but `A; B;` is legal) stays
-            // buffered for the next round.
-            $tailLen   = $len - $cut;
-            $stmtLen   = strlen($buffer) - 1 - $tailLen - $dlen;   // -1 for the "\n" we appended
-            $statement = substr($buffer, 0, $stmtLen);
-            $remainder = substr($line, $cut);
-
-            run_sql_statement($pdo, $statement);
-            $buffer = ($remainder === '' ? '' : $remainder . "\n");
-        }
+        // Whatever follows the last delimiter on this line (usually nothing,
+        // sometimes the start of the next statement, sometimes a trailing
+        // comment) carries over to the next line.
+        $buffer .= substr($line, $segStart) . "\n";
     }
 
     if ($inString !== null) {
@@ -292,7 +313,41 @@ function run_sql_statement(PDO $pdo, string $stmt): void {
     // the "Verification queries" footer many migration files end with).
     $stripped = trim(preg_replace('/^\s*--.*$/m', '', $stmt));
     if ($stripped === '') return;
-    $pdo->exec($stmt);
+
+    // WHY query()+drain RATHER THAN exec().
+    //
+    // exec() runs a statement but never consumes rows it returns, and the
+    // connection then refuses the NEXT statement outright:
+    //
+    //   SQLSTATE[HY000]: General error: 2014 Cannot execute queries while
+    //   other unbuffered queries are active.
+    //
+    // Which sounds like it could never matter in a directory of DDL — except
+    // that it is exactly what the guarded-ALTER idiom does on its NO-OP path.
+    // Every guarded migration in here is shaped like 045 / 047 / 055 / 115:
+    //
+    //   SET @sql := IF(@needs_col = 0, 'ALTER TABLE …', 'SELECT 1');
+    //   PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+    //
+    // When the column is MISSING the branch is an ALTER, which returns no
+    // rows, so this never bit: that is the only path these files had ever
+    // taken. When the column is already PRESENT the branch is `SELECT 1`,
+    // EXECUTE returns a result set nobody reads, and the DEALLOCATE right
+    // after it dies with 2014. That is not a hypothetical either — it is why
+    // 116_product_cost_price_ensure.sql, whose entire purpose is to run on a
+    // database that already has the column, failed on every single deploy
+    // while the byte-identical 115 had applied cleanly.
+    //
+    // So: run through query() and drain whatever comes back (a CALL can hand
+    // back several rowsets) before returning. Migrations do not SELECT bulk
+    // data — the rowsets drained here are the one-row no-ops of the guards.
+    $st = $pdo->query($stmt);
+    if ($st instanceof PDOStatement) {
+        do {
+            $st->fetchAll();
+        } while ($st->nextRowset());
+        $st->closeCursor();
+    }
 }
 
 function sha256_file(string $path): string { return hash_file('sha256', $path) ?: ''; }

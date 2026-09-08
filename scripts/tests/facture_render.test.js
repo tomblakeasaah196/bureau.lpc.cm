@@ -102,6 +102,9 @@ const base = {
         footer: 'La Petite Cour ETS · RCCM RC/DLA/2019/A/A/687 · NIU M1219800000L',
     },
     client: { name: 'BASE CAMEROON LTD', address: '82, Rue Dikoume Bell, Bali', phone: '+237 656 17 36 68', email: null, niu: null, rccm: null, is_b2b: true },
+    // get_invoice.php resolves client.niu across clients.niu and the legacy
+    // clients.tax_id before it ever reaches this payload, so an empty value
+    // here means the client genuinely has no NIU in either column.
     stamp: { created_by: 'Timothée M.', role: 'admin', timestamp: '29/07/2026 08:25', hash: 'A817-C82C-C204-2E95' },
     items: [{ description: '20L Opur', quantity: 50, unit_price: 3000, total_price: 150000 }],
 };
@@ -164,25 +167,35 @@ function run(name, data, expectations) {
 
 const hidden = id => store[id]._classes.has('hidden');
 const txt = id => store[id].innerText;
+// Elements the template no longer carries. `store` is scraped from the
+// template, so an absent id is proof the node is gone from the document —
+// which is the assertion for everything that was removed from the print.
+const absent = id => !(id in store);
 
 let failures = 0;
 
 failures += run('A · exonerated water sale, no withholding', A, () => [
     ['invoice number is populated (was blank in the html2canvas PDF)', txt('dyn_ref'), 'FAC-2607-6341'],
     ['issue date', txt('dyn_date'), '29/07/2026'],
-    ['due date', txt('dyn_due_date'), '28/08/2026'],
+    ['due date is no longer printed', absent('dyn_due_date'), 'true'],
+    ['currency row is no longer printed', /data-i18n="lbl_currency"/.test(tpl), 'false'],
     ['company letterhead name', txt('dyn_co_name'), 'La Petite Cour ETS'],
-    ['legal mentions carry RCCM + NIU + capital + régime',
-        /RCCM .*NIU .*Capital social .*Régime/.test(txt('dyn_co_legal')), 'true'],
+    ['statutory identifiers left the letterhead', absent('dyn_co_legal'), 'true'],
     ['TVA rate rendered fr-FR', txt('dyn_tva_rate'), '0'],
-    ['exemption basis is shown instead of a bare 0 %', hidden('row_tva_exemption'), 'false'],
-    ['exemption text', /art\. 128 CGI/.test(txt('dyn_tva_exemption')), 'true'],
+    ['the TVA exemption note is gone from the document', absent('row_tva_exemption'), 'true'],
     ['accises row hidden', hidden('row_excise'), 'true'],
     ['withholding block hidden', hidden('withholding_block'), 'true'],
-    ['missing client NIU is flagged', hidden('dyn_client_niu_warning'), 'false'],
+    ['the missing-NIU banner is gone from the document', absent('dyn_client_niu_warning'), 'true'],
     ['client NIU placeholder', txt('dyn_client_niu'), '—'],
+    ['a missing email prints a dash, not "N/A"', txt('dyn_client_email'), '—'],
     ['grand total', txt('dyn_grandtotal'), '150 000 FCFA'],
-    ['legal footer populated', txt('dyn_legal_footer').length > 0, 'true'],
+    ['legal footer carries RCCM + NIU + capital + régime',
+        /RCCM .*NIU .*Capital social .*Régime/.test(txt('dyn_legal_footer')), 'true'],
+    ['legal footer names the company', /La Petite Cour ETS/.test(txt('dyn_legal_footer')), 'true'],
+    ['legal footer does not repeat the RCCM it shares with company.footer',
+        (txt('dyn_legal_footer').match(/RC\/DLA\/2019\/A\/A\/687/g) || []).length, 1],
+    ['the payment-reference hint is gone', /pay_reference_hint/.test(tpl), 'false'],
+    ['"Déjà Réglé" no longer says "(Avances)"', /Avances/.test(tpl), 'false'],
     ['both payment accounts printed', /Afriland First Bank[\s\S]*MTN MoMo/.test(store['dyn_bank_block'].innerHTML), 'true'],
     ['IBAN reaches the payment block', /CM21 1000 5000/.test(store['dyn_bank_block'].innerHTML), 'true'],
 ]);
@@ -191,7 +204,6 @@ failures += run('B · 19,25 % + accises + précompte + AIR', B, () => [
     ['accises row visible', hidden('row_excise'), 'false'],
     ['accises rate fr-FR', txt('dyn_excise_rate'), '25'],
     ['TVA rate uses a comma', txt('dyn_tva_rate'), '19,25'],
-    ['no exemption line when TVA applies', hidden('row_tva_exemption'), 'true'],
     ['withholding block visible', hidden('withholding_block'), 'false'],
     ['précompte row visible', hidden('row_precompte'), 'false'],
     ['AIR row visible', hidden('row_air'), 'false'],
@@ -200,9 +212,33 @@ failures += run('B · 19,25 % + accises + précompte + AIR', B, () => [
     ['TTC', txt('dyn_grandtotal'), '1 490 625 FCFA'],
     ['net transferable is TTC minus the withholdings', txt('dyn_net_payable'), '1 418 625 FCFA'],
     ['client NIU printed', txt('dyn_client_niu'), 'M0419700000P'],
-    ['no NIU warning when present', hidden('dyn_client_niu_warning'), 'true'],
+    ['client RCCM printed', txt('dyn_client_rccm'), 'RC/DLA/2014/B/1122'],
     ['balance after part payment', txt('dyn_balance'), '990 625 FCFA'],
 ]);
+
+// ---------------------------------------------------------------------------
+// C · the capture contract. These are the two properties the PDF depends on
+// and neither is visible from the data: the invoice-meta card must stay
+// BLOCK-level with a stated width (as an `inline-block` it captured blank —
+// see the comment on that block in the template), and the one-page path must
+// keep its scale floor rather than silently paginating a 5-line invoice.
+// ---------------------------------------------------------------------------
+{
+    console.log('\n─── C · html2canvas capture contract ───');
+    const metaCard = /<div class="mt-4 ml-auto[^"]*"[^>]*style="([^"]*)"/.exec(tpl);
+    const checks = [
+        ['invoice-meta card declares display:block', /display:\s*block/.test(metaCard ? metaCard[1] : ''), true],
+        ['invoice-meta card states an explicit width', /width:\s*\d+px/.test(metaCard ? metaCard[1] : ''), true],
+        ['invoice-meta card is not inline-block', /inline-block/.test(metaCard ? metaCard[0] : ''), false],
+        ['capture scales to one page before paginating', /ONE_PAGE_MIN_SCALE/.test(js), true],
+        ['scale floor keeps small type legible', /ONE_PAGE_MIN_SCALE = 0\.8/.test(js), true],
+    ];
+    for (const [what, actual, expected] of checks) {
+        const ok = actual === expected;
+        if (!ok) failures++;
+        console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${what}`);
+    }
+}
 
 console.log(failures === 0 ? '\nAll assertions passed.' : `\n${failures} assertion(s) FAILED.`);
 process.exit(failures === 0 ? 0 : 1);
