@@ -186,6 +186,14 @@ failures += run('A · exonerated water sale, no withholding', A, () => [
     ['due date is no longer printed', absent('dyn_due_date'), 'true'],
     ['currency row is no longer printed', /data-i18n="lbl_currency"/.test(tpl), 'false'],
     ['company letterhead name', txt('dyn_co_name'), 'La Petite Cour ETS'],
+    // Without layout to measure, setSegmentedLine() falls back to the plain
+    // joined line — so this also proves no address segment is dropped on the
+    // way through. Where the line breaks is geometry, and is asserted in the
+    // browser instead (see the harness note in section D).
+    ['every address segment reaches the letterhead', txt('dyn_co_address'),
+        'Entrée Cie de Gendarmerie de Ndogbong · B.P. 5120 · Douala Littoral · Cameroun'],
+    ['the contact line survives intact', txt('dyn_co_contact'),
+        'Tél. +237 696 291 800 · info@lpc.cm'],
     ['statutory identifiers left the letterhead', absent('dyn_co_legal'), 'true'],
     ['TVA rate rendered fr-FR', txt('dyn_tva_rate'), '0'],
     ['the TVA exemption note is gone from the document', absent('row_tva_exemption'), 'true'],
@@ -286,6 +294,13 @@ failures += run('C · one identifier, two spellings', C, () => [
             /<img[^>]*class="h-24[^"]*"/.test(tpl) && /<div class="h-24 mb-3 flex items-center justify-end">/.test(tpl), true],
         ['meta card carries no top margin of its own',
             /<div class="mt-\d+ ml-auto text-left bg-gray-50/.test(tpl), false],
+        // Both letterhead lines must go through setSegmentedLine(): joining
+        // them by hand again lets the browser wrap mid-list, which strands the
+        // "·" at the end of the line.
+        ['address breaks at a separator, not wherever it wraps',
+            /setSegmentedLine\('dyn_co_address'/.test(js), true],
+        ['contact breaks at a separator, not wherever it wraps',
+            /setSegmentedLine\('dyn_co_contact'/.test(js), true],
         ['capture scales to one page before paginating', /ONE_PAGE_MIN_SCALE/.test(js), true],
         ['scale floor keeps small type legible', /ONE_PAGE_MIN_SCALE = 0\.8/.test(js), true],
     ];
