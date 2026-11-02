@@ -341,6 +341,22 @@ Per PR: open it against `main` with green CI, message the lead chat ("Sitemap an
 - **Not yet**: Praxis AI stays hidden until **the owner enters the Gemini key** on `/modules/mail/ai_settings.php` (Courrier → *Configurer Praxis AI*, admins), then presses *Tester la clé*. Then try each of the three once on a connected mailbox: *Résumer* on a conversation, a question in *Demander à votre courrier*, and *Écrire avec l'IA* once PR 3's composer is live. No real Gemini answer has been seen yet (never called before the key).
 - **Rollback**: revert #26 on `main` (the deployer releases the revert); nothing in the database to undo (`ai.*` settings and stored summaries stay unused). To switch Praxis AI off without a deploy, *Retirer la clé* on the settings page.
 
+### PR 2: 2 November 2026, 18:05 (server time, UTC+1 like Douala)
+
+- **Merged** as `0f41369` on the owner's OK at 18:03 (#27 at `bd6d2b5`, after the lead chat's audit and the agreed one-line change to PR 1's `mail_db.test.php`, §12). Released as `8617f51`. The deployer applied 27 files: the 26 of #27 (one of them the deletion of PR 1's placeholder script `assets/js/modules/mail-inbox-placeholder.js`) and the rebuilt `assets/js/build/lpc-core.manifest.json`. It logged `LIVE 8617f51: 27 file(s), migrations=1, new packages=0` at 18:05:11 in `~/deploy/bureau/logs/deploy-202611.log` (read by the lead chat). The replaced files are backed up in `~/deploy/bureau/backups/20261102-180502_8617f51/`.
+- **Migration**: `310_mail_read_image_trust` applied in 4 ms (table `mail_image_trust`), after the database dump `~/deploy/bureau/backups/20261102-180502_8617f51/database.sql.gz`. **Crons**: none new. Reading uses PR 1's sync, and while the page is open it fetches its own counts every minute.
+- **Checked live**, signed out, at about 18:05:
+  - `/api/v1/mail/read.php` answers 401 to GET and POST (JSON, `Cache-Control: no-store`), and so does `/api/v1/mail/read_file.php` (`?a=…` and `?m=…&cid=…`).
+  - `/modules/mail/index.php?box=…&thread=…` redirects to the sign-in page.
+  - `/includes/mail/Read/…` (the partials too), `/scripts/tests/mail/read_db.test.php`, `/migrations/310_mail_read_image_trust.sql` and `/docs/MAIL.md` answer 403 (`.htaccess`).
+  - `assets/js/modules/mail-read.js` (42,550 B) and `assets/css/lpc-mail-read.css` (22,233 B) answer 200, byte for byte the commit's. The deleted placeholder script is no longer served.
+  - Neither `~/logs/php.error.log` (22,365 B, last written 9 Aug) nor the docroot `error_log` (69,570 B, last written 8 Sep) changed after the release (read by the lead chat).
+- **Not yet**:
+  - Real mail shows only once a mailbox is connected (PR 1's "Not yet": the owner and staff enter their own mailbox passwords on Boîtes mail). Then, signed in, try once each: open a conversation (it is marked read for everyone; a shared mailbox shows "Ouvert par"), an HTML mail (pictures held back until "Afficher les images"), an attachment, a search, and an archive followed by Annuler.
+  - The first HTML mail opened on live also confirms that the server's own Content-Security-Policy (`.htaccess`) leaves the reader's frame alone, as it should: it allows inline styles and `https:` pictures. The local check had no such policy.
+  - Nouveau message, Répondre, Répondre à tous, Transférer and Modifier le brouillon raise `mail:compose`, so they open nothing until PR 3's composer is live. PR 3 (#29) merged right after as `927289f` (release `abf46b3`) and records its own deploy; once it is live, try each button once from a conversation.
+- **Rollback**: revert #27 on `main`. The deployer releases the revert, which brings back PR 1's placeholder page. The `mail_image_trust` table can stay unused, and the database as it was before is in the dump above.
+
 ## 12. Changes to contracts, PR notes and requests
 
 *(each PR records here: payload keys it chose, new events, anything another PR must know; and requests for changes to files it doesn't own)*
