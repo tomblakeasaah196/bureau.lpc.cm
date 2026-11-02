@@ -171,6 +171,16 @@ function extractText(string $pdf): ?string
     return is_string($txt) ? $txt : null;
 }
 
+/**
+ * Amounts with the spaces between their digits removed. lpc_fcfa() groups
+ * thousands with U+202F (DejaVu Sans has the glyph, so the PDF prints it), but
+ * pdftotext hands that space back as some other character or none at all.
+ */
+function digitsJoined(string $s): string
+{
+    return preg_replace('/(?<=\d)[ \x{00A0}\x{202F}](?=\d)/u', '', $s);
+}
+
 // -----------------------------------------------------------------------------
 // The cases. Each one has actually put a devis onto page 2 at some point, or is
 // the boundary of the row clamp in lpc_render_quote_pdf_html().
@@ -269,7 +279,7 @@ if ($txt40 === null) {
           str_contains($txt40, lpc_proposal_text('onepager_more_lines', 'fr'))
           && str_contains($txt40, '(' . count($spill) . ')'));
     check('the tail total is printed in the PDF',
-          str_contains($txt40, lpc_fcfa($spill_total, '')),
+          str_contains(digitsJoined($txt40), digitsJoined(lpc_fcfa($spill_total, ''))),
           'expected ' . lpc_fcfa($spill_total, ''));
 
     echo "\n─── vector text, not a picture of text ───\n";
@@ -277,7 +287,8 @@ if ($txt40 === null) {
     // The original diagnosis: `pdftotext` pulled four characters out of the
     // whole of DEV-2607-841B because every page was a 1588×2246 JPEG.
     check('the reference is extractable', str_contains($txt40, 'DEV-2607-841B'));
-    check('the total is extractable', str_contains($txt40, lpc_fcfa($doc40['totals']['grand_total'], '')));
+    check('the total is extractable',
+          str_contains(digitsJoined($txt40), digitsJoined(lpc_fcfa($doc40['totals']['grand_total'], ''))));
     check('the amount in words is extractable',
           str_contains($txt40, substr($doc40['totals']['words'], 0, 24)));
     check('the incorporation clause is extractable',
