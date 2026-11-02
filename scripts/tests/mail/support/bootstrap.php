@@ -15,6 +15,9 @@
  * (bureau_mail_test). The database is dropped and rebuilt on each run from
  * support/fixture_schema.sql, then every migrations/3[0-4]*.sql (the Mail block)
  * in order, so PRs 2-5 get their own tables too.
+ *
+ * DNS: tests never look a host up. LPC\Mail\HostPolicy asks $GLOBALS['__mail_dns']
+ * (host => list of IPs): mail.lpc.cm is public, as it is live; add hosts there.
  * -----------------------------------------------------------------------------
  */
 
@@ -39,6 +42,9 @@ $GLOBALS['__mail_root'] = dirname(__DIR__, 4);
 require_once $GLOBALS['__mail_root'] . '/includes/mail/autoload.php';
 require_once __DIR__ . '/FakeImapSession.php';
 require_once __DIR__ . '/FakeMailServer.php';
+
+$GLOBALS['__mail_dns'] = ['mail.lpc.cm' => ['37.59.83.88']];
+\LPC\Mail\HostPolicy::$resolver = static fn (string $host): array => $GLOBALS['__mail_dns'][$host] ?? [];
 
 $GLOBALS['__mail_fail'] = 0;
 $GLOBALS['__mail_pass'] = 0;

@@ -14,10 +14,14 @@
 
 require __DIR__ . '/support/bootstrap.php';
 
+use LPC\Mail\Config;
+use LPC\Mail\HostPolicy;
 use LPC\Mail\Imap\BodyStructure;
 use LPC\Mail\Imap\ImapClient;
 use LPC\Mail\Imap\ResponseParser;
 use LPC\Mail\Imap\Utf7;
+use LPC\Mail\MailError;
+use LPC\Mail\MailServer;
 use LPC\Mail\Mime\Decoder;
 use LPC\Mail\Mime\Headers;
 use LPC\Mail\Mime\Message;
@@ -140,5 +144,51 @@ check('header injection is impossible', throws(fn () => (new Message())->header(
 $long = (new Message())->from('a@lpc.cm')->to(array_map(fn ($i) => "person{$i}@client.cm", range(1, 12)))->text('x')->toString();
 $longest = max(array_map('strlen', explode("\r\n", explode("\r\n\r\n", $long, 2)[0])));
 check('long header lines are folded', $longest <= 78, "longest header line {$longest}");
+
+section('Which servers bureau connects to (HostPolicy)');
+$ok = ['imap_host' => 'mail.lpc.cm', 'imap_port' => 993, 'imap_encryption' => 'ssl', 'smtp_host' => 'mail.lpc.cm', 'smtp_port' => 465, 'smtp_encryption' => 'ssl'];
+$refused = function (array $settings): ?MailError {
+    $e = throws(fn () => HostPolicy::check($settings));
+
+    return $e instanceof MailError ? $e : null;
+};
+check('mail.lpc.cm with SSL/TLS is allowed', throws(fn () => HostPolicy::check($ok)) === null);
+check('STARTTLS is allowed too', throws(fn () => HostPolicy::check(['imap_encryption' => 'starttls', 'smtp_encryption' => 'starttls'] + $ok)) === null);
+$e = $refused(['imap_host' => 'imap.gmail.com'] + $ok);
+check('a host outside the allow-list is refused, on its field, in French', $e && $e->field === 'imap_host' && $e->status === 422 && str_contains($e->getMessage(), 'serveurs de messagerie autorisés'));
+$e = $refused(['smtp_host' => 'evil.example'] + $ok);
+check('the outgoing server too', $e && $e->field === 'smtp_host');
+$e = $refused(['imap_host' => '127.0.0.1'] + $ok);
+check('an IP literal is refused (loopback)', $e && $e->field === 'imap_host' && str_contains($e->getMessage(), 'pas une adresse IP'));
+check('an IP literal is refused (the box\'s own public IP)', $refused(['smtp_host' => '37.59.83.88'] + $ok)?->field === 'smtp_host');
+Config::set('allowed_hosts', ['mail.partner.cm', 'internal.lpc.cm', 'gone.lpc.cm', 'v6.lpc.cm', '127.0.0.1']);
+$GLOBALS['__mail_dns'] += ['mail.partner.cm' => ['41.202.219.70'], 'internal.lpc.cm' => ['192.168.1.20'], 'v6.lpc.cm' => ['2001:41d0::1', '::1']];
+check('a host the owner adds (MAIL_CLIENT_ALLOWED_HOSTS) is allowed', throws(fn () => HostPolicy::check(['imap_host' => 'mail.partner.cm', 'smtp_host' => 'mail.partner.cm'] + $ok)) === null);
+$e = $refused(['imap_host' => 'internal.lpc.cm'] + $ok);
+check('an allowed name resolving to a private address is refused', $e && $e->field === 'imap_host' && str_contains($e->getMessage(), 'adresse interne'));
+check('one internal address among several is enough to refuse (IPv6 loopback)', $refused(['smtp_host' => 'v6.lpc.cm'] + $ok)?->field === 'smtp_host');
+check('an allowed name that does not resolve is refused', str_contains((string) $refused(['imap_host' => 'gone.lpc.cm'] + $ok)?->getMessage(), 'introuvable'));
+check('an IP literal stays refused even when listed', $refused(['imap_host' => '127.0.0.1'] + $ok)?->field === 'imap_host');
+foreach (['127.0.0.1', '10.1.2.3', '172.16.0.9', '192.168.0.1', '169.254.1.1', '100.64.0.1', '0.0.0.0', '::1', 'fe80::1', 'fd00::1'] as $ip) {
+    if (HostPolicy::isPublic($ip)) {
+        check("{$ip} is not public", false);
+    }
+}
+check('loopback, private, link-local, shared and reserved ranges are never public', true);
+check('public addresses are public', HostPolicy::isPublic('37.59.83.88') && HostPolicy::isPublic('2001:41d0::1'));
+$e = $refused(['imap_encryption' => 'none'] + $ok);
+check('a connection without TLS is refused', $e && $e->field === 'imap_host' && str_contains($e->getMessage(), 'en clair'));
+check('for SMTP too', $refused(['smtp_encryption' => 'none'] + $ok)?->field === 'smtp_host');
+Config::set('allow_plain', true);
+check('plain is allowed only behind the test switch (MAIL_CLIENT_ALLOW_PLAIN)', throws(fn () => HostPolicy::check(['imap_encryption' => 'none', 'smtp_encryption' => 'none'] + $ok)) === null);
+Config::set('allow_private_hosts', true);
+check('internal hosts only behind the test switch (MAIL_CLIENT_ALLOW_PRIVATE_HOSTS)', throws(fn () => HostPolicy::check(['imap_host' => '127.0.0.1', 'smtp_host' => 'internal.lpc.cm'] + $ok)) === null);
+check('the allow-list still applies with the test switches on', $refused(['imap_host' => '10.0.0.1'] + $ok)?->field === 'imap_host');
+Config::reset();
+check('the switches are off by default (live)', Config::get('allow_plain') === false && Config::get('allow_private_hosts') === false && HostPolicy::allowedHosts() === ['mail.lpc.cm']);
+$e = throws(fn () => (new MailServer())->connect(['imap_host' => '127.0.0.1'] + $ok, 'a@lpc.cm', 'x'));
+check('the real IMAP door refuses before opening any socket', $e instanceof MailError && $e->field === 'imap_host');
+$e = throws(fn () => (new MailServer())->checkSmtp(['smtp_host' => 'smtp.example.org'] + $ok, 'a@lpc.cm', 'x'));
+check('the real SMTP door too', $e instanceof MailError && $e->field === 'smtp_host');
 
 mail_test_done();

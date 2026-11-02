@@ -251,6 +251,11 @@ check('lpc.cm settings: mail.lpc.cm, 993 and 465, SSL/TLS', $settings === ['imap
 check('a wrong password is refused on the password field', ($e = throws(fn () => MailConnector::make()->connectPersonal($paul, 'paul.ndi@lpc.cm', 'nope', $settings))) instanceof MailError && $e->field === 'password');
 check('nothing saved after a refusal', !Store::accountByEmail('paul.ndi@lpc.cm'));
 check('other ports are refused (no probing)', ($e = throws(fn () => MailConnector::make()->connectPersonal($paul, 'paul.ndi@lpc.cm', 'pw-paul', ['imap_port' => 22] + $settings))) instanceof MailError && $e->field === 'imap_host');
+$sessionsBefore = $server->sessions;
+check('a staff member cannot point bureau at an internal address', ($e = throws(fn () => MailConnector::make()->connectPersonal($paul, 'paul.ndi@lpc.cm', 'pw-paul', ['imap_host' => '127.0.0.1', 'imap_port' => 143] + $settings))) instanceof MailError && $e->field === 'imap_host');
+check('nor at another host, nor without TLS', ($e = throws(fn () => MailConnector::make()->connectPersonal($paul, 'paul.ndi@lpc.cm', 'pw-paul', ['smtp_host' => 'smtp.example.org'] + $settings))) instanceof MailError && $e->field === 'smtp_host'
+    && ($e2 = throws(fn () => MailConnector::make()->connectPersonal($paul, 'paul.ndi@lpc.cm', 'pw-paul', ['imap_encryption' => 'none'] + $settings))) instanceof MailError && $e2->field === 'imap_host');
+check('refused before any connection, nothing saved', $server->sessions === $sessionsBefore && !Store::accountByEmail('paul.ndi@lpc.cm'));
 $acc = MailConnector::make()->connectPersonal($paul, 'Paul.Ndi@lpc.cm', 'pw-paul', $settings);
 check('connected: personal, active, address lower case, named after the person', $acc['kind'] === 'personal' && $acc['status'] === 'active' && $acc['email'] === 'paul.ndi@lpc.cm' && $acc['display_name'] === 'Paul Ndi');
 $secret = (string) Db::value('SELECT secret FROM mail_accounts WHERE id = ?', [$acc['id']]);

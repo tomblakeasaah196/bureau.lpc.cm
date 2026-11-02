@@ -108,7 +108,8 @@ $row = function (array $b, bool $isShared) use ($e, $focusBox): void {
 
 /** The server settings block, prefilled */
 $serverFields = function (string $prefix, array $s) use ($e): void {
-    $enc = ['ssl' => 'SSL/TLS', 'starttls' => 'STARTTLS', 'none' => 'Aucune'];
+    // No "none": a connection without TLS is refused on live (LPC\Mail\HostPolicy); only local tests switch it on
+    $enc = ['ssl' => 'SSL/TLS', 'starttls' => 'STARTTLS'] + (\LPC\Mail\Config::get('allow_plain', false) ? ['none' => 'Aucune'] : []);
     ?>
     <details class="mb-details">
         <summary>Paramètres du serveur</summary>

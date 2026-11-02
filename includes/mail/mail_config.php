@@ -42,6 +42,14 @@ return [
     'imap_ports' => [993, 143],
     'smtp_ports' => [465, 587, 25, 2525],
 
+    // Which servers bureau may connect to (LPC\Mail\HostPolicy, docs/MAIL.md §7.1): the hosts of 'servers'
+    // above plus these (an owner's decision, in .env: MAIL_CLIENT_ALLOWED_HOSTS=mail.other.cm,imap.x.cm)
+    'allowed_hosts' => array_values(array_filter(array_map('trim', explode(',', (string) $env('MAIL_CLIENT_ALLOWED_HOSTS', ''))))),
+    // Local tests only, never on live: IP literals and hosts resolving to internal addresses
+    'allow_private_hosts' => filter_var($env('MAIL_CLIENT_ALLOW_PRIVATE_HOSTS', 'false'), FILTER_VALIDATE_BOOLEAN),
+    // Local tests only, never on live: connections without TLS (the password would cross the network in clear)
+    'allow_plain' => filter_var($env('MAIL_CLIENT_ALLOW_PLAIN', 'false'), FILTER_VALIDATE_BOOLEAN),
+
     // Seconds to wait for the mail server to answer
     'timeout' => (int) $env('MAIL_CLIENT_TIMEOUT', 20),
 

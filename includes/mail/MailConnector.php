@@ -155,11 +155,8 @@ final class MailConnector
         if (!in_array($settings['smtp_port'], $smtpPorts, true)) {
             throw MailError::field('smtp_host', 'Le port sortant doit être ' . implode(', ', $smtpPorts) . '.');
         }
-        foreach (['imap_host', 'smtp_host'] as $key) {
-            if (!preg_match('/^(?=.{1,190}$)([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/', $settings[$key]) && !self::isLocalTestHost($settings[$key])) {
-                throw MailError::field($key, 'Saisissez un nom de serveur comme mail.lpc.cm.');
-            }
-        }
+        // Allowed hosts only, never an internal address, never without TLS (docs/MAIL.md §7.1)
+        HostPolicy::check($settings);
 
         try {
             $session = MailServer::make()->connect($settings, $username, $password);
@@ -226,11 +223,5 @@ final class MailConnector
         if ($password === '') {
             throw MailError::field('password', 'Saisissez le mot de passe de la boîte mail.');
         }
-    }
-
-    /** 127.0.0.1 / localhost: only when certificate checks are off (a local test server, never live) */
-    private static function isLocalTestHost(string $host): bool
-    {
-        return !Config::get('verify_tls', true) && in_array($host, ['127.0.0.1', 'localhost'], true);
     }
 }

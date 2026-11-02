@@ -44,6 +44,7 @@ class MailServer
     /** A signed-in session with these settings (Connect uses it before anything is saved) */
     public function connect(array $settings, string $username, string $password): ImapSession
     {
+        HostPolicy::check($settings);   // again, before any socket: also covers settings saved earlier
         $client = new ImapClient(
             $settings['imap_host'],
             (int) $settings['imap_port'],
@@ -106,6 +107,8 @@ class MailServer
 
     private function smtp(array $settings): SmtpClient
     {
+        HostPolicy::check($settings);   // before any socket (checkSmtp and send both come through here)
+
         return new SmtpClient(
             $settings['smtp_host'],
             (int) $settings['smtp_port'],
