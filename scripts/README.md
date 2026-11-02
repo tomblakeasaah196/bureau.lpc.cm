@@ -5,6 +5,10 @@ Every operational script lives here. Run them from anywhere; each resolves
 
 ## Deployment day (order of operations)
 
+> **Superseded (2 Nov 2026).** Merging to `main` now deploys by itself: see
+> [docs/DEPLOY.md](../docs/DEPLOY.md). Don't run `deploy.sh` on the server any more. It runs Composer inside
+> the live app and resets every permission. The steps below are kept for history.
+
 ```bash
 # 1. On the server, from ~/public_html/bureau.lpc.cm/
 bash scripts/backup.sh          # snapshot the current app + DB

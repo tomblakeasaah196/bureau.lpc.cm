@@ -1,5 +1,8 @@
 # Setting Up Automated Deployment — Step-by-Step Guide
 
+> **Superseded (2 Nov 2026).** This SSH setup never got a deploy through. The server now pulls releases
+> itself and needs no secrets in GitHub: see [DEPLOY.md](DEPLOY.md). Kept for history.
+
 This guide gets `bureau.lpc.cm` deploying itself automatically: every time
 code is pushed to `main` on GitHub, GitHub Actions logs into the server and
 runs the deploy for you. No more copy-pasting files by hand.

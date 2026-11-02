@@ -1,5 +1,8 @@
 # Ship-day checklist — Bureau LPC ERP
 
+> **Superseded (2 Nov 2026).** Merging to `main` now deploys by itself: see
+> [docs/DEPLOY.md](../docs/DEPLOY.md). Kept for history.
+
 This is the exact command sequence for cutting a release from a clean laptop and
 deploying to production. Follow top-to-bottom; every step assumes the previous
 one succeeded. If anything prints red, stop and investigate.
