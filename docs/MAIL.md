@@ -359,6 +359,22 @@ Per PR: open it against `main` with green CI, message the lead chat ("Sitemap an
   - Nouveau message, Répondre, Répondre à tous, Transférer and Modifier le brouillon raise `mail:compose`, so they open nothing until PR 3's composer is live. PR 3 (#29) merged right after as `927289f` (release `abf46b3`) and records its own deploy; once it is live, try each button once from a conversation.
 - **Rollback**: revert #27 on `main`. The deployer releases the revert, which brings back PR 1's placeholder page. The `mail_image_trust` table can stay unused, and the database as it was before is in the dump above.
 
+### PR 3: 2 November 2026, 18:11 (server time, UTC+1 like Douala)
+
+- **Merged** as `927289f` on the owner's OK (#29 at `23b5886`, after the lead chat's audit; `main` with PR 2's agreed change to PR 1's table check merged in first). Released as `abf46b3`; its files were first served at 18:11:13. **[Pending: the deployer's `LIVE abf46b3` line, its file count and the backup folder, from `~/deploy/bureau/logs/deploy-202611.log`, read once the owner signs in to cPanel again.]**
+- **Migration**: `320_mail_compose` applied **[pending: time from the deploy log]** (tables `mail_signatures` and `mail_compose_files`), after the database dump **[pending: the dump folder under `~/deploy/bureau/backups/`]**. **Crons**: none new: PR 1's `mail_send_due.php` line (§11, PR 1) now runs PR 3's sender instead of the stub. **[Pending: both error logs (`~/logs/php.error.log`, docroot `error_log`) unchanged since 18:11, so the sender runs clean every minute; the cron list unchanged.]**
+- **Checked live**, signed out, at about 18:12:
+  - `/api/v1/mail/compose.php` (GET `?action=suggest` and POST) and `/api/v1/mail/compose_signature.php` (POST) answer 401 (JSON, `Cache-Control: no-store`).
+  - `/modules/mail/signature.php` and `/modules/mail/compose_outbox.php` redirect to the sign-in page; the `composer` mount answers 404 by URL.
+  - `/includes/mail/Compose/…` (`Outbox.php`, `compose_config.php`), `/scripts/cron/mail_send_due.php` and `/migrations/320_mail_compose.sql` answer 403 (`.htaccess`).
+  - `assets/js/modules/mail-compose.js` (46,028 B), `mail-compose-signature.js` (8,229 B), `mail-compose-outbox.js` (3,034 B) and `assets/css/lpc-mail-compose.css` (24,370 B) answer 200, byte for byte the release's.
+  - The signature's logo `https://bureau.lpc.cm/assets/img/mail/lpc-signature-logo.png` answers 200 as `image/png` with no sign-in, so recipients' mail apps (and Gmail's image proxy) can load it.
+- **Not yet**:
+  - Writing needs a connected mailbox (PR 1's "Not yet": the owner and staff enter their own mailbox passwords on Boîtes mail). Then, signed in, send one message from bureau to a Gmail and an Outlook address and look at it there and on a phone: the signature (logo, layout, links), the copy in Envoyés, and a reply arriving in the same conversation. Also try *Annuler* within 10 seconds and one *Programmer*.
+  - Ma signature: each person checks theirs; the admins check the company part (it starts from the company profile: name, activity, address, first phone, website).
+  - *Écrire avec l'IA* (PR 5) shows in the composer once the owner has entered the Gemini key.
+- **Rollback**: revert #29 on `main` (the deployer releases the revert, which brings back PR 1's stubs: nothing opens on Nouveau message or Répondre, and `mail_send_due.php` stops sending). Messages already queued stay in `mail_outbox` until a sender runs again; the two new tables can stay unused, and the database as it was before is in the dump above.
+
 ## 12. Changes to contracts, PR notes and requests
 
 *(each PR records here: payload keys it chose, new events, anything another PR must know; and requests for changes to files it doesn't own)*
