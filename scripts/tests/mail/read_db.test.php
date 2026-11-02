@@ -216,7 +216,7 @@ check('deleted for good: gone from the server and bureau', $r['left'] && Store::
 section('Vider Indésirables');
 $inSpam = Inbox::open($awa, ['box' => $contact['id'], 'folder' => 'spam']);
 check('Lecture cannot empty', throws(fn () => Actions::emptyFolder(Inbox::open($paul, ['box' => $contact['id'], 'folder' => 'spam']), $spam)) instanceof MailError);
-check('emptied, on the server too', Actions::emptyFolder($inSpam, $spam) === 'Indésirables est vide.' && $server->folder('contact@lpc.cm', 'INBOX.Junk') === [] && ThreadList::folder($awa, $spam)['total'] === 0);
+check('emptied, on the server too', Actions::emptyFolder($inSpam, $spam) === 'Le dossier Indésirables est vide.' && $server->folder('contact@lpc.cm', 'INBOX.Junk') === [] && ThreadList::folder($awa, $spam)['total'] === 0);
 check('the Inbox can never be emptied', throws(fn () => Actions::emptyFolder($inSpam, Store::folderByRole($contact['id'], 'inbox'))) instanceof MailError);
 
 section('Older mail, read live');

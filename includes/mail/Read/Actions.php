@@ -104,6 +104,6 @@ final class Actions
         MailActions::make()->emptyFolder($inbox->userId, $folder['id']);
         MailNav::forget();
 
-        return Store::folderLabel($folder) . ' est vide.';
+        return $folder['role'] === 'trash' ? 'La Corbeille est vide.' : 'Le dossier Indésirables est vide.';
     }
 }

@@ -204,7 +204,8 @@ final class Reader
         $policy = "default-src 'none'; img-src {$img}; style-src 'unsafe-inline'; font-src data:" . ($remote ? ' https:' : '')
             . "; base-uri 'none'; form-action 'none'";
         $base = 'html,body{margin:0;padding:0;background:#ffffff}'
-            . 'body{font-family:Inter,"Segoe UI",Arial,sans-serif;font-size:14px;line-height:1.55;color:#111827;overflow-wrap:anywhere;word-break:break-word}'
+            // flow-root: the body holds its children's margins, so the page can measure it to size the frame
+            . 'body{display:flow-root;font-family:Inter,"Segoe UI",Arial,sans-serif;font-size:14px;line-height:1.55;color:#111827;overflow-wrap:anywhere;word-break:break-word}'
             . 'img{max-width:100%;height:auto}table{max-width:100%}pre{white-space:pre-wrap}a{color:#005A2B}'
             . '.mr-mail-body{overflow-x:auto}'
             . '.mr-quote{margin-top:12px}.mr-quote>summary{cursor:pointer;display:inline-block;padding:2px 10px;border-radius:999px;background:#F1F5F9;color:#475467;font-size:12px;list-style:none}'

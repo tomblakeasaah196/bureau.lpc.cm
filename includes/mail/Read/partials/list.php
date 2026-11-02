@@ -42,7 +42,7 @@ $mailbox = $inbox->account['email'] ?? '';
     </span>
     <span class="mr-pager">
         <?php if ($inbox->can('organise') && in_array($role, ['trash', 'spam'], true) && !$searching && $total): ?>
-            <button type="button" class="mb-btn mb-btn--danger-ghost mb-btn--sm" data-action="empty">Vider <?= $role === 'trash' ? 'la Corbeille' : 'Indésirables' ?></button>
+            <button type="button" class="mb-btn mb-btn--danger-ghost mb-btn--sm" data-action="empty">Vider <?= $role === 'trash' ? 'la Corbeille' : 'les indésirables' ?></button>
         <?php endif; ?>
         <?php if ($lastPage > 1): ?>
             <button type="button" class="mr-icon-btn mr-icon-btn--sm" data-page="<?= $page - 1 ?>"<?= $page <= 1 ? ' disabled' : '' ?> aria-label="Page précédente" title="Plus récents"><?= Format::icon('chevron-left') ?></button>
@@ -63,7 +63,7 @@ $mailbox = $inbox->account['email'] ?? '';
             <p class="mr-empty-title">bureau copie ce dossier</p>
             <p>Le courrier le plus récent arrive d’abord. La liste se met à jour d’elle-même.</p>
         <?php else: ?>
-            <p class="mr-empty-title">Aucun message dans <?= $e($label) ?></p>
+            <p class="mr-empty-title">Aucun message dans « <?= $e($label) ?> »</p>
             <?php if ($role === 'inbox'): ?><p>Le nouveau courrier s’affiche ici dès son arrivée.</p><?php endif; ?>
         <?php endif; ?>
     </div>

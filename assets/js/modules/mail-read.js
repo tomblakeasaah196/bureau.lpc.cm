@@ -167,8 +167,60 @@
         }
     }
 
+    var ICONS = { inbox: 'inbox', drafts: 'file-pen', sent: 'paper-plane', archive: 'box-archive', spam: 'shield-halved', trash: 'trash-can' };
+
+    // A folder appeared or went (Archives is made on the first archive): draw the folder list and picker again
+    function syncFolders(folders) {
+        var list = $('[data-folder-list]'), pick = $('[data-folder-pick]');
+        var have = $$('a[data-folder-id]', list || document).map(function (a) { return a.getAttribute('data-folder-id'); }).join(',');
+        var want = folders.map(function (f) { return String(f.id); }).join(',');
+        if (!folders.length || have === want) return;
+        var pad = '  ';
+        if (list) {
+            list.textContent = '';
+            folders.forEach(function (f) {
+                var li = document.createElement('li');
+                li.style.setProperty('--mr-depth', f.depth || 0);
+                var a = document.createElement('a');
+                a.className = 'mr-nav-btn' + (f.id === state.folder.id ? ' is-active' : '');
+                a.href = '?box=' + DATA.accountId + '&folder=' + encodeURIComponent(f.key);
+                a.setAttribute('data-folder-key', f.key);
+                a.setAttribute('data-folder-id', f.id);
+                a.setAttribute('data-role', f.role);
+                a.setAttribute('data-label', f.label);
+                if (f.id === state.folder.id) a.setAttribute('aria-current', 'true');
+                var icon = document.createElement('i');
+                icon.className = 'fa-solid fa-' + (ICONS[f.role] || 'folder');
+                icon.setAttribute('aria-hidden', 'true');
+                var name = document.createElement('span');
+                name.className = 'mr-nav-name';
+                name.textContent = f.label;
+                var count = document.createElement('span');
+                count.className = 'mr-nav-count';
+                count.setAttribute('data-folder-count', f.id);
+                count.hidden = true;
+                a.appendChild(icon); a.appendChild(name); a.appendChild(count);
+                li.appendChild(a);
+                list.appendChild(li);
+            });
+        }
+        if (pick) {
+            pick.textContent = '';
+            folders.forEach(function (f) {
+                var o = document.createElement('option');
+                o.value = f.key;
+                o.setAttribute('data-folder-id', f.id);
+                o.setAttribute('data-label', new Array((f.depth || 0) + 1).join(pad) + f.label);
+                o.textContent = o.getAttribute('data-label');
+                o.selected = f.id === state.folder.id;
+                pick.appendChild(o);
+            });
+        }
+    }
+
     function applyCounts(c) {
         if (!c) return;
+        syncFolders(c.folders || []);
         (c.folders || []).forEach(function (f) {
             var n = f.role === 'drafts' ? f.total : f.unread;
             setCount($('[data-folder-count="' + f.id + '"]'), n);
@@ -180,9 +232,13 @@
         });
         // The sidebar's Courrier badge (PR 1): [data-lpc-mail-unread] inside [data-lpc-mail-link]
         $$('[data-lpc-mail-link] [data-lpc-mail-unread]').forEach(function (badge) {
-            if (badge.firstChild) badge.firstChild.nodeValue = String(c.nav);
-            else badge.textContent = String(c.nav);
-            badge.hidden = !(c.nav > 0);
+            var n = Number(c.nav) || 0;
+            var shown = badge.firstElementChild, spoken = shown ? shown.nextElementSibling : null;
+            if (shown) shown.textContent = n > 99 ? '99+' : String(n); else badge.textContent = String(n);
+            if (spoken) spoken.textContent = n + ' non lu' + (n > 1 ? 's' : '');
+            badge.hidden = !(n > 0);
+            var link = badge.closest('[data-lpc-mail-link]');
+            if (link && link.title) link.title = link.title.replace(/\s*\(\d+\)$/, '') + (n > 0 ? ' (' + n + ')' : '');
         });
         if (c.stamp) state.stamp = c.stamp;
     }
@@ -395,9 +451,11 @@
     function fit(frame) {
         try {
             var doc = frame.contentDocument;
-            if (!doc || !doc.documentElement) return;
+            if (!doc || !doc.body) return;
+            // The body, not the document: a document is never shorter than its frame, so it could only grow
             var pad = parseFloat(getComputedStyle(frame).paddingTop || 0) + parseFloat(getComputedStyle(frame).paddingBottom || 0);
-            frame.style.height = Math.max(40, Math.ceil(doc.documentElement.scrollHeight + pad)) + 'px';
+            var h = Math.max(doc.body.scrollHeight, Math.ceil(doc.body.getBoundingClientRect().height));
+            frame.style.height = Math.max(40, h + pad) + 'px';
         } catch (e) { /* not ready yet */ }
     }
 
@@ -464,7 +522,7 @@
     function act(action) {
         if (!state.thread) return;
         if (action === 'delete') {
-            var where = state.folder.role === 'spam' ? 'd’Indésirables' : 'de la Corbeille';
+            var where = state.folder.role === 'spam' ? 'du dossier Indésirables' : 'de la Corbeille';
             var subject = state.thread.subject || '(sans objet)';
             confirmThen('Supprimer définitivement cette conversation ?',
                 '« ' + subject.slice(0, 80) + ' » est supprimée ' + where + ' sur le serveur de messagerie. C’est définitif.',
@@ -501,10 +559,10 @@
     }
 
     function emptyFolder() {
-        var label = state.folder.role === 'trash' ? 'la Corbeille' : 'Indésirables';
-        confirmThen('Vider ' + label + ' ?',
-            'Tous les messages de ' + label + ' sur le serveur de messagerie sont supprimés définitivement, y compris ceux de plus de 12 mois. C’est définitif.',
-            'Les garder', 'Vider ' + label, function () {
+        var trash = state.folder.role === 'trash';
+        confirmThen(trash ? 'Vider la Corbeille ?' : 'Vider les indésirables ?',
+            'Tous les messages ' + (trash ? 'de la Corbeille' : 'du dossier Indésirables') + ' sur le serveur de messagerie sont supprimés définitivement, y compris ceux de plus de 12 mois. C’est définitif.',
+            'Les garder', trash ? 'Vider la Corbeille' : 'Vider les indésirables', function () {
                 api('POST', { action: 'empty' }).then(function (json) {
                     applyCounts(json.data.counts);
                     say(json.message);
@@ -642,9 +700,14 @@
 
     // ------------------------------------------------------------------ clicks
 
+    // Another PR's mount (team bar, summary, Ask, composer) handles its own clicks: never act on them here
+    function inMount(t) {
+        return !!(t && t.closest && t.closest('[data-mount-wrap]'));
+    }
+
     document.addEventListener('click', function (e) {
         var t = e.target;
-        if (!t || !t.closest) return;
+        if (!t || !t.closest || inMount(t)) return;
         var plainClick = e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 
         var c = t.closest('[data-compose]');
@@ -747,7 +810,7 @@
 
     document.addEventListener('change', function (e) {
         var t = e.target;
-        if (!t || !t.matches) return;
+        if (!t || !t.matches || inMount(t)) return;
         if (t.matches('[data-move]') && t.value) {
             var to = t.value;
             t.value = '';

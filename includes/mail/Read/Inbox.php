@@ -176,8 +176,13 @@ final class Inbox
         $folders = [];
         $stamp = [];
         if ($this->account) {
-            foreach (Store::folders($this->account['id'], true) as $f) {
-                $folders[] = ['id' => $f['id'], 'unread' => $f['unread_count'], 'total' => $f['total_count'], 'role' => $f['role']];
+            // Read again: an action may have added one (Archives, made on the first archive)
+            $this->folders = Store::folders($this->account['id'], true);
+            foreach ($this->folders as $f) {
+                $folders[] = [
+                    'id' => $f['id'], 'unread' => $f['unread_count'], 'total' => $f['total_count'], 'role' => $f['role'],
+                    'key' => $this->key($f), 'label' => Store::folderLabel($f), 'depth' => $this->depth($f),
+                ];
                 $stamp[] = $f['id'] . ':' . $f['unread_count'] . ':' . $f['total_count'];
             }
             $stamp[] = (string) Db::value('SELECT MAX(updated_at) FROM mail_threads WHERE account_id = ?', [$this->account['id']]);

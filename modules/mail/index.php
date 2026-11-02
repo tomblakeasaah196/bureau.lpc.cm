@@ -127,7 +127,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
             <?php endif; ?>
         </p>
         <?php if ($account): ?>
-            <?php Mount::render('ask_mail', $mount); ?>
+            <div class="mr-mount-inline" data-mount-wrap="ask_mail"><?php Mount::render('ask_mail', $mount); ?></div>
             <button type="button" class="mr-icon-btn mr-hide-phone" data-action="help" aria-label="Raccourcis clavier" title="Raccourcis clavier (?)"><?= Format::icon('keyboard') ?></button>
             <button type="button" class="mr-icon-btn" data-action="refresh" aria-label="Actualiser" title="Actualiser : relever le courrier maintenant"><?= Format::icon('rotate-right') ?></button>
             <a class="mr-icon-btn" href="/modules/mail/signature.php" aria-label="Ma signature" title="Ma signature"><?= Format::icon('signature') ?></a>
@@ -178,7 +178,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                         </ul>
                     <?php endif; ?>
                     <h2 class="mr-nav-title">Dossiers</h2>
-                    <ul>
+                    <ul data-folder-list>
                         <?php foreach ($inbox->folders as $f):
                             $isHere = $folder && $f['id'] === $folder['id'];
                             $n = $f['role'] === 'drafts' ? $f['total_count'] : $f['unread_count'];
@@ -272,7 +272,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 </div>
 
 <?php if ($account): ?>
-    <?php Mount::render('composer', $mount); ?>
+    <div data-mount-wrap="composer"><?php Mount::render('composer', $mount); ?></div>
 
     <div class="mr-snackbar" data-snackbar hidden>
         <span class="mr-snackbar-text" data-snackbar-text></span>
