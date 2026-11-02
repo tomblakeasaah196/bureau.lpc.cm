@@ -131,6 +131,8 @@ check('a reset link forgets every remembered device', str_contains($pw, 'lpc_dev
 check('an administrator-set password does too', str_contains($set, 'lpc_device_revoke_all($db, $uid)'));
 check('only the hash of the device secret is stored', str_contains($strip('includes/functions/sign_in.php'), "hash('sha256', \$secret)"));
 check('the device cookie is httpOnly and SameSite', (bool) preg_match("/'httponly'\s*=>\s*true/", $strip('includes/functions/sign_in.php')));
+check('every login is inserted through lpc_insert_login() (fills the legacy users name columns)',
+      substr_count($set, 'INSERT INTO users') === 1 && substr_count($set, 'lpc_insert_login($db,') === 2);
 check('invitations need mail and expire after 72 hours',
       str_contains($set, 'lpc_reset_by_email_enabled()') && str_contains($set, 'time() + 72 * 3600'));
 check('the setup page only redirects within the site', str_contains(file_get_contents($root . '/public/auth/device_setup.php'), "preg_match('#^/(?![/\\\\\\\\])"));
