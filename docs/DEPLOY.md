@@ -103,9 +103,8 @@ the way the JBS Praxis server has one, and point `~/repositories/bureau` at `git
 Old instructions that describe uploading zips or SSH secrets (`scripts/ship-day.md`, `docs/CI_CD_SETUP_GUIDE.md`)
 are kept for history only.
 
-## Tests that don't block a release yet
+## Signature hashes
 
-`signature_canonical_payload.test.php` has no expected hashes yet: pinning them declares today's signature
-payload shape the one every stored signature is checked against, which is the owner's call. CI runs it in
-**Known failing tests** and reports it as a warning without blocking a release. Once it passes, move it into the
-**Code checks** job.
+`scripts/tests/signature_canonical_payload.test.php` pins how signed documents are hashed (pinned 2 Nov 2026).
+If it fails, the change would stop stored signatures from verifying. Undo it, or version the payload as the
+test's header explains. Never just update the expected hashes.
