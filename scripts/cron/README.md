@@ -104,3 +104,20 @@ of defence. If you're adding a new cron script, keep both.
   logged to `audit_logs` (old_json snapshot) before it goes, one per client,
   so "who was purged and when" survives even though the client row itself
   does not.
+
+## Courrier (Mail)
+
+Three jobs, unlike the nightly ones above (docs/MAIL.md §10). Adding them in cPanel needs the owner's OK.
+
+```
+* * * * * /usr/local/bin/php /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/mail_sync.php >/dev/null 2>&1
+* * * * * /usr/local/bin/php /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/mail_send_due.php >/dev/null 2>&1
+35 0 * * * /usr/local/bin/php /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/mail_prune.php >> /home/smartqaq/logs/lpc-cron.log 2>&1
+```
+
+- `mail_sync.php` copies the last 12 months of every connected mailbox into bureau, 50 seconds per run shared
+  by all mailboxes; runs never overlap. `--verbose` prints what each mailbox did, `--account=<id>` syncs one.
+  It does nothing until migration 300 has run.
+- `mail_send_due.php` sends queued and scheduled mail: a no-op stub until Courrier PR 3.
+- `mail_prune.php` clears expired presence, old finished outbox rows and empty conversations. It never
+  touches the mail server.

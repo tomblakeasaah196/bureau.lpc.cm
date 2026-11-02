@@ -1,0 +1,193 @@
+/**
+ * assets/css/lpc-mail.css
+ * -----------------------------------------------------------------------------
+ * Bureau LPC ERP — Courrier (Mail): the shared look of the Mail pages (PR 1).
+ * Loaded by every page under modules/mail/ after head_assets.php. Colours come
+ * only from the shell's variables (assets/css/lpc-shell.css), so the dark theme
+ * follows by itself. Plain CSS on purpose: the Tailwind build only knows the
+ * classes main used when it last ran.
+ *
+ * Owned by PR 1. PRs 2-5 add their own file (lpc-mail-read.css, …) and may use
+ * these building blocks: .mb-card, .mb-btn (--primary, --ghost, --danger,
+ * --danger-ghost, --sm), .mb-pill (--success, --warning, --danger, --neutral,
+ * --level), .mb-field, .mb-dialog, .mb-empty, .mb-muted.
+ * -----------------------------------------------------------------------------
+ */
+
+.mb-page { display: flex; flex-direction: column; gap: 1.25rem; max-width: 64rem; }
+.mb-toolbar-lead { font-size: .875rem; font-weight: 600; color: var(--lpc-ink-soft); }
+
+/* ---- Cards ---------------------------------------------------------------- */
+.mb-card {
+    background: var(--lpc-surface);
+    border: 1px solid var(--lpc-border);
+    border-radius: var(--lpc-radius);
+    box-shadow: var(--lpc-shadow-card);
+    padding: 1.25rem 1.5rem;
+}
+.mb-card--note { background: var(--lpc-surface-sunken); box-shadow: none; }
+.mb-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.mb-h2 { font-size: 1rem; font-weight: 700; color: var(--lpc-ink); line-height: 1.4; margin: 0; }
+.mb-h3 { font-size: .875rem; font-weight: 700; color: var(--lpc-ink); margin: 0 0 .5rem; }
+.mb-muted { color: var(--lpc-ink-soft); font-size: .875rem; line-height: 1.5; margin: .25rem 0 0; }
+.mb-small { font-size: .8125rem; margin-top: .75rem; }
+.mb-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+/* ---- Mailbox rows --------------------------------------------------------- */
+.mb-list { display: flex; flex-direction: column; gap: .75rem; }
+.mb-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "main meta" "alert alert" "actions actions";
+    gap: .75rem 1rem;
+    align-items: center;
+    padding: 1rem;
+    border: 1px solid var(--lpc-border);
+    border-radius: var(--lpc-radius-sm);
+    background: var(--lpc-surface);
+    scroll-margin-top: calc(var(--lpc-topbar-h) + var(--lpc-toolbar-h) + 1rem);
+}
+.mb-row--focus { border-color: var(--lpc-accent-on-light); box-shadow: var(--lpc-ring); }
+.mb-row-main { grid-area: main; display: flex; align-items: center; gap: .75rem; min-width: 0; }
+.mb-row-text { min-width: 0; }
+.mb-row-title { display: flex; align-items: center; gap: .5rem; margin: 0; font-weight: 600; color: var(--lpc-ink); font-size: .9375rem; min-width: 0; }
+.mb-row-sub { margin: .125rem 0 0; color: var(--lpc-ink-soft); font-size: .8125rem; }
+.mb-row-meta { grid-area: meta; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .5rem; }
+.mb-meta-item { font-size: .8125rem; color: var(--lpc-ink-soft); white-space: nowrap; }
+.mb-row-alert {
+    grid-area: alert; margin: 0; padding: .625rem .75rem; border-radius: var(--lpc-radius-xs);
+    background: var(--lpc-status-danger-tint); color: var(--lpc-status-danger-fg); font-size: .8125rem; line-height: 1.45;
+}
+.mb-row-actions { grid-area: actions; display: flex; flex-wrap: wrap; gap: .5rem; padding-top: .25rem; border-top: 1px solid var(--lpc-border); padding-top: .75rem; }
+
+.mb-avatar {
+    flex: 0 0 auto; width: 2.5rem; height: 2.5rem; border-radius: 999px;
+    display: grid; place-items: center; font-weight: 700; font-size: .8125rem; letter-spacing: .02em;
+    background: var(--lpc-status-success-bg); color: var(--lpc-status-success-fg);
+}
+.mb-avatar--shared { background: var(--lpc-status-info-bg); color: var(--lpc-status-info-fg); border-radius: var(--lpc-radius-xs); }
+
+/* ---- Pills ---------------------------------------------------------------- */
+.mb-pill {
+    display: inline-flex; align-items: center; gap: .25rem; white-space: nowrap;
+    padding: .125rem .5rem; border-radius: 999px; font-size: .75rem; font-weight: 600; line-height: 1.5;
+    background: var(--lpc-status-neutral-bg); color: var(--lpc-status-neutral-fg);
+}
+.mb-pill--success { background: var(--lpc-status-success-bg); color: var(--lpc-status-success-fg); }
+.mb-pill--warning { background: var(--lpc-status-warning-bg); color: var(--lpc-status-warning-fg); }
+.mb-pill--danger  { background: var(--lpc-status-danger-bg);  color: var(--lpc-status-danger-fg); }
+.mb-pill--neutral { background: var(--lpc-status-neutral-bg); color: var(--lpc-status-neutral-fg); }
+.mb-pill--level   { background: transparent; color: var(--lpc-ink-soft); border: 1px solid var(--lpc-border); font-weight: 500; }
+
+/* ---- Buttons -------------------------------------------------------------- */
+.mb-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: .375rem;
+    min-height: var(--lpc-control-h); padding: 0 .875rem; border-radius: var(--lpc-radius-xs);
+    font-size: .8125rem; font-weight: 600; line-height: 1; white-space: nowrap; cursor: pointer; text-decoration: none;
+    border: 1px solid var(--lpc-border); background: var(--lpc-surface); color: var(--lpc-ink);
+    transition: background-color .14s ease, border-color .14s ease, color .14s ease;
+}
+.mb-btn:hover { background: var(--lpc-surface-sunken); }
+/* Links styled as buttons keep the button's ink (the dark theme colours plain links green) */
+html a.mb-btn:not(.mb-btn--primary):not(.mb-btn--danger), html a.mb-btn:not(.mb-btn--primary):not(.mb-btn--danger):visited { color: var(--lpc-ink); }
+.mb-btn:focus-visible { outline: none; box-shadow: var(--lpc-ring); }
+.mb-btn[disabled] { opacity: .6; cursor: progress; }
+.mb-btn--primary { background: var(--lpc-accent-on-light); border-color: var(--lpc-accent-on-light); color: #fff; }
+.mb-btn--primary:hover { background: var(--lpc-brand-deep); border-color: var(--lpc-brand-deep); }
+.mb-btn--ghost { background: transparent; }
+.mb-btn--danger { background: var(--lpc-status-danger-fg); border-color: var(--lpc-status-danger-fg); color: #fff; }
+.mb-btn--danger:hover { filter: brightness(.92); background: var(--lpc-status-danger-fg); }
+.mb-btn--danger-ghost { background: transparent; color: var(--lpc-status-danger-fg); border-color: transparent; }
+.mb-btn--danger-ghost:hover { background: var(--lpc-status-danger-tint); }
+.mb-btn--sm { min-height: 2rem; padding: 0 .625rem; }
+.mb-head-btn { flex: 0 0 auto; }
+html[data-lpc-theme="dark"] .mb-btn--primary { background: var(--lpc-brand-light); border-color: var(--lpc-brand-light); color: #0F1512; }
+html[data-lpc-theme="dark"] .mb-btn--primary:hover { filter: brightness(1.08); }
+
+/* ---- Empty states and notes ----------------------------------------------- */
+.mb-empty { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; padding: .5rem 0 .25rem; }
+.mb-empty .mb-btn { margin-top: .5rem; }
+.mb-empty--quiet { padding: 0; }
+.mb-empty-icon {
+    width: 2.75rem; height: 2.75rem; border-radius: var(--lpc-radius-sm); display: grid; place-items: center;
+    background: var(--lpc-status-success-tint); color: var(--lpc-accent-on-light);
+}
+.mb-empty-icon svg { width: 1.5rem; height: 1.5rem; }
+.mb-empty-title { margin: .25rem 0 0; font-weight: 600; color: var(--lpc-ink); }
+.mb-levels { display: grid; gap: .375rem; margin: 0; font-size: .875rem; }
+.mb-levels div { display: flex; gap: .375rem; flex-wrap: wrap; }
+.mb-levels dt { font-weight: 600; color: var(--lpc-ink); }
+.mb-levels dd { margin: 0; color: var(--lpc-ink-soft); }
+
+/* ---- Dialogs and forms ---------------------------------------------------- */
+.mb-dialog {
+    width: min(32rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); padding: 0; overflow: auto;
+    border: 1px solid var(--lpc-border); border-radius: var(--lpc-radius); background: var(--lpc-surface); color: var(--lpc-ink);
+    box-shadow: var(--lpc-shadow-pop);
+}
+.mb-dialog--wide { width: min(40rem, calc(100vw - 2rem)); }
+.mb-dialog::backdrop { background: rgba(0, 20, 10, .45); }
+.mb-dialog[open] { animation: mb-in .16s ease-out; }
+@keyframes mb-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .mb-dialog[open] { animation: none; } }
+.mb-form { display: flex; flex-direction: column; gap: 1rem; padding: 1.5rem; }
+.mb-dialog-title { margin: 0; font-size: 1.0625rem; font-weight: 700; color: var(--lpc-ink); overflow-wrap: anywhere; }
+.mb-dialog-actions { display: flex; justify-content: flex-end; gap: .5rem; flex-wrap: wrap; padding-top: .25rem; }
+
+.mb-field { display: flex; flex-direction: column; gap: .375rem; min-width: 0; }
+.mb-field label { font-size: .8125rem; font-weight: 600; color: var(--lpc-ink); }
+.mb-field input, .mb-field select, .mb-select {
+    min-height: 2.5rem; width: 100%; padding: .5rem .75rem; border-radius: var(--lpc-radius-xs);
+    border: 1px solid var(--lpc-border); background: var(--lpc-surface); color: var(--lpc-ink); font-size: .875rem;
+}
+.mb-select { width: auto; min-height: 2rem; padding: .25rem .5rem; }
+.mb-field input:focus, .mb-field select:focus, .mb-select:focus { outline: none; border-color: var(--lpc-accent-on-light); box-shadow: var(--lpc-ring); }
+.mb-field input[aria-invalid="true"] { border-color: var(--lpc-status-danger-fg); }
+.mb-hint { margin: 0; font-size: .75rem; color: var(--lpc-ink-soft); line-height: 1.45; }
+.mb-field-error, .mb-form-error { margin: 0; font-size: .8125rem; color: var(--lpc-status-danger-fg); line-height: 1.45; }
+.mb-form-error { padding: .625rem .75rem; background: var(--lpc-status-danger-tint); border-radius: var(--lpc-radius-xs); }
+
+.mb-details { border: 1px solid var(--lpc-border); border-radius: var(--lpc-radius-xs); padding: .625rem .875rem; }
+.mb-details > summary { cursor: pointer; font-size: .8125rem; font-weight: 600; color: var(--lpc-ink-soft); }
+.mb-details[open] > summary { margin-bottom: .625rem; }
+.mb-details .mb-hint { margin-bottom: .75rem; }
+.mb-grid { display: grid; grid-template-columns: minmax(0, 1fr) 5.5rem 7.5rem; gap: .75rem; }
+
+/* ---- People ------------------------------------------------------------------ */
+.mb-people { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--lpc-border); border-radius: var(--lpc-radius-sm); }
+.mb-person { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .625rem .875rem; }
+.mb-person + .mb-person { border-top: 1px solid var(--lpc-border); }
+.mb-person-who { display: flex; flex-direction: column; min-width: 0; }
+.mb-person-name { font-weight: 600; font-size: .875rem; color: var(--lpc-ink); overflow-wrap: anywhere; }
+.mb-person-mail { font-size: .75rem; color: var(--lpc-ink-soft); overflow-wrap: anywhere; }
+.mb-person-controls { display: flex; align-items: center; gap: .375rem; flex: 0 0 auto; }
+.mb-people-loading { padding: .75rem .875rem; font-size: .875rem; color: var(--lpc-ink-soft); }
+.mb-invite { border-top: 1px solid var(--lpc-border); padding-top: 1rem; }
+.mb-invite-row { display: grid; grid-template-columns: minmax(0, 1fr) 11rem auto; gap: .75rem; align-items: end; }
+.mb-invite-btn { min-height: 2.5rem; }
+
+/* ---- Placeholder pages (until PRs 2 and 3 replace them) ------------------- */
+.mb-placeholder { display: flex; flex-direction: column; gap: .5rem; }
+.mb-switcher { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
+.mb-dev { margin-top: 1rem; border-top: 1px dashed var(--lpc-border); padding-top: 1rem; }
+.mb-dev-list { list-style: none; margin: .5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .25rem; }
+.mb-dev-list button { width: 100%; text-align: left; justify-content: flex-start; }
+
+/* ---- Phones ------------------------------------------------------------------ */
+@media (max-width: 640px) {
+    .mb-card { padding: 1rem; }
+    .mb-card-head { flex-direction: column; }
+    .mb-head-btn { width: 100%; }
+    .mb-row { grid-template-columns: minmax(0, 1fr); grid-template-areas: "main" "meta" "alert" "actions"; padding: .875rem; }
+    .mb-row-meta { justify-content: flex-start; }
+    .mb-row-actions .mb-btn { flex: 1 1 calc(50% - .25rem); white-space: normal; text-align: center; line-height: 1.25; padding: .5rem .625rem; }
+    .mb-dialog, .mb-dialog--wide { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; border: 0; margin: 0; }
+    .mb-form { padding: 1.25rem 1rem; }
+    .mb-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .mb-grid .mb-field:not(.mb-field--narrow) { grid-column: 1 / -1; }
+    .mb-invite-row { grid-template-columns: minmax(0, 1fr); }
+    .mb-person { flex-direction: column; align-items: stretch; }
+    .mb-person-controls { justify-content: space-between; }
+    .mb-person > .mb-pill { align-self: flex-start; }
+    .mb-dialog-actions .mb-btn { flex: 1 1 auto; }
+}

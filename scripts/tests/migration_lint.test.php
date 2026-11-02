@@ -86,7 +86,19 @@ foreach ($byNumber as $num => $names) {
 //    so a NEW gap stands out against the known set.
 // ---------------------------------------------------------------------------
 $known = ['009', '015', '017', '019', '021', '026'];
-$nums  = array_map('intval', array_keys($byNumber));
+// Number blocks reserved for work built in parallel (several PRs at once, merged
+// in any order). The main sequence never runs into them, and numbers inside a
+// block are not checked for gaps. Duplicates inside a block are still errors.
+//   300-349  Courrier (Mail): 300-309 PR 1, 310-319 PR 2, 320-329 PR 3,
+//            330-339 PR 4, 340-349 PR 5 (docs/MAIL.md, section 5)
+$reservedBlocks = [[300, 349, 'Courrier (docs/MAIL.md)']];
+$inBlock = static function (int $n) use ($reservedBlocks): bool {
+    foreach ($reservedBlocks as [$lo, $hi]) {
+        if ($n >= $lo && $n <= $hi) return true;
+    }
+    return false;
+};
+$nums  = array_values(array_filter(array_map('intval', array_keys($byNumber)), fn ($n) => !$inBlock($n)));
 sort($nums);
 for ($i = 1; $i < count($nums); $i++) {
     for ($n = $nums[$i - 1] + 1; $n < $nums[$i]; $n++) {
