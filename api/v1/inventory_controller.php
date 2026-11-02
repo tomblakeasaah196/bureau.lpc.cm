@@ -834,10 +834,10 @@ try {
             $db->beginTransaction();
 
             // 2. Generate Reference & Token
-            $datePrefix = date('Ymd');
-            $stmtRef = $db->query("SELECT count(id) FROM inventory_reports WHERE DATE(created_at) = CURRENT_DATE()");
-            $count = $stmtRef->fetchColumn() + 1;
-            $reference = "INV-{$datePrefix}-" . str_pad($count, 3, '0', STR_PAD_LEFT);
+            // INV-20261102-001: the day's next number, from a counter locked in
+            // this transaction (DocCounter, migration 350), instead of a count
+            // of today's rows that two audits at once could share.
+            $reference = DocCounter::next($db, 'inventory');
             $token = bin2hex(random_bytes(32));
             $timestamp = date('Y-m-d H:i:s');
             $ip = $_SERVER['REMOTE_ADDR'];

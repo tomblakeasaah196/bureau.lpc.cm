@@ -91,6 +91,9 @@ Rbac::init();
 //     so a partial deploy does not white-screen the app.
 require_once __DIR__ . '/classes/CompanyProfile.php';
 require_once __DIR__ . '/classes/Prefs.php';
+// Unbroken document numbers (FAC-2611-0001…), taken inside the transaction
+// that saves the document. Migration 350.
+require_once __DIR__ . '/classes/DocCounter.php';
 
 // Apply the configured timezone before anything formats a date. Falls back to
 // the .env value, then to Africa/Douala.

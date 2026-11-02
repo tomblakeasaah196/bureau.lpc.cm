@@ -728,11 +728,12 @@ try {
             // "adjustment" — see pricing.php header and 070's rationale.
             $total_amount = round($subtotal - $total_discount + $line_surcharge_total, 2);
 
-            $hash = strtoupper(substr(md5(uniqid(rand(), true)), 0, 4));
             // Was 'CMD-' . date('ym') hardcoded, which ignored the configured
             // doc_prefix_order / doc_number_format that every other document
             // type in the app respects (Prefs::FALLBACKS already carries 'CMD').
-            $reference = Prefs::docNumber('order', $hash, $date);
+            // The number is the next in an unbroken sequence (DocCounter,
+            // migration 350); it was a random 4-character code.
+            $reference = DocCounter::next($db, 'order', $date);
 
             $stmtSO = $db->prepare("
                 INSERT INTO sales_orders
@@ -877,9 +878,9 @@ try {
 
             if (!$order || $order['status'] !== 'pending') throw new UserFacingException("Cette commande a déjà été dispatchée.");
 
-            $hash = strtoupper(substr(md5(uniqid(rand(), true)), 0, 4));
-            // Sprint 8: prefix + format from app_preferences. Was 'BL-' hardcoded.
-            $reference = Prefs::docNumber('delivery', $hash);
+            // Prefix + format from app_preferences; the next number in an
+            // unbroken sequence (DocCounter, migration 350). Was a random code.
+            $reference = DocCounter::next($db, 'delivery');
             $token = bin2hex(random_bytes(16));
 
             $stmtDel = $db->prepare("INSERT INTO deliveries (reference, sales_order_id, client_id, driver_id, vehicle_id, delivery_mode, delivery_supplier_id, date, status, token, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'dispatched', ?, ?)");

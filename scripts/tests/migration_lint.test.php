@@ -91,7 +91,8 @@ $known = ['009', '015', '017', '019', '021', '026'];
 // block are not checked for gaps. Duplicates inside a block are still errors.
 //   300-349  Courrier (Mail): 300-309 PR 1, 310-319 PR 2, 320-329 PR 3,
 //            330-339 PR 4, 340-349 PR 5 (docs/MAIL.md, section 5)
-$reservedBlocks = [[300, 349, 'Courrier (docs/MAIL.md)']];
+//   350-359  Document numbering (350) and the data wipe tool (355-359)
+$reservedBlocks = [[300, 349, 'Courrier (docs/MAIL.md)'], [350, 359, 'Numbering and data wipe']];
 $inBlock = static function (int $n) use ($reservedBlocks): bool {
     foreach ($reservedBlocks as [$lo, $hi]) {
         if ($n >= $lo && $n <= $hi) return true;

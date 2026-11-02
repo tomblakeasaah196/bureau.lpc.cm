@@ -104,6 +104,44 @@ jobs:
           done
           exit $fail
 
+  wipe:
+    # Document numbering (DocCounter, migration 350) and the data wipe tool: every
+    # scripts/tests/wipe/*.test.php, each blocking, on a throwaway MariaDB 10.11
+    # (the server's version) built from scripts/tests/wipe/support/fixture_schema.sql
+    # plus migrations 350-359. No client data.
+    name: Numbering and data wipe tests (MariaDB 10.11)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: '1'
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=24
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_mysql, zip
+          coverage: none
+      - name: Every numbering and wipe test (scripts/tests/wipe/*.test.php)
+        env:
+          WIPE_TEST_DB_HOST: 127.0.0.1
+          WIPE_TEST_DB_PORT: '3306'
+          WIPE_TEST_DB_USER: root
+        run: |
+          fail=0
+          for f in scripts/tests/wipe/*.test.php; do
+            echo "::group::$f"
+            php "$f" || { echo "::error file=$f::$f failed"; fail=1; }
+            echo "::endgroup::"
+          done
+          exit $fail
+
   deployer:
     name: Deployer tests (deploy/server)
     runs-on: ubuntu-latest
@@ -117,7 +155,7 @@ jobs:
 
   release:
     name: Release to production
-    needs: [checks, mail, deployer]
+    needs: [checks, mail, wipe, deployer]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15

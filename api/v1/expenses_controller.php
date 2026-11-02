@@ -91,28 +91,9 @@ function coaForCategory(PDO $db, int $category_id): ?int {
     return $v ? (int)$v : null;
 }
 
-/**
- * EX-YYMM-XXXXXX. Random suffix rather than a counter so parallel writes do not
- * collide on the UNIQUE index — same shape procurement uses.
- *
- * The suffix was 2 bytes (4 hex chars, 65 536 values) and generated blind. That
- * is a birthday problem, not a uniqueness guarantee: at ~300 expenses in the
- * table the odds of *some* pair colliding are already near even, and a
- * collision surfaces as an opaque "Integrity constraint violation" toast on an
- * otherwise valid save. Widened to 3 bytes and, more importantly, checked
- * against the table with a bounded retry so a collision costs one extra SELECT
- * instead of a failed save.
- */
-function nextReference(PDO $db): string {
-    $check = $db->prepare("SELECT 1 FROM expenses WHERE reference = ? LIMIT 1");
-    for ($i = 0; $i < 8; $i++) {
-        $ref = 'EX-' . date('ym') . '-' . strtoupper(bin2hex(random_bytes(3)));
-        $check->execute([$ref]);
-        if (!$check->fetchColumn()) return $ref;
-    }
-    // Vanishingly unlikely; fall back to something that cannot repeat.
-    return 'EX-' . date('ymdHis') . '-' . strtoupper(bin2hex(random_bytes(4)));
-}
+// References are EX-YYMM-0001, the next in an unbroken sequence taken inside
+// the saving transaction (DocCounter, migration 350). They used to be a random
+// suffix checked against the table with a bounded retry.
 
 /** Document root, with a CLI-safe fallback (this file is 2 levels below it). */
 function docRoot(): string {
@@ -477,7 +458,7 @@ try {
                 ]);
                 $expense_id = $id;
             } else {
-                $ref = $reference = nextReference($db);
+                $ref = $reference = DocCounter::next($db, 'expense');
                 $ins = $db->prepare("
                     INSERT INTO expenses
                         (reference, title, description, category_id, supplier_id, amount,
@@ -623,7 +604,7 @@ try {
             $bal->execute([$treasury_id]);
             if (((float)$bal->fetchColumn()) < $amount) throw new RuntimeException("Fonds insuffisants.");
 
-            $ref = nextReference($db);
+            $ref = DocCounter::next($db, 'expense');
             $ins = $db->prepare("
                 INSERT INTO expenses
                     (reference, title, description, category_id, amount, expense_date,

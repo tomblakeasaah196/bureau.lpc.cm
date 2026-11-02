@@ -52,7 +52,7 @@ foreach ($templates as $t) {
 
     $db->beginTransaction();
     try {
-        $ref = 'EXR-' . date('ym') . '-' . strtoupper(bin2hex(random_bytes(2)));
+        $ref = DocCounter::next($db, 'expense_recurring');
         $ins = $db->prepare("
             INSERT INTO expenses
                 (reference, title, description, category_id, supplier_id, amount,

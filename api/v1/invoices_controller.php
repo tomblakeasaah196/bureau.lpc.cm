@@ -840,10 +840,10 @@ try {
             $air_amount  = round($subtotal * $air_rate, 0);
             $net_payable = $total_amount - $air_amount;
 
-            $hash      = strtoupper(substr(md5(uniqid(rand(), true)), 0, 4));
-            // Sprint 8: prefix + format come from app_preferences
-            // (Paramètres -> Préférences -> Numérotation). Was 'FAC-' hardcoded.
-            $reference = Prefs::docNumber('invoice', $hash);
+            // Prefix + format from app_preferences (Paramètres -> Préférences
+            // -> Numérotation); the number is the next in an unbroken sequence
+            // (DocCounter, migration 350). Was a random 4-character code.
+            $reference = DocCounter::next($db, 'invoice');
             $token     = bin2hex(random_bytes(16));
 
             // gross_subtotal / discount_amount / discount_note arrive with
@@ -1013,7 +1013,7 @@ try {
                 }
             }
 
-            $payRef = 'REC-' . strtoupper(substr(md5(uniqid()), 0, 6));
+            $payRef = DocCounter::next($db, 'receipt');
 
             $stmtPay = $db->prepare("
                 INSERT INTO payments (reference, invoice_id, client_id, amount,
@@ -1192,7 +1192,7 @@ try {
                 $invoice_id = $invLink ? $invLink['invoice_id'] : null;
 
                 // Log the payment
-                $payRef = 'REC-' . strtoupper(substr(md5(uniqid()), 0, 6));
+                $payRef = DocCounter::next($db, 'receipt');
                 $stmtInsertPay->execute([$payRef, $invoice_id, $client_id, $cash, $user_id, $user_id]);
                 $payment_id = (int) $db->lastInsertId();
 
@@ -1388,7 +1388,7 @@ try {
             }
 
             // 1. Payments row (wallet method)
-            $payRef = 'WLT-' . strtoupper(substr(md5(uniqid()), 0, 6));
+            $payRef = DocCounter::next($db, 'wallet');
             $stmtPay = $db->prepare("
                 INSERT INTO payments (reference, invoice_id, client_id, amount,
                                       payment_method, payment_date, status,

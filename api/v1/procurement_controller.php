@@ -1007,8 +1007,9 @@ try {
 
             $total_amount = max(0, $subtotal - $discount_amount);
 
-            $hash = strtoupper(substr(md5(uniqid(rand(), true)), 0, 4));
-            $reference = 'PO-' . date('ym') . '-' . $hash;
+            // PO-2611-0001: the next in an unbroken sequence (DocCounter,
+            // migration 350). Was a random 4-character code.
+            $reference = DocCounter::next($db, 'purchase');
             $token = bin2hex(random_bytes(16));
 
             // 1. CREATE PO AS PENDING (No stock, no accounting yet)
