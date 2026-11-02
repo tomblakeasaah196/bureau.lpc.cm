@@ -5,7 +5,7 @@
  * Bureau LPC ERP — Courrier: copy every connected mailbox's last 12 months into
  * bureau (docs/MAIL.md §4). Runs every minute from cPanel cron:
  *
- *   * * * * * /usr/local/bin/php /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/mail_sync.php >/dev/null 2>&1
+ *   * * * * * /usr/local/bin/ea-php83 /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/mail_sync.php >/dev/null 2>&1
  *
  * One run shares a 50-second budget across all mailboxes, the least recently
  * synced first; a first copy carries on over several runs. Two runs never
