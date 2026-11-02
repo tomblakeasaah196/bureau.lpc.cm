@@ -354,7 +354,7 @@ Per PR: open it against `main` with green CI, message the lead chat ("Sitemap an
 - **Not yet**:
   - Real mail shows only once a mailbox is connected (PR 1's "Not yet": the owner and staff enter their own mailbox passwords on Boîtes mail). Then, signed in, try once each: open a conversation (it is marked read for everyone; a shared mailbox shows "Ouvert par"), an HTML mail (pictures held back until "Afficher les images"), an attachment, a search, and an archive followed by Annuler.
   - The first HTML mail opened on live also confirms that the server's own Content-Security-Policy (`.htaccess`) leaves the reader's frame alone, as it should: it allows inline styles and `https:` pictures. The local check had no such policy.
-  - Nouveau message, Répondre, Répondre à tous, Transférer and Modifier le brouillon raise `mail:compose`, but **nothing opens until PR 3's composer is live** (the `composer` mount is still PR 1's stub on `main`).
+  - Nouveau message, Répondre, Répondre à tous, Transférer and Modifier le brouillon raise `mail:compose`, so they open nothing until PR 3's composer is live. PR 3 (#29) merged right after as `927289f` (release `abf46b3`) and records its own deploy; once it is live, try each button once from a conversation.
 - **Rollback**: revert #27 on `main`. The deployer releases the revert, which brings back PR 1's placeholder page. The `mail_image_trust` table can stay unused, and the database as it was before is in the dump above.
 
 ## 12. Changes to contracts, PR notes and requests
