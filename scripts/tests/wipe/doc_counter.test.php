@@ -24,6 +24,7 @@ require __DIR__ . '/support/bootstrap.php';
 // Child process of the parallel test: save N invoices, print their references
 if (preg_match('/^--child=(\d+)$/', $argv[1] ?? '', $m)) {
     $db = wipe_test_db(false);
+    $db->exec('SET FOREIGN_KEY_CHECKS = 0');   // only references matter here, not the invoice's client
     $ins = $db->prepare("INSERT INTO invoices (reference) VALUES (?)");
     for ($i = 0; $i < (int) $m[1]; $i++) {
         for ($try = 0; ; $try++) {
@@ -48,6 +49,7 @@ if (preg_match('/^--child=(\d+)$/', $argv[1] ?? '', $m)) {
 }
 
 $db = wipe_test_db();
+$db->exec('SET FOREIGN_KEY_CHECKS = 0');   // documents are saved with their reference only, not their client or order
 
 /** Take a number for $type in its own transaction, saving the document like a controller does */
 $save = function (string $type, ?string $date = null) use ($db): string {
