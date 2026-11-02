@@ -192,22 +192,18 @@ $lang = lpc_i18n_current_lang();
                 </div>
             </div>
 
-            <?php /* Sprint 14: there is no self-service recovery. SMTP is not
-                     configured, and the old "Oublié ?" tab called Mail::send(),
-                     which logs-and-returns-true when MAIL_FROM is empty — it
-                     reported success and delivered nothing. A dead end that
-                     LOOKS like it worked is worse than an honest instruction,
-                     so the honest instruction is what the page now shows.
-                     "Changer" still links out, because that one works. */ ?>
+            <?php /* 2 Nov 2026: self-service recovery is back (public/auth/
+                     password_forgot.php): an emailed link for the password, a
+                     masked hint from the matricule for the address. That page
+                     itself says to ask an administrator when this install
+                     cannot send email, so the link is always shown. */ ?>
             <div class="mt-2 mb-6 ml-1 space-y-1.5">
-                <a href="password_manager.php?lang=<?php echo $lang; ?>" class="block text-sm text-white/60 hover:text-lpc-light transition-colors font-medium">
+                <a href="password_forgot.php?lang=<?php echo $lang; ?>" class="block text-sm text-white/60 hover:text-lpc-light transition-colors font-medium">
+                    <?php echo $lang == 'fr' ? 'Mot de passe ou adresse oubliés ?' : 'Forgot your password or address?'; ?>
+                </a>
+                <a href="password_manager.php?lang=<?php echo $lang; ?>" class="block text-xs text-white/40 hover:text-lpc-light transition-colors">
                     <?php echo $lang == 'fr' ? 'Changer mon mot de passe' : 'Change my password'; ?>
                 </a>
-                <p class="text-xs text-white/40 leading-relaxed">
-                    <?php echo $lang == 'fr'
-                        ? 'Mot de passe oublié ? Contactez votre administrateur : il peut en définir un nouveau pour vous.'
-                        : 'Forgot your password? Contact your administrator — they can set a new one for you.'; ?>
-                </p>
             </div>
 
             <button type="submit" 

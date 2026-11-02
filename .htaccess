@@ -75,6 +75,7 @@ RewriteRule ^print_cre\.php$         /public/documents/print_cre.php       [L,QS
 RewriteRule ^verify\.php$            /public/verify.php                    [L,QSA]
 RewriteRule ^password_manager\.php$  /public/auth/password_manager.php     [L,QSA]
 RewriteRule ^password_reset\.php$    /public/auth/password_reset.php       [L,QSA]
+RewriteRule ^password_forgot\.php$   /public/auth/password_forgot.php      [L,QSA]
 RewriteRule ^reset/([A-Fa-f0-9]{32,128})/?$  /public/auth/password_reset.php?token=$1  [L,QSA]
 
 # Pretty URLs (no extension) — supported but not required.

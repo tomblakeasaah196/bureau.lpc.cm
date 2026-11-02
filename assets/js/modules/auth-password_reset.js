@@ -1,60 +1,121 @@
 /**
  * assets/js/modules/auth-password_reset.js
  * -----------------------------------------------------------------------------
- * Bureau LPC ERP — extracted from public/auth/password_reset.php (Sprint 6 D2).
+ * Bureau LPC ERP — the page an emailed reset link opens
+ * (public/auth/password_reset.php).
  *
- * Original block was ~2,501 chars inline. Moved here so the CSP
- * `script-src` can drop 'unsafe-inline'. Any SP5-tagged lines from
- * the Sprint 5 concurrency stream are preserved verbatim.
+ * The rules checklist renders from window.LPC.pwPolicy, emitted by
+ * lpc_password_policy_js() from the array lpc_password_check() enforces, the
+ * same way auth-password_manager.js does. It used to hardcode "Min 8" while
+ * the server required the configured minimum (10 by default). The button
+ * waits for every rule and a matching confirmation; the server re-checks all
+ * of it, and the link itself.
  * -----------------------------------------------------------------------------
  */
-const CSRF = (window.LPC && window.LPC.rbac && window.LPC.rbac.csrf) ? window.LPC.rbac.csrf : {token:'',header:'X-CSRF-Token'};
-const np = document.getElementById('np'), cp = document.getElementById('cp'), btn = document.getElementById('btn');
-let ro = false, mo = false;
-function tv(){ np.type = np.type === 'password' ? 'text' : 'password'; document.getElementById('eye').className = np.type === 'password' ? 'fas fa-eye' : 'fas fa-eye-slash'; }
-function rules(){
-    const v = np.value;
-    const R = { 'r-len': v.length>=8, 'r-cap': /[A-Z]/.test(v), 'r-num': /\d/.test(v), 'r-spec': /[!@#$%^&*(),.?":{}|<>]/.test(v) };
-    let all = true;
-    for (const [id, ok] of Object.entries(R)) { document.getElementById(id).className = ok?'valid':'invalid'; if(!ok) all = false; }
-    ro = all;
-    match();
-}
-function match(){
-    const m = document.getElementById('mt');
-    if (!cp.value){ m.classList.add('hidden'); mo=false; }
-    else if (np.value===cp.value){ m.textContent='✓ Correspondance'; m.className='text-xs mt-1 font-bold text-lpc-light block'; mo=true; }
-    else { m.textContent='✗ Les mots de passe ne correspondent pas'; m.className='text-xs mt-1 font-bold text-red-400 block'; mo=false; }
-    const ok = ro && mo;
-    btn.disabled = !ok;
-    btn.classList.toggle('opacity-50', !ok);
-    btn.classList.toggle('cursor-not-allowed', !ok);
-    btn.classList.toggle('hover:opacity-90', ok);
-}
-np.addEventListener('input', rules); cp.addEventListener('input', match);
+(function () {
+    'use strict';
 
-function alert_(kind, msg){
-    const el = document.getElementById('alert');
-    el.className = 'mb-4 p-3 rounded-lg text-sm font-medium border ' +
-        (kind === 'ok' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-100'
-                       : 'bg-red-500/10 border-red-500/30 text-red-100');
-    el.textContent = msg;
-    el.classList.remove('hidden');
-}
+    var CSRF = (window.LPC && window.LPC.rbac && window.LPC.rbac.csrf)
+        ? window.LPC.rbac.csrf
+        : { token: '', header: 'X-CSRF-Token' };
+    var POLICY = Array.isArray(window.LPC && window.LPC.pwPolicy) && window.LPC.pwPolicy.length
+        ? window.LPC.pwPolicy
+        : [
+            { id: 'len',  min: 10,  regex: null,           label: 'Au moins 10 caractères' },
+            { id: 'cap',  min: null, regex: '[A-Z]',        label: 'Une majuscule' },
+            { id: 'low',  min: null, regex: '[a-z]',        label: 'Une minuscule' },
+            { id: 'num',  min: null, regex: '\\d',          label: 'Un chiffre' },
+            { id: 'spec', min: null, regex: '[^A-Za-z0-9]', label: 'Un caractère spécial' }
+          ];
 
-document.getElementById('form-reset').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (btn.disabled) return;
-    const fd = new FormData(e.target);
-    fd.append('action', 'reset');
-    try {
-        const r = await fetch('/api/v1/password_controller.php', {
-            method: 'POST',
-            headers: { [CSRF.header]: CSRF.token },
-            body: fd,
+    var form = document.getElementById('form-reset');
+    var np = document.getElementById('np'), cp = document.getElementById('cp'), btn = document.getElementById('btn');
+    var rulesUl = document.getElementById('pw-rules');
+    if (!form || !np || !cp || !btn || !rulesUl) return;
+    var rulesOk = false, matchOk = false;
+
+    POLICY.forEach(function (rule) {
+        var li = document.createElement('li');
+        li.id = 'rule-' + rule.id;
+        li.className = 'invalid';
+        var dot = document.createElement('i');
+        dot.className = 'fas fa-circle text-[6px] mr-1';
+        li.appendChild(dot);
+        li.appendChild(document.createTextNode(' ' + rule.label));
+        rulesUl.appendChild(li);
+    });
+
+    function ruleHolds(rule, value) {
+        if (rule.regex === null || rule.regex === undefined) return Array.from(value).length >= (rule.min || 0);
+        try { return new RegExp(rule.regex, 'u').test(value); } catch (e) { return new RegExp(rule.regex).test(value); }
+    }
+
+    function checkRules() {
+        var all = true;
+        POLICY.forEach(function (rule) {
+            var ok = ruleHolds(rule, np.value);
+            var li = document.getElementById('rule-' + rule.id);
+            if (li) li.className = ok ? 'valid' : 'invalid';
+            if (!ok) all = false;
         });
-        const j = await r.json();
-        if (j.status === 'success') { alert_('ok', j.message); setTimeout(()=> location.href='/index.php', 1800); }
-        else alert_('err', j.message);
-    } catch (err) { alert_('err', 'Erreur de connexion.'); }
-});
+        rulesOk = all;
+        checkMatch();
+    }
+
+    function checkMatch() {
+        var m = document.getElementById('mt');
+        if (!cp.value) { m.classList.add('hidden'); matchOk = false; }
+        else if (np.value === cp.value) { m.textContent = '✓ Les mots de passe correspondent'; m.className = 'text-xs mt-1 font-bold text-lpc-light block'; matchOk = true; }
+        else { m.textContent = '✗ Les mots de passe ne correspondent pas'; m.className = 'text-xs mt-1 font-bold text-red-400 block'; matchOk = false; }
+        var ok = rulesOk && matchOk;
+        btn.disabled = !ok;
+        btn.classList.toggle('opacity-50', !ok);
+        btn.classList.toggle('cursor-not-allowed', !ok);
+        btn.classList.toggle('hover:opacity-90', ok);
+    }
+
+    np.addEventListener('input', checkRules);
+    cp.addEventListener('input', checkMatch);
+    document.getElementById('np-eye').addEventListener('click', function () {
+        np.type = np.type === 'password' ? 'text' : 'password';
+        document.getElementById('eye').className = np.type === 'password' ? 'fas fa-eye' : 'fas fa-eye-slash';
+    });
+
+    function alert_(kind, msg) {
+        var el = document.getElementById('alert');
+        el.className = 'mb-4 p-3 rounded-lg text-sm font-medium border ' +
+            (kind === 'ok' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-100'
+                           : 'bg-red-500/10 border-red-500/30 text-red-100');
+        el.textContent = msg;
+        el.classList.remove('hidden');
+    }
+
+    form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        if (btn.disabled) return;
+        var fd = new FormData(form);
+        fd.append('action', 'reset');
+        btn.disabled = true;
+        try {
+            var r = await fetch('/api/v1/password_controller.php', {
+                method: 'POST',
+                headers: { [CSRF.header]: CSRF.token },
+                body: fd,
+                credentials: 'same-origin'
+            });
+            var j = await r.json();
+            if (j.status === 'success') {
+                alert_('ok', j.message);
+                setTimeout(function () { location.href = '/index.php'; }, 1800);
+            } else {
+                alert_('err', j.message || 'Échec.');
+                btn.disabled = false;
+            }
+        } catch (err) {
+            alert_('err', 'Erreur de connexion. Réessayez.');
+            btn.disabled = false;
+        }
+    });
+
+    checkRules();
+})();

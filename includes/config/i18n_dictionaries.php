@@ -171,7 +171,8 @@ $LPC_I18N = [
         // Sprint 14 — login by email / admin-set passwords.
         'ui.adresse_email' => 'Adresse email',
         'ui.compte_connecte_actuellement' => 'Compte actuellement connecté.',
-        'ui.mot_de_passe_oublie_contactez_admin' => "Mot de passe oublié ? Cette installation n'envoie pas d'emails : demandez à un administrateur de définir un nouveau mot de passe pour vous depuis Paramètres → Utilisateurs.",
+        // 2 Nov 2026: links to public/auth/password_forgot.php (self-service recovery).
+        'ui.mot_de_passe_oublie_contactez_admin' => 'Mot de passe ou adresse oubliés ? Récupérez votre accès ici.',
         'ui.ann_e_en_cours_ytd' => 'Année en Cours (YTD)',
         'ui.aucun' => 'Aucun',
         'ui.aujourd_hui' => 'Aujourd\'hui',
@@ -1485,7 +1486,8 @@ $LPC_I18N = [
         // Sprint 14 — login by email / admin-set passwords.
         'ui.adresse_email' => 'Email address',
         'ui.compte_connecte_actuellement' => 'Currently signed-in account.',
-        'ui.mot_de_passe_oublie_contactez_admin' => 'Forgot your password? This installation does not send email: ask an administrator to set a new one for you from Settings → Users.',
+        // 2 Nov 2026: links to public/auth/password_forgot.php (self-service recovery).
+        'ui.mot_de_passe_oublie_contactez_admin' => 'Forgot your password or address? Recover your access here.',
         'ui.ann_e_en_cours_ytd' => 'Year to Date (YTD)',
         'ui.aucun' => 'None',
         'ui.aujourd_hui' => 'Today',

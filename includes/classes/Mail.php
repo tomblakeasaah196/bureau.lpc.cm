@@ -10,11 +10,27 @@
  *
  * Sprint 3 will replace this with PHPMailer + SMTP config from .env.
  * Consumers should only ever call Mail::send() so the swap is transparent.
+ *
+ * The cPanel server's exim delivers mail() and DKIM-signs it for the domains on
+ * the account (lpc.cm and its subdomains have valid SPF and DKIM, checked
+ * 2 Nov 2026). The envelope sender is set to MAIL_FROM with -f: without it exim
+ * uses the account's system address on the server hostname, which fails SPF
+ * alignment for the From domain.
  * -----------------------------------------------------------------------------
  */
 
 class Mail
 {
+    /**
+     * Whether mail actually leaves this host: MAIL_FROM is a valid address.
+     * Anything that tells a user "we sent you an email" must check this first,
+     * because send() logs and returns true when it is not.
+     */
+    public static function configured(): bool
+    {
+        return filter_var(env('MAIL_FROM', ''), FILTER_VALIDATE_EMAIL) !== false;
+    }
+
     /**
      * Send a plain-text email.
      *
@@ -48,8 +64,11 @@ class Mail
 
         $subjectEncoded = self::encHeader($subject);
 
+        // -f only with a validated address: it is passed to sendmail's command line
+        $envelope = self::configured() ? '-f' . $from : '';
+
         try {
-            return @mail($to, $subjectEncoded, $body, $hdrString);
+            return @mail($to, $subjectEncoded, $body, $hdrString, $envelope);
         } catch (Throwable $e) {
             error_log('Mail::send failed: ' . $e->getMessage());
             return false;
