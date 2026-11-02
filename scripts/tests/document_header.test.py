@@ -204,15 +204,21 @@ SIG_CLASS = (ROOT / 'includes/classes/DocumentSignature.php').read_text(encoding
 SIG_CTRL  = (ROOT / 'api/v1/proposal_signature_controller.php').read_text(encoding='utf-8')
 VERIFY    = (ROOT / 'public/verify.php').read_text(encoding='utf-8')
 HTACCESS  = (ROOT / '.htaccess').read_text(encoding='utf-8')
+# The quote's signature cell moved into this shared partial (the invoice uses it
+# too), so the guarantees below are checked where the code now lives.
+SIG_BLOCK = decomment((ROOT / 'includes/components/signature_block.php').read_text(encoding='utf-8'))
 
-check('quote looks up an active signature for the CURRENT figures',
-      'DocumentSignature::getActive(' in decomment(quote))
-check('quote never trusts a stale hash — getActive takes $doc, not just an id',
-      re.search(r"DocumentSignature::getActive\(\s*'quote'\s*,[^,]+,\s*\$doc\s*\)", decomment(quote)) is not None)
-check('quote renders a QR (or its text fallback) only when actually signed',
-      'lpc_qr_or_fallback(' in quote)
+check('quote renders the shared signature block',
+      "require __DIR__ . '/../components/signature_block.php'" in decomment(quote))
+check('the block looks up active signatures for the CURRENT figures — $doc, not just an id',
+      len(re.findall(r"DocumentSignature::getActiveByParty\(\s*\$type\s*,\s*\$docId\s*,\s*\$doc\s*,", SIG_BLOCK)) == 2)
+check('a QR (or its text fallback) renders only inside a signed party\'s cell',
+      all(re.search(r"<\?php if \(\$%s\): \?>(?:(?!<\?php if \(\$(?:internal|external)\): \?>).)*?lpc_qr_or_fallback\(" % p,
+                    SIG_BLOCK, re.S) for p in ('internal', 'external')))
 check('the signer name/role printed are the ones stored on the signature row, not request input',
-      "$signature['signer_name']" in quote and "$signature['signer_role']" in quote)
+      "$internal['signer_name']" in SIG_BLOCK and "$internal['signer_role']" in SIG_BLOCK
+      and "$external['signatory_name']" in SIG_BLOCK
+      and not re.search(r'\$_(POST|GET|REQUEST)\b', SIG_BLOCK))
 
 check('signing requires its own permission, not just proposal-view/create',
       "Rbac::requirePermission('crm.proposals.sign')" in SIG_CTRL)

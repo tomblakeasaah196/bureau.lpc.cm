@@ -744,7 +744,7 @@ function lpc_render_document_html(string $type, array $doc): string
     }
     if ($type === 'quote') {
         ob_end_clean();
-        return lpc_render_quote_pdf_html($doc, $lh, $lhLogo, $token);
+        return lpc_render_quote_pdf_html_fitted($doc, $lh, $lhLogo, $token);
     }
 
     // Inline template — dompdf handles this fine and it stays in one place.
@@ -1305,24 +1305,22 @@ require __DIR__ . '/../components/signature_block.php';
  *     ---------------------------------------
  *     fixed ...................... 196 mm     -> 84 mm for priced rows
  *
- * 84 mm buys 13 plain rows. The clamp below is still 9 — deliberately left at
- * the old, more pessimistic figure rather than raised to match, because the
- * 40-line stress case in scripts/tests/quote_onepager.test.php asserts the
- * exact "8 printed + 1 summed (32)" shape of the spill row, and changing the
- * clamp changes that count. The extra headroom this layout buys is margin,
- * not an invitation to loosen the clamp casually — if you do want to raise
- * it, update the test's expectations deliberately, in the same change.
- * Past 9 the tail is summed into a single "autres articles (N)" row: the ladder
- * still reconciles to the same total, and the full itemisation is one click away
- * in the HTML proposal. Truncating silently would be worse than spilling onto
- * page 2; summing visibly is not.
+ * 84 mm buys 13 plain rows, but only on paper. Measured in dompdf (2 Nov 2026),
+ * a row whose name and format wrap to two lines ("Eau minérale naturelle … —
+ * Bonbonne 20 L" does) is ~9 mm, the fixed blocks grow with a long client
+ * address, a TVA or accises line and the annexes, and a typical devis filled
+ * the page at six rows: nine put the signatures on page 2. So no fixed row
+ * count is safe. $max_rows (at most 9) caps the table, and
+ * lpc_render_quote_pdf_html_fitted() lowers it until dompdf says the page is
+ * one. Past the cap the tail is summed into a single "autres articles (N)" row:
+ * the ladder still reconciles to the same total, and the full itemisation is
+ * one click away in the HTML proposal. Truncating silently would be worse than
+ * spilling onto page 2; summing visibly is not.
  *
  * If you change a font size, a padding or a margin in here, re-run
  * scripts/tests/quote_onepager.test.php. It renders nine records through dompdf
  * — including 40 line items and a two-line client name — and asserts one page
- * each. The budget above is arithmetic; that test is the fact. I have not been
- * able to execute it myself while writing this (no PHP runtime in this
- * environment) — run it before you trust this comment over the test's output.
+ * each. The budget above is arithmetic; that test is the fact.
  *
  * What the 4-page proposal carries and this deliberately does not: the cover
  * title block, the company profile and capability prose, the reference logos,
@@ -1350,7 +1348,7 @@ require __DIR__ . '/../components/signature_block.php';
  * colon. Both are shared with the facture and worth fixing together, not in a
  * layout change.
  */
-function lpc_render_quote_pdf_html(array $doc, array $lh, string $lhLogo, string $token): string
+function lpc_render_quote_pdf_html(array $doc, array $lh, string $lhLogo, string $token, int $max_rows = 9): string
 {
     // $token is unused here, as it is in lpc_render_invoice_pdf_html: the
     // signature is uniform across the per-type templates so the dispatcher can
@@ -1409,10 +1407,11 @@ function lpc_render_quote_pdf_html(array $doc, array $lh, string $lhLogo, string
     // function and every $e(...) call below would fatal.
 
     // ---- the one variable-height block, clamped ----------------------------
-    // 9 = the pessimistic row count from the height budget in the docblock. The
-    // table never renders more than 9 rows: either 9 priced ones, or 8 plus the
-    // summed tail. $t['subtotal'] is untouched, so the ladder still adds up.
-    $max_rows = 9;
+    // The table never renders more than $max_rows rows: either that many priced
+    // ones, or one fewer plus the summed tail. lpc_render_quote_pdf_html_fitted()
+    // picks $max_rows by measuring (see the docblock). $t['subtotal'] is
+    // untouched, so the ladder still adds up.
+    $max_rows = max(2, $max_rows);
     $rows     = $doc['items'];
     $spill    = [];
     if (count($rows) > $max_rows) {
@@ -1785,6 +1784,42 @@ require __DIR__ . '/../components/signature_block.php';
 </body></html>
     <?php
     return (string) ob_get_clean();
+}
+
+/**
+ * The one-pager with as many priced rows as fit on one A4 page, at most 9.
+ *
+ * Row heights depend on how long each product name is, and the fixed blocks
+ * on the client's address, the fiscal ladder and the annexes, so the cap is
+ * measured rather than assumed: render at 9, and if dompdf lays that out on
+ * more than one page, binary-search the largest cap that fits (2 is the floor:
+ * one priced row plus the summed tail). A quote that already fits costs one
+ * extra layout pass; a long one about four.
+ */
+function lpc_render_quote_pdf_html_fitted(array $doc, array $lh, string $lhLogo, string $token): string
+{
+    $hi   = min(9, max(2, count($doc['items'] ?? [])));
+    $html = lpc_render_quote_pdf_html($doc, $lh, $lhLogo, $token, $hi);
+    if (PdfRenderer::pageCount($html) <= 1) {
+        return $html;
+    }
+    // $hi does not fit; find the largest cap in [2, $hi) that does
+    $lo = 2;
+    $best = null;
+    $hi--;
+    while ($lo <= $hi) {
+        $mid  = intdiv($lo + $hi, 2);
+        $try  = lpc_render_quote_pdf_html($doc, $lh, $lhLogo, $token, $mid);
+        if (PdfRenderer::pageCount($try) <= 1) {
+            $best = $try;
+            $lo   = $mid + 1;
+        } else {
+            $hi = $mid - 1;
+        }
+    }
+    // Nothing fits (an extreme address or terms text): the smallest table is the
+    // shortest the page can be, so print that rather than the full one.
+    return $best ?? lpc_render_quote_pdf_html($doc, $lh, $lhLogo, $token, 2);
 }
 
 function lpc_render_payslip_body(array $doc): string
