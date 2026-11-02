@@ -65,6 +65,45 @@ jobs:
       - name: Quick sign-in (passkey checks with real keys, PIN rules, wiring)
         run: php scripts/tests/quick_signin.test.php
 
+  mail:
+    # Courrier (docs/MAIL.md §9): every scripts/tests/mail/*.test.php, each blocking. PR 1's three: the engine
+    # without a server, the IMAP and SMTP clients over real sockets against scripted servers, then sync,
+    # threads, access, actions and Boîtes mail on a throwaway MariaDB 10.11 (the server's version) with the
+    # in-memory FakeMailServer. PRs 2-5 add their own files there and never edit this job. Never a real
+    # mailbox or password.
+    name: Courrier tests (engine, sockets, MariaDB 10.11)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: '1'
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=24
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_mysql, openssl
+          coverage: none
+      - name: Every Courrier test (scripts/tests/mail/*.test.php)
+        env:
+          MAIL_TEST_DB_HOST: 127.0.0.1
+          MAIL_TEST_DB_PORT: '3306'
+          MAIL_TEST_DB_USER: root
+        run: |
+          fail=0
+          for f in scripts/tests/mail/*.test.php; do
+            echo "::group::$f"
+            php "$f" || { echo "::error file=$f::$f failed"; fail=1; }
+            echo "::endgroup::"
+          done
+          exit $fail
+
   deployer:
     name: Deployer tests (deploy/server)
     runs-on: ubuntu-latest
@@ -78,7 +117,7 @@ jobs:
 
   release:
     name: Release to production
-    needs: [checks, deployer]
+    needs: [checks, mail, deployer]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15

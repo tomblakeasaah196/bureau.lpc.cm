@@ -113,6 +113,40 @@ $__nav = lpc_nav_sections($lang);
 
     <!-- Nav -->
     <div class="flex-1 overflow-y-auto py-3 px-3 space-y-4">
+    <?php
+    // Courrier (docs/MAIL.md). Every staff login has it (owner decision, 2 Nov
+    // 2026), whatever the role, so it sits above the role sections rather than
+    // in one of them, with the unread count of the person's Inbox(es). The count
+    // is cached 30 s in the session (LPC\Mail\MailNav) and never breaks the page.
+    $__mailUnread = 0;
+    try {
+        require_once __DIR__ . '/../mail/autoload.php';
+        $__mailUnread = \LPC\Mail\MailNav::unread((int) ($_SESSION['user_id'] ?? 0));
+    } catch (Throwable $__mailErr) {
+        error_log('sidebar mail count: ' . $__mailErr->getMessage());
+    }
+    $__mailActive = str_starts_with((string) $__currentPath, '/modules/mail/');
+    $__mailLabel  = $lang === 'en' ? 'Mail' : 'Courrier';
+    ?>
+    <ul role="menu" class="lpc-nav-pinned" aria-label="<?= htmlspecialchars($__mailLabel) ?>">
+        <li role="none">
+            <a href="/modules/mail/index.php"
+               role="menuitem"
+               data-lpc-mail-link
+               <?= $__mailActive ? 'aria-current="page"' : '' ?>
+               title="<?= htmlspecialchars($__mailLabel) ?><?= $__mailUnread > 0 ? ' (' . $__mailUnread . ')' : '' ?>"
+               class="lpc-focusable lpc-nav-link group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all">
+                <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"/>
+                </svg>
+                <span class="truncate lpc-label"><?= htmlspecialchars($__mailLabel) ?></span>
+                <span class="lpc-nav-badge" data-lpc-mail-unread <?= $__mailUnread > 0 ? '' : 'hidden' ?>>
+                    <span aria-hidden="true"><?= $__mailUnread > 99 ? '99+' : (int) $__mailUnread ?></span>
+                    <span class="sr-only"><?= (int) $__mailUnread ?> <?= $lang === 'en' ? 'unread' : 'non lu' . ($__mailUnread > 1 ? 's' : '') ?></span>
+                </span>
+            </a>
+        </li>
+    </ul>
     <?php foreach ($__nav as $__sectionIdx => $__section):
         // lpc_nav_sections() has already dropped anything this user can't see,
         // and omits a section entirely when none of its items survive.
@@ -377,5 +411,5 @@ if (!defined('LPC_SHELL_JS_EMITTED')) {
 // Free scope-local temporaries
 // Only this component's own __-prefixed temporaries. Never unset a generic
 // name here: an include shares the caller's scope and would wipe the page's var.
-unset($__profile, $__nav, $__section, $__item, $__active, $__currentPath, $__sectionIdx, $__headingId, $__secKey);
+unset($__profile, $__nav, $__section, $__item, $__active, $__currentPath, $__sectionIdx, $__headingId, $__secKey, $__mailUnread, $__mailActive, $__mailLabel);
 ?>

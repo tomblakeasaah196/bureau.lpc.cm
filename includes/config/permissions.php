@@ -245,6 +245,14 @@ $LPC_PERMISSIONS = [
         'signatures.contract.internal.sign'     => 'Signer un contrat en interne',
         'signatures.contract.external.sign'     => 'Inviter le cocontractant à signer un contrat',
     ],
+
+    // ---------------- Courrier (Mail) --------------------------------------
+    // Every staff login uses Courrier without a permission (owner decision,
+    // 2 Nov 2026). This one is for admins: add shared mailboxes and manage
+    // every shared one. Granted to admin by migration 300. docs/MAIL.md.
+    'mail' => [
+        'mail.shared.manage' => 'Ajouter des boîtes mail partagées et gérer toutes les boîtes partagées',
+    ],
 ];
 
 /**

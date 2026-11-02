@@ -23,6 +23,7 @@ error_log
 *.sql
 !migrations/*.sql
 !scripts/tests/*.sql
+!scripts/tests/mail/support/*.sql
 
 # Backups
 *.bak
