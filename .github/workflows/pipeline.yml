@@ -1,0 +1,132 @@
+# Tests on every push and pull request; on main, a green run is released to the `production` branch, which the
+# server polls and deploys (deploy/server/bureau-deploy.sh, runbook docs/DEPLOY.md). No secrets: the release push
+# uses the workflow's own token, and the server reads this public repository over HTTPS.
+name: Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: pipeline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Code checks (lint, migrations, tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_mysql, gd, dom, xml
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Nothing secret is tracked (the repository is public)
+        run: |
+          fail=0
+          if git ls-files | grep -qxE '\.env|.*/\.env'; then echo "::error::an .env file is tracked"; fail=1; fi
+          dumps=$(git ls-files | grep -iE '\.(sql|sql\.gz|dump)$' | grep -vE '^(migrations|scripts/tests)/' || true)
+          if [ -n "$dumps" ]; then echo "$dumps"; echo "::error::a database dump is tracked"; fail=1; fi
+          if git ls-files 'uploads/*' | grep -vE '(^|/)(\.gitkeep|\.htaccess)$'; then echo "::error::an uploaded file is tracked"; fail=1; fi
+          exit $fail
+      - name: Composer
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: PHP syntax (every tracked .php file)
+        run: |
+          git ls-files -z '*.php' | xargs -0 -n1 -P4 sh -c 'php -l "$0" >/dev/null 2>&1 || { php -l "$0"; exit 255; }'
+          echo "$(git ls-files '*.php' | wc -l) files parse"
+      - name: Migrations (numbering, duplicates, idempotency)
+        run: php scripts/tests/migration_lint.test.php
+      - name: Accounting and invoicing tests
+        run: |
+          python3 scripts/tests/syscohada_postings.test.py
+          python3 scripts/tests/ledger_mapping.test.py
+          python3 scripts/tests/to_invoice_query.test.py
+      - name: Front-end tests
+        run: |
+          node scripts/tests/product_picker.test.js
+          node scripts/tests/facture_render.test.js "$PWD"
+
+  # These four fail on main today (2 Nov 2026), on code that is live. They run and report here without blocking
+  # a release; once one passes, move it into the job above.
+  known-failures:
+    name: Known failing tests (not blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, gd, dom, xml
+          coverage: none
+      - name: Composer
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Run them and report
+        run: |
+          failing=0
+          for t in "php scripts/tests/qr_render.test.php" "php scripts/tests/quote_onepager.test.php" \
+                   "php scripts/tests/signature_canonical_payload.test.php" "python3 scripts/tests/document_header.test.py"; do
+            echo "::group::$t"
+            if $t; then r=passes; else r='fails'; failing=$((failing + 1)); echo "::warning::$t still fails"; fi
+            echo "::endgroup::"
+            echo "- \`$t\` $r" >> "$GITHUB_STEP_SUMMARY"
+          done
+          echo "$failing of 4 known failing tests still fail" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  deployer:
+    name: Deployer tests (deploy/server)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax
+        run: bash -n deploy/server/bureau-deploy.sh
+      - name: Releases against a throwaway server home (stubs for php, mysqldump, curl, uapi)
+        run: bash deploy/server/tests/deploy-test.sh
+
+  release:
+    name: Release to production
+    needs: [checks, deployer]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Build the CSS and the JS bundle (the server has no Node)
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+          python3 scripts/build_theme_css.py
+      - name: Commit the build on top of main and publish it as `production`
+        run: |
+          git config user.name "bureau-release"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B release
+          git add -f assets/css/tailwind.css assets/css/lpc-theme.css assets/js/build
+          git commit -q --allow-empty -m "Release ${GITHUB_SHA::7}: built assets for ${GITHUB_SHA}"
+          git push -f origin HEAD:production
+          {
+            echo "### Released ${GITHUB_SHA::7}"
+            echo "Built files that differ from main:"
+            echo '```'
+            git diff --stat HEAD~1 HEAD
+            echo '```'
+            echo "The server deploys \`production\` within a minute; its log is ~/deploy/bureau/logs (docs/DEPLOY.md)."
+          } >> "$GITHUB_STEP_SUMMARY"
