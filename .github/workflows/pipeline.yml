@@ -60,6 +60,8 @@ jobs:
           php scripts/tests/quote_onepager.test.php
           python3 scripts/tests/document_header.test.py
           php scripts/tests/signature_canonical_payload.test.php
+      - name: Account recovery (masked address, reset-link guarantees)
+        run: php scripts/tests/account_recovery.test.php
 
   deployer:
     name: Deployer tests (deploy/server)

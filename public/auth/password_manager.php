@@ -21,10 +21,9 @@
  * it costs the user their time before they discover it. The tab is gone. The
  * page states plainly who to ask, and the login page repeats it.
  *
- * Re-enabling later: set MAIL_FROM in .env, flip
- * LPC_PASSWORD_RESET_BY_EMAIL_ENABLED in api/v1/password_controller.php, and
- * restore a "forgot" form. The token machinery, the password_resets table and
- * password_reset.php are all still here and still correct.
+ * 2 Nov 2026: recovery came back as its own page, public/auth/password_forgot.php
+ * (emailed link, masked address from the matricule), on whenever MAIL_FROM is
+ * set. The note at the foot of this page links there.
  *
  * The identifier is the EMAIL ADDRESS, prefilled from the session when the user
  * is signed in (the common case: this page is reached from the account menu).
@@ -156,7 +155,7 @@ body{background:#051A0F;color:#eee;min-height:100vh;font-family:Inter,sans-serif
     <div class="mt-6 pt-5 border-t border-white/10">
         <p class="text-xs text-white/50 leading-relaxed">
             <i class="fas fa-circle-info mr-1 text-white/30"></i>
-            <?= __t('ui.mot_de_passe_oublie_contactez_admin') ?>
+            <a href="/password_forgot.php?lang=<?= $lang ?>" class="underline hover:text-white"><?= __t('ui.mot_de_passe_oublie_contactez_admin') ?></a>
         </p>
     </div>
 

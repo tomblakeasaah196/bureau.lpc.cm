@@ -12,24 +12,20 @@
  *    local regex that hardcoded a minimum of 8 while the admin-facing
  *    preference said 10.
  * 3. Reusing the current password as the new one is refused.
- * 4. `request_reset` and `reset` are DISABLED behind the constant below.
  *
- * WHY THE RESET ACTIONS ARE DISABLED RATHER THAN DELETED
- * ------------------------------------------------------
- * There is no SMTP on this host. `Mail::send()` detects that (MAIL_FROM empty),
- * writes the message to the PHP error log, and returns TRUE — so the old
- * `request_reset` answered "a reset link has been sent" to every caller and
- * sent nothing, for as long as the feature has existed. The user then waited
- * for an email that was never coming.
+ * SELF-SERVICE RECOVERY (2 Nov 2026)
+ * ----------------------------------
+ * Sprint 14 switched the email reset off because `Mail::send()` logs and
+ * returns TRUE when MAIL_FROM is empty: `request_reset` answered "a link has
+ * been sent" and sent nothing. The flow is now on exactly when mail really
+ * leaves the host (lpc_reset_by_email_enabled() = Mail::configured()), so the
+ * same .env line that makes email work makes the reset work, and an install
+ * without it still refuses honestly and points to an administrator.
  *
- * Deleting the code would mean rewriting it when SMTP arrives. Leaving it
- * callable would mean continuing to lie. So it stays, correct and inert,
- * behind one constant. Turning it back on is: configure MAIL_FROM in .env, set
- * LPC_PASSWORD_RESET_BY_EMAIL_ENABLED to true, restore the "forgot" form on
- * password_manager.php. Nothing else.
- *
- * Until then the recovery path is human: an administrator sets a new password
- * from Paramètres -> Utilisateurs, which kills that user's sessions.
+ * Also new: `email_hint`, for someone who forgot which address they sign in
+ * with. The matricule returns the address masked, and `request_reset` accepts
+ * the matricule too, so the link reaches that mailbox without the page ever
+ * showing the address in full.
  *
  * Actions:
  *
@@ -38,12 +34,22 @@
  *     Effect: verify old_password, apply the policy, update, kill the user's
  *             OTHER sessions (the current one survives).
  *
- *   POST action=request_reset   -> 503, disabled (see above)
- *   POST action=reset           -> 503, disabled (see above)
+ *   POST action=request_reset
+ *     Body: email OR matricule
+ *     Effect: emails a single-use link valid one hour; earlier links die. The
+ *             answer is the same whether or not the account exists.
+ *
+ *   POST action=email_hint
+ *     Body: matricule
+ *     Effect: the active account's address, masked (lpc_mask_email()).
+ *
+ *   POST action=reset
+ *     Body: token, new_password
+ *     Effect: apply the policy, update, consume the link, kill every session.
  *
  * All actions:
  *   - CSRF required (Csrf::requireValid())
- *   - Rate-limited per IP
+ *   - Rate-limited per IP; the recovery actions per account too
  *   - Password policy from includes/functions/password_policy.php
  *
  * Response envelope: { status: 'success'|'error', message: string }
@@ -51,15 +57,7 @@
  */
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
-
-/**
- * Master switch for the email-token recovery flow.
- *
- * FALSE until SMTP exists. See the file header. Flipping this to true without
- * a working MAIL_FROM restores the silent-failure bug it was introduced to
- * stop, so check .env first.
- */
-const LPC_PASSWORD_RESET_BY_EMAIL_ENABLED = false;
+require_once __DIR__ . '/../../includes/functions/account_recovery.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -190,73 +188,73 @@ try {
             reply(true, 'Mot de passe mis à jour avec succès.');
         }
 
-        // ==================== REQUEST RESET (disabled) ====================
-        // Left intact below the guard so re-enabling is one constant. See the
-        // file header for why it cannot be allowed to run without SMTP.
+        // ==================== REQUEST RESET ====================
         case 'request_reset': {
-            if (!LPC_PASSWORD_RESET_BY_EMAIL_ENABLED) {
-                http_response_code(503);
-                reply(false, "La réinitialisation par email n'est pas disponible sur cette installation. "
-                           . "Demandez à un administrateur de définir un nouveau mot de passe pour vous.");
+            pw_require_reset_enabled();
+            // Per IP it is a wide backstop: the whole office shares one address
+            // (see auth.php). The real limit is per identifier, below.
+            RateLimiter::guard('pw_reset_req', $ip, 20, 60);
+
+            // The address, or the matricule for someone who forgot the address
+            // (email_hint showed it masked). Sprint 14: no second factor beyond
+            // that — both values appear on any internal directory listing.
+            $email     = mb_strtolower(trim($_POST['email'] ?? ''));
+            $matricule = trim($_POST['matricule'] ?? '');
+            if ($email === '' && $matricule === '') {
+                reply(false, 'Indiquez votre adresse email ou votre matricule.');
             }
 
-            RateLimiter::guard('pw_reset_req', $ip, 3, 60);
+            // Three links an hour per identifier, keyed on what was TYPED so a
+            // known and an unknown account hit the limit alike (a limiter keyed
+            // on the account would confirm which ones exist). Without it the
+            // public page could fill a colleague's inbox.
+            $typed = $email !== '' ? $email : 'mat:' . mb_strtolower($matricule);
+            RateLimiter::guard('pw_reset_acct', 'acct:' . substr(hash('sha256', $typed), 0, 40), 3, 60);
 
-            // Sprint 14: keyed on the email alone. Requiring code + email was
-            // a second factor that only ever inconvenienced the account owner —
-            // both values appear on any internal directory listing.
-            $email = mb_strtolower(trim($_POST['email'] ?? ''));
+            // The same answer whether or not an account matched.
+            $genericMsg = "Si un compte actif correspond, un lien de réinitialisation vient d'être envoyé "
+                        . "à son adresse email. Il est valable 1 heure.";
 
-            // Always return the same generic message — never leak whether the
-            // address matches a user.
-            $genericMsg = 'Si les informations correspondent, un lien de réinitialisation a été envoyé à votre adresse email.';
-
-            if ($email === '') reply(true, $genericMsg);
-
-            $stmt = $db->prepare("SELECT id, email, employee_code, status FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1");
-            $stmt->execute([$email]);
-            $u = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$u || $u['status'] !== 'active') {
-                error_log("[password] reset requested for unknown/inactive email={$email} ip={$ip}");
+            $u = $email !== '' ? pw_user_by_email($db, $email) : pw_user_by_matricule($db, $matricule);
+            if (!$u || $u['status'] !== 'active' || trim((string) $u['email']) === '') {
+                error_log('[password] reset requested for no active account (' . ($email !== '' ? 'email' : 'matricule') . ") ip={$ip}");
                 reply(true, $genericMsg);
             }
-            $code = (string) ($u['employee_code'] ?? '');
 
-            // Invalidate any pending resets so only the latest link works.
+            // Only the newest link works.
             $db->prepare("UPDATE password_resets SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL")
                ->execute([$u['id']]);
 
-            $rawToken   = bin2hex(random_bytes(32));
-            $tokenHash  = hash('sha256', $rawToken);
-            $expiresAt  = date('Y-m-d H:i:s', time() + 3600);
-
+            $rawToken  = bin2hex(random_bytes(32));
+            $expiresAt = date('Y-m-d H:i:s', time() + 3600);
             $db->prepare("
                 INSERT INTO password_resets (user_id, token_hash, ip, user_agent, expires_at)
                 VALUES (?, ?, ?, ?, ?)
-            ")->execute([$u['id'], $tokenHash, $ip, $ua, $expiresAt]);
+            ")->execute([$u['id'], hash('sha256', $rawToken), $ip, $ua, $expiresAt]);
 
-            $base = rtrim((string) env('APP_URL', 'https://bureau.lpc.cm'), '/');
-            $link = $base . '/password_reset.php?token=' . urlencode($rawToken);
+            // The short /reset/{token} route is in .htaccess
+            $link = rtrim((string) env('APP_URL', 'https://bureau.lpc.cm'), '/') . '/reset/' . $rawToken;
 
-            // Sprint 8: the company name and the ERP name in this email were
-            // hardcoded ("Ets. La Petite Cour", "Bureau LPC"). They now come
-            // from company_profile so a rename propagates to outbound mail too.
+            // Sprint 8: company and ERP names come from company_profile so a
+            // rename propagates to outbound mail too.
             $companyName = CompanyProfile::displayName();
             $erpName     = CompanyProfile::erpName();
+            $hello       = trim((string) ($u['first_name'] ?? '')) !== '' ? 'Bonjour ' . trim($u['first_name']) . ',' : 'Bonjour,';
+            $code        = (string) ($u['employee_code'] ?? '');
 
             $subject = "Réinitialisation de votre mot de passe — {$erpName}";
             $body    = <<<EMAIL
-Bonjour,
+{$hello}
 
 Une demande de réinitialisation de mot de passe a été enregistrée pour votre
-compte {$erpName} (code employé : {$code}).
+compte {$erpName} (matricule : {$code}).
 
-Pour définir un nouveau mot de passe, cliquez sur le lien ci-dessous. Ce lien
-est valide pendant 1 heure et ne peut être utilisé qu'une seule fois :
+Pour définir un nouveau mot de passe, ouvrez le lien ci-dessous. Il est valable
+1 heure et ne peut servir qu'une seule fois :
 
 {$link}
 
-Si vous n'avez PAS demandé ce lien, ignorez cet email — votre mot de passe
+Si vous n'avez PAS demandé ce lien, ignorez cet email : votre mot de passe
 actuel reste inchangé.
 
 Adresse IP à l'origine de la demande : {$ip}
@@ -265,67 +263,86 @@ Adresse IP à l'origine de la demande : {$ip}
 {$companyName}
 EMAIL;
 
-            // Required here, not at the top of the file: this is the only
-            // statement in the controller that needs it, and it is unreachable
-            // while LPC_PASSWORD_RESET_BY_EMAIL_ENABLED is false. Requiring it
-            // unconditionally would load a class the live code path never uses.
-            require_once __DIR__ . '/../../includes/classes/Mail.php';
-            Mail::send($u['email'], $subject, $body);
-            pw_audit($u['id'], 'Password reset requested from ' . $ip);
+            if (!Mail::send(trim($u['email']), $subject, $body)) {
+                // Logged, not shown: telling the caller would confirm the account
+                error_log("[password] reset email for user {$u['id']} was not handed to the mail server");
+            }
+            pw_audit($u['id'], 'Password reset link sent, requested from ' . $ip);
             reply(true, $genericMsg);
         }
 
-        // ==================== RESET (disabled) ====================
-        // A token can only exist if request_reset issued one, which it no
-        // longer does — but any token minted before this deploy is still in
-        // password_resets and still inside its hour, so the gate is explicit
-        // rather than implied.
-        case 'reset': {
-            if (!LPC_PASSWORD_RESET_BY_EMAIL_ENABLED) {
-                http_response_code(503);
-                reply(false, "La réinitialisation par email n'est pas disponible sur cette installation. "
-                           . "Demandez à un administrateur de définir un nouveau mot de passe pour vous.");
-            }
+        // ==================== EMAIL HINT ====================
+        // For someone who forgot which address they sign in with. The owner
+        // chose this over "ask an administrator" (2 Nov 2026), knowing that it
+        // tells whoever holds a matricule part of an address: so it shows only
+        // a masked form, and it is rate-limited per IP and per matricule.
+        case 'email_hint': {
+            RateLimiter::guard('pw_hint', $ip, 10, 60);
+            $matricule = trim($_POST['matricule'] ?? '');
+            if ($matricule === '') reply(false, 'Indiquez votre matricule.');
+            RateLimiter::guard('pw_hint_acct', 'mat:' . substr(hash('sha256', mb_strtolower($matricule)), 0, 40), 5, 60);
 
-            RateLimiter::guard('pw_reset', $ip, 5, 60);
+            $u = pw_user_by_matricule($db, $matricule);
+            if (!$u || $u['status'] !== 'active' || trim((string) $u['email']) === '') {
+                reply(false, 'Aucun compte actif ne correspond à ce matricule. Vérifiez-le sur votre bulletin '
+                           . 'de paie, ou demandez à un administrateur.');
+            }
+            pw_audit($u['id'], 'Sign-in address hint shown, requested from ' . $ip);
+            reply(true, 'Votre adresse de connexion :', [
+                'hint'        => lpc_mask_email(mb_strtolower(trim($u['email']))),
+                'can_send'    => lpc_reset_by_email_enabled(),
+            ]);
+        }
+
+        // ==================== RESET ====================
+        case 'reset': {
+            pw_require_reset_enabled();
+            RateLimiter::guard('pw_reset', $ip, 10, 60);
 
             $raw = trim($_POST['token'] ?? '');
             $new = $_POST['new_password'] ?? '';
-            if ($raw === '' || $new === '') reply(false, 'Lien invalide ou données manquantes.');
+            if (!preg_match('/^[a-f0-9]{64}$/', $raw) || $new === '') reply(false, 'Lien invalide ou données manquantes.');
             $policy = lpc_password_check($new);
-            if (!$policy['ok'])              reply(false, $policy['message']);
+            if (!$policy['ok']) reply(false, $policy['message']);
 
-            $tokenHash = hash('sha256', $raw);
+            // The row is locked until the commit, so the same link opened in two
+            // tabs cannot reset the password twice: the second waits, then sees
+            // used_at set.
+            $db->beginTransaction();
             $stmt = $db->prepare("
-                SELECT id, user_id, expires_at, used_at
-                  FROM password_resets
-                 WHERE token_hash = ?
+                SELECT pr.id, pr.user_id, pr.expires_at, pr.used_at, u.status
+                  FROM password_resets pr
+                  JOIN users u ON u.id = pr.user_id
+                 WHERE pr.token_hash = ?
                  LIMIT 1
+                   FOR UPDATE
             ");
-            $stmt->execute([$tokenHash]);
+            $stmt->execute([hash('sha256', $raw)]);
             $pr = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if (!$pr)                                     reply(false, 'Lien invalide.');
-            if ($pr['used_at'] !== null)                  reply(false, 'Lien déjà utilisé. Demandez un nouveau lien.');
-            if (strtotime($pr['expires_at']) < time())    reply(false, 'Lien expiré. Demandez un nouveau lien.');
+            $refuse = null;
+            if (!$pr)                                       $refuse = 'Lien invalide. Demandez un nouveau lien.';
+            elseif ($pr['used_at'] !== null)                $refuse = 'Lien déjà utilisé. Demandez un nouveau lien.';
+            elseif (strtotime($pr['expires_at']) < time())  $refuse = 'Lien expiré. Demandez un nouveau lien.';
+            elseif ($pr['status'] !== 'active')             $refuse = 'Ce compte est désactivé. Contactez votre administrateur.';
+            if ($refuse !== null) {
+                $db->rollBack();
+                reply(false, $refuse);
+            }
 
-            $newHash = lpc_password_hash($new);
-
-            $db->beginTransaction();
             $db->prepare("
                 UPDATE users
                    SET password_hash = ?, must_reset_password = 0, password_changed_at = NOW()
                  WHERE id = ?
-            ")->execute([$newHash, $pr['user_id']]);
-
+            ")->execute([lpc_password_hash($new), $pr['user_id']]);
             $db->prepare("UPDATE password_resets SET used_at = NOW() WHERE id = ?")
                ->execute([$pr['id']]);
-
+            // Every session: whoever knew the old password is signed out too
             $db->prepare("UPDATE user_sessions SET logout_time = NOW() WHERE user_id = ? AND logout_time IS NULL")
                ->execute([$pr['user_id']]);
             $db->commit();
 
-            pw_audit($pr['user_id'], 'Password reset via token from ' . $ip);
+            pw_audit($pr['user_id'], 'Password reset via emailed link from ' . $ip);
             reply(true, 'Mot de passe mis à jour. Vous pouvez maintenant vous connecter.');
         }
 
@@ -348,4 +365,38 @@ function pw_audit(int $userId, string $note): void {
             VALUES (?, 'UPDATE', 'users', ?, ?)
         ")->execute([$userId, $userId, $note]);
     } catch (Throwable $e) { error_log('pw audit: ' . $e->getMessage()); }
+}
+
+/** Refuse the email-link actions honestly when mail does not leave this host. */
+function pw_require_reset_enabled(): void {
+    if (lpc_reset_by_email_enabled()) return;
+    http_response_code(503);
+    reply(false, "La réinitialisation par email n'est pas disponible sur cette installation. "
+               . "Demandez à un administrateur de définir un nouveau mot de passe pour vous.");
+}
+
+// The account behind an address or a matricule. Name and matricule come from
+// `employees` (Sprint 15: the single source), joined through users.employee_id.
+function pw_user_by_email(PDO $db, string $email): ?array {
+    $s = $db->prepare("
+        SELECT u.id, u.email, u.status, e.employee_code, e.first_name
+          FROM users u
+     LEFT JOIN employees e ON e.id = u.employee_id
+         WHERE LOWER(TRIM(u.email)) = ?
+         LIMIT 1
+    ");
+    $s->execute([$email]);
+    return $s->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
+function pw_user_by_matricule(PDO $db, string $matricule): ?array {
+    $s = $db->prepare("
+        SELECT u.id, u.email, u.status, e.employee_code, e.first_name
+          FROM employees e
+          JOIN users u ON u.employee_id = e.id
+         WHERE UPPER(TRIM(e.employee_code)) = UPPER(?)
+         LIMIT 1
+    ");
+    $s->execute([trim($matricule)]);
+    return $s->fetch(PDO::FETCH_ASSOC) ?: null;
 }

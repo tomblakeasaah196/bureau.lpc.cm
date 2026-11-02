@@ -2,36 +2,29 @@
 /**
  * public/auth/password_reset.php
  * -----------------------------------------------------------------------------
- * Landing page for the email link. Validates the token client-side (server
- * re-validates on submit) and lets the user pick a new password. On success
+ * Landing page for the email link (/reset/{token}, sent by
+ * public/auth/password_forgot.php). Lets the user pick a new password; the
+ * server checks the token, the policy and the expiry on submit. On success
  * → back to /index.php to log in fresh.
+ *
+ * Sprint 14 made this page unreachable while no email could leave the host.
+ * It opens again exactly when mail is configured (lpc_reset_by_email_enabled()),
+ * the same switch the controller uses.
  * -----------------------------------------------------------------------------
  */
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/functions/account_recovery.php';
 
 $lang = lpc_i18n_current_lang();
 
-/**
- * SPRINT 14 — this page is unreachable by design.
- *
- * It is the landing page for a link that arrives by email, and no email can
- * leave this host: MAIL_FROM is unset, so Mail::send() logs and returns true.
- * api/v1/password_controller.php now refuses both `request_reset` and `reset`
- * with a 503, so a user who somehow arrived here — a token minted before the
- * deploy, a bookmarked link, a forwarded message — would fill in the form,
- * submit, and be told no. Better to say so immediately.
- *
- * The form below is left in the file, unreachable, for the same reason the
- * controller keeps its logic: when SMTP is configured this becomes a one-line
- * revert instead of a rewrite. See docs/SPRINT14_EMAIL_LOGIN.md.
- */
-header('Location: /index.php?error=reset_disabled');
-exit;
-
-// phpcs:disable — everything below is dormant until SMTP exists.
+if (!lpc_reset_by_email_enabled()) {
+    header('Location: /index.php?error=reset_disabled');
+    exit;
+}
+// request_reset mints 64 hex characters; anything else is not one of ours
 $token = trim($_GET['token'] ?? '');
-if ($token === '' || strlen($token) < 32 || strlen($token) > 128) {
+if (!preg_match('/^[a-f0-9]{64}$/', $token)) {
     header('Location: /index.php?error=reset_invalid'); exit;
 }
 ?>
@@ -69,22 +62,19 @@ body{background:#051A0F;color:#eee;min-height:100vh;font-family:Inter,sans-serif
         <input type="hidden" name="token" value="<?= htmlspecialchars($token) ?>">
 
         <div>
-            <label class="block text-xs uppercase tracking-wider text-white/70 mb-1.5"><?= __t('ui.nouveau_mot_de_passe') ?></label>
+            <label for="np" class="block text-xs uppercase tracking-wider text-white/70 mb-1.5"><?= __t('ui.nouveau_mot_de_passe') ?></label>
             <div class="relative">
                 <input type="password" id="np" name="new_password" required autocomplete="new-password"
                        class="w-full field rounded-xl py-3 pl-4 pr-11 text-sm" placeholder="••••••••">
-                <button type="button" onclick="tv()" class="absolute inset-y-0 right-0 px-3 text-white/70 hover:text-white" aria-label="Show"><i id="eye" class="fas fa-eye"></i></button>
+                <button type="button" id="np-eye" class="absolute inset-y-0 right-0 px-3 text-white/70 hover:text-white" aria-label="Show password"><i id="eye" class="fas fa-eye"></i></button>
             </div>
-            <ul class="mt-2 text-[10px] space-y-1 pl-1">
-                <li id="r-len"  class="invalid"><i class="fas fa-circle text-[6px] mr-1"></i> Min 8 caractères</li>
-                <li id="r-cap"  class="invalid"><i class="fas fa-circle text-[6px] mr-1"></i> 1 majuscule</li>
-                <li id="r-num"  class="invalid"><i class="fas fa-circle text-[6px] mr-1"></i> 1 chiffre</li>
-                <li id="r-spec" class="invalid"><i class="fas fa-circle text-[6px] mr-1"></i> 1 caractère spécial</li>
-            </ul>
+            <?php /* Built by JS from window.LPC.pwPolicy (lpc_password_policy_js), the
+                     rules the server enforces — not the old hardcoded "Min 8". */ ?>
+            <ul id="pw-rules" class="mt-2 text-[10px] space-y-1 pl-1"></ul>
         </div>
 
         <div>
-            <label class="block text-xs uppercase tracking-wider text-white/70 mb-1.5"><?= __t('ui.modal.confirm') ?></label>
+            <label for="cp" class="block text-xs uppercase tracking-wider text-white/70 mb-1.5"><?= __t('ui.modal.confirm') ?></label>
             <input type="password" id="cp" required autocomplete="new-password"
                    class="w-full field rounded-xl py-3 px-4 text-sm" placeholder="••••••••">
             <p id="mt" class="text-xs mt-1 font-bold hidden"></p>
@@ -102,6 +92,7 @@ body{background:#051A0F;color:#eee;min-height:100vh;font-family:Inter,sans-serif
 </div>
 
 <?= Rbac::jsBootstrap() ?>
+<?= lpc_password_policy_js($lang) ?>
 <script src="<?= lpc_asset('/assets/js/lpc-dom.js') ?>"  defer></script>
 <script src="<?= lpc_asset('/assets/js/lpc-rbac.js') ?>" defer></script>
 <script src="<?= lpc_asset('/assets/js/modules/auth-password_reset.js') ?>" defer></script>
