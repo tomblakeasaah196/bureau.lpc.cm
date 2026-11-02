@@ -4,7 +4,7 @@
  * -----------------------------------------------------------------------------
  * Bureau LPC ERP — Courrier: daily housekeeping (docs/MAIL.md §4).
  *
- *   35 0 * * * /usr/local/bin/php /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/mail_prune.php >> /home/smartqaq/logs/lpc-cron.log 2>&1
+ *   35 0 * * * /usr/local/bin/ea-php83 /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/mail_prune.php >> /home/smartqaq/logs/lpc-cron.log 2>&1
  *
  *   1. presence rows (viewing / replying) past their expiry;
  *   2. finished outbox rows (sent, cancelled) older than 30 days, and failed
