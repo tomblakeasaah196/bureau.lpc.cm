@@ -145,27 +145,24 @@ $samples = [
 // ----------------------------------------------------------------------------
 // Expected hashes.
 //
-// FIRST-RUN BOOTSTRAP: this array is intentionally empty when the file is
-// first shipped. Run the test once (from the project root):
-//     php scripts/tests/signature_canonical_payload.test.php
-// The runner will print the actual hashes for every sample and exit 1. Copy
-// them into $expected below, commit, and from then on any drift trips a
-// build failure with a clear diff.
+// Pinned 2 Nov 2026 (owner's decision) from the payload code as it has been
+// since f0db776 (1 Aug 2026), the version live today. PHP 8.3 printed the same
+// values on Linux (CI) and Windows. From here on any drift trips the build.
 //
-// This bootstrap step exists because computing the hashes requires PHP's
+// They come from PHP itself because computing the hashes requires PHP's
 // exact json_encode output (float precision, key ordering), which differs
 // subtly enough from any other implementation that seeding them from
 // another language would produce wrong values.
 // ----------------------------------------------------------------------------
 
 $expected = [
-    // 'quote'        => '...',
-    // 'cre'          => '...',
-    // 'bl'           => '...',
-    // 'facture'      => '...',
-    // 'bon_commande' => '...',
-    // 'payslip'      => '...',
-    // 'contract'     => '...',
+    'quote'        => 'ef296413b2c9ec261951e77bf719d0fb7a46812d7332d89caf6b57cf52256923',
+    'cre'          => 'e7c3a0b229d699c719af4a0987335d9cebf7c8bca88987e3fc295fd3ede2ea69',
+    'bl'           => 'f4c778bfe017998de89ff0b0e46333eb8206a8ad1d4af2730d9809c809b03b79',
+    'facture'      => '528fe89d9761fc92a4c1bf76e0eb6f3c64b036f95f8529f2e7c4edb2aef96a38',
+    'bon_commande' => '355f3d59bf8b35947878b475e38d94a0a7ff26df9e6d13cf796a1ce387a3292d',
+    'payslip'      => '8faff107903b36d972cac1efaf5578ccbbdd0359c8b6d3ab98b8394d976f302b',
+    'contract'     => '53b95f83b9ea370bc10224edb4153e05194b83da202cff837137325bf3279b1b',
 ];
 
 // ----------------------------------------------------------------------------
