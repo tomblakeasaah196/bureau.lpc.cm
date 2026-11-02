@@ -110,9 +110,9 @@ of defence. If you're adding a new cron script, keep both.
 Three jobs, unlike the nightly ones above (docs/MAIL.md §10). Adding them in cPanel needs the owner's OK.
 
 ```
-* * * * * /usr/local/bin/php /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/mail_sync.php >/dev/null 2>&1
-* * * * * /usr/local/bin/php /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/mail_send_due.php >/dev/null 2>&1
-35 0 * * * /usr/local/bin/php /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/mail_prune.php >> /home/smartqaq/logs/lpc-cron.log 2>&1
+* * * * * /usr/local/bin/ea-php83 /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/mail_sync.php >/dev/null 2>&1
+* * * * * /usr/local/bin/ea-php83 /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/mail_send_due.php >/dev/null 2>&1
+35 0 * * * /usr/local/bin/ea-php83 /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/mail_prune.php >> /home/smartqaq/logs/lpc-cron.log 2>&1
 ```
 
 - `mail_sync.php` copies the last 12 months of every connected mailbox into bureau, 50 seconds per run shared

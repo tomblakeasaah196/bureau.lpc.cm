@@ -1,0 +1,179 @@
+/**
+ * assets/css/lpc-mail-ai.css
+ * -----------------------------------------------------------------------------
+ * Bureau LPC ERP — Courrier, Praxis AI (PR 5): the summary card, the Ask panel,
+ * the Écrire avec l'IA dialog and the settings page. Loaded after lpc-mail.css
+ * (PR 1), whose .mb-card, .mb-btn, .mb-field, .mb-dialog it builds on. Colours
+ * only from the shell's variables, so the dark theme follows. Works from 375 px:
+ * the panel and the dialog are full screen on phones.
+ * -----------------------------------------------------------------------------
+ */
+
+/* .mb-btn and others set display, which would beat the hidden attribute: hidden always wins here */
+.mai-panel [hidden], .mai-write [hidden], .mai-summary [hidden], .mai-settings [hidden] { display: none !important; }
+
+.mai-icon { width: 1rem; height: 1rem; flex: 0 0 auto; }
+.mai-title { display: flex; align-items: center; gap: .5rem; }
+.mai-title .mai-icon { width: 1.125rem; height: 1.125rem; color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .mai-title .mai-icon { color: var(--lpc-brand-light); }
+
+/* Textareas in Praxis AI forms look like PR 1's inputs */
+.mai-panel .mb-field textarea, .mai-write .mb-field textarea {
+    width: 100%; min-height: 4.5rem; resize: vertical; padding: .5rem .75rem; font: inherit; font-size: .875rem; line-height: 1.5;
+    border-radius: var(--lpc-radius-xs); border: 1px solid var(--lpc-border); background: var(--lpc-surface); color: var(--lpc-ink);
+}
+.mai-panel .mb-field textarea:focus, .mai-write .mb-field textarea:focus { outline: none; border-color: var(--lpc-accent-on-light); box-shadow: var(--lpc-ring); }
+.mai-panel .mb-field textarea[aria-invalid="true"], .mai-write .mb-field textarea[aria-invalid="true"] { border-color: var(--lpc-status-danger-fg); }
+
+.mai-close {
+    flex: 0 0 auto; display: inline-grid; place-items: center; width: 2.25rem; height: 2.25rem; margin: -.375rem -.375rem 0 0;
+    border: 0; border-radius: var(--lpc-radius-xs); background: transparent; color: var(--lpc-ink-soft); cursor: pointer;
+}
+.mai-close:hover { background: var(--lpc-surface-sunken); color: var(--lpc-ink); }
+.mai-close:focus-visible { outline: none; box-shadow: var(--lpc-ring); }
+.mai-close .mai-icon { width: 1.125rem; height: 1.125rem; }
+
+.mai-busy { display: inline-flex; align-items: center; gap: .5rem; margin: 0; font-size: .875rem; color: var(--lpc-ink-soft); }
+.mai-busy[hidden] { display: none; }
+.mai-spinner {
+    width: 1rem; height: 1rem; border-radius: 999px; flex: 0 0 auto;
+    border: 2px solid var(--lpc-border); border-top-color: var(--lpc-accent-on-light);
+    animation: mai-spin .8s linear infinite;
+}
+@keyframes mai-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .mai-spinner { animation: none; border-top-color: var(--lpc-border); opacity: .6; } }
+
+/* ---- Résumer: above the messages ---------------------------------------- */
+.mai-summary { margin: 0 0 1rem; }
+.mai-run { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
+.mai-run-btn .mai-icon { color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .mai-run-btn .mai-icon { color: var(--lpc-brand-light); }
+.mai-error { flex: 1 1 100%; margin: 0; font-size: .8125rem; color: var(--lpc-status-danger-fg); line-height: 1.45; }
+.mai-card {
+    border: 1px solid var(--lpc-border); border-left: 3px solid var(--lpc-accent-on-light); border-radius: var(--lpc-radius-sm);
+    background: var(--lpc-surface); padding: .75rem 1rem .875rem;
+}
+html[data-lpc-theme="dark"] .mai-card { border-left-color: var(--lpc-brand-light); }
+.mai-card-head { display: flex; align-items: center; gap: .5rem; }
+.mai-card-head h3 { margin: 0; display: inline-flex; align-items: center; gap: .375rem; font-size: .875rem; font-weight: 700; color: var(--lpc-ink); }
+.mai-card-head h3 .mai-icon { color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .mai-card-head h3 .mai-icon { color: var(--lpc-brand-light); }
+.mai-toggle {
+    margin-left: auto; display: inline-grid; place-items: center; width: 2rem; height: 2rem; border: 0; border-radius: var(--lpc-radius-xs);
+    background: transparent; color: var(--lpc-ink-soft); cursor: pointer;
+}
+.mai-toggle:hover { background: var(--lpc-surface-sunken); color: var(--lpc-ink); }
+.mai-toggle:focus-visible { outline: none; box-shadow: var(--lpc-ring); }
+.mai-toggle .mai-icon { transition: transform .15s ease-out; }
+.mai-toggle[aria-expanded="false"] .mai-icon { transform: rotate(-90deg); }
+@media (prefers-reduced-motion: reduce) { .mai-toggle .mai-icon { transition: none; } }
+.mai-gist { margin: .5rem 0 0; font-size: .9375rem; line-height: 1.55; color: var(--lpc-ink); overflow-wrap: anywhere; }
+.mai-cols { display: grid; gap: .75rem 1.5rem; grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr)); margin-top: .75rem; }
+.mai-cols h4 { margin: 0 0 .25rem; font-size: .75rem; font-weight: 700; letter-spacing: .02em; color: var(--lpc-ink-soft); }
+.mai-cols ul { margin: 0; padding-left: 1.125rem; list-style: disc; font-size: .875rem; line-height: 1.5; color: var(--lpc-ink); }
+.mai-cols li { margin: .125rem 0; overflow-wrap: anywhere; }
+.mai-foot { margin: .75rem 0 0; font-size: .75rem; line-height: 1.45; color: var(--lpc-ink-soft); }
+
+/* ---- Demander à votre courrier: the toolbar button and the side panel ---- */
+.mai-ask-open .mai-icon, .mai-setup .mai-icon, .mai-write-open .mai-icon { color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .mai-ask-open .mai-icon, html[data-lpc-theme="dark"] .mai-setup .mai-icon, html[data-lpc-theme="dark"] .mai-write-open .mai-icon { color: var(--lpc-brand-light); }
+
+.mb-dialog.mai-panel {
+    width: min(30rem, 100vw); max-width: 100vw; height: 100dvh; max-height: 100dvh;
+    margin: 0 0 0 auto; border-radius: 0; border-width: 0 0 0 1px; overflow: hidden;
+}
+.mb-dialog.mai-panel[open] { animation: mai-slide .18s ease-out; }
+@keyframes mai-slide { from { opacity: 0; transform: translateX(1.5rem); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .mb-dialog.mai-panel[open] { animation: none; } }
+.mai-panel-in { display: flex; flex-direction: column; height: 100%; }
+.mai-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; padding: 1.25rem 1.5rem 1rem; border-bottom: 1px solid var(--lpc-border); }
+.mai-panel-head .mb-hint { margin-top: .375rem; font-size: .8125rem; }
+.mai-panel-head--plain { padding: 0; border: 0; }
+.mai-panel-body { flex: 1 1 auto; overflow-y: auto; padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+.mai-panel-foot { flex: 0 0 auto; display: flex; flex-direction: column; gap: .75rem; padding: 1rem 1.5rem 1.25rem; border-top: 1px solid var(--lpc-border); background: var(--lpc-surface); }
+.mai-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
+.mai-scope { display: flex; align-items: center; gap: .5rem; min-width: 0; font-size: .8125rem; color: var(--lpc-ink-soft); }
+.mai-scope .mb-select { max-width: 15rem; }
+
+.mai-examples { color: var(--lpc-ink-soft); font-size: .875rem; }
+.mai-examples p { margin: 0 0 .5rem; }
+.mai-examples ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .375rem; }
+.mai-example {
+    width: 100%; text-align: left; padding: .5rem .75rem; border: 1px dashed var(--lpc-border); border-radius: var(--lpc-radius-xs);
+    background: transparent; color: var(--lpc-ink); font: inherit; font-size: .875rem; cursor: pointer;
+}
+.mai-example:hover { background: var(--lpc-surface-sunken); border-style: solid; }
+.mai-example:focus-visible { outline: none; box-shadow: var(--lpc-ring); }
+
+.mai-asked {
+    align-self: flex-end; max-width: 90%; margin: 0; padding: .5rem .75rem; border-radius: .75rem .75rem .125rem .75rem;
+    background: var(--lpc-status-success-tint); color: var(--lpc-ink); font-size: .9375rem; line-height: 1.45; overflow-wrap: anywhere;
+}
+.mai-answer { color: var(--lpc-ink); font-size: .9375rem; line-height: 1.6; overflow-wrap: anywhere; }
+.mai-answer p { margin: 0 0 .5rem; }
+.mai-answer ul { margin: 0 0 .5rem; padding-left: 1.125rem; list-style: disc; }
+.mai-cite {
+    display: inline-grid; place-items: center; min-width: 1.25rem; height: 1.25rem; padding: 0 .25rem; margin: 0 .0625rem;
+    border-radius: .25rem; background: var(--lpc-status-success-bg); color: var(--lpc-status-success-fg);
+    font-size: .6875rem; font-weight: 700; line-height: 1; text-decoration: none; vertical-align: .0625rem;
+}
+html a.mai-cite, html a.mai-cite:visited { color: var(--lpc-status-success-fg); }
+.mai-cite:hover, .mai-cite:focus-visible { outline: none; box-shadow: var(--lpc-ring); }
+
+.mai-sources-title { margin: 0 0 .375rem; font-size: .75rem; font-weight: 700; letter-spacing: .02em; color: var(--lpc-ink-soft); }
+.mai-sources ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .375rem; }
+.mai-sources a {
+    display: grid; grid-template-columns: 1.5rem minmax(0, 1fr); gap: .5rem; padding: .5rem .625rem;
+    border: 1px solid var(--lpc-border); border-radius: var(--lpc-radius-xs); text-decoration: none; color: var(--lpc-ink);
+}
+html .mai-sources a, html .mai-sources a:visited { color: var(--lpc-ink); }
+.mai-sources a:hover { background: var(--lpc-surface-sunken); border-color: var(--lpc-accent-on-light); }
+.mai-sources a:focus-visible { outline: none; box-shadow: var(--lpc-ring); }
+.mai-n { font-size: .75rem; font-weight: 700; color: var(--lpc-status-success-fg); padding-top: .125rem; }
+.mai-src { min-width: 0; display: flex; flex-direction: column; }
+.mai-src strong { font-size: .875rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mai-src span { font-size: .75rem; color: var(--lpc-ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Écrire avec l'IA: the dialog over the composer ---------------------- */
+.mb-dialog.mai-write { width: min(36rem, calc(100vw - 2rem)); }
+.mai-write-open { gap: .375rem; }
+.mai-draft { display: flex; flex-direction: column; gap: .375rem; }
+.mai-draft-text {
+    max-height: 18rem; overflow-y: auto; padding: .75rem .875rem; border: 1px solid var(--lpc-border); border-radius: var(--lpc-radius-xs);
+    background: var(--lpc-surface-sunken); color: var(--lpc-ink); font-size: .875rem; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.mai-draft-text:focus-visible { outline: none; box-shadow: var(--lpc-ring); }
+
+/* ---- Settings page ------------------------------------------------------- */
+.mai-settings .mb-card-head .mb-head-pill { flex: 0 0 auto; }
+.mai-banner { margin: 0 0 1rem; }
+.mai-status { margin: 0 0 1rem; font-size: .875rem; color: var(--lpc-ink); line-height: 1.5; overflow-wrap: anywhere; }
+.mai-status--off { color: var(--lpc-ink-soft); }
+.mai-mask { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .8125rem; padding: .0625rem .375rem; border-radius: .25rem; background: var(--lpc-surface-sunken); }
+.mai-settings-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 16rem); gap: 1rem; align-items: start; }
+.mai-settings-form > .mb-form-error, .mai-settings-actions, .mai-test-result { grid-column: 1 / -1; }
+.mai-settings-form input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.mai-settings-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.mai-remove { margin-left: auto; }
+.mai-test-result { margin: 0; padding: .625rem .75rem; border-radius: var(--lpc-radius-xs); font-size: .8125rem; line-height: 1.45; }
+.mai-test-result--ok { background: var(--lpc-status-success-tint); color: var(--lpc-status-success-fg); }
+.mai-test-result--bad { background: var(--lpc-status-danger-tint); color: var(--lpc-status-danger-fg); }
+.mai-rules { margin: .75rem 0 0; padding-left: 1.125rem; display: flex; flex-direction: column; gap: .5rem; font-size: .875rem; line-height: 1.5; color: var(--lpc-ink-soft); }
+.mai-rules strong { color: var(--lpc-ink); font-weight: 600; }
+
+/* ---- Phones ------------------------------------------------------------------ */
+@media (max-width: 640px) {
+    .mai-ask-label, .mai-write-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    .mai-ask-open, .mai-write-open { padding: 0 .625rem; }
+    .mb-dialog.mai-panel, .mb-dialog.mai-write { width: 100vw; max-width: 100vw; border: 0; }
+    .mai-panel-head { padding: 1rem 1rem .875rem; }
+    .mai-panel-body { padding: 1rem; }
+    .mai-panel-foot { padding: .875rem 1rem 1rem; }
+    .mai-row .mb-btn--primary { flex: 1 1 auto; }
+    .mai-scope { flex: 1 1 100%; }
+    .mai-scope .mb-select { flex: 1 1 auto; max-width: none; }
+    .mai-settings-form { grid-template-columns: minmax(0, 1fr); }
+    .mai-settings-actions .mb-btn { flex: 1 1 auto; }
+    .mai-remove { margin-left: 0; }
+    .mai-card { padding: .75rem .875rem; }
+}
