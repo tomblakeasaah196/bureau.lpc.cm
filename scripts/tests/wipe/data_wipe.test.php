@@ -283,7 +283,26 @@ $db->exec("UPDATE users SET status = 'inactive' WHERE id = 2");
 check('not once that account is inactive', DataWipeAccess::account($db) === null);
 $db->exec("UPDATE users SET status = 'active' WHERE id = 2");
 check('the screen shows only a masked address', DataWipeAccess::maskedEmail() === 'W***@Test.Invalid');
-check('the MD is found by matricule LPC-MD-01', (DataWipeAccess::md($db)['id'] ?? 0) == 1);
+check('the MD is found by matricule LPC-MD-01, with the address that will be told', (DataWipeAccess::md($db)['id'] ?? 0) == 1
+      && DataWipeAccess::md($db)['email'] === 'md@test.invalid');
+$db->exec("UPDATE users SET email = 'pas-une-adresse' WHERE id = 1");
+check('no MD when that account has no valid email (nobody could be told)', DataWipeAccess::md($db) === null);
+$db->exec("UPDATE users SET email = 'md@test.invalid', status = 'inactive' WHERE id = 1");
+check('no MD when that account is inactive', DataWipeAccess::md($db) === null);
+$db->exec("UPDATE users SET status = 'active', employee_code = 'EMP-009' WHERE id = 1");
+$db->exec("UPDATE employees SET employee_code = 'EMP-009' WHERE id = 1");
+check('no MD when nobody carries the matricule', DataWipeAccess::md($db) === null);
+$db->exec("UPDATE users SET employee_code = 'LPC-MD-01' WHERE id = 1");
+$db->exec("UPDATE employees SET employee_code = 'LPC-MD-01' WHERE id = 1");
+$ctl = wipe_test_code('api/v1/data_wipe_controller.php');
+$sendAt = strpos($ctl, 'DataWipeAccess::sendCode(');
+$runAt = strpos($ctl, 'DataWipeAccess::checkCode(');
+preg_match_all('/if \(!DataWipeAccess::md\(\$db\)\)/', $ctl, $m, PREG_OFFSET_CAPTURE);
+$mdChecks = array_column($m[0], 1);
+check('without an MD no code is sent and no wipe runs (checked before both)',
+      count(array_filter($mdChecks, fn ($at) => $at < $sendAt)) >= 1 && count(array_filter($mdChecks, fn ($at) => $at > $sendAt && $at < $runAt)) >= 1);
+$page = wipe_test_code('modules/admin/data_wipe.php');
+check('the confirmation screen shows the MD\'s address, or why no wipe can run', str_contains($page, "\$md['email']") && str_contains($page, 'DataWipeAccess::mdMissing()'));
 
 section('codes');
 $user = ['id' => 2, 'name' => 'Support Test'];

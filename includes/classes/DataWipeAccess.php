@@ -182,7 +182,10 @@ final class DataWipeAccess
     // The MD
     // =========================================================================
 
-    /** The active account of the MD (matricule LPC-MD-01), or null. */
+    /**
+     * The active account of the MD (matricule LPC-MD-01) with a valid email, or
+     * null: then nobody could be told, and no code is sent and no wipe runs.
+     */
     public static function md(PDO $db): ?array
     {
         $st = $db->prepare("SELECT u.id, u.email, CONCAT(u.first_name, ' ', u.last_name) AS name
@@ -190,7 +193,15 @@ final class DataWipeAccess
                              WHERE (u.employee_code = ? OR e.employee_code = ?) AND u.status = 'active'
                              ORDER BY u.id LIMIT 1");
         $st->execute([self::MD_MATRICULE, self::MD_MATRICULE]);
-        return $st->fetch(PDO::FETCH_ASSOC) ?: null;
+        $md = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+        return $md && filter_var(trim((string) $md['email']), FILTER_VALIDATE_EMAIL) !== false ? $md : null;
+    }
+
+    /** Why a wipe can't run for want of someone to tell (for the screen). */
+    public static function mdMissing(): string
+    {
+        return 'Aucun compte actif avec le matricule ' . self::MD_MATRICULE . ' et une adresse email valide : le DG ne pourrait pas être prévenu, '
+             . 'donc aucun effacement n\'est possible. Corrigez sa fiche dans Données de Base.';
     }
 
     /** Tell the MD what was wiped. Records it on the wipe. Never throws: the wipe is done. */

@@ -97,6 +97,9 @@ try {
             if (!$picked) {
                 throw new DomainException('Cochez au moins une table.');
             }
+            if (!DataWipeAccess::md($db)) {
+                throw new DomainException(DataWipeAccess::mdMissing());
+            }
             $plan = $wiper->plan($picked);
             if ($plan['blocked']) {
                 throw new DomainException(implode(' ', $plan['blocked']));
@@ -113,7 +116,7 @@ try {
                 throw new DomainException('Écrivez le motif en quelques mots (10 caractères au moins) : il est envoyé au DG.');
             }
             if (!DataWipeAccess::md($db)) {
-                throw new DomainException('Le compte du DG (matricule ' . DataWipeAccess::MD_MATRICULE . ') est introuvable ou inactif : personne ne serait prévenu, donc rien n\'est effacé.');
+                throw new DomainException(DataWipeAccess::mdMissing());
             }
             $codeId = DataWipeAccess::checkCode($db, $user, $picked, trim((string) ($in['code'] ?? '')));
             $done = $wiper->run($picked, $user, $reason, fn (PDO $db) => DataWipeAccess::consumeCode($db, $codeId));

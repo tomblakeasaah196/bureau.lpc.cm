@@ -31,6 +31,7 @@ $data = [
     'csrf'  => Csrf::token(),
     'email' => DataWipeAccess::maskedEmail(),
     'keep'  => DataWipe::KEEP_DAYS,
+    'md'    => $md !== null,
 ];
 ?>
 <!DOCTYPE html>
@@ -107,7 +108,7 @@ require __DIR__ . '/../../includes/components/topbar.php';
         Ne sont jamais effacés : comptes et rôles du personnel, employés, plan comptable, paramètres, Courrier.
     </p>
     <?php if (!$md): ?>
-        <div class="dw-alert is-danger">Le compte du DG (matricule <?= $e(DataWipeAccess::MD_MATRICULE) ?>) est introuvable ou inactif : aucun effacement n'est possible tant que personne ne peut être prévenu.</div>
+        <div class="dw-alert is-danger"><?= $e(DataWipeAccess::mdMissing()) ?></div>
     <?php endif; ?>
 </div>
 
@@ -126,6 +127,12 @@ require __DIR__ . '/../../includes/components/topbar.php';
         <section class="dw-card" style="margin-top:1rem" aria-labelledby="dw-confirm-title">
             <h2 id="dw-confirm-title">3. Confirmer</h2>
             <p class="dw-sub">Un code est envoyé à <strong><?= $e(DataWipeAccess::maskedEmail()) ?></strong>, valable <?= (int) DataWipeAccess::CODE_MINUTES ?> minutes et seulement pour la sélection affichée.</p>
+            <?php if ($md): ?>
+                <p class="dw-sub" style="margin-top:.4rem">Une fois l'effacement fait, le DG est prévenu par email et dans ses notifications :
+                    <strong><?= $e($md['name']) ?></strong> &lt;<?= $e($md['email']) ?>&gt; (matricule <?= $e(DataWipeAccess::MD_MATRICULE) ?>).</p>
+            <?php else: ?>
+                <div class="dw-alert is-danger"><?= $e(DataWipeAccess::mdMissing()) ?></div>
+            <?php endif; ?>
             <div class="dw-actions">
                 <button type="button" class="btn btn-secondary" id="dw-send" disabled>Envoyer le code</button>
             </div>

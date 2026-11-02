@@ -158,7 +158,8 @@
 
     // ---- 3. Confirm ----------------------------------------------------------
     function ready() {
-        return state.plan && state.plan.total > 0 && !state.plan.blocked.length && !state.busy;
+        // No MD to tell (matricule LPC-MD-01 with an email): nothing can be sent or wiped
+        return cfg.md && state.plan && state.plan.total > 0 && !state.plan.blocked.length && !state.busy;
     }
     function updateButtons() {
         els.send.disabled = !ready();

@@ -42,7 +42,9 @@ Code:
 4. **Confirm:**
    - a 6-digit code emailed to `WIPE_ADMIN_EMAIL`: hashed, 10 minutes, 5 tries, single use, valid only for the pick it was sent for (none is sent while `MAIL_FROM` is unset);
    - a written reason;
-   - the MD's account (matricule `LPC-MD-01`) must exist and be active.
+   - **the MD:** the active staff account with matricule `LPC-MD-01` (the owner's rule; bureau has no MD role, and there is no MD setting in `.env`).
+     - The confirmation screen shows the MD's name and the address that will be told.
+     - If no active account carries the matricule with a valid email, the screen says so, and **no code is sent and no wipe runs**: a wipe never happens without the MD being told.
 5. **Run, in one transaction.** If the copy fails, nothing is wiped.
    1. Lock `data_wipe_lock`: one wipe at a time.
    2. Clear optional links.
