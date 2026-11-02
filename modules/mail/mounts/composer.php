@@ -147,7 +147,7 @@ $chips = static function (string $field, string $label): void {
                 <input type="file" multiple data-mc-file class="mc-file-input">
             </label>
             <span class="mc-grow" aria-hidden="true"></span>
-            <button type="button" class="mb-btn mb-btn--danger-ghost" data-mc="discard" aria-label="Supprimer le brouillon">Supprimer<span class="mc-hide-sm" aria-hidden="true">le brouillon</span></button>
+            <button type="button" class="mb-btn mb-btn--danger-ghost" data-mc="discard" aria-label="Supprimer le brouillon"><span>Supprimer<span class="mc-hide-sm" aria-hidden="true"> le brouillon</span></span></button>
         </footer>
 
         <div class="mc-confirm" data-mc-confirm hidden role="alertdialog" aria-labelledby="mc-confirm-t">

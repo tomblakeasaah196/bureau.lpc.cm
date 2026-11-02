@@ -506,7 +506,7 @@
     }
 
     function replying(on) {
-        if (state && state.threadId && (state.kind === 'reply' || state.kind === 'reply_all')) {
+        if (state && state.threadId && (state.kind === 'reply' || state.kind === 'reply_all' || state.kind === 'forward')) {
             emit('mail:composing', { threadId: state.threadId, state: on ? 'replying' : 'stopped' });
         }
     }
@@ -997,6 +997,12 @@
         if (suppressCancel) { suppressCancel = false; return; }
         leave('close');
     });
+    // bureau's lpc-a11y.js closes the last open dialog on Échap, then the browser closes the next one: with
+    // PR 5's Écrire avec l'IA above the composer, one Échap would close both. While the composer is open,
+    // Échap is left to the browser alone (on <html>, after every handler inside, before lpc-a11y's on document)
+    document.documentElement.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && dlg.open) e.stopPropagation();
+    });
     // Chrome closes a modal dialog on Échap without "cancel" when nothing was clicked or typed since it
     // opened: the draft is still kept the same way (leave() clears state before it closes the dialog itself)
     dlg.addEventListener('close', function () {
@@ -1020,7 +1026,8 @@
             if (!state || !dlg.open) return null;
             return {
                 accountId: state.accountId, mode: mode, messageId: state.messageId, outboxId: state.id,
-                subject: subj.value, html: editor.innerHTML, text: editor.innerText
+                subject: subj.value, html: editor.innerHTML, text: editor.innerText,   // the person's own words only
+                to: chips.to.list.slice(), cc: chips.cc.list.slice()
             };
         },
         replaceBody: function (html) {
