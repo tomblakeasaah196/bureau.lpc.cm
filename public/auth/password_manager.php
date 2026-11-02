@@ -159,6 +159,13 @@ body{background:#051A0F;color:#eee;min-height:100vh;font-family:Inter,sans-serif
         </p>
     </div>
 
+    <?php if ($signedIn): ?>
+    <a href="/device_setup.php?next=<?= rawurlencode('/index.php') ?>" class="block mt-4 text-xs text-white/60 hover:text-white">
+        <i class="fas fa-mobile-screen-button mr-1"></i>
+        <?= $lang === 'fr' ? "Code et clé d'accès pour cet appareil" : 'PIN and passkey for this device' ?>
+    </a>
+    <?php endif; ?>
+
     <div class="text-center mt-5">
         <?php if ($signedIn): ?>
             <a href="/api/v1/auth.php?logout=true" class="text-xs text-white/70 hover:text-white font-medium uppercase tracking-wider">

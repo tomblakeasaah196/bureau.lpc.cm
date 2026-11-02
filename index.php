@@ -11,6 +11,25 @@ if (!empty($_SESSION['user_id'])) {
 }
 
 $lang = lpc_i18n_current_lang();
+
+// A remembered device (includes/functions/sign_in.php) is greeted by name and
+// offered its PIN or passkey; the password form stays one click away. Any
+// failure here (tables not migrated yet, DB blip) just shows the normal form.
+require_once __DIR__ . '/includes/functions/sign_in.php';
+$device = null;
+$deviceHasPasskey = false;
+try {
+    $__db   = Database::getInstance()->getConnection();
+    $device = lpc_device_current($__db);
+    if ($device) {
+        $__pk = $__db->prepare("SELECT COUNT(*) FROM user_passkeys WHERE user_id = ? AND revoked_at IS NULL");
+        $__pk->execute([$device['user_id']]);
+        $deviceHasPasskey = (int) $__pk->fetchColumn() > 0;
+    }
+} catch (Throwable $e) {
+    $device = null;
+}
+$t = static fn (string $fr, string $en): string => $lang == 'fr' ? $fr : $en;
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo $lang; ?>">
@@ -139,7 +158,46 @@ $lang = lpc_i18n_current_lang();
             </div>
         <?php endif; ?>
         
-        <form action="api/v1/auth.php" method="POST" class="space-y-5" autocomplete="on">
+        <?php if ($device): ?>
+        <?php /* Remembered device: "Bon retour". The PIN and the passkey post to
+                 api/v1/device_auth.php (assets/js/modules/auth-quick_signin.js). */ ?>
+        <div id="quick-signin" class="space-y-5" data-csrf="<?= htmlspecialchars(Csrf::token(), ENT_QUOTES, 'UTF-8') ?>">
+            <div class="text-center">
+                <p class="text-white text-xl font-semibold"><?= $t('Bon retour', 'Welcome back') ?>, <?= htmlspecialchars($device['first_name'] ?: $device['email'], ENT_QUOTES, 'UTF-8') ?></p>
+                <p class="text-white/50 text-xs mt-1"><?= htmlspecialchars($device['email'], ENT_QUOTES, 'UTF-8') ?> · <?= htmlspecialchars($device['label'] ?? '', ENT_QUOTES, 'UTF-8') ?></p>
+            </div>
+            <div id="qs-alert" class="hidden p-3 rounded-xl text-sm border bg-red-500/10 border-red-500/30 text-red-200" role="alert" aria-live="polite"></div>
+
+            <?php if (!empty($device['pin_hash'])): ?>
+            <form id="pin-form" class="space-y-3" autocomplete="off">
+                <label for="pin" class="block text-xs font-medium text-white/70 ml-1 uppercase tracking-wider"><?= $t('Votre code', 'Your PIN') ?></label>
+                <input type="password" id="pin" name="pin" inputmode="numeric" pattern="\d{<?= LPC_PIN_LENGTH ?>}" maxlength="<?= LPC_PIN_LENGTH ?>"
+                       required autofocus autocomplete="off"
+                       class="w-full glass-input rounded-xl py-3.5 text-center text-2xl tracking-[0.8em] transition-all duration-300" placeholder="••••">
+                <button type="submit" class="w-full py-3.5 rounded-xl bg-gradient-to-r from-lpc-dark to-lpc-light text-white font-semibold text-lg tracking-wide hover:opacity-90">
+                    <?= $t('Entrer', 'Sign in') ?>
+                </button>
+            </form>
+            <?php endif; ?>
+
+            <?php if ($deviceHasPasskey): ?>
+            <button type="button" id="btn-passkey" class="hidden w-full py-3.5 rounded-xl border border-white/20 text-white font-semibold hover:bg-white/10 transition-colors">
+                <?= $t("Utiliser ma clé d'accès (empreinte, visage)", 'Use my passkey (fingerprint, face)') ?>
+            </button>
+            <?php endif; ?>
+
+            <?php if (empty($device['pin_hash']) && !$deviceHasPasskey): ?>
+            <p class="text-xs text-white/60 text-center"><?= $t('Connectez-vous avec votre mot de passe, puis définissez un code pour cet appareil.', 'Sign in with your password, then set a PIN for this device.') ?></p>
+            <?php endif; ?>
+
+            <div class="flex justify-between text-xs">
+                <button type="button" id="btn-use-password" class="text-white/60 hover:text-lpc-light"><?= $t('Utiliser mon mot de passe', 'Use my password') ?></button>
+                <button type="button" id="btn-forget-device" class="text-white/40 hover:text-white"><?= $t("Ce n'est pas moi", "Not me") ?></button>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <form id="password-form" action="api/v1/auth.php" method="POST" class="space-y-5<?= $device && (!empty($device['pin_hash']) || $deviceHasPasskey) ? ' hidden' : '' ?>" autocomplete="on">
             <?= Csrf::field() ?>
 
             <?php /* Sprint 14: the login identifier is the email address. The
@@ -158,8 +216,9 @@ $lang = lpc_i18n_current_lang();
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                         </svg>
                     </div>
-                    <input type="email" id="email" name="email" required autocomplete="username" autofocus
+                    <input type="email" id="email" name="email" required autocomplete="username" <?= $device ? '' : 'autofocus' ?>
                         inputmode="email" autocapitalize="none" spellcheck="false"
+                        value="<?= $device ? htmlspecialchars($device['email'], ENT_QUOTES, 'UTF-8') : '' ?>"
                         class="w-full glass-input rounded-xl py-3.5 pl-11 pr-4 text-base transition-all duration-300"
                         placeholder="prenom.nom@lpc.cm">
                 </div>
@@ -197,6 +256,12 @@ $lang = lpc_i18n_current_lang();
                      masked hint from the matricule for the address. That page
                      itself says to ask an administrator when this install
                      cannot send email, so the link is always shown. */ ?>
+            <label class="flex items-center gap-2 ml-1 text-sm text-white/70 cursor-pointer select-none">
+                <input type="checkbox" name="remember_device" value="1" class="rounded border-white/30 bg-white/10 text-lpc-light focus:ring-lpc-light">
+                <?= $t('Se souvenir de cet appareil (' . LPC_DEVICE_DAYS . ' jours) — code ou clé d\'accès ensuite',
+                       'Remember this device (' . LPC_DEVICE_DAYS . ' days) — PIN or passkey next time') ?>
+            </label>
+
             <div class="mt-2 mb-6 ml-1 space-y-1.5">
                 <a href="password_forgot.php?lang=<?php echo $lang; ?>" class="block text-sm text-white/60 hover:text-lpc-light transition-colors font-medium">
                     <?php echo $lang == 'fr' ? 'Mot de passe ou adresse oubliés ?' : 'Forgot your password or address?'; ?>
@@ -253,6 +318,9 @@ $lang = lpc_i18n_current_lang();
             });
         })();
     </script>
+    <?php if ($device): ?>
+    <script src="<?= lpc_asset('/assets/js/modules/auth-quick_signin.js') ?>" defer></script>
+    <?php endif; ?>
 
 </body>
 </html>

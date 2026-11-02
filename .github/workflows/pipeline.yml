@@ -62,6 +62,8 @@ jobs:
           php scripts/tests/signature_canonical_payload.test.php
       - name: Account recovery (masked address, reset-link guarantees)
         run: php scripts/tests/account_recovery.test.php
+      - name: Quick sign-in (passkey checks with real keys, PIN rules, wiring)
+        run: php scripts/tests/quick_signin.test.php
 
   deployer:
     name: Deployer tests (deploy/server)

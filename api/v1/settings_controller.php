@@ -49,6 +49,8 @@ $LPC_ACTION_PERMS = [
     // Powers the employee picker in the "+ Provisionner un compte" modal.
     // Gated on .edit (not .view) because it is the setup for a write.
     'list_unlinked_employees' => 'admin.settings.edit',
+    // 2 Nov 2026 — staff record + login + emailed link to choose a password.
+    'invite_user'             => 'admin.settings.edit',
     'save_company'            => 'admin.company.edit',
     'upload_logo'             => 'admin.company.edit',
     'save_preferences'        => 'admin.prefs.edit',
@@ -260,6 +262,12 @@ try {
                     UPDATE user_sessions SET logout_time = NOW()
                      WHERE user_id = ? AND logout_time IS NULL
                 ")->execute([$uid]);
+                // Remembered devices go too: their PIN would otherwise still open
+                // the account the administrator is resetting.
+                try {
+                    require_once __DIR__ . '/../../includes/functions/sign_in.php';
+                    lpc_device_revoke_all($db, $uid);
+                } catch (Throwable $e) { error_log('settings: revoke devices: ' . $e->getMessage()); }
             }
         } else {
             $db->prepare("
@@ -293,6 +301,97 @@ try {
      * from here would be the very bug this refactor eliminates. Reactivate
      * them in Données de Base first.
      */
+    /**
+     * INVITE (2 Nov 2026). Creates the person's staff record (a normal
+     * employees row, salary 0 until HR fills it in), a login whose password
+     * nobody knows, and emails a single-use link valid 72 hours to choose
+     * one — the same password_resets token and /reset/{token} page as a
+     * forgotten password. Needs mail (MAIL_FROM): an invitation that cannot
+     * be delivered is refused, not silently "sent".
+     */
+    if ($action === 'invite_user') {
+        require_once __DIR__ . '/../../includes/functions/account_recovery.php';
+        if (!lpc_reset_by_email_enabled()) {
+            lpc_fail("Les invitations partent par email et cette installation n'envoie pas encore d'emails (MAIL_FROM dans .env).");
+        }
+        $email = mb_strtolower(trim((string) ($_POST['email'] ?? '')));
+        $first = trim((string) ($_POST['first_name'] ?? ''));
+        $last  = trim((string) ($_POST['last_name'] ?? ''));
+        $title = trim((string) ($_POST['job_title'] ?? ''));
+        $role  = (int) ($_POST['role_id'] ?? 0);
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) lpc_fail("Adresse email invalide : « {$email} ».");
+        if ($first === '' || $last === '')               lpc_fail('Le prénom et le nom sont obligatoires.');
+        if (mb_strlen($first) > 50 || mb_strlen($last) > 50 || mb_strlen($title) > 100) lpc_fail('Nom ou poste trop long.');
+        $r = $db->prepare("SELECT name FROM roles WHERE id = ?");
+        $r->execute([$role]);
+        $roleName = $r->fetchColumn();
+        if ($roleName === false) lpc_fail('Le rôle système est obligatoire.');
+        $dupe = $db->prepare("SELECT id FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1");
+        $dupe->execute([$email]);
+        if ($dupe->fetch()) lpc_fail("Cette adresse email a déjà un compte. Utilisez « Mot de passe oublié » ou modifiez ce compte.");
+
+        $rawToken = bin2hex(random_bytes(32));
+        $db->beginTransaction();
+        $code = lpc_next_employee_code($db);
+        $db->prepare("
+            INSERT INTO employees (employee_code, first_name, last_name, base_salary, job_title, hire_date, created_by)
+            VALUES (?, ?, ?, 0, ?, CURDATE(), ?)
+        ")->execute([$code, $first, $last, $title !== '' ? $title : null, $admin_id]);
+        $empId = (int) $db->lastInsertId();
+        // A random password nobody is told: the account opens only through the link
+        $db->prepare("
+            INSERT INTO users (employee_id, email, role_id, password_hash, status, password_changed_at)
+            VALUES (?, ?, ?, ?, 'active', NOW())
+        ")->execute([$empId, $email, $role, lpc_password_hash(bin2hex(random_bytes(32)))]);
+        $uid = (int) $db->lastInsertId();
+        $db->prepare("
+            INSERT INTO password_resets (user_id, token_hash, ip, user_agent, expires_at)
+            VALUES (?, ?, ?, ?, ?)
+        ")->execute([$uid, hash('sha256', $rawToken), $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN',
+                     mb_substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255), date('Y-m-d H:i:s', time() + 72 * 3600)]);
+        $db->prepare("
+            INSERT INTO audit_logs (user_id, action, table_name, record_id, new_value)
+            VALUES (?, 'INSERT', 'users', ?, ?)
+        ")->execute([$admin_id, $uid, "Invited {$first} {$last} <{$email}> as {$roleName} (staff record {$code})"]);
+        $db->commit();
+
+        $base    = rtrim((string) env('APP_URL', 'https://bureau.lpc.cm'), '/');
+        $link    = $base . '/reset/' . $rawToken;
+        $erp     = CompanyProfile::erpName();
+        $company = CompanyProfile::displayName();
+        $inviter = trim((string) ($_SESSION['user_name'] ?? '')) ?: 'Un administrateur';
+        $body = <<<EMAIL
+Bonjour {$first},
+
+{$inviter} vous invite à rejoindre {$erp} ({$company}) avec le rôle « {$roleName} ».
+
+Votre adresse de connexion : {$email}
+
+Pour activer votre compte, choisissez votre mot de passe en ouvrant ce lien.
+Il est valable 72 heures et ne sert qu'une fois :
+
+{$link}
+
+Ensuite, connectez-vous sur {$base}
+Passé ce délai, utilisez « Mot de passe ou adresse oubliés ? » sur la page de connexion.
+
+Si vous n'attendiez pas cette invitation, ignorez cet email.
+
+—
+{$company}
+EMAIL;
+        if (!Mail::send($email, "Invitation — {$erp}", $body)) {
+            error_log("[settings] invitation email for user {$uid} was not handed to the mail server");
+            lpc_fail("Le compte est créé mais l'email n'a pas pu partir. La personne peut utiliser « Mot de passe oublié » avec {$email}.", 500);
+        }
+        echo json_encode([
+            'status'  => 'success',
+            'message' => "Invitation envoyée à {$email} (rôle {$roleName}, matricule {$code}). Le lien est valable 72 heures.",
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     if ($action === 'list_unlinked_employees') {
         $rows = $db->query("
             SELECT e.id, e.employee_code,

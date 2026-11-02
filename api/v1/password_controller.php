@@ -58,6 +58,7 @@
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/functions/account_recovery.php';
+require_once __DIR__ . '/../../includes/functions/sign_in.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -341,6 +342,9 @@ EMAIL;
             $db->prepare("UPDATE user_sessions SET logout_time = NOW() WHERE user_id = ? AND logout_time IS NULL")
                ->execute([$pr['user_id']]);
             $db->commit();
+            // ...and every remembered device (outside the transaction: it must
+            // not undo the reset on an install where 123 has not run yet)
+            try { lpc_device_revoke_all($db, (int) $pr['user_id']); } catch (Throwable $e) { error_log('reset: ' . $e->getMessage()); }
 
             pw_audit($pr['user_id'], 'Password reset via emailed link from ' . $ip);
             reply(true, 'Mot de passe mis à jour. Vous pouvez maintenant vous connecter.');
