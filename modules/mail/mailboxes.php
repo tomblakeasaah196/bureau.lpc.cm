@@ -9,7 +9,9 @@
  * Gestionnaire), its password, its name, removing it. Every staff login can
  * open this page (owner decision); each action checks the mailbox's level in
  * api/v1/mail/mailboxes.php. ?box=<id> brings that mailbox forward (links from
- * the bell), and opens its password form when it is waiting for one.
+ * the bell), and opens its password form when it is waiting for one;
+ * ?connect=1 (Courrier's empty page) opens the connect form when the person
+ * has no mailbox of their own yet.
  *
  * The list is drawn here in PHP (no loading state); the forms are native
  * <dialog>s driven by assets/js/modules/mail-mailboxes.js, which reloads the
@@ -55,7 +57,10 @@ foreach ($accounts as $a) {
 }
 $focusBox  = (int) ($_GET['box'] ?? 0);
 $myEmail   = (string) ($me['email'] ?? '');
-$defaults  = Autodiscover::for(str_contains($myEmail, '@') ? $myEmail : 'x@lpc.cm');
+// The bureau login can be any address (a Gmail one, say): the connect form starts on mail.lpc.cm, and the
+// script swaps the server settings when the person types an address on another domain
+$defaults  = Autodiscover::for('prenom.nom@lpc.cm');
+$openConnect = $canUse && $personal === null && isset($_GET['connect']);
 
 /** One mailbox row */
 $row = function (array $b, bool $isShared) use ($e, $focusBox): void {
@@ -245,12 +250,13 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
         <h2 class="mb-dialog-title" id="dlg-connect-h">Connecter ma boîte mail</h2>
         <div class="mb-field">
             <label for="cn-email">Adresse</label>
-            <input id="cn-email" name="email" type="email" autocomplete="username" required value="<?= $e(str_ends_with($myEmail, '@lpc.cm') ? $myEmail : '') ?>" placeholder="prenom.nom@lpc.cm">
+            <input id="cn-email" name="email" type="email" autocomplete="email" required value="<?= $e(str_ends_with($myEmail, '@lpc.cm') ? $myEmail : '') ?>" placeholder="prenom.nom@lpc.cm">
             <p class="mb-field-error" data-error-for="email" hidden></p>
         </div>
         <div class="mb-field">
             <label for="cn-password">Mot de passe de la boîte mail</label>
-            <input id="cn-password" name="password" type="password" autocomplete="current-password" required>
+            <?php /* not "current-password": the browser would fill in the saved bureau sign-in, not the mailbox's */ ?>
+            <input id="cn-password" name="password" type="password" autocomplete="new-password" required>
             <p class="mb-hint">Celui de l’adresse dans cPanel ou webmail, pas votre mot de passe bureau.</p>
             <p class="mb-field-error" data-error-for="password" hidden></p>
         </div>
@@ -378,6 +384,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 <script type="application/json" id="mail-page-data"><?= json_encode([
     'api'      => '/api/v1/mail/mailboxes.php',
     'focusBox' => $focusBox,
+    'openConnect' => $openConnect,
     'boxes'    => array_map(fn ($b) => [
         'id' => $b['id'], 'email' => $b['email'], 'display_name' => $b['display_name'], 'kind' => $b['kind'],
         'status' => $b['status'], 'can_manage' => $b['can_manage'], 'settings' => $b['settings'],

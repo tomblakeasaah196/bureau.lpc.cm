@@ -114,6 +114,16 @@ html[data-lpc-theme="dark"] .mb-btn--primary:hover { filter: brightness(1.08); }
 }
 .mb-empty-icon svg { width: 1.5rem; height: 1.5rem; }
 .mb-empty-title { margin: .25rem 0 0; font-weight: 600; color: var(--lpc-ink); }
+/* .mb-empty alone sits inside a card; as the card itself it keeps the card's padding */
+.mb-card.mb-empty { padding: 1.25rem 1.5rem; }
+/* A page with nothing to show yet (Courrier before any mailbox): centred, with room around it */
+.mb-card.mb-empty--center { align-items: center; text-align: center; gap: .625rem; padding: 3.5rem 1.5rem; }
+.mb-empty--center .mb-empty-icon { width: 3.5rem; height: 3.5rem; border-radius: var(--lpc-radius); margin-bottom: .25rem; }
+.mb-empty--center .mb-empty-icon .fa-solid { font-size: 1.375rem; }
+.mb-empty--center .mb-empty-title,
+.mb-empty--center .mb-h2 { font-size: 1.125rem; line-height: 1.4; }
+.mb-empty--center .mb-muted { max-width: 32rem; font-size: .9375rem; }
+.mb-empty--center .mb-btn { margin-top: .75rem; }
 .mb-levels { display: grid; gap: .375rem; margin: 0; font-size: .875rem; }
 .mb-levels div { display: flex; gap: .375rem; flex-wrap: wrap; }
 .mb-levels dt { font-weight: 600; color: var(--lpc-ink); }
@@ -175,7 +185,8 @@ html[data-lpc-theme="dark"] .mb-btn--primary:hover { filter: brightness(1.08); }
 
 /* ---- Phones ------------------------------------------------------------------ */
 @media (max-width: 640px) {
-    .mb-card { padding: 1rem; }
+    .mb-card, .mb-card.mb-empty { padding: 1rem; }
+    .mb-card.mb-empty--center { padding: 2.5rem 1rem; }
     .mb-card-head { flex-direction: column; }
     .mb-head-btn { width: 100%; }
     .mb-row { grid-template-columns: minmax(0, 1fr); grid-template-areas: "main" "meta" "alert" "actions"; padding: .875rem; }

@@ -115,6 +115,26 @@
         input.removeAttribute('aria-invalid');
     });
 
+    // The server settings follow the address, as in JBS HQ. The forms start on lpc.cm (mail.lpc.cm); an address
+    // on another domain asks the API for that domain's settings. Settings changed by hand stay until the domain does.
+    document.addEventListener('change', function (ev) {
+        var input = ev.target;
+        if (!input.matches || !input.matches('.mb-dialog input[name="email"]')) return;
+        var form = input.form;
+        if (!form || !form.querySelector('[name="imap_host"]')) return;
+        var email = input.value.trim();
+        var domain = email.indexOf('@') > 0 ? email.split('@').pop().toLowerCase() : '';
+        if (domain === '' || domain === (form.dataset.domain || 'lpc.cm')) return;
+        form.dataset.domain = domain;
+        api('GET', null, 'action=settings&email=' + encodeURIComponent(email)).then(function (json) {
+            if (form.dataset.domain !== domain) return; // another address was typed meanwhile
+            Object.keys(json.data || {}).forEach(function (k) {
+                var field = form.querySelector('[name="' + k + '"]');
+                if (field) field.value = json.data[k];
+            });
+        }, function () { /* the fields keep what they had; Connecter checks them on the server */ });
+    });
+
     // ------------------------------------------------------------------ dialogs
 
     function openDialog(id, box) {
@@ -371,6 +391,12 @@
             focus.scrollIntoView({ block: 'center' });
             var box = boxById(DATA.focusBox);
             if (box && box.status === 'needs_reconnect' && box.can_manage && !message) openDialog('dlg-password', box);
+        }
+
+        // ?connect=1, from Courrier's empty page: straight to the form, once (a reload or Back does not reopen it)
+        if (DATA.openConnect) {
+            openDialog('dlg-connect', null);
+            if (history.replaceState) history.replaceState(null, '', location.pathname);
         }
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', onReady); else onReady();
