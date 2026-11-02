@@ -93,7 +93,7 @@ setup() {
   (cd "$H/work" && git ls-files | grep -vE '^(\.github|deploy)/' | while read -r f; do mkdir -p "$APP/$(dirname "$f")"; cp "$f" "$APP/$f"; done)
   chmod 640 "$APP/includes/Thing.php"
   mkdir -p "$APP/vendor" && echo lock-1 > "$APP/vendor/stamp"
-  printf '%s\n' "ERROR_LOG_PATH=$H/lpc_error.log" 'DB_HOST=localhost' 'DB_NAME=lpc' 'DB_USER=lpc_user' 'DB_PASS=p@ss word#1' > "$APP/.env"
+  printf '%s\n' "ERROR_LOG_PATH=$H/app_error.log" 'DB_HOST=localhost' 'DB_NAME=app' 'DB_USER=app_user' 'DB_PASS=p@ss word#1' > "$APP/.env"
   touch "$H/composer.phar"
   git clone -q -b production "$H/origin.git" "$H/repositories/bureau"
   echo "$A" > "$H/deploy/bureau/LIVE"
@@ -107,7 +107,7 @@ publish() {
 deploy() { env "$@" DEPLOY_HOME="$H" DEPLOY_PHP="$BIN/php" DEPLOY_URL=https://bureau.example PATH="$BIN:$PATH" bash "$DEPLOYER"; }
 run() { RC=0; deploy "$@" > "$H/out.txt" 2>&1 || RC=$?; }
 backup() { ls -d "$H"/deploy/bureau/backups/*/ 2>/dev/null | head -1; }
-alerted() { grep -qF -- "$1" "$H/lpc_error.log" 2>/dev/null; }
+alerted() { grep -qF -- "$1" "$H/app_error.log" 2>/dev/null; }
 
 echo "A code change, a new file and a removal"
 setup code
