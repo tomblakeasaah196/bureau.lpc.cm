@@ -880,7 +880,8 @@
 
     document.addEventListener('mail:thread-changed', function (e) {
         var d = e.detail || {};
-        if (d.source === 'read') return;
+        // our own actions refresh already; 'ai' (PR 5) means only the summary card changed
+        if (d.source === 'read' || d.source === 'ai') return;
         loadList({ quiet: true, keepLive: true });
         if (state.thread && (!d.threadId || Number(d.threadId) === state.thread.id)) reloadThread({ quiet: true });
     });
