@@ -38,7 +38,7 @@ $pdo = mail_test_db();
 
 section('Migration 300');
 $tables = $pdo->query("SHOW TABLES LIKE 'mail\\_%'")->fetchAll(PDO::FETCH_COLUMN);
-check('11 mail tables', count($tables) === 11, implode(', ', $tables));
+check('migration 300\'s 11 mail tables', count(array_intersect(['mail_accounts', 'mail_account_members', 'mail_folders', 'mail_threads', 'mail_messages', 'mail_attachments', 'mail_outbox', 'mail_thread_notes', 'mail_thread_activity', 'mail_presence', 'mail_settings'], $tables)) === 11, implode(', ', $tables));
 check('FULLTEXT index on messages (PR 5 search)', (bool) $pdo->query("SHOW INDEX FROM mail_messages WHERE Index_type = 'FULLTEXT'")->fetch());
 check('mail.shared.manage granted to admin', (bool) Db::value("SELECT 1 FROM role_permissions rp JOIN roles r ON r.id = rp.role_id JOIN permissions p ON p.id = rp.permission_id WHERE r.name = 'admin' AND p.name = 'mail.shared.manage'"));
 
