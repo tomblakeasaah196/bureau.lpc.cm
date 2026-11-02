@@ -335,6 +335,8 @@
                 btn.classList.add('hidden');
             }
         }
+        const invite = $('btn-invite');
+        if (invite) invite.classList.toggle('hidden', !(currentTab === 'users' && CAN.editUsers));
 
         const search = $('search-input');
         if (search) search.value = '';
@@ -1178,9 +1180,71 @@
     // 7. USER MODAL  (table tab writes)
     // -------------------------------------------------------------------------
 
+    // Which form the record modal holds: 'account' (provision / edit) or 'invite'.
+    let modalMode = 'account';
+
+    function setModalMode(mode) {
+        modalMode = mode;
+        const save = $('modal-save');
+        if (save) save.innerText = mode === 'invite' ? "Envoyer l'invitation" : 'Enregistrer';
+    }
+
+    async function loadRoles() {
+        if (!rolesCache) {
+            try { rolesCache = await apiGet(`${RBAC_API}?action=list_roles`); }
+            catch (e) { rolesCache = []; }
+        }
+        return rolesCache;
+    }
+
+    // Invite (2 Nov 2026): a new person gets a staff record and a login, and
+    // chooses their own password from an emailed link (72 h). Server side:
+    // settings_controller.php action=invite_user.
+    async function openInviteModal() {
+        const form = $('dynamic-form');
+        form.innerHTML = '';
+        setModalMode('invite');
+        $('modal-title').innerText = 'Inviter un utilisateur';
+        const roles = await loadRoles();
+        const roleOpts = roles.length
+            ? '<option value="">— Choisir un rôle —</option>' + roles.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('')
+            : '<option value="">— aucun rôle disponible —</option>';
+        form.innerHTML = `
+            <div class="md:col-span-2 p-3 rounded-xl bg-blue-50 border border-blue-100 text-[12px] text-blue-800">
+                La personne reçoit un email avec un lien (valable 72 heures) pour choisir son mot de passe.
+                Une fiche employé est créée à son nom ; complétez-la ensuite dans
+                <a href="/modules/admin/master_data.php" class="underline font-bold">Données de Base</a> si besoin.
+            </div>
+            <div>
+                <label class="lpc-field-label">Prénom *</label>
+                <input type="text" name="first_name" required maxlength="50" class="lpc-input font-bold">
+            </div>
+            <div>
+                <label class="lpc-field-label">Nom *</label>
+                <input type="text" name="last_name" required maxlength="50" class="lpc-input font-bold">
+            </div>
+            <div class="md:col-span-2">
+                <label class="lpc-field-label">Email (identifiant de connexion) *</label>
+                <input type="email" name="email" required autocomplete="off" inputmode="email"
+                       autocapitalize="none" spellcheck="false" placeholder="prenom.nom@lpc.cm" class="lpc-input font-bold">
+                <p class="lpc-field-help">L'invitation part à cette adresse ; c'est aussi celle de connexion.</p>
+            </div>
+            <div>
+                <label class="lpc-field-label">Rôle Système *</label>
+                <select name="role_id" required class="lpc-input font-bold">${roleOpts}</select>
+                <p class="lpc-field-help">« admin » donne tous les droits.</p>
+            </div>
+            <div>
+                <label class="lpc-field-label">Poste</label>
+                <input type="text" name="job_title" maxlength="100" placeholder="ex. Support technique" class="lpc-input">
+            </div>`;
+        $('actionModal').classList.remove('hidden');
+    }
+
     async function openActionModal(id) {
         const form = $('dynamic-form');
         form.innerHTML = '';
+        setModalMode('account');
         if (currentTab !== 'users') return;
 
         const isEdit = !!id;
@@ -1321,7 +1385,8 @@
         // (payload has id). The old `save_users` alias still routes to the
         // same handler server-side, so a stale bundle across the deploy
         // still succeeds; new bundles use the correct verb.
-        const action = currentTab === 'users' ? 'provision_account' : `save_${currentTab}`;
+        const action = currentTab !== 'users' ? `save_${currentTab}`
+                     : (modalMode === 'invite' ? 'invite_user' : 'provision_account');
 
         try {
             const res = await apiPost(`${API}?action=${action}`, new FormData(formElement));
@@ -1377,6 +1442,7 @@
         switchTab: switchTab,
         filterData: filterData,
         openActionModal: openActionModal,
+        openInviteModal: openInviteModal,
         closeModal: closeModal,
         saveData: saveData,
         toggleUserStatus: toggleUserStatus,

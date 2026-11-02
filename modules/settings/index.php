@@ -193,10 +193,16 @@ $tabDefs = [
                            oninput="LPCSettings.filterData()"
                            class="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-gray-900 transition-shadow shadow-sm">
                 </div>
-                <button id="btn-primary-action" type="button" onclick="LPCSettings.openActionModal()"
-                        class="bg-gray-900 hover:bg-black text-white px-6 py-3 rounded-xl font-bold text-sm shadow-md flex items-center gap-2 transition-transform active:scale-95">
-                    <i class="fas fa-plus"></i> <span id="btn-action-text"><?= htmlspecialchars(__t('ui.x.ajouter')) ?></span>
-                </button>
+                <div class="flex items-center gap-3">
+                    <button id="btn-invite" type="button" onclick="LPCSettings.openInviteModal()"
+                            class="hidden bg-white border border-gray-300 hover:border-gray-900 text-gray-900 px-5 py-3 rounded-xl font-bold text-sm shadow-sm flex items-center gap-2">
+                        <i class="fas fa-envelope"></i> <span>Inviter par email</span>
+                    </button>
+                    <button id="btn-primary-action" type="button" onclick="LPCSettings.openActionModal()"
+                            class="bg-gray-900 hover:bg-black text-white px-6 py-3 rounded-xl font-bold text-sm shadow-md flex items-center gap-2 transition-transform active:scale-95">
+                        <i class="fas fa-plus"></i> <span id="btn-action-text"><?= htmlspecialchars(__t('ui.x.ajouter')) ?></span>
+                    </button>
+                </div>
             </div>
 
             <!-- The single region every renderer writes into. -->
@@ -236,7 +242,7 @@ $tabDefs = [
             </div>
             <div class="px-8 py-5 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
                 <button type="button" onclick="LPCSettings.closeModal()" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-800"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
-                <button type="button" onclick="LPCSettings.saveData()" class="px-8 py-2.5 bg-lpc-light hover:bg-green-600 text-white rounded-xl font-bold text-sm shadow-md"><?= htmlspecialchars(__t('ui.x.enregistrer')) ?></button>
+                <button type="button" id="modal-save" onclick="LPCSettings.saveData()" class="px-8 py-2.5 bg-lpc-light hover:bg-green-600 text-white rounded-xl font-bold text-sm shadow-md"><?= htmlspecialchars(__t('ui.x.enregistrer')) ?></button>
             </div>
         </div>
     </div>

@@ -31,6 +31,7 @@
  */
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/functions/sign_in.php';
 
 $ip_address = $_SERVER['REMOTE_ADDR']     ?? 'UNKNOWN';
 $user_agent = mb_substr($_SERVER['HTTP_USER_AGENT'] ?? 'UNKNOWN', 0, 255);
@@ -203,58 +204,36 @@ try {
     }
 
     // ----- SUCCESS ------------------------------------------------------
-    // Defense against session fixation.
-    session_regenerate_id(true);
-    Csrf::rotate();
+    // The session itself (fixation defence, session-token row, identity,
+    // RBAC) is opened by lpc_login_complete(), shared with the PIN and
+    // passkey sign-ins of api/v1/device_auth.php so the three cannot drift.
+    $next = lpc_login_complete($db, $user, $login, $ip_address, $user_agent);
 
-    // Raw token sent to browser cookie; only the hash stored in DB.
-    $session_token      = bin2hex(random_bytes(32));
-    $session_token_hash = hash('sha256', $session_token);
-
-    $db->prepare("
-        INSERT INTO user_sessions
-            (user_id, login_identifier, ip_address, user_agent, login_status,
-             session_token, session_token_hash)
-        VALUES (?, ?, ?, ?, 'success', ?, ?)
-    ")->execute([
-        $user['id'], $login, $ip_address, $user_agent,
-        // NOTE: session_token column remains for backward-compat/audit; will be
-        // dropped in a later migration once every code path reads via hash.
-        $session_token, $session_token_hash
-    ]);
-
-    // Populate session identity.
-    //
-    // Sprint 15: name and matricule are read from the joined employees row
-    // (emp_first_name / emp_last_name / emp_employee_code), not from users.
-    // This lines up with the SSOT model and stays correct after migration
-    // 112 drops the duplicated columns from users. During the cutover window
-    // where both exist, the join wins — if it returned NULL because the
-    // legacy row somehow has no employee link, the empty-string fallback
-    // still writes something displayable rather than "null null".
-    $_SESSION['user_id']        = (int) $user['id'];
-    $_SESSION['employee_id']    = (int) ($user['employee_id'] ?? 0);
-    $_SESSION['user_role']      = strtolower($user['role_name'] ?? 'unknown');
-    $_SESSION['user_role_id']   = (int) $user['role_id'];
-    $_SESSION['user_name']      = trim(($user['emp_first_name'] ?? '') . ' ' . ($user['emp_last_name'] ?? ''));
-    // Still carried: the account panel and payroll exports display it, and
-    // Rbac::jsBootstrap() publishes it. It is an attribute now, not a key.
-    $_SESSION['employee_code']  = $user['emp_employee_code'] ?? null;
-    // The login identifier. The session-lock modal prefills it, and
-    // password_manager.php uses it so nobody has to retype their address.
-    $_SESSION['user_email']     = $user['email'];
-    $_SESSION['avatar']         = $user['avatar'] ?? null;
-    $_SESSION['session_token']  = $session_token;
-    $_SESSION['last_activity']  = time();
-
-    // Load & cache RBAC permissions
-    Rbac::loadFromDb();
+    // "Se souvenir de cet appareil": remember this browser, then offer to set
+    // its PIN and passkey before carrying on to where the person was going.
+    // Never at the cost of the sign-in itself: if this fails, the person is in
+    // anyway and can remember the device later from device_setup.php.
+    if (!empty($_POST['remember_device'])) {
+        try {
+            $cur = lpc_device_current($db);
+            if (!$cur || (int) $cur['user_id'] !== (int) $user['id']) {
+                // Someone else's remembered device on a shared browser is replaced
+                if ($cur) lpc_device_revoke($db, (int) $cur['id']);
+                lpc_device_remember($db, (int) $user['id'], $ip_address, $user_agent);
+            }
+            if (empty($user['must_reset_password'])) {
+                header('Location: /device_setup.php?next=' . rawurlencode($next));
+                exit;
+            }
+        } catch (Throwable $e) {
+            error_log('auth.php remember device: ' . $e->getMessage());
+        }
+    }
 
     // If the user must reset their password (seeded shared hash, admin flag,
     // or expired policy), send them to the reset flow before any dashboard.
     if (!empty($user['must_reset_password'])) {
-        $_SESSION['force_reset'] = true;
-        header('Location: /password_manager.php?force=1');
+        header('Location: ' . $next);
         exit;
     }
 

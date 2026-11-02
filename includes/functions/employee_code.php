@@ -59,11 +59,22 @@ if (!function_exists('lpc_next_employee_code')) {
      */
     function lpc_next_employee_code(PDO $db, int $attempt = 0): string
     {
-        $max = (int) $db->query("
-            SELECT COALESCE(MAX(CAST(SUBSTRING(employee_code, 5) AS UNSIGNED)), 0)
-              FROM users
-             WHERE employee_code REGEXP '^EMP-[0-9]+$'
-        ")->fetchColumn();
+        // Codes live in `employees` since Sprint 15 (unique there); the legacy
+        // users.employee_code still holds older ones. Both count, so a new code
+        // can collide with neither. The legacy column is read defensively: it
+        // is due to be dropped.
+        $maxIn = static function (PDO $db, string $table): int {
+            try {
+                return (int) $db->query("
+                    SELECT COALESCE(MAX(CAST(SUBSTRING(employee_code, 5) AS UNSIGNED)), 0)
+                      FROM {$table}
+                     WHERE employee_code REGEXP '^EMP-[0-9]+$'
+                ")->fetchColumn();
+            } catch (Throwable $e) {
+                return 0;
+            }
+        };
+        $max = max($maxIn($db, 'employees'), $maxIn($db, 'users'));
 
         $candidate = 'EMP-' . str_pad((string) ($max + 1 + $attempt), 3, '0', STR_PAD_LEFT);
 
@@ -72,7 +83,7 @@ if (!function_exists('lpc_next_employee_code')) {
         // than a company of this size will ever need; past that, something is
         // wrong that a bigger loop would only hide.
         if ($attempt < 10) {
-            $chk = $db->prepare("SELECT 1 FROM users WHERE employee_code = ? LIMIT 1");
+            $chk = $db->prepare("SELECT 1 FROM employees WHERE employee_code = ? LIMIT 1");
             $chk->execute([$candidate]);
             if ($chk->fetchColumn()) {
                 return lpc_next_employee_code($db, $attempt + 1);
