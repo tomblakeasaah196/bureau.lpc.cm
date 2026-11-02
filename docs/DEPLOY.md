@@ -19,7 +19,7 @@ runs `scripts/deploy.sh` any more.
 
    If any check fails, it puts the old files back.
 
-A merge is live about 3 minutes later: around 2 minutes of tests and the build, then up to 1 minute for the cron.
+A merge is live about 2 minutes later: under a minute of tests and the build, then up to a minute for the cron.
 
 ## Checking a deploy
 
@@ -61,7 +61,10 @@ echo <previous sha> > ~/deploy/bureau/LIVE
 ```
 
 Then revert on GitHub as above and `rm ~/deploy/bureau/PAUSED`. To restore the database from a dump (only if a
-migration damaged data), import `$B/database.sql.gz` into `smartqaq_lpc_core` with phpMyAdmin.
+migration damaged data), import `$B/database.sql.gz` into the app's database (`DB_NAME` in `.env`) with phpMyAdmin.
+
+The full backup taken before the pipeline went live (the docroot as a tar and the database) is in
+`~/deploy/bureau/backups/pre-pipeline-20261102-103102/`.
 
 ## Pausing
 
