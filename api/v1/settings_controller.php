@@ -64,6 +64,33 @@ $LPC_TAB_PERMS = [
     'preferences' => 'admin.prefs.view',
 ];
 
+/**
+ * Insert a login for staff record $emp (id, employee_code, first_name,
+ * last_name). The live `users` table still carries first_name / last_name
+ * (NOT NULL, no default) and employee_code from before Sprint 15 moved them to
+ * `employees`; while those columns exist they are filled from the staff
+ * record, so this works before and after they are dropped. Without them the
+ * insert failed with 1364 "Field 'first_name' doesn't have a default value"
+ * (invitation of 2 Nov 2026, and every "Provisionner un compte" since 15).
+ */
+function lpc_insert_login(PDO $db, array $emp, string $email, int $role, string $hash): int
+{
+    static $legacy = null;
+    if ($legacy === null) {
+        $have   = array_column($db->query("SHOW COLUMNS FROM users")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+        $legacy = array_values(array_intersect(['first_name', 'last_name', 'employee_code'], $have));
+    }
+    $cols = ['employee_id', 'email', 'role_id', 'password_hash'];
+    $vals = [(int) $emp['id'], $email, $role, $hash];
+    foreach ($legacy as $c) {
+        $cols[] = $c;
+        $vals[] = (string) ($emp[$c] ?? '');
+    }
+    $db->prepare('INSERT INTO users (' . implode(', ', $cols) . ', status, password_changed_at) VALUES ('
+               . implode(', ', array_fill(0, count($vals), '?')) . ", 'active', NOW())")->execute($vals);
+    return (int) $db->lastInsertId();
+}
+
 /** JSON error + exit. */
 function lpc_fail(string $msg, int $code = 400): void
 {
@@ -197,12 +224,8 @@ try {
                 lpc_fail("Cet employé a déjà un compte de connexion. Modifiez celui-ci au lieu d'en créer un nouveau.");
             }
 
-            $hash = lpc_password_hash($pass);
-            $db->prepare("
-                INSERT INTO users (employee_id, email, role_id, password_hash, status, password_changed_at)
-                VALUES (?, ?, ?, ?, 'active', NOW())
-            ")->execute([$emp_id, $email, $role, $hash]);
-            $newId = (int) $db->lastInsertId();
+            $hash  = lpc_password_hash($pass);
+            $newId = lpc_insert_login($db, $empRow, $email, $role, $hash);
 
             $label = "{$empRow['first_name']} {$empRow['last_name']} ({$empRow['employee_code']})";
             $db->prepare("
@@ -340,11 +363,8 @@ try {
         ")->execute([$code, $first, $last, $title !== '' ? $title : null, $admin_id]);
         $empId = (int) $db->lastInsertId();
         // A random password nobody is told: the account opens only through the link
-        $db->prepare("
-            INSERT INTO users (employee_id, email, role_id, password_hash, status, password_changed_at)
-            VALUES (?, ?, ?, ?, 'active', NOW())
-        ")->execute([$empId, $email, $role, lpc_password_hash(bin2hex(random_bytes(32)))]);
-        $uid = (int) $db->lastInsertId();
+        $uid = lpc_insert_login($db, ['id' => $empId, 'employee_code' => $code, 'first_name' => $first, 'last_name' => $last],
+                                $email, $role, lpc_password_hash(bin2hex(random_bytes(32))));
         $db->prepare("
             INSERT INTO password_resets (user_id, token_hash, ip, user_agent, expires_at)
             VALUES (?, ?, ?, ?, ?)
