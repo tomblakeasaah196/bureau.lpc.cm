@@ -111,7 +111,7 @@ Other rules:
 | URL | What | Owner |
 |---|---|---|
 | `/modules/mail/index.php?box=<account id>&folder=<role or folder id>&thread=<thread id>` | the Mail page (inbox, reader) | PR 2 (PR 1 placeholder) |
-| `/modules/mail/mailboxes.php?box=<account id>` | Boîtes mail (`box` brings that mailbox forward and opens its password form when it waits for one) | PR 1 |
+| `/modules/mail/mailboxes.php?box=<account id>` | Boîtes mail (`box` brings that mailbox forward and opens its password form when it waits for one; `?connect=1`, the button of Courrier's empty page, opens the connect form when the person has no mailbox of their own). The connect and shared forms start on mail.lpc.cm whatever the bureau login is, and their server settings follow the domain typed in Adresse (`?action=settings&email=`), as in JBS HQ | PR 1 |
 | `/modules/mail/signature.php` | Ma signature | PR 3 (PR 1 placeholder) |
 | `/modules/mail/ai_settings.php` | Praxis AI settings (admins; the owner enters the Gemini key) | PR 5 |
 | `/api/v1/mail/mailboxes.php`, `/api/v1/mail/nav.php` | Boîtes mail actions; `{unread}` for the sidebar count (`?fresh=1` skips the 30 s cache) | PR 1 |

@@ -140,21 +140,21 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 
     <main role="main" id="main" class="lpc-page mr-page">
     <?php if (!$ready): ?>
-        <section class="mb-card mb-empty">
+        <section class="mb-card mb-empty mb-empty--center">
             <h2 class="mb-h2">Courrier n’est pas encore installé</h2>
             <p class="mb-muted">La base de données attend sa mise à jour (migration 300). Elle se fait d’elle-même au prochain déploiement.</p>
         </section>
     <?php elseif (!$canUse): ?>
-        <section class="mb-card mb-empty">
+        <section class="mb-card mb-empty mb-empty--center">
             <h2 class="mb-h2">Courrier n’est pas ouvert à ce compte</h2>
             <p class="mb-muted">Seuls les comptes actifs du personnel utilisent Courrier. Si c’est une erreur, prévenez l’administrateur.</p>
         </section>
     <?php elseif (!$account): ?>
-        <section class="mb-card mb-empty">
+        <section class="mb-card mb-empty mb-empty--center" aria-labelledby="mr-empty-h">
             <span class="mb-empty-icon" aria-hidden="true"><?= Format::icon('envelope') ?></span>
-            <p class="mb-empty-title">Pas encore de boîte mail dans Courrier</p>
-            <p class="mb-muted">Connectez votre adresse @lpc.cm pour lire et envoyer votre courrier ici. Les boîtes partagées apparaissent quand un gestionnaire vous y donne accès.</p>
-            <a class="mb-btn mb-btn--primary" href="/modules/mail/mailboxes.php">Connecter ma boîte mail</a>
+            <h2 class="mb-empty-title" id="mr-empty-h">Pas encore de boîte mail dans Courrier</h2>
+            <p class="mb-muted">Connectez votre adresse @lpc.cm pour lire et envoyer votre courrier ici.</p>
+            <a class="mb-btn mb-btn--primary" href="/modules/mail/mailboxes.php?connect=1">Connecter ma boîte mail</a>
         </section>
     <?php else: ?>
         <?php if ($inbox->notice): ?>
