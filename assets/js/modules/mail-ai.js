@@ -492,7 +492,8 @@
 
     document.addEventListener('mail:thread-changed', function (ev) {
         var d = ev.detail || {};
-        if (d.source !== 'ai' && state.threadId && Number(d.threadId) === state.threadId) summaryFor(state.threadId, state.folderRole);
+        // Our own summary, or PR 4's assign / status (which don't change the messages): nothing to reload
+        if (d.source !== 'ai' && d.source !== 'team' && state.threadId && Number(d.threadId) === state.threadId) summaryFor(state.threadId, state.folderRole);
     });
 
     document.addEventListener('mail:compose-opened', resetWrite);

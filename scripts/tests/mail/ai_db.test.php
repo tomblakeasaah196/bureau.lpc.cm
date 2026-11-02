@@ -262,6 +262,24 @@ $server->deliver('contact@lpc.cm', 'INBOX', FakeMailServer::message(from: 'Awa C
 MailSync::make()->account($contact['id']);
 check('a new message clears the summary (kept until new mail)', ThreadSummariser::state($awa, $livraison)['summary'] === null && Store::thread($livraison)['ai_summary'] === null);
 
+section('Two conversations merged: the summary of the one that stays is cleared (ai_merged listener)');
+$server->deliver('contact@lpc.cm', 'INBOX', FakeMailServer::message(from: 'Chantal <chantal@epicerie.test>', subject: 'Commande Alpha', text: 'Alpha.', messageId: 'alpha@epicerie.test', date: $ago('-3 days')));
+$server->deliver('contact@lpc.cm', 'INBOX', FakeMailServer::message(from: 'Chantal <chantal@epicerie.test>', subject: 'Commande Beta', text: 'Beta.', messageId: 'beta@epicerie.test', date: $ago('-2 days')));
+MailSync::make()->account($contact['id']);
+$alpha = $msg('alpha@epicerie.test')['thread_id'];
+$beta = $msg('beta@epicerie.test')['thread_id'];
+check('two conversations to begin with', $alpha !== $beta);
+foreach ([$alpha, $beta] as $t) {
+    Db::update('mail_threads', ['ai_summary' => ['gist' => 'Une seule des deux', 'key_points' => [], 'asked_of_you' => [], 'by' => $awa], 'ai_summary_at' => Clock::sql()], $t);
+}
+// An older message citing both: new mail alone would not clear a summary (it is older than it), the merge does
+$server->deliver('contact@lpc.cm', 'INBOX', FakeMailServer::message(from: 'Chantal <chantal@epicerie.test>', subject: 'Re: Commande Beta', text: 'Les deux.', messageId: 'both@epicerie.test', references: '<alpha@epicerie.test> <beta@epicerie.test>', date: $ago('-1 day')));
+MailSync::make()->account($contact['id']);
+$kept = $msg('both@epicerie.test')['thread_id'];
+check('merged into one', $msg('alpha@epicerie.test')['thread_id'] === $kept && $msg('beta@epicerie.test')['thread_id'] === $kept && in_array($kept, [$alpha, $beta], true));
+$keptRow = Store::thread($kept);
+check('the summary of the one that stays is cleared', $keptRow !== null && $keptRow['ai_summary'] === null && $keptRow['ai_summary_at'] === null);
+
 section('Écrire avec l\'IA: reads what the person can read, sends nothing');
 $reply = ['accountId' => $contact['id'], 'mode' => 'reply', 'messageId' => $msg('l33@client.test')['id'], 'subject' => 'Re: Livraison Bonamoussadi', 'text' => '', 'to' => [['name' => 'Awa Client', 'email' => 'awa@client.test']]];
 $e = throws(fn () => WriteWithAi::draft($paul, $reply, ''));
