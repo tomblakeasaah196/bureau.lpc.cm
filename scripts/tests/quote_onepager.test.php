@@ -138,12 +138,12 @@ function withLines(array $doc, int $n, float $tva_rate = 0.0): array
     return $doc;
 }
 
-/** Render, then report [page count, extracted text, pdf bytes]. */
+/** Render the way ?pdf=1 does (rows fitted to the page), then report [page count, pdf bytes, html]. */
 function render(array $doc): array
 {
     $lh   = CompanyProfile::letterhead('fr');
     $logo = CompanyProfile::logoFsPath('document');
-    $html = lpc_render_quote_pdf_html($doc, $lh, $logo, 'test-token');
+    $html = lpc_render_quote_pdf_html_fitted($doc, $lh, $logo, 'test-token');
 
     $options = new \Dompdf\Options();
     $options->set('isRemoteEnabled', false);
@@ -156,7 +156,7 @@ function render(array $doc): array
     $dompdf->setPaper('A4', 'portrait');
     $dompdf->render();
 
-    return [$dompdf->getCanvas()->get_page_count(), $dompdf->output()];
+    return [$dompdf->getCanvas()->get_page_count(), $dompdf->output(), $html];
 }
 
 /** pdftotext if it is on PATH — the tool that originally exposed the bitmap. */
@@ -169,6 +169,16 @@ function extractText(string $pdf): ?string
     $txt = @shell_exec('pdftotext -layout ' . escapeshellarg($in) . ' - 2>/dev/null');
     @unlink($in);
     return is_string($txt) ? $txt : null;
+}
+
+/**
+ * Amounts with the spaces between their digits removed. lpc_fcfa() groups
+ * thousands with U+202F (DejaVu Sans has the glyph, so the PDF prints it), but
+ * pdftotext hands that space back as some other character or none at all.
+ */
+function digitsJoined(string $s): string
+{
+    return preg_replace('/(?<=\d)[ \x{00A0}\x{202F}](?=\d)/u', '', $s);
 }
 
 // -----------------------------------------------------------------------------
@@ -241,35 +251,44 @@ foreach ($cases as $label => $doc) {
 
 echo "\n─── the clamped tail is summed, not dropped ───\n";
 
-// 40 lines is 8 printed rows plus one summed row. The buyer must still be able
-// to add the column up to the total they are being asked to approve — a devis
-// whose lines do not reconcile is worse than one that runs to two pages.
+// 40 lines is as many printed rows as fit plus one summed row. The buyer must
+// still be able to add the column up to the total they are being asked to
+// approve — a devis whose lines do not reconcile is worse than one that runs to
+// two pages. The spill row says how many lines it sums; the rest were printed.
 $doc40 = withLines(fixture(), 40);
-[$pages40, $pdf40] = render($doc40);
+[$pages40, $pdf40, $html40] = render($doc40);
+preg_match('/<tr class="spill">\s*<td>[^<]*\((\d+)\)/', $html40, $sm);
+$summed  = (int) ($sm[1] ?? 0);
+$printed = array_slice($doc40['items'], 0, count($doc40['items']) - $summed);
+$spill   = array_slice($doc40['items'], count($printed));
+$spill_total = array_sum(array_column($spill, 'total'));
+
+check('the tail is summed into one row, after at least five printed ones',
+      $summed > 0 && count($printed) >= 5, count($printed) . " printed, {$summed} summed");
+check('the summed row carries the tail total',
+      str_contains($html40, lpc_fcfa($spill_total, '')), 'expected ' . lpc_fcfa($spill_total, ''));
+check('printed rows + summed row = subtotal',
+      abs(array_sum(array_column($printed, 'total')) + $spill_total
+          - $doc40['totals']['subtotal']) < 0.01);
+
 $txt40 = extractText($pdf40);
 if ($txt40 === null) {
-    echo "  SKIP  pdftotext not on PATH — install poppler-utils to assert this\n";
+    echo "  SKIP  pdftotext not on PATH — install poppler-utils to assert the PDF text\n";
 } else {
-    $printed = array_slice($doc40['items'], 0, 8);
-    $spill   = array_slice($doc40['items'], 8);
-    $spill_total = array_sum(array_column($spill, 'total'));
-
-    check('the summed row is labelled and counted',
+    check('the summed row is labelled and counted in the PDF',
           str_contains($txt40, lpc_proposal_text('onepager_more_lines', 'fr'))
           && str_contains($txt40, '(' . count($spill) . ')'));
-    check('the summed row carries the tail total',
-          str_contains($txt40, lpc_fcfa($spill_total, '')),
+    check('the tail total is printed in the PDF',
+          str_contains(digitsJoined($txt40), digitsJoined(lpc_fcfa($spill_total, ''))),
           'expected ' . lpc_fcfa($spill_total, ''));
-    check('printed rows + summed row = subtotal',
-          abs(array_sum(array_column($printed, 'total')) + $spill_total
-              - $doc40['totals']['subtotal']) < 0.01);
 
     echo "\n─── vector text, not a picture of text ───\n";
 
     // The original diagnosis: `pdftotext` pulled four characters out of the
     // whole of DEV-2607-841B because every page was a 1588×2246 JPEG.
     check('the reference is extractable', str_contains($txt40, 'DEV-2607-841B'));
-    check('the total is extractable', str_contains($txt40, lpc_fcfa($doc40['totals']['grand_total'], '')));
+    check('the total is extractable',
+          str_contains(digitsJoined($txt40), digitsJoined(lpc_fcfa($doc40['totals']['grand_total'], ''))));
     check('the amount in words is extractable',
           str_contains($txt40, substr($doc40['totals']['words'], 0, 24)));
     check('the incorporation clause is extractable',

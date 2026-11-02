@@ -6,8 +6,8 @@ runs `scripts/deploy.sh` any more.
 ## How a change goes live
 
 1. **GitHub Actions** (`.github/workflows/pipeline.yml`) runs on every pull request and every push to `main`:
-   PHP syntax on every file, the migration lint, the accounting, invoicing and front-end tests, and the
-   deployer's own tests.
+   PHP syntax on every file, the migration lint, the accounting, invoicing, document (QR, one-page quote PDF,
+   signature cell) and front-end tests, and the deployer's own tests.
 2. **Release.** On `main`, a green run builds the CSS (`npm run build`, `scripts/build_theme_css.py`) and the JS
    bundle, commits them on top of `main` and force-pushes that commit to the `production` branch.
 3. **Server.** A cron job runs `~/deploy/bureau/bureau-deploy.sh` every minute. When `production` has moved, it:
@@ -103,9 +103,9 @@ the way the JBS Praxis server has one, and point `~/repositories/bureau` at `git
 Old instructions that describe uploading zips or SSH secrets (`scripts/ship-day.md`, `docs/CI_CD_SETUP_GUIDE.md`)
 are kept for history only.
 
-## Tests that fail on main today
+## Tests that don't block a release yet
 
-`qr_render.test.php`, `quote_onepager.test.php` (the one-page quote renders on two pages),
-`signature_canonical_payload.test.php` (its expected hashes were never filled in) and `document_header.test.py`
-fail on the code that is live (2 Nov 2026). CI runs them in **Known failing tests** and reports them as warnings
-without blocking a release. Once one passes, move it into the **Code checks** job.
+`signature_canonical_payload.test.php` has no expected hashes yet: pinning them declares today's signature
+payload shape the one every stored signature is checked against, which is the owner's call. CI runs it in
+**Known failing tests** and reports it as a warning without blocking a release. Once it passes, move it into the
+**Code checks** job.

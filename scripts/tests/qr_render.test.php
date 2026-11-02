@@ -97,19 +97,34 @@ foreach ($checks as $label => $pass) {
 printf("  %-34s %d bytes\n", 'generated length', strlen($svg));
 
 // 4. And the wrapper that documents actually call: it must stamp the
-//    requested physical size onto the root element.
+//    requested physical size onto what it returns. With ext-gd it returns a
+//    PNG <img> (dompdf blurs a 15mm SVG into a blank square — see
+//    lpc_qr_png_datauri()); without it, the sized SVG.
 echo str_repeat('-', 72) . "\n";
 $boxed = lpc_qr_or_fallback($url, '15mm', 'a1b2c3d4');
-preg_match('/<svg\b[^>]*>/i', $boxed, $bm);
-$boxedRoot = $bm[0] ?? '';
 
-$boxChecks = [
-    'lpc_qr_or_fallback returns QR'   => stripos($boxed, '<svg') !== false,
-    'sized width="15mm"'              => stripos($boxedRoot, 'width="15mm"') !== false,
-    'sized height="15mm"'             => stripos($boxedRoot, 'height="15mm"') !== false,
-    'viewBox survived sizing'         => stripos($boxedRoot, 'viewbox=') !== false,
-    'crispEdges for small print'      => stripos($boxedRoot, 'crispedges') !== false,
-];
+if (lpc_qr_png_available()) {
+    preg_match('/<img\b[^>]*>/i', $boxed, $bm);
+    $boxedRoot = $bm[0] ?? '';
+    preg_match('/src="data:image\/png;base64,([^"]+)"/', $boxedRoot, $pm);
+    $png = base64_decode($pm[1] ?? '', true);
+    $boxChecks = [
+        'lpc_qr_or_fallback returns PNG'  => $boxedRoot !== '',
+        'carries real PNG bytes'          => is_string($png) && strncmp($png, "\x89PNG\r\n\x1a\n", 8) === 0,
+        'sized width="15mm"'              => stripos($boxedRoot, 'width="15mm"') !== false,
+        'sized height="15mm"'             => stripos($boxedRoot, 'height="15mm"') !== false,
+    ];
+} else {
+    preg_match('/<svg\b[^>]*>/i', $boxed, $bm);
+    $boxedRoot = $bm[0] ?? '';
+    $boxChecks = [
+        'lpc_qr_or_fallback returns SVG'  => $boxedRoot !== '',
+        'sized width="15mm"'              => stripos($boxedRoot, 'width="15mm"') !== false,
+        'sized height="15mm"'             => stripos($boxedRoot, 'height="15mm"') !== false,
+        'viewBox survived sizing'         => stripos($boxedRoot, 'viewbox=') !== false,
+        'crispEdges for small print'      => stripos($boxedRoot, 'crispedges') !== false,
+    ];
+}
 foreach ($boxChecks as $label => $pass) {
     printf("  %-34s %s\n", $label, $pass ? 'OK' : 'FAIL');
     if (!$pass) $fail++;

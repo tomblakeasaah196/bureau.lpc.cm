@@ -36,7 +36,7 @@
  *   the partial by reintroducing flex — you will silently break every PDF.
  *
  * HEIGHT BUDGET — 34mm
- *   lpc_render_quote_pdf_html() guarantees the devis is ALWAYS one A4 page,
+ *   lpc_render_quote_pdf_html_fitted() keeps the devis to one A4 page,
  *   and its docblock allocates this block exactly 34mm (see the budget table
  *   there; scripts/tests/quote_onepager.test.php asserts the page count).
  *   The layout below is three columns per party — stamp | identity | QR —

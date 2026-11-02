@@ -42,23 +42,7 @@ final class PdfRenderer
      */
     public static function fromHtml(string $html, array $opts = []): string
     {
-        self::requireDompdf();
-
-        $paper       = $opts['paper']       ?? 'A4';
-        $orientation = $opts['orientation'] ?? 'portrait';
-
-        $options = new \Dompdf\Options();
-        $options->set('isRemoteEnabled', false);   // never fetch external URLs
-        $options->set('isHtml5ParserEnabled', true);
-        $options->set('defaultFont', 'DejaVu Sans'); // ships with dompdf; handles FCFA/é/î
-        $options->set('chroot', [
-            realpath(__DIR__ . '/../..') ?: __DIR__,
-        ]);
-
-        $dompdf = new \Dompdf\Dompdf($options);
-        $dompdf->setPaper($paper, $orientation);
-        $dompdf->loadHtml($html, 'UTF-8');
-        $dompdf->render();
+        $dompdf = self::rendered($html, $opts);
 
         // dompdf has no first-class header/footer API, but it exposes
         // page-script hooks via <script type="text/php"> that the template
@@ -77,6 +61,39 @@ final class PdfRenderer
         }
 
         return (string) $dompdf->output();
+    }
+
+    /**
+     * How many pages $html renders to, laid out exactly as fromHtml() would.
+     * The quote one-pager uses it to pick how many priced rows fit on one page
+     * (lpc_render_quote_pdf_html_fitted()).
+     */
+    public static function pageCount(string $html, array $opts = []): int
+    {
+        return self::rendered($html, $opts)->getCanvas()->get_page_count();
+    }
+
+    /** One dompdf, configured once for every render and measurement. */
+    private static function rendered(string $html, array $opts): \Dompdf\Dompdf
+    {
+        self::requireDompdf();
+
+        $paper       = $opts['paper']       ?? 'A4';
+        $orientation = $opts['orientation'] ?? 'portrait';
+
+        $options = new \Dompdf\Options();
+        $options->set('isRemoteEnabled', false);   // never fetch external URLs
+        $options->set('isHtml5ParserEnabled', true);
+        $options->set('defaultFont', 'DejaVu Sans'); // ships with dompdf; handles FCFA/é/î
+        $options->set('chroot', [
+            realpath(__DIR__ . '/../..') ?: __DIR__,
+        ]);
+
+        $dompdf = new \Dompdf\Dompdf($options);
+        $dompdf->setPaper($paper, $orientation);
+        $dompdf->loadHtml($html, 'UTF-8');
+        $dompdf->render();
+        return $dompdf;
     }
 
     /**
