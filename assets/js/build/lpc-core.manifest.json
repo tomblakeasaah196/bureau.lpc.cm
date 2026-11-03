@@ -1,67 +1,67 @@
 {
-  "hash": "sha384-c2hcy4r/dlintH+xgl2PmbkRE5kXgrgDrrCXY6j5f/rHfLt3JU7zR3dMruGAwZz/",
-  "size": 69324,
+  "hash": "sha384-pSXfHtbKHvZr1En362gkC5DagB0IUbryiTMcCmlCzPlRjYGra0BtKzbVRI4VMd1w",
+  "size": 69389,
   "files": [
     {
       "file": "lpc-dom.js",
       "size": 7026,
-      "mtime": 1787211345450.4446
+      "mtime": 1793723176777.7207
     },
     {
       "file": "lpc-i18n.js",
       "size": 3473,
-      "mtime": 1787211345450.4446
+      "mtime": 1793723176777.7207
     },
     {
       "file": "lpc-modal.js",
       "size": 14329,
-      "mtime": 1787211345450.4446
+      "mtime": 1793723176777.7207
     },
     {
       "file": "lpc-toast.js",
       "size": 8738,
-      "mtime": 1787211345450.4446
+      "mtime": 1793723176778.8025
     },
     {
       "file": "lpc-a11y.js",
       "size": 8942,
-      "mtime": 1787211345450.4446
+      "mtime": 1793723176777.7207
     },
     {
       "file": "lpc-session-lock.js",
       "size": 18405,
-      "mtime": 1787211345450.4446
+      "mtime": 1793723176778.8025
     },
     {
       "file": "lpc-product-picker.js",
-      "size": 47630,
-      "mtime": 1787212333858.429
+      "size": 47864,
+      "mtime": 1793723547609.5718
     },
     {
       "file": "lpc-deeplink.js",
       "size": 9439,
-      "mtime": 1787211345450.4446
+      "mtime": 1793723176777.7207
     },
     {
       "file": "lpc-paginator.js",
       "size": 15416,
-      "mtime": 1787211345450.4446
+      "mtime": 1793723176777.7207
     },
     {
       "file": "lpc-kpi.js",
       "size": 37126,
-      "mtime": 1787211345450.4446
+      "mtime": 1793723176777.7207
     },
     {
       "file": "lpc-chart-theme.js",
       "size": 11151,
-      "mtime": 1787211345450.4446
+      "mtime": 1793723176777.7207
     },
     {
       "file": "lpc-turbo-init.js",
       "size": 8618,
-      "mtime": 1787211345450.4446
+      "mtime": 1793723176778.8025
     }
   ],
-  "builtAt": "2026-08-20T07:52:21.306Z"
+  "builtAt": "2026-11-03T16:34:17.248Z"
 }
