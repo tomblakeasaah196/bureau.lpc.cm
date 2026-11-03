@@ -4,8 +4,8 @@
  * -----------------------------------------------------------------------------
  * Bureau LPC ERP — clear test data, module by module (docs/DATA_WIPE.md).
  * For the WIPE_ADMIN_EMAIL account only, on its WIPE_URL_KEY address; anyone
- * else gets what a page that doesn't exist gets (DataWipeAccess). In no menu,
- * no search, no permission.
+ * else gets what a page that doesn't exist gets (DataWipeAccess). That account
+ * alone has it in the sidebar, under Courrier; no search, no permission.
  *
  * Pick tables → see everything that goes with them, with row counts and the
  * balances recalculated → a code emailed to that account + a reason → the

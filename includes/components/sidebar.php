@@ -127,8 +127,20 @@ $__nav = lpc_nav_sections($lang);
     }
     $__mailActive = str_starts_with((string) $__currentPath, '/modules/mail/');
     $__mailLabel  = $lang === 'en' ? 'Mail' : 'Courrier';
+
+    // The data wipe tool, under Courrier, for the WIPE_ADMIN_EMAIL account only
+    // (docs/DATA_WIPE.md, owner's decision of 3 Nov 2026). Everyone else gets
+    // nothing, and a failure stays silent: no page or log may name the tool.
+    $__wipeHref = null;
+    try {
+        require_once __DIR__ . '/../classes/DataWipeAccess.php';
+        $__wipeHref = DataWipeAccess::menuLink(Database::getInstance()->getConnection());
+    } catch (Throwable $__wipeErr) {
+    }
+    $__wipeLabel  = $lang === 'en' ? 'Clear data' : 'Effacer les données';
+    $__wipeActive = $__wipeHref !== null && $__currentPath === DataWipeAccess::PAGE;
     ?>
-    <ul role="menu" class="lpc-nav-pinned" aria-label="<?= htmlspecialchars($__mailLabel) ?>">
+    <ul role="menu" class="lpc-nav-pinned" aria-label="<?= htmlspecialchars($__wipeHref !== null ? $__mailLabel . ', ' . $__wipeLabel : $__mailLabel) ?>">
         <li role="none">
             <a href="/modules/mail/index.php"
                role="menuitem"
@@ -146,6 +158,20 @@ $__nav = lpc_nav_sections($lang);
                 </span>
             </a>
         </li>
+        <?php if ($__wipeHref !== null): ?>
+        <li role="none">
+            <a href="<?= htmlspecialchars($__wipeHref) ?>"
+               role="menuitem"
+               <?= $__wipeActive ? 'aria-current="page"' : '' ?>
+               title="<?= htmlspecialchars($__wipeLabel) ?>"
+               class="lpc-focusable lpc-nav-link group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all">
+                <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+                </svg>
+                <span class="truncate lpc-label"><?= htmlspecialchars($__wipeLabel) ?></span>
+            </a>
+        </li>
+        <?php endif; ?>
     </ul>
     <?php foreach ($__nav as $__sectionIdx => $__section):
         // lpc_nav_sections() has already dropped anything this user can't see,
@@ -411,5 +437,5 @@ if (!defined('LPC_SHELL_JS_EMITTED')) {
 // Free scope-local temporaries
 // Only this component's own __-prefixed temporaries. Never unset a generic
 // name here: an include shares the caller's scope and would wipe the page's var.
-unset($__profile, $__nav, $__section, $__item, $__active, $__currentPath, $__sectionIdx, $__headingId, $__secKey, $__mailUnread, $__mailActive, $__mailLabel);
+unset($__profile, $__nav, $__section, $__item, $__active, $__currentPath, $__sectionIdx, $__headingId, $__secKey, $__mailUnread, $__mailActive, $__mailLabel, $__wipeHref, $__wipeLabel, $__wipeActive);
 ?>

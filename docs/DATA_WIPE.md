@@ -6,8 +6,9 @@ For JBS Praxis only. Built 2 Nov 2026 on the owner's decisions. The client teste
 - **One account only:** the signed-in staff account whose email equals `WIPE_ADMIN_EMAIL` in the server's `.env`.
 - **One address only:** the request must carry `?k=<WIPE_URL_KEY>`, also from `.env` (32 characters or more). The page's path is in this public repository, but the key isn't.
 - **Everyone else** gets exactly what an unknown URL gets: `.htaccess` rewrites it to `index.php`, which shows the sign-in page, or sends a signed-in person to their dashboard. This covers admins, and everyone while either setting is empty. The page and every endpoint answer the same way.
-- **Nowhere in the app:**
-  - no permission or role, no menu entry, no ⌘K entry;
+- **In that account's sidebar only:** "Effacer les données" ("Clear data" in English), under Courrier. The link carries the key, so nothing has to be bookmarked (owner's decision, 3 Nov 2026). It shows only while both settings are present and that account is active (`DataWipeAccess::menuLink()`).
+- **Nowhere else in the app:**
+  - no permission or role, no entry in any other menu, no ⌘K entry;
   - no line in the error log or the activity log;
   - the email address and the key are never written in code, docs or commits.
 
@@ -82,7 +83,7 @@ Code:
    WIPE_ADMIN_EMAIL=<the email of the one account allowed>
    WIPE_URL_KEY=<40 random characters>
    ```
-   The address of the screen is `https://bureau.lpc.cm/modules/admin/data_wipe.php?k=<WIPE_URL_KEY>`. Keep it out of the repo and out of shared chats.
+   Once both lines are in, "Effacer les données" appears under Courrier in that account's sidebar. Its address is `https://bureau.lpc.cm/modules/admin/data_wipe.php?k=<WIPE_URL_KEY>`. Keep the key out of the repo and out of shared chats.
 2. **Cron** (cPanel → Cron Jobs, daily):
    ```
    20 1 * * * /usr/local/bin/ea-php83 /home/smartqaq/public_html/bureau.lpc.cm/scripts/cron/purge_data_wipe_copies.php >/dev/null 2>&1
@@ -98,6 +99,6 @@ Code:
 - restore exactness;
 - a failure half-way changing nothing;
 - the lock, the gate, codes, the cron;
-- that nothing is in a menu or the error log.
+- that only that account's sidebar links to the tool, no other menu does, and nothing goes to the error log.
 
 `scripts/tests/wipe/doc_counter.test.php` covers numbering.

@@ -9,8 +9,11 @@
  *   Only the signed-in account whose email equals WIPE_ADMIN_EMAIL in the
  *   server's .env, on a URL carrying WIPE_URL_KEY (the page's address is not
  *   in this public repository). Not a permission or a role: admins don't have
- *   it, and it is in no menu. Everyone else, and everyone while either setting
- *   is missing, gets exactly what a page that doesn't exist gives: bureau
+ *   it. That account alone sees "Effacer les données" under Courrier in the
+ *   sidebar, a link that carries the key (menuLink(), owner's decision of
+ *   3 Nov 2026); for everyone else it is in no menu. Everyone else, and
+ *   everyone while either setting is missing, gets exactly what a page that
+ *   doesn't exist gives: bureau
  *   rewrites unknown paths to index.php (.htaccess), which shows the sign-in
  *   page, or sends a signed-in person to their dashboard. The page and every
  *   endpoint answer the same way.
@@ -39,6 +42,7 @@ final class DataWipeAccess
     public const MD_MATRICULE = 'LPC-MD-01';
     public const CODE_MINUTES = 10;
     public const CODE_TRIES = 5;
+    public const PAGE = '/modules/admin/data_wipe.php';
     private const KEY_MIN_LENGTH = 32;
 
     /** The tool is on: both settings are present and well formed. */
@@ -54,6 +58,19 @@ final class DataWipeAccess
         $want = trim((string) env('WIPE_URL_KEY', ''));
         $got = (string) ($_GET['k'] ?? $_POST['k'] ?? $_SERVER['HTTP_X_WIPE_KEY'] ?? '');
         return strlen($want) >= self::KEY_MIN_LENGTH && hash_equals($want, $got);
+    }
+
+    /**
+     * The sidebar link with the key, for the WIPE_ADMIN_EMAIL account only, so
+     * nothing has to be bookmarked. Null for everyone else and while the tool
+     * is off: then no page says the tool exists.
+     */
+    public static function menuLink(PDO $db): ?string
+    {
+        if (!self::configured() || self::account($db) === null) {
+            return null;
+        }
+        return self::PAGE . '?k=' . rawurlencode(trim((string) env('WIPE_URL_KEY', '')));
     }
 
     /** The signed-in account if it is the one WIPE_ADMIN_EMAIL names and is active, else null. */
