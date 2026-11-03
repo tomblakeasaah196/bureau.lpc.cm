@@ -38,6 +38,9 @@ class FakeMailServer extends MailServer
     /** Make the next SMTP send fail: null, 'auth', 'rejected' or 'temporary' */
     public ?string $smtpFailure = null;
 
+    /** Make the next IMAP connections fail, one entry each: 'timeout' or 'unreachable' */
+    public array $imapFailures = [];
+
     /** Number of IMAP sessions opened (to check that work is batched) */
     public int $sessions = 0;
 
@@ -135,6 +138,13 @@ class FakeMailServer extends MailServer
 
     public function connect(array $settings, string $username, string $password): ImapSession
     {
+        $failure = array_shift($this->imapFailures);
+        if ($failure === 'timeout') {
+            throw ImapException::timeout('mail.lpc.cm');
+        }
+        if ($failure === 'unreachable') {
+            throw ImapException::unreachable('mail.lpc.cm', 993, 'Connection refused');
+        }
         $box = $this->mailboxes[strtolower($username)] ?? null;
         if (!$box || !hash_equals($box['password'], $password)) {
             throw ImapException::auth('[AUTHENTICATIONFAILED] Authentication failed.');
