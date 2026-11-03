@@ -188,6 +188,9 @@
      * See docs/SIGNATURES.md for the two-party model.
      */
     function badge(row) {
+        // H`` returns a plain string, so a badge built with it must go back in
+        // through LPC.raw, or the outer H`` escapes it and the cell shows the
+        // markup as text (the "<span class=devis-badge-visa…>" seen in QA).
         var visa = row.lpc_signed
             ? H`<span class="devis-badge devis-badge-visa" title="Signé en interne par La Petite Cour — le client n'a pas encore signé">Visé LPC</span>`
             : '';
@@ -198,9 +201,9 @@
             return H`<span class="devis-badge devis-badge-signed">Signé</span>`;
         }
         if (row.derived_status === 'expired') {
-            return H`<span class="devis-badge devis-badge-expired">Expiré</span>${visa}`;
+            return H`<span class="devis-badge devis-badge-expired">Expiré</span>${LPC.raw(visa)}`;
         }
-        return H`<span class="devis-badge devis-badge-sent">Envoyé</span>${visa}`;
+        return H`<span class="devis-badge devis-badge-sent">Envoyé</span>${LPC.raw(visa)}`;
     }
 
     /**
@@ -230,7 +233,7 @@
         return H`<div class="text-sm text-gray-700">${row.sales_rep_name || '—'}</div>
                  <div class="text-xs ${late ? 'text-red-600 font-bold' : 'text-gray-500'}">
                     ${late ? 'expiré le ' : "valable jusqu'au "}${expiry}
-                 </div>`;
+                 </div>${LPC.raw(visaLine)}`;
     }
 
     function renderRows(rows) {
