@@ -90,7 +90,9 @@ function lpc_serve_document_pdf(string $type): void
         $rel_path = PdfRenderer::saveDocument($type, (int)$doc['record_id'], $token, $html, [
             'paper'       => 'A4',
             'orientation' => 'portrait',
-            'footer_html' => '__page_counter__',
+            // The payslip is one page by design and its footer spans the full width, where
+            // the counter would print over it.
+            'footer_html' => $type === 'payslip' ? null : '__page_counter__',
         ]);
     } catch (Throwable $e) {
         error_log('document_pdf render: ' . $e->getMessage());
@@ -373,7 +375,8 @@ function lpc_load_document(PDO $db, string $type, string $token): ?array
             $stmt = $db->prepare("
                 SELECT p.*,
                        CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
-                       e.cnps_number, e.marital_status, e.dependents_count
+                       e.cnps_number, e.marital_status, e.dependents_count,
+                       e.employee_code, e.job_title, e.hire_date
                   FROM hr_payslips p
                   JOIN users     u ON u.id = p.user_id
                   LEFT JOIN employees e ON e.id = u.employee_id
@@ -688,7 +691,10 @@ function lpc_normalize_payslip(array $r): array {
         'record_id' => (int)$r['id'], 'reference' => sprintf('PAIE-%04d%02d-%d', $r['year'], $r['month'], $r['user_id']),
         'date' => sprintf('%04d-%02d-01', $r['year'], $r['month']),
         'employee' => ['name'=>$r['employee_name'] ?? '', 'cnps'=>$r['cnps_number'] ?? '',
-                       'marital'=>$r['marital_status'] ?? '', 'dependents'=>$r['dependents_count'] ?? 0],
+                       'marital'=>$r['marital_status'] ?? '', 'dependents'=>$r['dependents_count'] ?? 0,
+                       // Shown on the payslip only; not part of the signed payload.
+                       'code'=>$r['employee_code'] ?? '', 'job_title'=>$r['job_title'] ?? '',
+                       'hire_date'=>$r['hire_date'] ?? null],
         'raw' => $r, 'breakdown' => $breakdown,
         'source_updated_at' => $r['updated_at'] ?? $r['created_at'] ?? null,
     ];
@@ -746,6 +752,10 @@ function lpc_render_document_html(string $type, array $doc): string
         ob_end_clean();
         return lpc_render_quote_pdf_html_fitted($doc, $lh, $lhLogo, $token);
     }
+    if ($type === 'payslip') {
+        ob_end_clean();
+        return lpc_render_payslip_pdf_html($doc, $lh, $lhLogo, $token);
+    }
 
     // Inline template — dompdf handles this fine and it stays in one place.
     ?>
@@ -797,9 +807,6 @@ function lpc_render_document_html(string $type, array $doc): string
         </td>
     </tr></table>
 
-    <?php if ($type === 'payslip'): ?>
-        <?= lpc_render_payslip_body($doc) ?>
-    <?php else: ?>
         <h2>Destinataire</h2>
         <div class="box">
             <div style="font-weight: bold; font-size: 11pt;"><?= htmlspecialchars($doc['client']['name'] ?? '', ENT_QUOTES, 'UTF-8') ?></div>
@@ -854,7 +861,6 @@ function lpc_render_document_html(string $type, array $doc): string
             <h2>Notes</h2>
             <div class="box"><?= nl2br(htmlspecialchars($doc['notes'], ENT_QUOTES, 'UTF-8')) ?></div>
         <?php endif; ?>
-    <?php endif; ?>
 
     <?php
     // Universal signature block — the same partial every document uses.
@@ -1822,115 +1828,302 @@ function lpc_render_quote_pdf_html_fitted(array $doc, array $lh, string $lhLogo,
     return $best ?? lpc_render_quote_pdf_html($doc, $lh, $lhLogo, $token, 2);
 }
 
-function lpc_render_payslip_body(array $doc): string
+/**
+ * The bulletin de paie, rendered for dompdf — ONE A4 page, always.
+ * -----------------------------------------------------------------------------
+ * Read top to bottom the way an employee reads a payslip, ending on the one
+ * figure they look for:
+ *
+ *   header      logo + raison sociale (+ N° employeur CNPS when set) | BULLETIN DE PAIE, period, N°
+ *   cards       Employé (matricule, poste, CNPS, situation) | Paiement (période, mode, statut)
+ *   Gains       base, indemnités, primes, absences → SALAIRE BRUT (+ base imposable, as information)
+ *   Retenues    CNPS, IRPP, CAC, CFC, CRTV, TDL always; acomptes / dettes / other only when not 0
+ *   Charges patronales   information only: what the employer pays on top, never deducted
+ *   NET À PAYER the band at the bottom, with the amount in words
+ *   signatures  L'employeur | L'employé(e)
+ *   footer      address, B.P., RCCM, NIU, capital, contact — once, here, not in the header too
+ *
+ * One page is a property of the template, not luck: there is no page-break
+ * rule, every block is page-break-inside: avoid, and the row count is bounded
+ * (at most 5 gains, 9 retenues, 3 employer lines). scripts/tests/
+ * payslip_onepager.test.php renders the worst case through dompdf and asserts
+ * a page count of 1.
+ *
+ * The canonical signature payload (DocumentSignature::canonicalPayload_payslip)
+ * reads reference, date, employee.name/cnps, breakdown and raw.gross/net from
+ * the normalised $doc. Nothing here changes those keys, so payslips signed
+ * before this layout still verify.
+ */
+function lpc_render_payslip_pdf_html(array $doc, array $lh, string $lhLogo, string $token): string
 {
-    $r  = $doc['raw'] ?? [];
-    $e  = $doc['employee'];
-    $bd = $doc['breakdown'] ?? [];   // decoded breakdown_json — post-fix rows
-                                     // carry housing_allowance /
-                                     // transport_allowance / allowances_total
-                                     // at the top level. Rows written before
-                                     // the Payroll::compute change may not,
-                                     // so fall back to breakdown_lines (the
-                                     // "Indemnités (logement/transport)"
-                                     // line has always been there) and
-                                     // finally to reconstructing the total
-                                     // from Gross − Base − Bonuses.
+    $e = static function ($v): string {
+        return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+    };
+    $n = static function ($v): string {   // "95 799", never "-0"
+        return lpc_fcfa(abs(round((float) $v)), '');
+    };
 
-    $base       = (float) ($r['base_salary'] ?? 0);
-    $bonuses    = (float) ($r['bonuses']     ?? 0);
-    $gross      = (float) ($r['gross_salary'] ?? 0);
+    $brand = $lh['color'];
+    $r     = $doc['raw'] ?? [];
+    $emp   = $doc['employee'] ?? [];
+    $bd    = $doc['breakdown'] ?? [];
 
-    $housing    = (float) ($bd['housing_allowance']   ?? 0);
-    $transport  = (float) ($bd['transport_allowance'] ?? 0);
-    $allowances = (float) ($bd['allowances_total']    ?? ($housing + $transport));
+    // ---- period ----------------------------------------------------------------
+    $months = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet',
+               'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+    $y = (int) ($r['year'] ?? substr((string) ($doc['date'] ?? ''), 0, 4));
+    $m = (int) ($r['month'] ?? substr((string) ($doc['date'] ?? ''), 5, 2));
+    $period    = ($months[$m] ?? '') . ' ' . $y;
+    $periodEnd = ($y > 0 && $m >= 1 && $m <= 12) ? (int) date('t', mktime(0, 0, 0, $m, 1, $y)) : 0;
+    $periodRange = $periodEnd ? sprintf('du 01/%02d/%04d au %02d/%02d/%04d', $m, $y, $periodEnd, $m, $y) : '';
 
+    // ---- gains -----------------------------------------------------------------
+    $base      = (float) ($r['base_salary'] ?? 0);
+    $bonuses   = (float) ($r['bonuses'] ?? 0);
+    $gross     = (float) ($r['gross_salary'] ?? 0);
+    $absences  = (float) ($r['absences_deducted'] ?? 0);
+    $housing   = (float) ($bd['housing_allowance'] ?? 0);
+    $transport = (float) ($bd['transport_allowance'] ?? 0);
+    $allowances = (float) ($bd['allowances_total'] ?? ($housing + $transport));
     if ($allowances <= 0 && !empty($bd['breakdown_lines']) && is_array($bd['breakdown_lines'])) {
         foreach ($bd['breakdown_lines'] as $line) {
-            if (stripos((string)($line['label'] ?? ''), 'indemnit') !== false) {
+            if (stripos((string) ($line['label'] ?? ''), 'indemnit') !== false) {
                 $allowances = (float) ($line['debit'] ?? 0);
                 break;
             }
         }
     }
     if ($allowances <= 0) {
-        // Legacy row (breakdown_json empty or malformed): infer from what
-        // the PDF used to show. absences already subtracted in $gross, and
-        // we don't have their amount at top level, so the closest honest
-        // reconstruction is (Gross − Base − Bonuses), clamped at 0. If it
-        // comes out negative the row is a real edge case (absences bigger
-        // than allowances) and we hide the row rather than show a lie.
-        $inferred = $gross - $base - $bonuses;
+        // Legacy row with no breakdown: what is left of the gross once base,
+        // primes and absences are accounted for (never shown if negative).
+        $inferred = $gross - $base - $bonuses + $absences;
         if ($inferred > 0) $allowances = $inferred;
     }
+    $gains = [['Salaire de base', $base]];
+    if ($housing > 0 && $transport > 0 && abs($housing + $transport - $allowances) < 1) {
+        $gains[] = ['Indemnité de logement', $housing];
+        $gains[] = ['Indemnité de transport', $transport];
+    } elseif ($allowances > 0) {
+        $label = $housing > 0 && $transport <= 0 ? 'Indemnité de logement'
+               : ($transport > 0 && $housing <= 0 ? 'Indemnité de transport' : 'Indemnités (logement + transport)');
+        $gains[] = [$label, $allowances];
+    }
+    if ($bonuses > 0) $gains[] = ['Primes', $bonuses];
+    $absenceLine = $absences > 0 ? ['Absences', $absences] : null;
+
+    // ---- retenues (statutory lines always, optional ones only when not 0) --------
+    $ret = [
+        ['CNPS — part salariale (4,2 %)', (float) ($r['cnps_employee'] ?? 0)],
+        ['IRPP',                           (float) ($r['irpp'] ?? 0)],
+        ["CAC (10 % de l'IRPP)",           (float) ($r['cac'] ?? 0)],
+        ['CFC — part salariale (1 %)',     (float) ($r['cfc'] ?? 0)],
+        ['Redevance audiovisuelle (CRTV)', (float) ($r['crtv'] ?? 0)],
+        ['Taxe de développement local (TDL)', (float) ($r['tdl'] ?? 0)],
+    ];
+    $advances = (float) ($r['advances_deducted'] ?? 0);
+    $debts    = (float) ($r['driver_debt_deducted'] ?? 0);
+    if ($advances > 0) $ret[] = ['Acomptes déduits', $advances];
+    if ($debts > 0)    $ret[] = ['Dettes chauffeur déduites', $debts];
+    $net   = (float) ($r['net_pay'] ?? 0);
+    $shown = array_sum(array_column($ret, 1));
+    // Anything else Payroll::compute withheld (other_deductions) so that
+    // brut − retenues = net holds on paper, as an employee will check it.
+    $other = round($gross - $net - $shown);
+    if ($other >= 1) $ret[] = ['Autres retenues', $other];
+    $totalRet = array_sum(array_column($ret, 1));
+
+    // ---- employer charges (information) -----------------------------------------
+    $cnpsEr = (float) ($r['cnps_employer'] ?? 0);
+    $cfcEr  = (float) ($bd['cfc_employer'] ?? 0);
+    $charges = [['CNPS — part patronale (16,2 %)', $cnpsEr]];
+    if ($cfcEr > 0) $charges[] = ['CFC — part patronale (1,5 %)', $cfcEr];
+    $totalCharges = $cnpsEr + $cfcEr;
+
+    // ---- labels --------------------------------------------------------------------
+    $marital = ['single' => 'Célibataire', 'married' => 'Marié(e)', 'divorced' => 'Divorcé(e)', 'widowed' => 'Veuf / veuve'];
+    $method  = ['bank' => 'Virement bancaire', 'caisse' => 'Espèces (caisse)'];
+    $status  = ['paid' => 'Payé', 'validated' => 'Validé', 'draft' => 'Brouillon'];
+    $dep     = (int) ($emp['dependents'] ?? 0);
+    $situation = ($marital[$emp['marital'] ?? ''] ?? '') . ' · ' . $dep . ' pers. à charge';
+    $employerCnps = trim((string) (CompanyProfile::get()['cnps_employer_number'] ?? ''));
+
+    // Employee details two to a row (label, value, label, value); Poste gets a row of its own as it is the
+    // one that runs long. Empty values drop out, and a row left with one pair spans the card.
+    $hire = !empty($emp['hire_date']) ? date('d/m/Y', strtotime((string) $emp['hire_date'])) : '';
+    $empRows = array_values(array_filter(array_map(
+        static fn(array $row) => array_filter($row, static fn($v) => trim((string) $v) !== ''),
+        [
+            ['Matricule' => (string) ($emp['code'] ?? ''), 'Embauche' => $hire],
+            ['Poste' => (string) ($emp['job_title'] ?? '')],
+            ['N° CNPS' => trim((string) ($emp['cnps'] ?? '')), 'Situation' => ltrim($situation, ' ·')],
+        ]
+    )));
+    $payRows = array_filter([
+        'Période'  => $periodRange,
+        'Paiement' => $method[$r['payment_method'] ?? ''] ?? (string) ($r['payment_method'] ?? ''),
+        'Statut'   => $status[$r['status'] ?? ''] ?? (string) ($r['status'] ?? ''),
+    ], static fn($v) => trim((string) $v) !== '');
+
+    $words = lpc_amount_in_words($net);
+    $words = mb_strtolower(mb_substr($words, 0, 1)) . mb_substr($words, 1);
+
     ob_start(); ?>
-    <h2>Employé</h2>
-    <div class="box">
-        <div style="font-weight: bold; font-size: 11pt;"><?= htmlspecialchars($e['name'] ?? '', ENT_QUOTES, 'UTF-8') ?></div>
-        <div class="muted">
-            N° CNPS : <?= htmlspecialchars($e['cnps'] ?? '—', ENT_QUOTES, 'UTF-8') ?><br>
-            Situation : <?= htmlspecialchars($e['marital'] ?? '—', ENT_QUOTES, 'UTF-8') ?>
-            &nbsp; · &nbsp; Personnes à charge : <?= (int) ($e['dependents'] ?? 0) ?>
-        </div>
-    </div>
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"><title>Bulletin de Paie — <?= $e($doc['reference'] ?? '') ?></title>
+<style>
+    /* One page: no page-break rule anywhere, see the docblock. */
+    @page { margin: 0; }
+    /* 20mm at the bottom clears the fixed three-line footer. */
+    body { font-family: 'DejaVu Sans', sans-serif; font-size: 8pt; color: #1F2937; margin: 0 0 19mm 0; }
+    .rule { height: 3.5mm; background: <?= $brand ?>; }
+    .pad  { padding: 0 14mm; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { vertical-align: top; }
+    .num  { text-align: right; white-space: nowrap; }
+    .muted { color: #6B7280; }
 
-    <h2>Détail des calculs</h2>
-    <table class="items-table"><thead><tr><th>Rubrique</th><th class="num">Montant (FCFA)</th></tr></thead><tbody>
-        <tr><td>Salaire de base</td><td class="num"><?= lpc_fcfa($base, '') ?></td></tr>
-        <?php if ($allowances > 0): ?>
-        <tr>
-            <td>
-                Indemnités (logement + transport)
-                <?php if ($housing > 0 || $transport > 0): ?>
-                    <span class="muted" style="font-size: 8pt;">
-                        &nbsp;·&nbsp; Logement <?= lpc_fcfa($housing, '') ?>
-                        &nbsp;·&nbsp; Transport <?= lpc_fcfa($transport, '') ?>
-                    </span>
-                <?php endif; ?>
+    .head td { vertical-align: middle; padding: 0; }
+    .co   { font-size: 13pt; font-weight: bold; color: <?= $brand ?>; margin: 0; }
+    .coid { font-size: 7.5pt; color: #6B7280; margin-top: 0.8mm; }
+    .title { font-size: 17pt; font-weight: bold; color: #111827; text-transform: uppercase; letter-spacing: -0.3pt; }
+    .period { font-size: 11pt; font-weight: bold; color: <?= $brand ?>; margin-top: 0.8mm; }
+    .ref  { font-size: 7.5pt; color: #6B7280; margin-top: 0.5mm; }
+
+    .cards { margin-top: 3mm; }
+    .cards > tbody > tr > td { width: 50%; }
+    .card { background: #F9FAFB; border: 0.5pt solid #E5E7EB; border-radius: 2mm; padding: 2.2mm 3mm; }
+    .card .k { font-size: 6.5pt; text-transform: uppercase; letter-spacing: 0.5pt; font-weight: bold; color: #9CA3AF; }
+    .card .nm { font-size: 11pt; font-weight: bold; color: #111827; margin: 0.6mm 0 1mm 0; }
+    .kv td { padding: 0.25mm 0; font-size: 7.5pt; }
+    .kv td.l { color: #6B7280; width: 15mm; padding-right: 1.5mm; }
+    .kv td.v { color: #111827; font-weight: bold; white-space: nowrap; padding-right: 2mm; }
+    .kv td.v.wrap { white-space: normal; }
+
+    h2 { font-size: 8pt; text-transform: uppercase; letter-spacing: 0.6pt; color: <?= $brand ?>;
+         margin: 2.8mm 0 0.8mm 0; font-weight: bold; }
+    .lines { page-break-inside: avoid; }
+    .lines td { padding: 0.75mm 2.5mm; border-bottom: 0.5pt solid #EEF0F2; }
+    .lines tr.tot td { font-weight: bold; background: #F3F4F6; border-bottom: none; }
+        .neg { color: #B91C1C; }
+    .note { font-size: 6.5pt; color: #9CA3AF; font-weight: normal; text-transform: none; letter-spacing: 0; }
+
+    .netband { margin-top: 3.5mm; page-break-inside: avoid; background: <?= $brand ?>; border-radius: 2mm; }
+    .netband td { color: #FFFFFF; padding: 2.8mm 4mm; vertical-align: middle; }
+    .netband .lbl { font-size: 12pt; font-weight: bold; letter-spacing: 0.5pt; }
+    .netband .amt { font-size: 19pt; font-weight: bold; text-align: right; white-space: nowrap; }
+    .words { font-size: 7.5pt; color: #4B5563; margin-top: 1.5mm; font-style: italic; }
+
+    .sigwrap { page-break-inside: avoid; }   /* the signature block brings its own 4mm */
+
+    .foot { position: fixed; bottom: 7mm; left: 14mm; right: 14mm; color: #9CA3AF; font-size: 6.3pt;
+            line-height: 1.55; border-top: 0.5pt solid #E5E7EB; padding-top: 1.8mm; }
+    .foot .nm { font-weight: bold; color: #6B7280; }
+</style></head><body>
+<div class="rule"></div>
+<div class="pad">
+
+<table class="head" style="margin-top:4.5mm"><tr>
+    <td style="width:58%">
+        <table><tr>
+            <?php if ($lhLogo !== ''): ?>
+            <td style="width:19mm; padding-right:3mm; vertical-align:middle"><img src="<?= $e($lhLogo) ?>" style="max-height:16mm; max-width:19mm"></td>
+            <?php endif; ?>
+            <td style="vertical-align:middle">
+                <div class="co"><?= $e($lh['name']) ?></div>
+                <?php if ($employerCnps !== ''): ?><div class="coid">N° employeur CNPS : <?= $e($employerCnps) ?></div><?php endif; ?>
             </td>
-            <td class="num"><?= lpc_fcfa($allowances, '') ?></td>
-        </tr>
-        <?php endif; ?>
-        <tr><td>Primes</td><td class="num"><?= lpc_fcfa($bonuses, '') ?></td></tr>
-        <?php if ((float)($r['absences_deducted'] ?? 0) > 0): ?>
-        <tr><td>Absences (déduites du brut)</td><td class="num">-<?= lpc_fcfa((float)$r['absences_deducted'], '') ?></td></tr>
-        <?php endif; ?>
-        <tr style="font-weight: bold; background: #F3F4F6;"><td>Salaire brut</td><td class="num"><?= lpc_fcfa($gross, '') ?></td></tr>
-        <tr><td>Base imposable (post frais pro./abattement)</td><td class="num"><?= lpc_fcfa((float)($r['taxable_base'] ?? 0), '') ?></td></tr>
-        <tr><td>CNPS (part salariale 4,2%)</td><td class="num">-<?= lpc_fcfa((float)($r['cnps_employee'] ?? 0), '') ?></td></tr>
-        <tr><td>IRPP</td><td class="num">-<?= lpc_fcfa((float)($r['irpp'] ?? 0), '') ?></td></tr>
-        <tr><td>CFC (part salariale 1%)</td><td class="num">-<?= lpc_fcfa((float)($r['cfc'] ?? 0), '') ?></td></tr>
-        <tr><td>CAC (10% de l'IRPP)</td><td class="num">-<?= lpc_fcfa((float)($r['cac'] ?? 0), '') ?></td></tr>
-        <tr><td>CRTV (Redevance Audio-Visuelle)</td><td class="num">-<?= lpc_fcfa((float)($r['crtv'] ?? 0), '') ?></td></tr>
-        <tr><td>TDL</td><td class="num">-<?= lpc_fcfa((float)($r['tdl'] ?? 0), '') ?></td></tr>
-        <tr><td>Acomptes déduits</td><td class="num">-<?= lpc_fcfa((float)($r['advances_deducted'] ?? 0), '') ?></td></tr>
-        <tr><td>Dettes chauffeur déduites</td><td class="num">-<?= lpc_fcfa((float)($r['driver_debt_deducted'] ?? 0), '') ?></td></tr>
-        <tr style="font-weight: bold; background: #ECFDF5; color: #065F46;"><td>NET À PAYER</td><td class="num"><?= lpc_fcfa((float)($r['net_pay'] ?? 0), '') ?></td></tr>
-    </tbody></table>
+        </tr></table>
+    </td>
+    <td style="width:42%; text-align:right">
+        <div class="title">Bulletin de paie</div>
+        <div class="period"><?= $e($period) ?></div>
+        <div class="ref">N° <?= $e($doc['reference'] ?? '') ?></div>
+    </td>
+</tr></table>
 
-    <?php
-    // Employer charges — kept in breakdown_json (Payroll::compute emits both).
-    // hr_payslips has a cnps_employer column but not cfc_employer, so CFC has
-    // to come from the breakdown; the JE (see Payroll::compute lines 173-174)
-    // has always tracked both.
-    $cfc_employer = (float) ($bd['cfc_employer'] ?? 0);
-    ?>
-    <h2>Charges patronales</h2>
-    <table class="items-table"><thead><tr><th>Rubrique</th><th class="num">Montant (FCFA)</th></tr></thead><tbody>
-        <tr><td>CNPS (part patronale 16,2%)</td><td class="num"><?= lpc_fcfa((float)($r['cnps_employer'] ?? 0), '') ?></td></tr>
-        <?php if ($cfc_employer > 0): ?>
-        <tr><td>CFC (part patronale 1,5%)</td><td class="num"><?= lpc_fcfa($cfc_employer, '') ?></td></tr>
-        <tr style="font-weight: bold; background: #F3F4F6;">
-            <td>Total charges patronales</td>
-            <td class="num"><?= lpc_fcfa((float)($r['cnps_employer'] ?? 0) + $cfc_employer, '') ?></td>
-        </tr>
-        <?php endif; ?>
-    </tbody></table>
+<table class="cards"><tr>
+    <td style="padding-right:2mm">
+        <div class="card">
+            <div class="k">Employé(e)</div>
+            <div class="nm"><?= $e($emp['name'] ?? '') ?></div>
+            <table class="kv"><?php foreach ($empRows as $row): $i = 0; ?>
+                <tr><?php foreach ($row as $k => $v): ?>
+                    <td class="l"><?= $e($k) ?></td><td class="v<?= count($row) === 1 ? ' wrap" colspan="3' : '' ?>"><?= $e($v) ?></td>
+                <?php endforeach; ?></tr>
+            <?php endforeach; ?></table>
+        </div>
+    </td>
+    <td style="padding-left:2mm">
+        <div class="card">
+            <div class="k">Paiement</div>
+            <table class="kv" style="margin-top:1mm"><?php foreach ($payRows as $k => $v): ?>
+                <tr><td class="l"><?= $e($k) ?></td><td class="v"><?= $e($v) ?></td></tr>
+            <?php endforeach; ?></table>
+        </div>
+    </td>
+</tr></table>
 
-    <div class="muted" style="margin-top: 12pt;">
-        Mode de paiement : <?= strtoupper(htmlspecialchars($r['payment_method'] ?? '', ENT_QUOTES, 'UTF-8')) ?>
-        &nbsp; · &nbsp; Statut : <?= strtoupper(htmlspecialchars($r['status'] ?? '', ENT_QUOTES, 'UTF-8')) ?>
-    </div>
+<h2>Gains</h2>
+<table class="lines">
+    <?php foreach ($gains as [$label, $amount]): ?>
+    <tr><td><?= $e($label) ?></td><td class="num"><?= $n($amount) ?></td></tr>
+    <?php endforeach; ?>
+    <?php if ($absenceLine): ?>
+    <tr><td>Absences (déduites du brut)</td><td class="num neg">− <?= $n($absenceLine[1]) ?></td></tr>
+    <?php endif; ?>
+    <tr class="tot"><td>Salaire brut <span class="note">· base imposable IRPP après abattements : <?= $n($r['taxable_base'] ?? 0) ?></span></td><td class="num"><?= $n($gross) ?></td></tr>
+</table>
+
+<h2>Retenues</h2>
+<table class="lines">
+    <?php foreach ($ret as [$label, $amount]): ?>
+    <tr><td><?= $e($label) ?></td><td class="num"><?= $amount >= 0.5 ? '− ' . $n($amount) : '0' ?></td></tr>
+    <?php endforeach; ?>
+    <tr class="tot"><td>Total retenues</td><td class="num"><?= $totalRet >= 0.5 ? '− ' . $n($totalRet) : '0' ?></td></tr>
+</table>
+
+<h2>Charges patronales <span class="note">· payées par l'employeur en plus du brut, non déduites du salaire</span></h2>
+<table class="lines">
+    <?php foreach ($charges as [$label, $amount]): ?>
+    <tr><td><?= $e($label) ?></td><td class="num"><?= $n($amount) ?></td></tr>
+    <?php endforeach; ?>
+    <?php if (count($charges) > 1): ?>
+    <tr class="tot"><td>Total charges patronales</td><td class="num"><?= $n($totalCharges) ?></td></tr>
+    <?php endif; ?>
+</table>
+
+<table class="netband"><tr>
+    <td class="lbl">NET À PAYER</td>
+    <td class="amt"><?= $n($net) ?> FCFA</td>
+</tr></table>
+<div class="words">Arrêté le présent bulletin à la somme de <?= $e($words) ?>.</div>
+
+<div class="sigwrap">
+<?php
+if (!empty($doc['record_id'])) {
+    $sig_type    = 'payslip';
+    $sig_doc_id  = (int) $doc['record_id'];
+    $sig_doc     = $doc;
+    $sig_context = 'pdf';
+    $sig_labels  = ['internal' => "L'employeur", 'external' => "L'employé(e)"];
+    // Unsigned boxes name who signs; the default captions are worded for a client.
+    $sig_placeholders = [
+        'internal' => ['La Direction', 'Cachet et signature'],
+        'external' => [(string) ($emp['name'] ?? ''), 'Lu et approuvé, signature'],
+    ];
+    require __DIR__ . '/../components/signature_block.php';
+}
+?>
+</div>
+
+</div>
+
+<div class="foot">
+    <div class="nm"><?= $e($lh['name']) ?></div>
+    <?= $e(implode(' · ', array_filter([$lh['address'], $lh['mentions']]))) ?><br>
+    <?= $e($lh['contact']) ?>
+</div>
+</body></html>
     <?php
     return (string) ob_get_clean();
 }
