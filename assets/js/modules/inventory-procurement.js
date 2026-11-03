@@ -143,6 +143,12 @@
 
             const supplierId = parseInt(selectElement.value, 10);
             if (!supplierId) return;
+            // First supplier picked on a new form: give it its first line (a form never starts empty).
+            const lines = document.getElementById('po-lines-container');
+            if (lines && !lines.querySelector('.item-row')) {
+                lines.innerHTML = '';
+                addPOLine();
+            }
             const supplier = (metaData.suppliers || []).find(s => Number(s.id) === supplierId);
             const defaultAccountId = supplier ? supplier.default_payment_account_id : null;
 
@@ -504,9 +510,28 @@
             document.getElementById('po_id').value = '';
             document.getElementById('po-lines-container').innerHTML = '';
             document.getElementById('sdp-rebate-info').classList.add('hidden');
-            addPOLine();
+
+            // A line is priced from the supplier's tariff, so it needs the supplier first (addPOLine refuses
+            // otherwise). Opening the form used to call addPOLine() straight away and so always showed
+            // « Veuillez d'abord sélectionner un fournisseur » over an empty table. Now: with a single active
+            // supplier it is preselected and the first line is ready; with several, the table says what to
+            // do, and onSupplierChange adds the first line once one is picked.
+            const supEl = document.getElementById('po_supplier');
+            const active = (metaData.suppliers || []).filter(s => Number(s.is_active ?? 1) === 1);
+            if (active.length === 1) {
+                supEl.value = String(active[0].id);
+                onSupplierChange(supEl);   // rebate panel, default treasury account, and the first line
+            } else {
+                showPOLinesHint();
+            }
             calculatePOTotals();
             document.getElementById('poModal').classList.remove('hidden');
+        }
+
+        function showPOLinesHint() {
+            document.getElementById('po-lines-container').innerHTML =
+                '<tr class="po-lines-hint"><td colspan="5" class="p-4 text-center text-xs font-bold text-gray-400">'
+                + 'Choisissez le fournisseur : la première ligne apparaît aussitôt.</td></tr>';
         }
 
         function closeModal(modalId) { document.getElementById(modalId).classList.add('hidden'); }
@@ -763,6 +788,7 @@ function openRistourneModal() {
             }
 
             const container = document.getElementById('po-lines-container');
+            container.querySelector('.po-lines-hint')?.remove();
             const rowId = ++poRowSeq;
 
             const tr = document.createElement('tr');

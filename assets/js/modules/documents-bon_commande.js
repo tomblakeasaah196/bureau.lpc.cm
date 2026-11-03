@@ -88,6 +88,10 @@
             document.getElementById('dyn_sup_phone').innerText = sup.phone || 'N/A';
             document.getElementById('dyn_sup_email').innerText = sup.email || 'N/A';
 
+            // Ship to: the delivery place chosen on the PO, else the company address the page already shows
+            const shipEl = document.getElementById('dyn_delivery_place');
+            if (shipEl) shipEl.innerText = (apiData.delivery && apiData.delivery.place) || shipEl.dataset.default || '';
+
             // Payment Term
             document.getElementById('dyn_payment').innerText = po.payment_status === 'paid' ? 'Payé (Cash/Virement)' : 'À Crédit (Non Payé)';
             if(po.payment_status === 'paid') document.getElementById('dyn_payment').classList.add('text-green-700', 'bg-green-50', 'border-green-200');

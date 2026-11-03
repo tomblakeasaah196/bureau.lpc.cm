@@ -86,9 +86,9 @@ if (($_GET['pdf'] ?? '') === '1') {
         <div class="max-w-7xl mx-auto flex justify-between items-start md:items-center">
             
             <div class="flex items-center gap-3 md:gap-4 mt-1 md:mt-0">
-                <img src="/assets/img/small_logo.svg" alt="LPC Logo" class="h-10 w-auto object-contain" onerror="this.outerHTML='<div class=\\'w-10 h-10 bg-lpc-dark rounded-xl flex items-center justify-center text-white font-bold text-xl\\'>LPC</div>'">
+                <img src="<?= htmlspecialchars(CompanyProfile::logo('mark'), ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars(CompanyProfile::displayName(), ENT_QUOTES, 'UTF-8') ?>" class="h-10 w-auto object-contain" onerror="this.outerHTML='<div class=\\'w-10 h-10 bg-lpc-dark rounded-xl flex items-center justify-center text-white font-bold text-xl\\'>LPC</div>'">
                 <div>
-                    <h1 class="text-lg md:text-xl font-black text-gray-900 leading-tight tracking-tight">La Petite Cour</h1>
+                    <h1 class="text-lg md:text-xl font-black text-gray-900 leading-tight tracking-tight"><?= htmlspecialchars(CompanyProfile::displayName(), ENT_QUOTES, 'UTF-8') ?></h1>
                     <span class="text-[10px] md:text-xs text-lpc-dark font-bold uppercase tracking-widest" id="nav-ref">Chargement...</span>
                 </div>
             </div>
@@ -145,13 +145,19 @@ if (($_GET['pdf'] ?? '') === '1') {
 
                 <div class="px-4 md:px-16 pt-8 md:pt-12 pb-8 flex flex-col md:flex-row justify-between items-start shrink-0 border-b border-gray-100 gap-6">
                     <div class="w-full md:w-1/2">
-                        <img src="/assets/img/full_logo.svg" alt="LPC Logo" class="h-16 w-auto mb-4" onerror="this.style.display='none'">
-                        <h2 class="text-sm font-black text-gray-900 tracking-wide">ETS. LA PETITE COUR (LPC)</h2>
+                        <?php
+                        // The issuer, from Identité de l'Entreprise (company_profile), as on every
+                        // other document. This block used to be typed in here, with an old address
+                        // (Gendarmerie de Ndogbong), an old NIU / RCCM and operations@.
+                        $poLh = CompanyProfile::letterhead('fr');
+                        $poE  = static fn($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+                        ?>
+                        <img src="<?= $poE(CompanyProfile::logo('document')) ?>" alt="<?= $poE($poLh['name']) ?>" class="h-16 w-auto mb-4" onerror="this.style.display='none'">
+                        <h2 class="text-sm font-black text-gray-900 tracking-wide"><?= $poE(mb_strtoupper($poLh['name'])) ?></h2>
                         <p class="text-xs text-gray-500 mt-1 leading-relaxed">
-                            Entrée Compagnie de Gendarmerie de Ndogbong<br>
-                            B.P. 5120 Douala, Cameroun<br>
-                            NIU: PO8811272062QA | RC/DLA/2019/A/A/687<br>
-                            Tél: +237 696 291 800 | Email: operations@lpc.cm
+                            <?= $poE($poLh['address']) ?><br>
+                            <?php if ($poLh['mentions'] !== ''): ?><?= $poE($poLh['mentions']) ?><br><?php endif; ?>
+                            <?= $poE($poLh['contact']) ?>
                         </p>
                     </div>
                     <div class="w-full md:w-1/2 md:text-right">
@@ -181,9 +187,9 @@ if (($_GET['pdf'] ?? '') === '1') {
                     </div>
                     <div>
                         <h3 class="text-xs font-black text-gray-400 uppercase tracking-widest mb-3 border-b-2 border-gray-200 inline-block pb-1" data-i18n="lbl_delivery">Lieu de Livraison / Ship To</h3>
-                        <p class="text-sm font-black text-gray-900">Entrepôt La Petite Cour </p>
-                        <p class="text-sm text-gray-600 mt-1">Entrée, Compagnie Ndogbong, Douala</p>
-                        <p class="text-sm text-gray-600 mt-1 font-bold">Attn: Directeur des Opérations</p>
+                        <?php // The PO's delivery place (filled in from get_po.php); the company address until then, and when none was chosen. ?>
+                        <p class="text-sm font-black text-gray-900"><?= $poE($poLh['name']) ?></p>
+                        <p class="text-sm text-gray-600 mt-1" id="dyn_delivery_place" data-default="<?= $poE($poLh['address']) ?>"><?= $poE($poLh['address']) ?></p>
                     </div>
                 </div>
 

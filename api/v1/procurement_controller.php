@@ -64,8 +64,8 @@ try {
             ")->fetchColumn() > 0;
 
             $supplier_cols = $has_default
-                ? "id, name, default_payment_account_id"
-                : "id, name, NULL AS default_payment_account_id";
+                ? "id, name, is_active, default_payment_account_id"
+                : "id, name, is_active, NULL AS default_payment_account_id";
             $suppliers = $db->query("SELECT {$supplier_cols} FROM suppliers ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
 
             $products = $db->query("SELECT id, name, format, base_price FROM products WHERE category != 'Emballage' ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);

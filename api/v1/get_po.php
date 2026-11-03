@@ -30,9 +30,11 @@ try {
             po.id as po_id, po.reference, po.date, po.status, po.payment_status, 
             po.subtotal, po.discount_amount, po.discount_note, po.total_amount, po.token,
             s.name as supplier_name, s.phone as supplier_phone, s.email as supplier_email, s.address as supplier_address,
-            u.first_name, u.last_name
+            u.first_name, u.last_name,
+            dp.name as delivery_place_name
         FROM purchase_orders po
         JOIN suppliers s ON po.supplier_id = s.id
+        LEFT JOIN delivery_places dp ON dp.id = po.delivery_place_id
         JOIN users u ON po.created_by = u.id
         WHERE po.token = :token
     ");
@@ -88,6 +90,11 @@ try {
                 'phone'   => $poData['supplier_phone'],
                 'email'   => $poData['supplier_email'],
                 'address' => $poData['supplier_address']
+            ],
+            // The place chosen on the PO (Gestion des Achats → Lieu de livraison); null when
+            // none was, and the page then ships to the company's own address.
+            'delivery' => [
+                'place' => $poData['delivery_place_name'] ?: null,
             ],
             'creator' => [
                 'name' => $poData['first_name'] . ' ' . substr($poData['last_name'], 0, 1) . '.'
