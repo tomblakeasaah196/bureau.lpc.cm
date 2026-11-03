@@ -42,9 +42,9 @@ try {
 
     // 2. Generate Unique Identifiers
     $date = date('Y-m-d');
-    $hash = strtoupper(substr(md5(uniqid(rand(), true)), 0, 4));
-    // Sprint 8: prefix + format from app_preferences. Was 'DEV-' hardcoded.
-    $reference = Prefs::docNumber('quote', $hash);
+    // Prefix + format from app_preferences; the next number in an unbroken
+    // sequence (DocCounter, migration 350). Was a random 4-character code.
+    $reference = DocCounter::next($db, 'quote');
     $token = bin2hex(random_bytes(16));
     
     // Fallback to 'System' if session name isn't set

@@ -720,10 +720,10 @@ if ($method === 'POST') {
 
             if (!$items) throw new Exception('Aucune quantité renseignée.');
 
-            $datePrefix = date('Ymd');
-            $stmtRef = $pdo->query("SELECT count(id) FROM cre_documents WHERE DATE(created_at) = CURRENT_DATE()");
-            $count   = (int) $stmtRef->fetchColumn() + 1;
-            $reference = "CRE-{$datePrefix}-" . str_pad((string) $count, 3, '0', STR_PAD_LEFT);
+            // CRE-20261102-001: the day's next number, from a counter locked in
+            // this transaction (DocCounter, migration 350). Counting today's
+            // rows gave two operators saving at once the same number.
+            $reference = DocCounter::next($pdo, 'cre');
             $token     = bin2hex(random_bytes(32));
 
             $stmtIns = $pdo->prepare(
@@ -867,10 +867,11 @@ if ($method === 'POST') {
                 $treasury_account_id = null;
             }
 
-            $datePrefix = date('Ym');
-            $stmtRef = $pdo->query("SELECT count(id) FROM recycling_sales WHERE DATE(created_at) = CURRENT_DATE()");
-            $count = $stmtRef->fetchColumn() + 1;
-            $reference = "REC-{$datePrefix}-" . str_pad($count, 3, '0', STR_PAD_LEFT);
+            // REC-202611-001: the month's next number, from a counter locked in
+            // this transaction (DocCounter, migration 350). It counted TODAY's
+            // rows under a MONTH prefix, so each day restarted at 001 and
+            // repeated the previous days' numbers.
+            $reference = DocCounter::next($pdo, 'recycling');
 
             // Create Header. The treasury_account_id column is populated
             // conditionally so old schemas keep working (see $hasTreasuryCols).

@@ -24,6 +24,7 @@ error_log
 !migrations/*.sql
 !scripts/tests/*.sql
 !scripts/tests/mail/support/*.sql
+!scripts/tests/wipe/support/*.sql
 
 # Backups
 *.bak
