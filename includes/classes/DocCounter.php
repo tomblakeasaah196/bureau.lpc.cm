@@ -136,6 +136,12 @@ final class DocCounter
         return array_keys(array_filter(self::TYPES, fn ($spec) => $spec['table'] === $table));
     }
 
+    /** The counter period a $type numbered on $ts counts in (the data wipe tool steps a counter back). */
+    public static function periodOf(string $type, int $ts): string
+    {
+        return self::period(self::TYPES[$type]['period'], $ts);
+    }
+
     /** The counter period of a document dated $ts: '2026', '202611', '20261102' or ''. */
     private static function period(string $rule, int $ts): string
     {

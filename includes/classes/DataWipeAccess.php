@@ -20,7 +20,8 @@
  *
  * CONFIRMING A WIPE
  *   A 6-digit code emailed to that address (hashed, 10 minutes, 5 tries,
- *   single use, valid only for the tables picked when it was sent) and a
+ *   single use, valid only for what was picked when it was sent: the tables,
+ *   or the records with the choice made for each staff account) and a
  *   written reason. Codes are never written anywhere else: with MAIL_FROM
  *   unset, Mail::send() would put them in the error log, so none is sent.
  *
@@ -238,9 +239,11 @@ final class DataWipeAccess
                 $lines[] = '  · ' . DataWipeMap::label($t) . ' : ' . number_format((int) $n, 0, ',', ' ');
             }
             $when = date('d/m/Y à H:i');
-            $title = 'Données de test effacées';
-            $short = number_format((int) $wipe['total'], 0, ',', ' ') . ' lignes de test effacées le ' . $when . ' par ' . $user['name']
-                   . ' (' . implode(', ', array_map([DataWipeMap::class, 'label'], $wipe['picked'])) . '). Motif : ' . $reason;
+            $records = ($wipe['mode'] ?? 'tables') === 'records';
+            $title = $records ? 'Enregistrements effacés' : 'Données de test effacées';
+            $short = number_format((int) $wipe['total'], 0, ',', ' ') . ($records ? ' lignes effacées' : ' lignes de test effacées') . ' le ' . $when . ' par ' . $user['name']
+                   . ' (' . ($records ? 'un par un : ' . implode(', ', $wipe['records']) : implode(', ', array_map([DataWipeMap::class, 'label'], $wipe['picked'])))
+                   . '). Motif : ' . $reason;
 
             if (!function_exists('lpc_notify_user')) {
                 require_once dirname(__DIR__) . '/functions/notify.php';
@@ -252,7 +255,15 @@ final class DataWipeAccess
                 require_once __DIR__ . '/Mail.php';
             }
             if (Mail::configured() && filter_var($md['email'], FILTER_VALIDATE_EMAIL)) {
-                $body = "Bonjour,\n\nDes données de test ont été effacées de bureau.lpc.cm le {$when}, par {$user['name']}.\n\n"
+                $body = $records
+                    ? "Bonjour,\n\nDes enregistrements ont été effacés un par un de bureau.lpc.cm le {$when}, par {$user['name']} :\n"
+                      . implode("\n", array_map(fn ($r) => '  · ' . $r, $wipe['records'])) . "\n\n"
+                      . "Motif : {$reason}\n\nAvec tout ce qui en dépendait (" . number_format((int) $wipe['total'], 0, ',', ' ') . " lignes) :\n"
+                      . implode("\n", $lines) . "\n\n"
+                      . self::recordsDetail($wipe)
+                      . "Les soldes de trésorerie, les avoirs clients et le stock ont été recalculés sur ce qui reste.\n\n"
+                      . "Une copie de tout ce qui a été effacé est conservée " . DataWipe::KEEP_DAYS . " jours par JBS Praxis.\n\nBureau LPC"
+                    : "Bonjour,\n\nDes données de test ont été effacées de bureau.lpc.cm le {$when}, par {$user['name']}.\n\n"
                       . "Motif : {$reason}\n\nCe qui a été effacé (" . number_format((int) $wipe['total'], 0, ',', ' ') . " lignes) :\n"
                       . implode("\n", $lines) . "\n\n"
                       . "Les soldes de trésorerie, les avoirs clients et le stock ont été recalculés sur ce qui reste, "
@@ -266,5 +277,25 @@ final class DataWipeAccess
             $told['error'] = $e->getMessage();   // shown on the wipe's screen, not in the error log admins read
         }
         return $told;
+    }
+
+    /** For the MD's email: hand-overs, mailboxes removed, numbering, after a one-by-one delete. */
+    private static function recordsDetail(array $wipe): string
+    {
+        $out = '';
+        $moved = [];
+        foreach ($wipe['reassigned'] ?? [] as $r) {
+            $moved[$r['to'] ?? '?'] = ($moved[$r['to'] ?? '?'] ?? 0) + (int) $r['rows'];
+        }
+        foreach ($moved as $to => $n) {
+            $out .= "Repris par {$to} : " . number_format($n, 0, ',', ' ') . " enregistrement(s) du compte effacé.\n";
+        }
+        foreach ($wipe['mailboxes'] ?? [] as $box) {
+            $out .= "Boîte mail personnelle retirée de bureau : {$box['email']} (le courrier reste sur le serveur mail).\n";
+        }
+        foreach ($wipe['numbering'] ?? [] as $note) {
+            $out .= 'Numérotation : ' . $note['text'] . "\n";
+        }
+        return $out !== '' ? $out . "\n" : '';
     }
 }

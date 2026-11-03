@@ -112,6 +112,15 @@ final class DataWipeMap
         'hr_advances' => 'Avances sur salaire', 'pdf_documents' => 'PDF générés', 'document_signatures' => 'Signatures', 'signer_otp' => 'Codes de signature',
         'notifications' => 'Notifications', 'notifications_archive' => 'Notifications archivées', 'audit_logs' => 'Journal d\'activité',
         'audit_logs_archive' => 'Journal d\'activité archivé', 'chart_of_accounts' => 'Sous-comptes clients / fournisseurs',
+        // Staff, for the "one by one" tab
+        'users' => 'Comptes du personnel', 'employees' => 'Fiches employés', 'employee_documents' => 'Documents des employés',
+        'employee_profiles' => 'Profils', 'hr_contracts' => 'Contrats', 'user_sessions' => 'Sessions', 'trusted_devices' => 'Appareils de confiance',
+        'user_passkeys' => 'Clés d\'accès', 'user_pin_attempts' => 'Essais de code PIN', 'user_prefs' => 'Préférences personnelles',
+        'password_resets' => 'Demandes de mot de passe', 'mail_accounts' => 'Boîtes mail', 'mail_account_members' => 'Accès aux boîtes partagées',
+        'mail_signatures' => 'Signatures mail', 'mail_presence' => 'Présence (Courrier)', 'mail_image_trust' => 'Images autorisées (Courrier)',
+        'mail_thread_notes' => 'Notes internes (Courrier)', 'mail_outbox' => 'Courrier en attente d\'envoi', 'mail_compose_files' => 'Pièces jointes en cours',
+        'mail_threads' => 'Conversations (Courrier)', 'mail_messages' => 'Messages (Courrier)', 'mail_thread_activity' => 'Activité (Courrier)',
+        'help_chat_log' => 'Questions au centre d\'aide', 'treasury_accounts' => 'Comptes de trésorerie', 'roles' => 'Rôles',
     ];
 
     /**
@@ -308,6 +317,10 @@ final class DataWipeMap
         'withholding_certificates' => ['file_path' => 'uploads/withholding'],
         'tax_declarations'         => ['snapshot_pdf_path' => 'uploads/tax_declarations', 'quittance_path' => 'uploads/tax_declarations/quittances'],
         'fuel_logs'                => ['receipt_image' => 'uploads/receipts'],
+        // A deleted staff account's employee record (the "one by one" tab only: staff tables are never picked whole)
+        'employees'                => ['avatar_path' => 'uploads/avatars', 'id_card_scan_path' => 'uploads/employees', 'contract_pdf_path' => 'uploads/employees'],
+        'employee_documents'       => ['file_path' => 'uploads/employees'],
+        'employee_profiles'        => ['avatar' => 'uploads/avatars'],
     ];
 
     /** Tables whose `reference` names the record in notification texts */
@@ -315,6 +328,121 @@ final class DataWipeMap
         'invoices', 'sales_orders', 'deliveries', 'purchase_orders', 'payments', 'proposals', 'cre_documents', 'expenses',
         'recycling_sales', 'inventory_reports',
     ];
+
+    // =========================================================================
+    // The "one by one" tab (owner's decisions of 3 Nov 2026)
+    // =========================================================================
+
+    /**
+     * What can be picked one at a time, found by number or name: [table =>
+     * [label of the list, what one is called]]. Each goes with everything that
+     * depends on it, as in the whole-table tab. Staff accounts: inactive only,
+     * never the WIPE_ADMIN_EMAIL account nor the MD's (DataWipeStaff).
+     */
+    public const RECORDS = [
+        'invoices'          => ['Factures', 'Facture'],
+        'proposals'         => ['Devis', 'Devis'],
+        'sales_orders'      => ['Commandes', 'Commande'],
+        'deliveries'        => ['Bons de livraison', 'BL'],
+        'purchase_orders'   => ['Bons de commande', 'BC'],
+        'payments'          => ['Encaissements (reçus)', 'Encaissement'],
+        'expenses'          => ['Dépenses', 'Dépense'],
+        'cre_documents'     => ['CRE (retours d\'emballages)', 'CRE'],
+        'inventory_reports' => ['Inventaires', 'Inventaire'],
+        'recycling_sales'   => ['Ventes au recycleur', 'Vente au recycleur'],
+        'clients'           => ['Clients', 'Client'],
+        'suppliers'         => ['Fournisseurs', 'Fournisseur'],
+        'products'          => ['Produits', 'Produit'],
+        'users'             => ['Comptes du personnel (inactifs)', 'Compte'],
+    ];
+
+    /**
+     * How a record is found and shown: [table => [name column, second column
+     * (text, or [id column, table, name column] for a client / supplier), date
+     * columns (first present wins), amount column, status column]]. Search
+     * matches the name and the second column. Columns missing from a
+     * database are skipped.
+     */
+    public const RECORD_SEARCH = [
+        'invoices'          => ['reference', ['client_id', 'clients', 'name'], ['date', 'created_at'], 'total_amount', 'status'],
+        'proposals'         => ['reference', 'client_name', ['date', 'created_at'], 'total_amount', 'status'],
+        'sales_orders'      => ['reference', ['client_id', 'clients', 'name'], ['date', 'created_at'], 'total_amount', 'status'],
+        'deliveries'        => ['reference', ['client_id', 'clients', 'name'], ['date', 'created_at'], null, 'status'],
+        'purchase_orders'   => ['reference', ['supplier_id', 'suppliers', 'name'], ['date'], 'total_amount', 'status'],
+        'payments'          => ['reference', ['client_id', 'clients', 'name'], ['payment_date', 'created_at'], 'amount', 'status'],
+        'expenses'          => ['reference', 'title', ['expense_date', 'created_at'], 'amount', 'payment_status'],
+        'cre_documents'     => ['reference', ['client_id', 'clients', 'name'], ['created_at'], null, 'status'],
+        'inventory_reports' => ['reference', null, ['created_at'], null, null],
+        'recycling_sales'   => ['reference', 'recycler_location', ['created_at'], 'total_amount', null],
+        'clients'           => ['name', 'lpc_code', [], null, 'status'],
+        'suppliers'         => ['name', 'lpc_code', [], null, null],
+        'products'          => ['name', 'code', [], null, null],
+    ];
+
+    /** How the plan names the next document of a counter that steps back (DocCounter types). */
+    public const COUNTER_NEXT = [
+        'invoice' => 'la prochaine facture', 'quote' => 'le prochain devis', 'order' => 'la prochaine commande',
+        'delivery' => 'le prochain BL', 'purchase' => 'le prochain bon de commande', 'receipt' => 'le prochain reçu',
+        'wallet' => 'le prochain reçu d\'avoir', 'expense' => 'la prochaine dépense', 'expense_recurring' => 'la prochaine dépense récurrente',
+        'cre' => 'le prochain CRE', 'inventory' => 'le prochain inventaire', 'recycling' => 'la prochaine vente au recycleur',
+    ];
+
+    /**
+     * Staff ids. A column holds one when a foreign key points at users.id, or
+     * when its name says so (most of bureau's ~150 such columns have no
+     * foreign key): an integer column named *_by, user_id, *_user_id,
+     * driver_id, operator_id or assigned_to. DataWipeStaff reads them from
+     * information_schema, so a column added later is handled too.
+     */
+    public const STAFF_COLUMN_PATTERN = '/(_by|^user_id|_user_id|driver_id|^operator_id|^assigned_to)$/';
+
+    /** Never touched by a staff delete: the tool's own log (it keeps the name). */
+    public const STAFF_IGNORED = ['data_wipes', 'data_wipe_codes', 'data_wipe_lock'];
+
+    /**
+     * The person's own rows: they go with the account whatever is chosen for
+     * its records (owner: "delete both the login and the employee record
+     * (matricule, contract, payslips) together"; Courrier: its access to shared
+     * mailboxes, signature and presence). [table, column]
+     */
+    public const STAFF_OWN = [
+        ['notifications', 'user_id'], ['notifications_archive', 'user_id'],
+        ['hr_payslips', 'user_id'], ['hr_advances', 'user_id'], ['hr_contracts', 'user_id'], ['employee_profiles', 'user_id'],
+        ['user_sessions', 'user_id'], ['trusted_devices', 'user_id'], ['user_passkeys', 'user_id'], ['user_pin_attempts', 'user_id'],
+        ['user_prefs', 'user_id'], ['password_resets', 'user_id'],
+        ['mail_account_members', 'user_id'], ['mail_signatures', 'user_id'], ['mail_presence', 'user_id'], ['mail_image_trust', 'user_id'],
+    ];
+
+    /** The person's own, kept without their name (the help centre's log is content, never wiped). */
+    public const STAFF_CLEARED = [['help_chat_log', 'user_id']];
+
+    /** Activity lines the account wrote: handed over, or gone with a wiped account. */
+    public const STAFF_LOGS = [['audit_logs', 'user_id'], ['audit_logs_archive', 'user_id']];
+
+    /**
+     * "Wipe them too": a row goes when the account made it (owner, 3 Nov 2026:
+     * created, logged, operated or drove), or when the row can't be kept
+     * without it (NOT NULL). A row it only approved, validated or last edited
+     * stays, its name cleared.
+     */
+    public const STAFF_MADE_BY = ['created_by', 'driver_id', 'operator_id', 'logged_by', 'requested_by', 'run_by', 'computed_by', 'started_by'];
+
+    /**
+     * Protected tables a staff delete may take rows from: the account, its
+     * employee record and everything only about the person. Courrier: the
+     * person's own mailbox (bureau's copy; the mail stays on the mail server,
+     * owner's decision of 3 Nov 2026), and with "wipe them too", the notes and
+     * unsent mail it wrote in shared mailboxes.
+     */
+    public const STAFF_TABLES = [
+        'users', 'employees', 'employee_documents', 'employee_profiles', 'hr_contracts', 'user_sessions', 'trusted_devices',
+        'user_passkeys', 'user_pin_attempts', 'user_prefs', 'password_resets',
+        'mail_accounts', 'mail_account_members', 'mail_signatures', 'mail_presence', 'mail_image_trust', 'mail_thread_notes',
+        'mail_outbox', 'mail_compose_files',
+    ];
+
+    /** Courrier rows "wipe them too" takes although Courrier is protected: what the person wrote. */
+    public const STAFF_WIPE_TAKES = ['mail_thread_notes', 'mail_outbox'];
 
     public static function isProtected(string $table): bool
     {

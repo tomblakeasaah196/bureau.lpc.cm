@@ -43,6 +43,7 @@ if (basename($_SERVER['PHP_SELF'] ?? '') === basename(__FILE__)) {
 
 require_once __DIR__ . '/DataWipeMap.php';
 require_once __DIR__ . '/DataWipeBalances.php';
+require_once __DIR__ . '/DataWipeStaff.php';
 
 final class DataWipe
 {
@@ -132,15 +133,31 @@ final class DataWipe
     public function plan(array $tables): array
     {
         $picked = $this->cleanPick($tables);
-        $delete = [];
-        $unlink = [];
+        $start = [];
         $why = [];
-        $blocked = [];
-        $frontier = [];
-
         foreach ($picked as $t) {
             $keys = $this->allKeys($t);
             $why[$t] = 'coché';
+            if ($keys) {
+                $start[$t] = $keys;
+            }
+        }
+        [$delete, $unlink, $why, $blocked] = $this->closure($start, $why);
+        return $this->finish(['picked' => $picked], $delete, $unlink, $why, $blocked);
+    }
+
+    /**
+     * Everything that goes with the $start rows ([table => [key => true]]), until nothing new
+     * turns up. $allow: protected tables that may lose the rows reached (a staff delete);
+     * $stop: tables whose rows lead nowhere further (handled by the caller); $unlink: links
+     * already to clear. Returns [delete, unlink, why, blocked (keyed)].
+     */
+    private function closure(array $start, array $why, array $allow = [], array $stop = [], array $unlink = []): array
+    {
+        $delete = [];
+        $blocked = [];
+        $frontier = [];
+        foreach ($start as $t => $keys) {
             if ($keys) {
                 $delete[$t] = $keys;
                 $frontier[$t] = $keys;
@@ -152,6 +169,9 @@ final class DataWipe
         while ($frontier && $guard++ < 100) {
             $next = [];
             foreach ($frontier as $table => $keys) {
+                if (isset($stop[$table])) {
+                    continue;
+                }
                 foreach ($edges[$table] ?? [] as $e) {
                     $found = $this->follow($e, array_keys($keys));
                     if (!$found) {
@@ -163,7 +183,7 @@ final class DataWipe
                         }
                         continue;
                     }
-                    if ($e['mode'] === 'block' || (DataWipeMap::isProtected($e['to']) && empty($e['owned']))) {
+                    if (($e['mode'] === 'block' || (DataWipeMap::isProtected($e['to']) && empty($e['owned']))) && !isset($allow[$e['to']])) {
                         $blocked[$e['to'] . '<' . $table] = sprintf('%s : %d ligne(s) de « %s » en dépendent, et « %s » n\'est jamais effacé.',
                             DataWipeMap::label($table), count($found), DataWipeMap::label($e['to']), DataWipeMap::label($e['to']));
                         continue;
@@ -198,16 +218,31 @@ final class DataWipe
         }
 
         // Posted entries of a locked year can't be put back to draft, so they can't be deleted
-        if (!empty($delete['journal_entries']) && $this->hasColumn('financial_years', 'state')) {
-            foreach ($this->chunks(array_keys($delete['journal_entries'])) as $ids) {
-                $years = $this->db->query("SELECT DISTINCT YEAR(je.date) FROM journal_entries je JOIN financial_years fy ON fy.year = YEAR(je.date)
-                                            WHERE je.id IN (" . implode(',', array_map('intval', $ids)) . ") AND fy.state IN ('locked', 'final_closed')")->fetchAll(PDO::FETCH_COLUMN);
-                foreach ($years as $y) {
-                    $blocked['year' . $y] = "L'exercice {$y} est verrouillé : ses écritures ne peuvent pas être effacées. Rouvrez-le d'abord (Clôture d'exercice).";
-                }
+        foreach ($this->lockedYears(array_keys($delete['journal_entries'] ?? [])) as $y) {
+            $blocked['year' . $y] = "L'exercice {$y} est verrouillé : ses écritures ne peuvent pas être effacées. Rouvrez-le d'abord (Clôture d'exercice).";
+        }
+        return [$delete, $unlink, $why, $blocked];
+    }
+
+    /** Years among these journal entries' that are locked (the accounting trigger refuses any change there). */
+    private function lockedYears(array $ids): array
+    {
+        $years = [];
+        if (!$ids || !$this->hasColumn('financial_years', 'state')) {
+            return [];
+        }
+        foreach ($this->chunks($ids) as $chunk) {
+            foreach ($this->db->query("SELECT DISTINCT YEAR(je.date) FROM journal_entries je JOIN financial_years fy ON fy.year = YEAR(je.date)
+                                        WHERE je.id IN (" . implode(',', array_map('intval', $chunk)) . ") AND fy.state IN ('locked', 'final_closed')")->fetchAll(PDO::FETCH_COLUMN) as $y) {
+                $years[$y] = $y;
             }
         }
+        return array_values($years);
+    }
 
+    /** The plan as callers read it: counts, totals, balances recalculated. */
+    private function finish(array $head, array $delete, array $unlink, array $why, array $blocked): array
+    {
         $counts = [];
         foreach ($delete as $t => $keys) {
             $counts[$t] = count($keys);
@@ -220,13 +255,365 @@ final class DataWipe
             }
         }
 
-        $plan = [
-            'picked' => $picked, 'delete' => $delete, 'unlink' => $unlink, 'why' => $why, 'counts' => $counts,
+        $plan = $head + [
+            'delete' => $delete, 'unlink' => $unlink, 'why' => $why, 'counts' => $counts,
             'unlinked' => $unlinked, 'total' => array_sum($counts), 'blocked' => array_values($blocked),
         ];
         $plan['balances'] = (new DataWipeBalances($this->db))->preview($plan);
 
         return $plan;
+    }
+
+    // =========================================================================
+    // One by one (the second tab; owner's decisions of 3 Nov 2026)
+    // =========================================================================
+
+    /** The kinds of record this database can search: [table => label]. */
+    public function recordKinds(): array
+    {
+        $out = [];
+        foreach (DataWipeMap::RECORDS as $t => [$label]) {
+            if ($this->recordSql($t) !== null) {
+                $out[$t] = $label;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Records found by number or name, newest first: [['table', 'id', 'label', 'sub', 'refused']].
+     * 'refused' says why one can't be picked (a staff account still active…).
+     */
+    public function searchRecords(string $table, string $q, int $limit = 20): array
+    {
+        $sql = $this->recordSql($table);
+        if ($sql === null) {
+            return [];
+        }
+        $q = trim($q);
+        $where = '1 = 1';
+        $params = [];
+        if ($q !== '') {
+            $like = '%' . addcslashes($q, '%_\\') . '%';
+            $where = '(' . implode(' OR ', array_map(fn ($m) => "{$m} LIKE ?", $sql['match'])) . ')';
+            $params = array_fill(0, count($sql['match']), $like);
+        }
+        $st = $this->db->prepare("SELECT x.id, {$sql['fields']} FROM {$sql['from']} WHERE {$where} ORDER BY x.id DESC LIMIT " . max(1, min(50, $limit)));
+        $st->execute($params);
+        $staff = $table === 'users' ? new DataWipeStaff($this->db, $this) : null;
+        $out = [];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $refused = $staff ? $staff->refusal($staff->account((int) $r['id']) ?? []) : null;
+            $out[] = ['table' => $table, 'id' => (int) $r['id'], 'label' => (string) $r['label'], 'sub' => self::recordSub($r), 'refused' => $refused];
+        }
+        return $out;
+    }
+
+    /** How a record is named on the screen and in the log ("Facture FAC-2611-0003"), or null when it doesn't exist. */
+    public function recordLabel(string $table, int $id): ?string
+    {
+        $sql = $this->recordSql($table);
+        if ($sql === null) {
+            return null;
+        }
+        $st = $this->db->prepare("SELECT x.id, {$sql['fields']} FROM {$sql['from']} WHERE x.id = ?");
+        $st->execute([$id]);
+        $r = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$r) {
+            return null;
+        }
+        $who = trim((string) ($r['who'] ?? ''));
+        return DataWipeMap::RECORDS[$table][1] . ' ' . $r['label'] . ($who !== '' && $table !== 'users' ? ' · ' . $who : '')
+             . ($table === 'users' && $who !== '' ? ' (' . $who . ')' : '');
+    }
+
+    /**
+     * The records picked that may go, sorted, with what was chosen for staff accounts:
+     * [records, accounts, problems]. Each record: ['table', 'id', 'label', 'pick'] (+ 'mode', 'to',
+     * 'to_name' for an account); 'pick' is what a one-time code is tied to ("invoices#12",
+     * "users#7:handover>3", "users#9:wipe"). Problems block the plan.
+     */
+    public function cleanRecords(array $records): array
+    {
+        $picked = [];
+        $accounts = [];
+        $problems = [];
+        $staff = null;
+        foreach ($records as $r) {
+            $t = (string) ($r['table'] ?? '');
+            $id = (int) ($r['id'] ?? 0);
+            if (!isset(DataWipeMap::RECORDS[$t]) || $id <= 0 || isset($picked["{$t}#{$id}"]) || $this->recordSql($t) === null) {
+                continue;
+            }
+            $label = $this->recordLabel($t, $id);
+            if ($label === null) {
+                $problems[] = DataWipeMap::RECORDS[$t][1] . " n° {$id} n'existe plus : retirez-le de la liste.";
+                continue;
+            }
+            $item = ['table' => $t, 'id' => $id, 'label' => $label, 'pick' => "{$t}#{$id}"];
+            if ($t === 'users') {
+                $staff ??= new DataWipeStaff($this->db, $this);
+                $account = $staff->account($id);
+                if ($refused = $staff->refusal($account)) {
+                    $problems[] = "{$label} : {$refused}";
+                    continue;
+                }
+                $item['mode'] = ($r['mode'] ?? '') === 'wipe' ? 'wipe' : 'handover';
+                if ($item['mode'] === 'handover') {
+                    $to = (int) ($r['to'] ?? 0);
+                    $target = $to > 0 && $to !== $id ? $staff->account($to) : null;
+                    if (!$target || $target['status'] !== 'active') {
+                        $problems[] = "{$label} : choisissez le compte actif qui reprend ses enregistrements.";
+                        $target = null;
+                    }
+                    $item['to'] = $target ? (int) $target['id'] : 0;
+                    $item['to_name'] = $target['name'] ?? null;
+                    $item['pick'] .= ':handover>' . $item['to'];
+                } else {
+                    $item['pick'] .= ':wipe';
+                }
+                $accounts[$id] = ['mode' => $item['mode'], 'to' => $item['to'] ?? null, 'name' => $account['name']];
+            }
+            $picked["{$t}#{$id}"] = $item;
+        }
+        ksort($picked, SORT_STRING);
+        return [array_values($picked), $accounts, $problems];
+    }
+
+    /** What a code for these records is tied to: their 'pick' strings, sorted. */
+    public static function recordPick(array $records): array
+    {
+        $out = array_column($records, 'pick');
+        sort($out, SORT_STRING);
+        return $out;
+    }
+
+    /**
+     * What deleting these records would take, without changing anything: plan()'s keys, plus
+     *   mode 'records', records (cleanRecords), reassign [table => [column => [key => user id]]]
+     *   (hand-overs), reassigned [['table', 'column', 'rows', 'to']], mailboxes (personal ones
+     *   removed), numbering [['kind' => 'back' | 'gap', 'text']].
+     */
+    public function planRecords(array $records): array
+    {
+        [$picked, $accounts, $problems] = $this->cleanRecords($records);
+        $start = [];
+        $why = [];
+        foreach ($picked as $r) {
+            if ($r['table'] !== 'users') {
+                $start[$r['table']][$r['id']] = true;
+                $why[$r['table']] ??= 'choisi';
+            }
+        }
+        $staff = ['seed' => [], 'why' => [], 'reassign' => [], 'unlink' => [], 'blocked' => [], 'mailboxes' => []];
+        if ($accounts) {
+            $staff = (new DataWipeStaff($this->db, $this))->plan($accounts);
+            foreach ($staff['seed'] as $t => $keys) {
+                $start[$t] = ($start[$t] ?? []) + $keys;
+                $why[$t] ??= $staff['why'][$t] ?? 'compte effacé';
+            }
+        }
+        // Rows of the accounts and of a personal mailbox lead nowhere further: DataWipeStaff decided
+        // for every row that names the account, and the mailbox's mail goes with it in the database
+        [$delete, $unlink, $why, $blocked] = $this->closure($start, $why, $accounts ? array_flip(DataWipeMap::STAFF_TABLES) : [],
+                                                             ['users' => true, 'mail_accounts' => true], $staff['unlink']);
+
+        $reassign = [];
+        $reassigned = [];
+        $names = array_column(array_filter($picked, fn ($r) => isset($r['to'])), 'to_name', 'to');
+        foreach ($staff['reassign'] as $t => $cols) {
+            foreach ($cols as $c => $keys) {
+                $keys = array_diff_key($keys, $delete[$t] ?? []);
+                if (!$keys) {
+                    continue;
+                }
+                $reassign[$t][$c] = $keys;
+                foreach (array_count_values($keys) as $to => $n) {
+                    $reassigned[] = ['table' => $t, 'column' => $c, 'rows' => $n, 'to' => $names[$to] ?? null];
+                }
+            }
+        }
+        $touched = array_keys(($reassign['journal_entries'] ?? []) ? array_replace(...array_values($reassign['journal_entries'])) : []);
+        $touched = array_merge($touched, array_keys(($unlink['journal_entries'] ?? []) ? array_replace(...array_values($unlink['journal_entries'])) : []));
+        foreach ($this->lockedYears($touched) as $y) {
+            $blocked['name' . $y] = "L'exercice {$y} est verrouillé : ses écritures ne peuvent pas changer de nom. Rouvrez-le d'abord (Clôture d'exercice).";
+        }
+
+        $head = ['mode' => 'records', 'picked' => self::recordPick($picked), 'records' => $picked, 'reassign' => $reassign,
+                 'reassigned' => $reassigned, 'mailboxes' => $staff['mailboxes']];
+        $plan = $this->finish($head, $delete, $unlink, $why, array_merge($problems, $staff['blocked'], array_values($blocked)));
+        $plan['numbering'] = $this->numberSteps($this->numberHeld($delete));
+        return $plan;
+    }
+
+    /**
+     * The numbered documents among the rows that go, by counter:
+     * [type => [period => [n => ['reference', 'ts']]]]. A reference that doesn't match its
+     * counter's format (one written before numbering) is left out: no counter holds it.
+     */
+    private function numberHeld(array $delete): array
+    {
+        if (!$this->hasTable('document_counters') || !class_exists('DocCounter')) {
+            return [];
+        }
+        $held = [];
+        foreach ($delete as $t => $keys) {
+            $types = DocCounter::typesFor($t);
+            if (!$types || !$this->hasColumn($t, 'reference') || $this->keyCols($t) !== ['id']) {
+                continue;
+            }
+            // The date the number was taken with: the order's own date, otherwise the day it was saved
+            $dates = array_values(array_filter($t === 'sales_orders' ? ['date', 'created_at'] : ['created_at', 'date'], fn ($c) => $this->hasColumn($t, $c)));
+            if (!$dates) {
+                continue;
+            }
+            foreach ($this->chunks(array_keys($keys)) as $chunk) {
+                $rows = $this->db->query('SELECT `reference`, ' . $this->colList($dates) . " FROM `{$t}` WHERE id IN (" . implode(',', array_map('intval', $chunk)) . ')')->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($rows as $row) {
+                    $ref = (string) $row['reference'];
+                    preg_match_all('/\d+/', $ref, $m);
+                    foreach ($types as $type) {
+                        foreach ($dates as $d) {
+                            $ts = $row[$d] ? strtotime((string) $row[$d]) : false;
+                            foreach ($ts ? $m[0] : [] as $digits) {
+                                $n = (int) $digits;
+                                if ($n > 0 && DocCounter::format($type, $n, $ts) === $ref) {
+                                    $held[$type][DocCounter::periodOf($type, $ts)][$n] = ['reference' => $ref, 'ts' => $ts];
+                                    continue 4;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return $held;
+    }
+
+    /**
+     * Owner's rule (3 Nov 2026): a counter whose last number goes steps back, so the next
+     * document takes that number again; one from the middle leaves a gap. Says so in plain
+     * words. With $undo (an open restore step) the counters are changed, locked first.
+     */
+    private function numberSteps(array $held, $undo = null): array
+    {
+        $notes = [];
+        foreach ($held as $type => $periods) {
+            foreach ($periods as $period => $nums) {
+                $sel = $this->db->prepare('SELECT ' . $this->colList(array_unique(array_merge(['doc_type', 'period', 'last_number'], $this->stampCols('document_counters'))))
+                                        . ' FROM document_counters WHERE doc_type = ? AND period = ?' . ($undo ? ' FOR UPDATE' : ''));
+                $sel->execute([$type, (string) $period]);
+                $row = $sel->fetch(PDO::FETCH_ASSOC);
+                if (!$row) {
+                    continue;
+                }
+                $last = (int) $row['last_number'];
+                $to = $last;
+                while (isset($nums[$to])) {
+                    $to--;
+                }
+                if ($to < $last) {
+                    $back = array_map(fn ($n) => $nums[$n]['reference'], range($to + 1, $last));
+                    $notes[] = ['kind' => 'back', 'text' => (count($back) > 1 ? implode(', ', $back) . ' étaient les derniers numéros' : $back[0] . ' était le dernier numéro')
+                              . ' : ' . (DataWipeMap::COUNTER_NEXT[$type] ?? 'le prochain document') . ' reprendra ' . $back[0] . '.'];
+                    if ($undo) {
+                        fwrite($undo, $this->sqlUpdate('document_counters', [$row]));
+                        $this->db->prepare("UPDATE document_counters SET last_number = ? WHERE doc_type = ? AND period = ?")->execute([$to, $type, (string) $period]);
+                    }
+                }
+                ksort($nums);
+                foreach ($nums as $n => $doc) {
+                    if ($n < $to) {
+                        $notes[] = ['kind' => 'gap', 'text' => $doc['reference'] . ' : des numéros plus récents existent, donc il restera un trou. Ce numéro ne sera pas réutilisé.'];
+                    }
+                }
+            }
+        }
+        return $notes;
+    }
+
+    /** Search and label SQL of a kind of record, from the columns this database has; null when it can't be searched. */
+    private function recordSql(string $t): ?array
+    {
+        if ($t === 'users') {
+            if (!$this->hasTable('users') || !$this->hasColumn('users', 'status')) {
+                return null;
+            }
+            $emp = $this->hasColumn('employees', 'employee_code');
+            $code = $emp ? "COALESCE(NULLIF(x.employee_code, ''), e.employee_code)" : 'x.employee_code';
+            return ['from' => '`users` x' . ($emp ? ' LEFT JOIN `employees` e ON e.id = x.employee_id' : ''),
+                    'fields' => "CONCAT(x.first_name, ' ', x.last_name) AS label, {$code} AS who, NULL AS day, NULL AS amount, x.status AS status",
+                    'match' => ["CONCAT(x.first_name, ' ', x.last_name)", 'x.email', $code]];
+        }
+        $def = DataWipeMap::RECORD_SEARCH[$t] ?? null;
+        if ($def === null || !$this->hasTable($t) || !$this->hasColumn($t, $def[0]) || $this->keyCols($t) !== ['id']) {
+            return null;
+        }
+        [$name, $second, $dates, $amount, $status] = $def;
+        $from = "`{$t}` x";
+        $match = ["x.`{$name}`"];
+        $who = 'NULL';
+        if (is_array($second) && $this->hasColumn($t, $second[0]) && $this->hasColumn($second[1], $second[2])) {
+            $from .= " LEFT JOIN `{$second[1]}` o ON o.id = x.`{$second[0]}`";
+            $who = "o.`{$second[2]}`";
+            $match[] = $who;
+        } elseif (is_string($second) && $this->hasColumn($t, $second)) {
+            $who = "x.`{$second}`";
+            $match[] = $who;
+        }
+        $day = 'NULL';
+        foreach ($dates as $d) {
+            if ($this->hasColumn($t, $d)) {
+                $day = "x.`{$d}`";
+                break;
+            }
+        }
+        $amt = $amount && $this->hasColumn($t, $amount) ? "x.`{$amount}`" : 'NULL';
+        $st = $status && $this->hasColumn($t, $status) ? "x.`{$status}`" : 'NULL';
+        return ['from' => $from, 'fields' => "x.`{$name}` AS label, {$who} AS who, {$day} AS day, {$amt} AS amount, {$st} AS status", 'match' => $match];
+    }
+
+    /** "Alpha · 02/11/2026 · 100 000 · paid" */
+    private static function recordSub(array $r): string
+    {
+        $parts = [];
+        if (($r['who'] ?? null) !== null && $r['who'] !== '') {
+            $parts[] = (string) $r['who'];
+        }
+        if (!empty($r['day']) && ($ts = strtotime((string) $r['day']))) {
+            $parts[] = date('d/m/Y', $ts);
+        }
+        if ($r['amount'] !== null) {
+            $parts[] = number_format((float) $r['amount'], 0, ',', ' ');
+        }
+        if (($r['status'] ?? null) !== null && $r['status'] !== '') {
+            $parts[] = ['active' => 'actif', 'inactive' => 'inactif'][$r['status']] ?? (string) $r['status'];
+        }
+        return implode(' · ', $parts);
+    }
+
+    /** Keys of the rows of $table matching $where ([key => true]); with $column, that column's values instead. */
+    public function rowKeys(string $table, string $where, array $params = [], ?string $column = null): array
+    {
+        $cols = $column !== null ? [$column] : $this->keyCols($table);
+        if (!$cols || !$this->hasTable($table)) {
+            return [];
+        }
+        $st = $this->db->prepare('SELECT ' . ($column !== null ? 'DISTINCT ' : '') . $this->colList($cols) . " FROM `{$table}` WHERE {$where}");
+        $st->execute($params);
+        $out = [];
+        foreach ($st->fetchAll(PDO::FETCH_NUM) as $row) {
+            if ($row[0] !== null) {
+                $out[$this->keyOf($row)] = true;
+            }
+        }
+        return $out;
+    }
+
+    /** The primary key columns of $table (none: [], and its rows can't be told apart). */
+    public function keyColumnsOf(string $table): array
+    {
+        return $this->keyCols($table);
     }
 
     // =========================================================================
@@ -241,6 +628,22 @@ final class DataWipe
      * when any of it fails.
      */
     public function run(array $tables, array $user, string $reason, ?callable $inTransaction = null): array
+    {
+        return $this->execute(fn () => $this->plan($tables), $user, $reason, $inTransaction);
+    }
+
+    /**
+     * Delete records picked one by one (planRecords), the same way: one transaction, the copy
+     * first. Before the rows go, the records of deleted staff accounts are handed over or their
+     * names cleared; after, counters whose last number went step back. Also returns 'records'
+     * (their labels) and 'numbering' (what the plan said).
+     */
+    public function runRecords(array $records, array $user, string $reason, ?callable $inTransaction = null): array
+    {
+        return $this->execute(fn () => $this->planRecords($records), $user, $reason, $inTransaction);
+    }
+
+    private function execute(callable $makePlan, array $user, string $reason, ?callable $inTransaction): array
     {
         $dir = self::copyDir();
         $work = $dir . '/tmp-' . bin2hex(random_bytes(8));
@@ -259,16 +662,20 @@ final class DataWipe
                 $inTransaction($db);
             }
 
-            $plan = $this->plan($tables);
+            $plan = $makePlan();
+            $records = ($plan['mode'] ?? 'tables') === 'records';
             if (!$plan['picked']) {
-                throw new DomainException('Cochez au moins une table.');
+                throw new DomainException($records ? 'Choisissez au moins un enregistrement.' : 'Cochez au moins une table.');
             }
             if ($plan['blocked']) {
                 throw new DomainException(implode(' ', $plan['blocked']));
             }
 
+            // The log names records by their label: the screen and the MD read it, ids alone say nothing
+            $logged = $records ? json_encode(['mode' => 'records', 'records' => array_column($plan['records'], 'label'), 'picked' => $plan['picked']], JSON_UNESCAPED_UNICODE)
+                               : json_encode($plan['picked']);
             $db->prepare("INSERT INTO data_wipes (user_id, user_name, picked, reason) VALUES (?, ?, ?, ?)")
-               ->execute([(int) $user['id'], mb_substr((string) $user['name'], 0, 160), json_encode($plan['picked']), mb_substr($reason, 0, 1000)]);
+               ->execute([(int) $user['id'], mb_substr((string) $user['name'], 0, 160), $logged, mb_substr($reason, 0, 1000)]);
             $id = (int) $db->lastInsertId();
             $db->exec('SET @lpc_current_user_id = ' . (int) $user['id']);
             $auditBefore = $this->hasTable('audit_logs') ? (int) $db->query("SELECT COALESCE(MAX(id), 0) FROM audit_logs")->fetchColumn() : 0;
@@ -296,6 +703,27 @@ final class DataWipe
             }
             fclose($out);
 
+            // 1b. Records of a deleted staff account handed over to the account picked instead
+            $out = $step('reassign');
+            foreach ($plan['reassign'] ?? [] as $t => $cols) {
+                foreach ($cols as $c => $keys) {
+                    $byTarget = [];
+                    foreach ($keys as $k => $to) {
+                        $byTarget[(int) $to][] = $k;
+                    }
+                    foreach ($byTarget as $to => $list) {
+                        foreach ($this->chunks($list) as $chunk) {
+                            [$where, $params] = $this->keyWhere($t, $chunk);
+                            $sel = $db->prepare('SELECT ' . $this->colList(array_unique(array_merge($this->keyCols($t), [$c], $this->stampCols($t)))) . " FROM `{$t}` WHERE {$where} FOR UPDATE");
+                            $sel->execute($params);
+                            fwrite($out, $this->sqlUpdate($t, $sel->fetchAll(PDO::FETCH_ASSOC)));
+                            $db->prepare("UPDATE `{$t}` SET `{$c}` = ? WHERE {$where}")->execute(array_merge([$to], $params));
+                        }
+                    }
+                }
+            }
+            fclose($out);
+
             // 2. Posted entries back to draft, or the accounting trigger refuses the delete
             $out = $step('drafts');
             if (!empty($plan['delete']['journal_entries'])) {
@@ -311,9 +739,10 @@ final class DataWipe
             }
             fclose($out);
 
-            // 3. What balances lose, read before the rows go
+            // 3. What balances lose, and which numbers go, read before the rows go
             $balances = new DataWipeBalances($db);
             $prepared = $balances->prepare($plan);
+            $held = $records ? $this->numberHeld($plan['delete']) : [];
 
             // 4. Copy, then delete, children before parents
             $out = $step('rows');
@@ -360,7 +789,10 @@ final class DataWipe
                 }
             }
             $reset = [];
-            if ($this->hasTable('document_counters') && class_exists('DocCounter')) {
+            if ($records) {
+                // One by one: a counter whose last number went steps back; a number from the middle stays a gap
+                $summary['numbering'] = $this->numberSteps($held, $out);
+            } elseif ($this->hasTable('document_counters') && class_exists('DocCounter')) {
                 foreach ($emptied as $t) {
                     foreach (DocCounter::typesFor($t) as $type) {
                         $sel = $db->prepare('SELECT ' . $this->colList($this->copyCols('document_counters')) . " FROM document_counters WHERE doc_type = ? FOR UPDATE");
@@ -376,9 +808,10 @@ final class DataWipe
             fclose($out);
             $summary['counters_reset'] = $reset;
 
-            // The audit trigger noted the draft step on rows that are gone: not history worth keeping
+            // The audit trigger noted the draft step on rows that are gone: not history worth keeping.
+            // One by one, it also noted the hand-overs and an account's delete: the tool leaves no line there.
             if ($this->hasTable('audit_logs')) {
-                $db->prepare("DELETE FROM audit_logs WHERE id > ? AND user_id <=> ? AND table_name = 'journal_entries'")
+                $db->prepare("DELETE FROM audit_logs WHERE id > ? AND user_id <=> ?" . ($records ? '' : " AND table_name = 'journal_entries'"))
                    ->execute([$auditBefore, (int) $user['id']]);
             }
 
@@ -407,7 +840,7 @@ final class DataWipe
                     }
                 }
             }
-            file_put_contents($work . '/LISEZMOI.txt', $this->readme($id, $plan['picked'], $user, $reason, $counts, $summary));
+            file_put_contents($work . '/LISEZMOI.txt', $this->readme($id, $plan, $user, $reason, $counts, $summary));
             $archive = $this->pack($work, $dir, $id);
 
             $expires = date('Y-m-d H:i:s', strtotime('+' . self::KEEP_DAYS . ' days'));
@@ -439,8 +872,23 @@ final class DataWipe
             }
         }
 
-        return ['id' => $id, 'counts' => $counts, 'total' => array_sum($counts), 'copy_file' => basename($archive),
-                'expires' => $expires, 'balances' => $summary, 'emptied' => $emptied, 'picked' => $plan['picked'], 'warnings' => $warnings];
+        $done = ['id' => $id, 'counts' => $counts, 'total' => array_sum($counts), 'copy_file' => basename($archive),
+                 'expires' => $expires, 'balances' => $summary, 'emptied' => $emptied, 'picked' => $plan['picked'], 'warnings' => $warnings];
+        if ($records) {
+            $done += ['mode' => 'records', 'records' => array_column($plan['records'], 'label'), 'numbering' => $summary['numbering'] ?? [],
+                      'reassigned' => $plan['reassigned'], 'mailboxes' => $plan['mailboxes']];
+        }
+        return $done;
+    }
+
+    /** What a logged wipe took, as the history list says it ("Factures, Paiements" or "Un par un : Facture FAC-…"). */
+    public static function pickedText(string $json): string
+    {
+        $picked = json_decode($json, true) ?: [];
+        if (($picked['mode'] ?? null) === 'records') {
+            return 'Un par un : ' . implode(', ', (array) ($picked['records'] ?? []));
+        }
+        return implode(', ', array_map([DataWipeMap::class, 'label'], $picked));
     }
 
     // =========================================================================
@@ -919,15 +1367,20 @@ final class DataWipe
         return $gz;
     }
 
-    private function readme(int $id, array $picked, array $user, string $reason, array $counts, array $summary): string
+    private function readme(int $id, array $plan, array $user, string $reason, array $counts, array $summary): string
     {
         $lines = [];
         arsort($counts);
         foreach ($counts as $t => $n) {
             $lines[] = '  ' . mb_str_pad(DataWipeMap::label($t), 40) . ' ' . $n;
         }
+        $what = ($plan['mode'] ?? 'tables') === 'records'
+            ? "Effacés un par un : " . implode(', ', array_column($plan['records'], 'label')) . ".\r\n"
+              . ($plan['mailboxes'] ? "Boîtes mail personnelles retirées (la copie de bureau ; le courrier reste sur le serveur mail, il n'est pas dans cette copie) : "
+                                      . implode(', ', array_column($plan['mailboxes'], 'email')) . ".\r\n" : '')
+            : "Tables cochées : " . implode(', ', array_map([DataWipeMap::class, 'label'], $plan['picked'])) . ".\r\n";
         return "Bureau LPC : effacement n° {$id}, le " . date('d/m/Y à H:i') . ", par " . $user['name'] . ".\r\n"
-             . "Tables cochées : " . implode(', ', array_map([DataWipeMap::class, 'label'], $picked)) . ".\r\n"
+             . $what
              . "Motif : {$reason}\r\n\r\n"
              . "Lignes effacées :\r\n" . implode("\r\n", $lines) . "\r\n\r\n"
              . "restore.sql   remet tout comme avant l'effacement : les lignes, les liens et les\r\n"
