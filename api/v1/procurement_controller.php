@@ -805,15 +805,15 @@ try {
             // rather than two lookups that could straddle a settings change.
             $tax_now = lpc_rebate_tax_settings($db);
 
-            // Exonerated / non-deductible purchase. Defaults to deductible,
-            // which is the ordinary case; a caller that knows better (water is
-            // exonerated under art. 128 CGI, and a supplier outside the régime
-            // réel invoices no reclaimable VAT) says so and the whole TTC stays
-            // in 601, which is the correct SYSCOHADA treatment for VAT that
-            // cannot be recovered — it genuinely is part of the cost.
-            $vat_recoverable = array_key_exists('vat_recoverable', $jsonData)
-                ? (!empty($jsonData['vat_recoverable']) ? 1 : 0)
-                : 1;
+            // Purchases carry no TVA (owner decision, 3 Nov 2026: « no business
+            // with TVA from Source du Pays… leave it at the exact amount always
+            // and for all suppliers »). The price on the order IS the cost: it
+            // goes into stock (CUMP) and to 601 as it is, with no 4452 line.
+            // This used to default to « 19.25 % TVA included, deductible », so a
+            // 1 850 F bottle went into stock at 1 850 / 1.1925 = 1 551.36 F and
+            // 29 864 F of a 185 000 F order was booked as TVA récupérable.
+            // Not a client choice any more: vat_recoverable is ignored if sent.
+            $vat_recoverable = 0;
 
             $clean_items = [];
             foreach ($items as $item) {
@@ -1024,9 +1024,10 @@ try {
             // problem migration 040 solved for invoices and
             // purchase_order_category_rebates.vat_rate_applied solved for the
             // ristourne base. Stored here, once, at the rate agreed.
-            $po_vat_rate = (float) $tax_now['vat_rate'];
-            $po_subtotal_ht = ($po_vat_rate > 0) ? round($subtotal / (1 + $po_vat_rate), 2) : $subtotal;
-            $po_vat_amount  = round($subtotal - $po_subtotal_ht, 2);
+            // No TVA on purchases (see $vat_recoverable above): HT = the amount.
+            $po_vat_rate    = 0.0;
+            $po_subtotal_ht = $subtotal;
+            $po_vat_amount  = 0.0;
 
             // Migration 093 · treasury_account_id captures the ACCOUNT this PO
             // is (or will be) paid from. Detected the same way vat_columns is,
