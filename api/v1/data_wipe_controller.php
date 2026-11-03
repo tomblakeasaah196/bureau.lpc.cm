@@ -53,6 +53,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     $reply(['status' => 'error', 'message' => 'Méthode non autorisée.'], 405);
 }
 Csrf::requireValid();
+// A plan or a wipe of two months of test data can outlast PHP's 30 seconds.
+// Killed mid-wipe, the transaction rolls back but `finally` never runs, so its
+// work folder (rows already copied) would stay in the copies folder.
+@set_time_limit(300);
+ignore_user_abort(true);
 $in = json_decode((string) file_get_contents('php://input'), true) ?: [];
 $wiper = new DataWipe($db);
 $picked = $wiper->cleanPick((array) ($in['tables'] ?? []));
