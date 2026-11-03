@@ -7,10 +7,16 @@
  * else gets what a page that doesn't exist gets (DataWipeAccess). That account
  * alone has it in the sidebar, under Courrier; no search, no permission.
  *
- * Pick tables → see everything that goes with them, with row counts and the
- * balances recalculated → a code emailed to that account + a reason → the
- * wipe (copied first, kept 30 days) → the MD is told. Past wipes below, with
- * their copies while they are kept. Script: assets/js/modules/admin-data_wipe.js
+ * Two tabs (owner, 3 Nov 2026), each with the same safeguards:
+ *   · Tables entières: pick tables → see everything that goes with them, with
+ *     row counts and the balances recalculated → a code emailed to that account
+ *     + a reason → the wipe (copied first, kept 30 days) → the MD is told.
+ *     Script: assets/js/modules/admin-data_wipe.js
+ *   · Un par un: find documents, clients, suppliers, products or inactive staff
+ *     accounts by number or name, choose for each account whether its records
+ *     are handed over or wiped too, then the same plan, code, copy and notice.
+ *     Script: assets/js/modules/admin-data_wipe-records.js
+ * Past wipes below, with their copies while they are kept.
  * -----------------------------------------------------------------------------
  */
 require_once __DIR__ . '/../../includes/bootstrap.php';
@@ -26,12 +32,16 @@ $history = DataWipe::history($db);
 $md = DataWipeAccess::md($db);
 $key = (string) ($_GET['k'] ?? '');
 $e = static fn ($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
+$wiper = new DataWipe($db);
 $data = [
-    'api'   => '/api/v1/data_wipe_controller.php?k=' . rawurlencode($key),
-    'csrf'  => Csrf::token(),
-    'email' => DataWipeAccess::maskedEmail(),
-    'keep'  => DataWipe::KEEP_DAYS,
-    'md'    => $md !== null,
+    'api'     => '/api/v1/data_wipe_controller.php?k=' . rawurlencode($key),
+    'csrf'    => Csrf::token(),
+    'email'   => DataWipeAccess::maskedEmail(),
+    'keep'    => DataWipe::KEEP_DAYS,
+    'md'      => $md !== null,
+    'kinds'   => $wiper->recordKinds(),
+    'one'     => array_map(fn ($k) => $k[1], DataWipeMap::RECORDS),
+    'targets' => (new DataWipeStaff($db, $wiper))->targets(),
 ];
 ?>
 <!DOCTYPE html>
@@ -87,6 +97,26 @@ $data = [
 .dw-scroll{overflow-x:auto}
 .dw-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .dw-muted{color:var(--lpc-ink-mute)}
+/* Tabs, and the "one by one" tab */
+.dw-tabs{display:flex;gap:.25rem;border-bottom:1px solid var(--lpc-border);margin-bottom:1rem;overflow-x:auto;overflow-y:hidden}
+.dw-tab{background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:.6rem .9rem;min-height:44px;font-size:.9rem;font-weight:600;color:var(--lpc-ink-soft);cursor:pointer;white-space:nowrap}
+.dw-tab[aria-selected="true"]{color:var(--lpc-ink);border-bottom-color:var(--lpc-status-danger-fg)}
+.dw-tab:focus-visible{outline:2px solid var(--lpc-status-danger-fg);outline-offset:-2px;border-radius:.35rem .35rem 0 0}
+.dr-find{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));gap:.6rem .75rem}
+.dr-find .dw-field{margin-top:0}
+.dr-find select,.dr-find input,.dr-staff select{border:1px solid var(--lpc-border);border-radius:.5rem;padding:.55rem .7rem;font-size:.95rem;background:var(--lpc-surface);color:var(--lpc-ink);width:100%;max-width:none;letter-spacing:normal;min-height:44px}
+.dr-results,.dr-picked{list-style:none;margin:.6rem 0 0;padding:0;display:grid;gap:.35rem}
+.dr-results li,.dr-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.6rem;align-items:center;border:1px solid var(--lpc-border);border-radius:.6rem;padding:.5rem .7rem;background:var(--lpc-surface)}
+.dr-name{font-size:.86rem;font-weight:600;color:var(--lpc-ink);overflow-wrap:anywhere}
+.dr-meta{display:block;font-size:.76rem;color:var(--lpc-ink-soft);font-weight:400;margin-top:.1rem;overflow-wrap:anywhere}
+.dr-refused{display:block;font-size:.76rem;color:var(--lpc-status-warning-fg);margin-top:.15rem}
+.dr-btn{border:1px solid var(--lpc-border);background:var(--lpc-surface-sunken);color:var(--lpc-ink);border-radius:.5rem;padding:.4rem .75rem;min-height:40px;font-size:.82rem;font-weight:600;cursor:pointer;white-space:nowrap}
+.dr-btn:focus-visible,.dr-staff input:focus-visible{outline:2px solid var(--lpc-status-danger-fg);outline-offset:2px}
+.dr-staff{grid-column:1 / -1;border:0;border-top:1px solid var(--lpc-border);margin:.3rem 0 0;padding:.5rem 0 0;display:grid;gap:.35rem;min-width:0}
+.dr-staff legend{font-size:.78rem;color:var(--lpc-ink-soft);padding:0;margin-bottom:.15rem}
+.dr-staff label{display:flex;align-items:center;gap:.5rem;font-size:.85rem;color:var(--lpc-ink);min-height:36px;cursor:pointer}
+.dr-staff select{margin-left:1.55rem;width:calc(100% - 1.55rem)}
+.dr-note{font-size:.82rem;line-height:1.45;color:var(--lpc-ink);margin:.3rem 0 0}
 </style>
 <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
@@ -99,6 +129,12 @@ require __DIR__ . '/../../includes/components/topbar.php';
 <div id="lpc-shell-main">
 <main role="main" id="main" class="lpc-page">
 
+<div class="dw-tabs" role="tablist" aria-label="Façon d'effacer">
+    <button type="button" class="dw-tab" role="tab" id="dw-tab-tables" aria-controls="dw-panel-tables" aria-selected="true">Tables entières</button>
+    <button type="button" class="dw-tab" role="tab" id="dw-tab-records" aria-controls="dw-panel-records" aria-selected="false" tabindex="-1">Un par un</button>
+</div>
+
+<div id="dw-panel-tables" role="tabpanel" aria-labelledby="dw-tab-tables">
 <div class="dw-card" style="margin-bottom:1rem">
     <p class="dw-intro">
         Cochez ce qui doit disparaître. Tout ce qui en dépend est ajouté et compté avant que vous confirmiez.
@@ -151,6 +187,80 @@ require __DIR__ . '/../../includes/components/topbar.php';
         </section>
     </div>
 </div>
+</div>
+
+<div id="dw-panel-records" role="tabpanel" aria-labelledby="dw-tab-records" hidden>
+<div class="dw-card" style="margin-bottom:1rem">
+    <p class="dw-intro">
+        Cherchez par numéro ou par nom : un document (facture, devis, commande, BL, bon de commande, encaissement, dépense, CRE,
+        inventaire, vente au recycleur), un client, un fournisseur, un produit, ou un compte du personnel inactif. Tout ce qui en
+        dépend part avec lui, compté avant que vous confirmiez, et les soldes sont recalculés. Si un document portait le dernier
+        numéro de sa série, la numérotation revient en arrière ; sinon il reste un trou, et le plan le dit. Pour un compte du
+        personnel, sa fiche employé part avec lui, et vous choisissez si ses enregistrements passent à un autre compte ou partent
+        aussi. Comme pour les tables entières : copie privée gardée <?= (int) DataWipe::KEEP_DAYS ?> jours, code par email, DG prévenu.
+    </p>
+    <?php if (!$md): ?>
+        <div class="dw-alert is-danger"><?= $e(DataWipeAccess::mdMissing()) ?></div>
+    <?php endif; ?>
+</div>
+
+<div class="dw-grid">
+    <section class="dw-card" aria-labelledby="dr-pick-title">
+        <h2 id="dr-pick-title">1. Ce que vous effacez</h2>
+        <div class="dr-find">
+            <div class="dw-field">
+                <label for="dr-kind">Quoi</label>
+                <select id="dr-kind">
+                    <?php foreach ($data['kinds'] as $t => $label): ?>
+                        <option value="<?= $e($t) ?>"><?= $e($label) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="dw-field">
+                <label for="dr-q">Numéro ou nom</label>
+                <input id="dr-q" type="search" autocomplete="off" spellcheck="false" placeholder="Ex. : FAC-2611-0003">
+            </div>
+        </div>
+        <ul class="dr-results" id="dr-results" aria-label="Résultats" aria-live="polite"></ul>
+        <div class="dw-h3">Choisis</div>
+        <ul class="dr-picked" id="dr-picked"></ul>
+        <p class="dw-sub" id="dr-none">Rien de choisi pour l'instant.</p>
+    </section>
+
+    <div class="dw-side">
+        <section class="dw-card" aria-labelledby="dr-plan-title" aria-live="polite">
+            <h2 id="dr-plan-title">2. Ce qui sera effacé</h2>
+            <div id="dr-plan"><p class="dw-sub">Choisissez au moins un enregistrement.</p></div>
+        </section>
+
+        <section class="dw-card" style="margin-top:1rem" aria-labelledby="dr-confirm-title">
+            <h2 id="dr-confirm-title">3. Confirmer</h2>
+            <p class="dw-sub">Un code est envoyé à <strong><?= $e(DataWipeAccess::maskedEmail()) ?></strong>, valable <?= (int) DataWipeAccess::CODE_MINUTES ?> minutes et seulement pour ce qui est choisi, avec les choix faits pour les comptes.</p>
+            <?php if ($md): ?>
+                <p class="dw-sub" style="margin-top:.4rem">Une fois l'effacement fait, le DG est prévenu par email et dans ses notifications :
+                    <strong><?= $e($md['name']) ?></strong> &lt;<?= $e($md['email']) ?>&gt; (matricule <?= $e(DataWipeAccess::MD_MATRICULE) ?>).</p>
+            <?php else: ?>
+                <div class="dw-alert is-danger"><?= $e(DataWipeAccess::mdMissing()) ?></div>
+            <?php endif; ?>
+            <div class="dw-actions">
+                <button type="button" class="btn btn-secondary" id="dr-send" disabled>Envoyer le code</button>
+            </div>
+            <div class="dw-field">
+                <label for="dr-code">Code reçu par email</label>
+                <input id="dr-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\d{6}" placeholder="000000">
+            </div>
+            <div class="dw-field">
+                <label for="dr-reason">Motif (envoyé au DG)</label>
+                <textarea id="dr-reason" rows="3" maxlength="1000" placeholder="Ex. : facture saisie deux fois par erreur"></textarea>
+            </div>
+            <div class="dw-actions">
+                <button type="button" class="dw-danger" id="dr-run" disabled>Effacer définitivement</button>
+            </div>
+            <div id="dr-msg" role="status"></div>
+        </section>
+    </div>
+</div>
+</div>
 
 <section class="dw-card" style="margin-top:1rem" aria-labelledby="dw-past-title" id="past">
     <h2 id="dw-past-title">Effacements passés</h2>
@@ -159,16 +269,15 @@ require __DIR__ . '/../../includes/components/topbar.php';
     <?php else: ?>
     <div class="dw-scroll">
     <table class="dw-table">
-        <thead><tr><th>Date</th><th>Par</th><th>Tables cochées</th><th class="dw-num">Lignes</th><th>Motif</th><th>DG</th><th>Copie</th></tr></thead>
+        <thead><tr><th>Date</th><th>Par</th><th>Ce qui a été choisi</th><th class="dw-num">Lignes</th><th>Motif</th><th>DG</th><th>Copie</th></tr></thead>
         <tbody>
         <?php foreach ($history as $w):
-            $picked = json_decode((string) $w['picked'], true) ?: [];
             $copy = DataWipe::copyPath($w);
         ?>
             <tr>
                 <td style="white-space:nowrap"><?= $e(date('d/m/Y H:i', strtotime((string) $w['created_at']))) ?></td>
                 <td><?= $e($w['user_name']) ?></td>
-                <td><?= $e(implode(', ', array_map([DataWipeMap::class, 'label'], $picked))) ?></td>
+                <td><?= $e(DataWipe::pickedText((string) $w['picked'])) ?></td>
                 <td class="dw-num"><?= number_format((int) $w['total'], 0, ',', ' ') ?></td>
                 <td><?= $e($w['reason']) ?></td>
                 <td><?= $w['md_notified_at'] ? ($w['md_emailed'] ? 'Prévenu (email)' : 'Prévenu (notification)') : '<span class="dw-muted">Non</span>' ?></td>
@@ -193,6 +302,7 @@ require __DIR__ . '/../../includes/components/topbar.php';
 
 <script type="application/json" id="dw-data"><?= json_encode($data, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES) ?></script>
 <script src="<?= lpc_asset('/assets/js/modules/admin-data_wipe.js') ?>" defer></script>
+<script src="<?= lpc_asset('/assets/js/modules/admin-data_wipe-records.js') ?>" defer></script>
 <?= Rbac::jsBootstrap() ?>
 <script src="<?= lpc_asset('/assets/js/lpc-rbac.js') ?>" defer></script>
 </body>

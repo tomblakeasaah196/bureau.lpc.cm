@@ -11,6 +11,13 @@
  *   POST {action: 'send_code', tables}                 email a one-time code for this pick
  *   POST {action: 'run', tables, code, reason}         wipe (copy first), tell the MD
  *   GET  ?action=download&id=N                         the safety copy, while kept
+ *
+ * One by one (the second tab): records = [{table, id, mode?, to?}], mode and to
+ * for a staff account ('handover' to an active account, or 'wipe').
+ *   POST {action: 'records_search', table, q}          find by number or name
+ *   POST {action: 'records_plan', records}             what would go, nothing changes
+ *   POST {action: 'records_send_code', records}        a code tied to these records and choices
+ *   POST {action: 'records_run', records, code, reason}
  * -----------------------------------------------------------------------------
  */
 require_once __DIR__ . '/../../includes/bootstrap.php';
@@ -90,6 +97,17 @@ $what = static function (array $plan): string {
     return implode("\n", $lines) . "\n  Total : " . $plan['total'] . ' lignes';
 };
 
+/** One by one: the plan as the screen shows it, with hand-overs, mailboxes and numbering. */
+$viewRecords = static function (array $plan) use ($view): array {
+    $v = $view(['picked' => array_values(array_unique(array_column($plan['records'], 'table')))] + $plan);
+    $v['records'] = array_map(fn ($r) => array_intersect_key($r, array_flip(['table', 'id', 'label', 'mode', 'to', 'to_name'])), $plan['records']);
+    $v['reassigned'] = array_map(fn ($r) => ['label' => DataWipeMap::label($r['table']), 'column' => $r['column'], 'rows' => $r['rows'], 'to' => $r['to']], $plan['reassigned']);
+    $v['mailboxes'] = $plan['mailboxes'];
+    $v['numbering'] = $plan['numbering'];
+    return $v;
+};
+$records = (array) ($in['records'] ?? []);
+
 try {
     switch ($in['action'] ?? '') {
         case 'overview':
@@ -129,6 +147,53 @@ try {
             $reply(['status' => 'success', 'wipe' => [
                 'id' => $done['id'], 'total' => $done['total'], 'expires' => $done['expires'], 'balances' => $done['balances'],
                 'tables' => array_map(fn ($t, $n) => ['label' => DataWipeMap::label($t), 'rows' => $n], array_keys($done['counts']), $done['counts']),
+                'md' => $told, 'warnings' => $done['warnings'],
+            ]]);
+
+        case 'records_search':
+            $reply(['status' => 'success', 'results' => $wiper->searchRecords((string) ($in['table'] ?? ''), mb_substr((string) ($in['q'] ?? ''), 0, 100))]);
+
+        case 'records_plan':
+            $reply(['status' => 'success', 'plan' => $viewRecords($wiper->planRecords($records))]);
+
+        case 'records_send_code':
+            $plan = $wiper->planRecords($records);
+            if (!$plan['picked']) {
+                throw new DomainException('Choisissez au moins un enregistrement.');
+            }
+            if (!DataWipeAccess::md($db)) {
+                throw new DomainException(DataWipeAccess::mdMissing());
+            }
+            if ($plan['blocked']) {
+                throw new DomainException(implode(' ', $plan['blocked']));
+            }
+            $chosen = array_map(fn ($r) => '  · ' . $r['label'] . match ($r['mode'] ?? null) {
+                'handover' => ' : ses enregistrements passent à ' . $r['to_name'],
+                'wipe'     => ' : ses enregistrements sont effacés aussi',
+                default    => '',
+            }, $plan['records']);
+            DataWipeAccess::sendCode($db, $user, $plan['picked'], "Choisis :\n" . implode("\n", $chosen) . "\n\nAvec tout ce qui en dépend :\n" . $what($plan));
+            $reply(['status' => 'success', 'message' => 'Code envoyé à ' . DataWipeAccess::maskedEmail() . '. Il est valable ' . DataWipeAccess::CODE_MINUTES . ' minutes.']);
+
+        case 'records_run':
+            $reason = trim((string) ($in['reason'] ?? ''));
+            $pick = DataWipe::recordPick($wiper->cleanRecords($records)[0]);
+            if (!$pick) {
+                throw new DomainException('Choisissez au moins un enregistrement.');
+            }
+            if (mb_strlen($reason) < 10) {
+                throw new DomainException('Écrivez le motif en quelques mots (10 caractères au moins) : il est envoyé au DG.');
+            }
+            if (!DataWipeAccess::md($db)) {
+                throw new DomainException(DataWipeAccess::mdMissing());
+            }
+            $codeId = DataWipeAccess::checkCode($db, $user, $pick, trim((string) ($in['code'] ?? '')));
+            $done = $wiper->runRecords($records, $user, $reason, fn (PDO $db) => DataWipeAccess::consumeCode($db, $codeId));
+            $told = DataWipeAccess::tellMd($db, $done, $user, $reason);
+            $reply(['status' => 'success', 'wipe' => [
+                'id' => $done['id'], 'total' => $done['total'], 'expires' => $done['expires'], 'balances' => $done['balances'],
+                'tables' => array_map(fn ($t, $n) => ['label' => DataWipeMap::label($t), 'rows' => $n], array_keys($done['counts']), $done['counts']),
+                'records' => $done['records'], 'numbering' => $done['numbering'],
                 'md' => $told, 'warnings' => $done['warnings'],
             ]]);
 

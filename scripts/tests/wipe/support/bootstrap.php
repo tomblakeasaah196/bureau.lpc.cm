@@ -97,8 +97,9 @@ function wipe_test_connect(): PDO
 /**
  * Point bureau's Database singleton at the test database and load the classes
  * under test. Without $rebuild the database is used as it is (child processes).
+ * $extra: more fixture files from support/, loaded after fixture_schema.sql.
  */
-function wipe_test_db(bool $rebuild = true): PDO
+function wipe_test_db(bool $rebuild = true, array $extra = []): PDO
 {
     [$host, $port, $user, $pass, $name] = wipe_test_config();
     if ($rebuild) {
@@ -127,6 +128,9 @@ function wipe_test_db(bool $rebuild = true): PDO
 
     if ($rebuild) {
         wipe_test_sql_file($pdo, __DIR__ . '/fixture_schema.sql');
+        foreach ($extra as $file) {
+            wipe_test_sql_file($pdo, __DIR__ . '/' . $file);
+        }
         $migrations = glob($root . '/migrations/35[0-9]_*.sql') ?: [];
         sort($migrations, SORT_NATURAL);
         foreach ($migrations as $file) {

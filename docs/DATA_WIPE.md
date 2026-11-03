@@ -33,7 +33,7 @@ Code:
    - **whole documents:** when a line goes, its document goes too (`DataWipeMap::WHOLE`).
    - **owned rows:** a client's 411xxx and a supplier's 401xxx sub-account; the journal entry a document points at.
 3. **Never wiped** (`DataWipeMap::PROTECTED`):
-   - staff logins, users, roles, permissions, employees and their documents;
+   - staff logins, users, roles, permissions, employees and their documents (one inactive account at a time can go from the "Un par un" tab, below);
    - the chart of accounts (except the owned sub-accounts above) and reporting structure;
    - settings and preferences, treasury accounts and categories, budget envelopes and warehouses seeded by migrations;
    - **Courrier (`mail_*`), because it holds a copy of real mail**, and the help centre;
@@ -66,6 +66,33 @@ Code:
    - `AUTO_INCREMENT` of emptied tables restarts;
    - **the MD is told**, by email and in bureau's notifications: what was wiped, the counts, when, why, and by whom.
 
+## One by one (the second tab)
+Added 3 Nov 2026 on the owner's decisions. The "Tables entières" tab is unchanged. "Un par un" deletes single records, with the same safeguards: the gate, a code tied to exactly what was picked (each record, and the choice made for each account), a written reason, the MD's notice, one transaction with the copy first, and the history.
+
+Code: `DataWipe::searchRecords()`, `planRecords()`, `runRecords()`; `includes/classes/DataWipeStaff.php`; `assets/js/modules/admin-data_wipe-records.js`.
+
+- **What can be picked, by number or name** (`DataWipeMap::RECORDS`):
+  - documents: invoices, quotes, orders, BLs, purchase orders, receipts, expenses, CRE, inventories, recycling sales;
+  - one client, supplier or product;
+  - staff accounts, **inactive only**. Never the `WIPE_ADMIN_EMAIL` account, and never the MD's (LPC-MD-01), even inactive.
+- **What goes with it:** the same closure as the whole-table tab, starting from those rows: foreign keys, links without one, whole documents, owned sub-accounts and entries, notifications, activity.
+- **Numbering:** when a deleted document held its counter's last number, the counter steps back, so the next document takes that number again. One from the middle leaves a gap. The plan says which, in plain words, before the code is sent.
+- **A staff account:**
+  - **The person goes:** the login goes together with the employee record, contract, payslips, advances, profile, sessions, devices, preferences and notifications (`DataWipeMap::STAFF_OWN`), with what depends on them.
+  - **Their records, two choices per account:**
+    - **Passer à un autre compte** (hand over), with an active account picked. Every column naming the account is set to that account, activity lines included.
+    - **Les effacer aussi** (wipe too):
+      - a row the account created, logged, operated or drove goes; so does one that can't be kept without it (`NOT NULL`);
+      - a row it only approved, validated or last edited stays, with its name cleared (owner, 3 Nov 2026);
+      - its activity lines go;
+      - a protected row that needs the name (a treasury account it created) refuses the wipe: hand that account over instead.
+  - **Staff ids:** about 160 columns hold one, but only about 50 have a foreign key. `DataWipeStaff::columns()` finds them all, by foreign key or by name (`*_by`, `user_id`, `*_user_id`, `driver_id`, `operator_id`, `assigned_to`; integer columns only). A column added later is covered too.
+  - **Courrier** (owner, 3 Nov 2026):
+    - **Their own mailbox goes:** only bureau's copy; the mail stays on the mail server. The safety copy keeps the mailbox's settings, never its messages: the database drops the mail with the mailbox, so private mail is never in a downloadable file. After a restore, the mail comes back on the next sync once the login is active again.
+    - **Access, signature, presence:** their access to shared mailboxes, their signature and their presence go.
+    - **Their traces in shared mailboxes follow the choice.** Hand over: notes, assignments and "sent by" move to the picked account. Wipe: their notes go, and their name is cleared from assignments and "opened by". Shared mail itself is never touched.
+- **No trace:** the activity lines bureau's triggers write during a one-by-one delete (an account's deletion, the hand-overs) are removed in the same transaction.
+
 ## The safety copy
 - **What it is:** `wipe-<id>-<random>.tar.gz`, holding `restore.sql`, `files/` and `LISEZMOI.txt`.
 - **Where it lives:** in `WIPE_COPY_DIR`, or by default `bureau_wipe_copies/` two levels above the site (the cPanel home, next to `public_html`). That is outside the web root, with mode 0600.
@@ -76,6 +103,7 @@ Code:
   - Put the files back into the site folder, keeping their paths.
   - Do it **before** new data is entered; afterwards, new rows and restored rows would share ids and numbers.
   - The import adds one "created" line per restored invoice, payment and journal entry to the activity log (MySQL triggers).
+  - A personal mailbox removed with a staff account comes back without its mail; bureau copies it again from the mail server once that login is active.
 
 ## Server set-up (the owner)
 1. **`.env`:** add two lines (back up `.env` first; edit in place):
@@ -100,5 +128,18 @@ Code:
 - a failure half-way changing nothing;
 - the lock, the gate, codes, the cron;
 - that only that account's sidebar links to the tool, no other menu does, and nothing goes to the error log.
+
+`scripts/tests/wipe/data_wipe_records.test.php` (same job) covers the "Un par un" tab:
+- search;
+- plans of documents, clients and products;
+- counters stepping back, and gaps;
+- staff refusals;
+- hand-over and wipe-too across declared and undeclared columns;
+- Courrier;
+- a run, then a restore;
+- a failure half-way;
+- codes tied to the choices.
+
+Its model of bureau is `support/fixture_schema.sql` plus `support/fixture_staff.sql`.
 
 `scripts/tests/wipe/doc_counter.test.php` covers numbering.
