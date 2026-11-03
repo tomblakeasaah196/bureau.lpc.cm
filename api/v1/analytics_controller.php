@@ -707,12 +707,14 @@ if ($action === 'drilldown_budget') {
         $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $q) . '%';
         // Splice AFTER the WHERE that already exists.
         $sql_body   = str_replace("WHERE ca.code LIKE '6%'",
-                                  "WHERE ca.code LIKE '6%' AND (LOWER(ca.code) LIKE LOWER(:q) OR LOWER(ca.name) LIKE LOWER(:q))",
+                                  "WHERE ca.code LIKE '6%' AND (LOWER(ca.code) LIKE LOWER(:q) OR LOWER(ca.name) LIKE LOWER(:q2))",
                                   $sql_body);
         $count_sql  = str_replace("WHERE ca.code LIKE '6%'",
-                                  "WHERE ca.code LIKE '6%' AND (LOWER(ca.code) LIKE LOWER(:q) OR LOWER(ca.name) LIKE LOWER(:q))",
+                                  "WHERE ca.code LIKE '6%' AND (LOWER(ca.code) LIKE LOWER(:q) OR LOWER(ca.name) LIKE LOWER(:q2))",
                                   $count_sql);
+        // Two names, one value: real prepares allow each placeholder only once.
         $params['q'] = $like;
+        $params['q2'] = $like;
     }
 
     if ($format === 'csv') {

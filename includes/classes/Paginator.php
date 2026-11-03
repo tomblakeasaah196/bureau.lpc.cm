@@ -185,18 +185,24 @@ class Paginator
             }
             $where_frag = '(' . implode(' OR ', $ors) . ')';
         } else {
+            // One placeholder PER COLUMN (:q, :q1, :q2…), never one shared name:
+            // Database.php turns emulated prepares off, and with real prepares a
+            // named placeholder may appear only once per statement — reusing :q
+            // across columns threw SQLSTATE[HY093] on every multi-column search.
+            // Existing keys may be stored with or without the leading colon.
+            $taken = static fn(string $n): bool =>
+                array_key_exists(ltrim($n, ':'), $params) || array_key_exists($n, $params);
+            $ors    = [];
             $suffix = 0;
-            $name   = $bindName;
-            while (array_key_exists(ltrim($name, ':'), $params)) {
-                $suffix++;
-                $name = $bindName . $suffix;
-            }
-            $ors = [];
             foreach ($safeCols as $c) {
+                do {
+                    $name = $suffix === 0 ? $bindName : $bindName . $suffix;
+                    $suffix++;
+                } while ($taken($name));
                 $ors[] = "LOWER($c) LIKE LOWER($name)";
+                $params[ltrim($name, ':')] = $like;
             }
-            $where_frag       = '(' . implode(' OR ', $ors) . ')';
-            $params[ltrim($name, ':')] = $like;
+            $where_frag = '(' . implode(' OR ', $ors) . ')';
         }
 
         // Splice into the WHERE. If the body has no WHERE we add one; if it does,

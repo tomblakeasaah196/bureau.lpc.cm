@@ -421,10 +421,12 @@ final class UserProfile
         $st = $db->prepare("
             UPDATE employees e
               JOIN users u ON u.employee_id = e.id
-               SET $assign, e.updated_at = NOW(), e.updated_by = :user_id
+               SET $assign, e.updated_at = NOW(), e.updated_by = :updated_by
              WHERE u.id = :user_id
         ");
-        $params = ['user_id' => $userId];
+        // Two distinct names: with native prepares (EMULATE_PREPARES off) a
+        // named placeholder may appear only once, else HY093.
+        $params = ['user_id' => $userId, 'updated_by' => $userId];
         foreach ($set as $k => $v) $params[$k] = $v;
         $st->execute($params);
     }
