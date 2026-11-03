@@ -17,8 +17,9 @@
  *     copy; one wipe at a time;
  *   · access: only the configured account with the key; codes hashed, tied to
  *     the pick, limited tries, single use; the MD by matricule;
- *   · the cron removes copies past 30 days; the tool is in no menu and writes
- *     nothing to the error log.
+ *   · the cron removes copies past 30 days; only the configured account's
+ *     sidebar links to the tool (with the key), no other menu does, and it
+ *     writes nothing to the error log.
  *
  * Run: WIPE_TEST_DB_PORT=3307 WIPE_TEST_DB_NAME=bureau_wipe_test php scripts/tests/wipe/data_wipe.test.php
  * -----------------------------------------------------------------------------
@@ -277,11 +278,19 @@ $_GET['k'] = str_repeat('k', 40);
 check('the right key passes', DataWipeAccess::keyOk());
 $_SESSION['user_id'] = 1;
 check('an admin who is not the configured account is refused (the MD)', DataWipeAccess::account($db) === null);
+check('no sidebar link for that admin', DataWipeAccess::menuLink($db) === null);
 $_SESSION['user_id'] = 2;
 check('the configured account passes (email compared without case)', (DataWipeAccess::account($db)['id'] ?? 0) == 2);
+check('its sidebar link carries the key', DataWipeAccess::menuLink($db) === '/modules/admin/data_wipe.php?k=' . str_repeat('k', 40));
+$GLOBALS['__env']['WIPE_URL_KEY'] = 'short';
+check('no sidebar link while the tool is off', DataWipeAccess::menuLink($db) === null);
+$GLOBALS['__env']['WIPE_URL_KEY'] = str_repeat('k', 40);
 $db->exec("UPDATE users SET status = 'inactive' WHERE id = 2");
-check('not once that account is inactive', DataWipeAccess::account($db) === null);
+check('not once that account is inactive', DataWipeAccess::account($db) === null && DataWipeAccess::menuLink($db) === null);
 $db->exec("UPDATE users SET status = 'active' WHERE id = 2");
+unset($_SESSION['user_id']);
+check('no sidebar link signed out', DataWipeAccess::menuLink($db) === null);
+$_SESSION['user_id'] = 2;
 check('the screen shows only a masked address', DataWipeAccess::maskedEmail() === 'W***@Test.Invalid');
 check('the MD is found by matricule LPC-MD-01, with the address that will be told', (DataWipeAccess::md($db)['id'] ?? 0) == 1
       && DataWipeAccess::md($db)['email'] === 'md@test.invalid');
@@ -351,7 +360,12 @@ $hidden = true;
 foreach (array_merge(glob($root . '/includes/components/*.php'), [$root . '/includes/functions/navigation.php', $root . '/includes/classes/Rbac.php']) as $f) {
     $hidden = $hidden && !str_contains((string) file_get_contents($f), 'data_wipe');
 }
-check('in no menu, sidebar, command palette or permission', $hidden);
+check('its address is written in no menu, sidebar, command palette or permission', $hidden);
+$side = wipe_test_code('includes/components/sidebar.php');
+check('the sidebar links to it only through DataWipeAccess::menuLink()', str_contains($side, 'DataWipeAccess::menuLink(')
+      && str_contains($side, 'if ($__wipeHref !== null):'));
+check('and a failure there stays silent (no error log line naming the tool)',
+      (bool) preg_match('/DataWipeAccess::menuLink\(.*?\}\s*catch \(Throwable \$__wipeErr\) \{\s*\}/s', $side));
 $quiet = true;
 foreach (['includes/classes/DataWipe.php', 'includes/classes/DataWipeBalances.php', 'includes/classes/DataWipeAccess.php', 'includes/classes/DataWipeMap.php', 'api/v1/data_wipe_controller.php'] as $f) {
     $quiet = $quiet && !preg_match('/\berror_log\s*\(/', wipe_test_code($f));
