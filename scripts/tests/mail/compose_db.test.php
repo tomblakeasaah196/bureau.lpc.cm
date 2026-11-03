@@ -374,4 +374,32 @@ check('Paul (Lecture on contact@) also sees its contacts', in_array('marc@epicer
 $outsider = mail_test_user('Sans Boite', 'driver');
 check('without a mailbox, no contacts from mail', !in_array('marc@epicerie.test', array_column(Recipients::suggest($outsider, 'marc'), 'email'), true));
 
+section('A devis link sent from Courrier (DocumentMail, api/v1/proposal_mail.php)');
+$tpl = "Bonjour {contact},\n\nVeuillez trouver via le lien sécurisé ci-dessous notre proposition ({reference}).\n\nConsulter le Devis en ligne : {link}\n\n(Note: Vous pouvez télécharger le PDF depuis ce lien).\n\nCordialement,\n\n{sender}\nLa Petite Cour";
+$split = \LPC\Mail\Compose\DocumentMail::splitTemplate($tpl, ['{contact}' => 'Luc TCHEUGOUE', '{reference}' => 'DEV-2611-00001', '{sender}' => 'Awa Mbarga']);
+check('the Studio template splits around its {link} line', str_starts_with($split['before'], 'Bonjour Luc TCHEUGOUE,') && str_contains($split['before'], '(DEV-2611-00001)')
+    && !str_contains($split['before'] . $split['after'], '{link}') && !str_contains($split['before'] . $split['after'], 'Consulter le Devis en ligne'));
+check('…and loses its own sign-off, as the mailbox signature follows', str_ends_with($split['after'], 'Cordialement,') && !str_contains($split['after'], 'Awa Mbarga') && !str_contains($split['after'], 'La Petite Cour'));
+$link = 'https://bureau.lpc.cm/quote.php?token=abc123';
+$body = \LPC\Mail\Compose\DocumentMail::html("Bonjour <Luc> & co,\n\nVoici le devis.", 'Cordialement,', $link, 'Consulter la proposition', '#005A2B');
+check('what the person typed is escaped', str_contains($body, 'Bonjour &lt;Luc&gt; &amp; co,') && !str_contains($body, '<Luc>'));
+check('a branded button (table cell in the brand colour) and the link written out', str_contains($body, 'bgcolor="#005A2B"') && substr_count($body, 'href="' . $link . '"') === 2
+    && str_contains($body, 'Si le bouton ne fonctionne pas'));
+check('a link that is not http(s) is refused', throws(fn () => \LPC\Mail\Compose\DocumentMail::html('a', 'b', 'javascript:alert(1)', 'x')) instanceof InvalidArgumentException);
+
+$before = count($server->sent);
+$dm = $outbox->start($awa, 'new', $contact['id']);
+$outbox->save($awa, $dm['id'], ['to' => 'Luc TCHEUGOUE <luc@smartlogistics.test>', 'subject' => 'Proposition Commerciale - La Petite Cour (DEV-2611-00001)', 'signature' => 'full']);
+$pl = Outbox::row($dm['id'])['payload'];
+$pl['html'] = $body;
+Db::update('mail_outbox', ['payload' => Db::json($pl), 'updated_at' => Clock::sql()], $dm['id']);
+$outbox->queue($awa, $dm['id']);
+$row = $sender->send($dm['id'], 15);
+check('sent from the connected mailbox', $row['status'] === 'sent' && count($server->sent) === $before + 1, json_encode([$row['status'], $row['last_error']]));
+$wire = quoted_printable_decode($server->sent[$before]['raw']);
+check('the button arrives intact (styles kept: it skipped HtmlCleaner)', str_contains($wire, 'bgcolor="#005A2B"') && str_contains($wire, 'Consulter la proposition') && str_contains($wire, 'color:#FFFFFF'));
+check('the plain-text part carries the link too', substr_count($wire, $link) >= 3);
+check('the mailbox signature follows the text', str_contains($wire, 'Mbarga') && strpos($wire, '>Cordialement,</p>') < strrpos($wire, 'Mbarga'));
+check('a copy in Envoyés', count(array_filter($server->folder('contact@lpc.cm', 'INBOX.Sent'), fn ($m) => str_contains($m['raw'], $dm['message_id']))) === 1);
+
 mail_test_done();

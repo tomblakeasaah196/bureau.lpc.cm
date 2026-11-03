@@ -639,10 +639,10 @@
                class="px-3 py-2 rounded-xl text-xs font-bold text-green-700 border border-green-300 hover:bg-green-50 transition-colors">
                 WhatsApp
             </a>
-            <a href="${mailLink(d)}"
-               class="px-3 py-2 rounded-xl text-xs font-bold text-blue-700 border border-blue-300 hover:bg-blue-50 transition-colors">
+            <button type="button" data-devis-mail
+                    class="px-3 py-2 rounded-xl text-xs font-bold text-blue-700 border border-blue-300 hover:bg-blue-50 transition-colors">
                 Email
-            </a>
+            </button>
             <a href="${d.quote_url}" target="_blank" rel="noopener"
                class="px-3 py-2 rounded-xl text-xs font-bold text-gray-600 border border-gray-300 hover:bg-gray-100 transition-colors">
                 Ouvrir ↗
@@ -701,6 +701,213 @@
         return 'mailto:' + (d.data.client_email || '') +
                '?subject=' + encodeURIComponent(subject) +
                '&body='    + encodeURIComponent(body);
+    }
+
+    // =========================================================================
+    // EMAIL — sent from a connected Courrier mailbox (api/v1/proposal_mail.php)
+    // =========================================================================
+    //
+    // A review dialog over the devis: De (the mailboxes this person may write
+    // from, their own first), À, Cc, Objet, and the Studio share text split
+    // around a preview of the branded button. The server builds the email
+    // (button + the link written out underneath) and queues it in Courrier, so
+    // it carries the mailbox signature, gets Courrier's 10 s « Annuler », and
+    // its copy lands in Envoyés. No mailbox connected: say so, link to Boîtes
+    // mail, and keep the old « open in my mail app » as the fallback.
+
+    var MAIL_FIELD = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500';
+    var MAIL_LABEL = 'block text-[11px] font-black uppercase tracking-wider text-gray-500 mb-1';
+
+    async function openMailDialog() {
+        if (!currentDevis) return;
+        var d = currentDevis;
+        var info;
+        try {
+            var res = await fetch('/api/v1/proposal_mail.php?id=' + encodeURIComponent(d.data.id));
+            info = await res.json();
+        } catch (e) {
+            info = null;
+        }
+        if (!info || info.status !== 'success') {
+            LPC.modal.alert((info && info.message) || 'Impossible de préparer l\'email. Réessayez.');
+            return;
+        }
+
+        var box = document.createElement('div');
+        box.id = 'devisMailDialog';
+        box.className = 'fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/60 p-2 md:p-6';
+        box.setAttribute('role', 'dialog');
+        box.setAttribute('aria-modal', 'true');
+        box.setAttribute('aria-labelledby', 'devisMailTitle');
+
+        var noBox = !info.accounts.length;
+        var options = info.accounts.map(function (a) {
+            return H`<option value="${a.id}">${a.name ? a.name + ' <' + a.email + '>' : a.email}${a.shared ? ' · partagée' : ''}</option>`;
+        }).join('');
+
+        box.innerHTML = H`
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-full flex flex-col">
+                <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                    <div>
+                        <h3 id="devisMailTitle" class="text-base font-black text-gray-900">Envoyer le devis par email</h3>
+                        <p class="text-xs text-gray-500">${d.data.reference} · depuis votre boîte Courrier</p>
+                    </div>
+                    <button type="button" data-mail-close class="p-2 text-gray-400 hover:bg-gray-100 rounded-full" aria-label="Fermer">✕</button>
+                </div>
+                ${noBox ? LPC.raw(H`
+                <div class="p-6 text-sm text-gray-700 space-y-3">
+                    <p>Aucune boîte mail connectée ne vous permet d'écrire. Connectez la vôtre dans Courrier, puis revenez ici.</p>
+                    <p><a href="${info.mailboxes_url}" class="font-bold text-blue-700 underline">Ouvrir Boîtes mail</a></p>
+                </div>`) : LPC.raw(H`
+                <form id="devisMailForm" class="p-6 space-y-3 overflow-y-auto" novalidate>
+                    <div><label for="dm_from" class="${MAIL_LABEL}">De</label>
+                        <select id="dm_from" class="${MAIL_FIELD} bg-white">${LPC.raw(options)}</select></div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div><label for="dm_to" class="${MAIL_LABEL}">À</label>
+                            <input id="dm_to" type="text" autocomplete="off" class="${MAIL_FIELD}" value="${info.to}" placeholder="client@exemple.cm"></div>
+                        <div><label for="dm_cc" class="${MAIL_LABEL}">Cc <span class="normal-case font-normal text-gray-400">(facultatif)</span></label>
+                            <input id="dm_cc" type="text" autocomplete="off" class="${MAIL_FIELD}" value=""></div>
+                    </div>
+                    <div><label for="dm_subject" class="${MAIL_LABEL}">Objet</label>
+                        <input id="dm_subject" type="text" class="${MAIL_FIELD}" value="${info.subject}"></div>
+                    <div><label for="dm_before" class="${MAIL_LABEL}">Message</label>
+                        <textarea id="dm_before" rows="5" class="${MAIL_FIELD}">${info.before}</textarea></div>
+                    <div class="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-4 py-3" aria-hidden="true">
+                        <span class="inline-block rounded-lg px-5 py-2.5 text-sm font-bold text-white" style="background:${info.brand}">${info.label}</span>
+                        <p class="text-[11px] text-gray-500 mt-2">Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur :<br>
+                            <span class="break-all" style="color:${info.brand}">${info.link}</span></p>
+                    </div>
+                    <div><label for="dm_after" class="${MAIL_LABEL}">Suite du message</label>
+                        <textarea id="dm_after" rows="3" class="${MAIL_FIELD}">${info.after}</textarea></div>
+                    <p class="text-[11px] text-gray-400">Votre signature Courrier est ajoutée sous le message. Une copie arrive dans Envoyés.</p>
+                    <p id="dm_error" class="hidden text-sm font-bold text-red-600" role="alert"></p>
+                </form>`)}
+                <div class="px-6 py-4 border-t border-gray-100 flex flex-wrap items-center justify-end gap-2">
+                    <a href="${mailLink(d)}" class="mr-auto text-xs font-bold text-gray-500 hover:text-gray-700 underline">Ouvrir dans ma messagerie</a>
+                    <button type="button" data-mail-close class="px-5 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100">Annuler</button>
+                    ${noBox ? '' : LPC.raw(H`<button type="button" id="dm_send"
+                        class="px-6 py-2.5 rounded-xl text-sm font-extrabold text-white bg-lpc-dark hover:bg-[#004722] shadow-lg">Envoyer</button>`)}
+                </div>
+            </div>`;
+
+        var opener = document.activeElement;
+        function close() {
+            box.remove();
+            document.removeEventListener('keydown', onKey, true);
+            if (opener && opener.focus) opener.focus();
+        }
+        function onKey(ev) { if (ev.key === 'Escape') { ev.stopPropagation(); close(); } }
+        document.addEventListener('keydown', onKey, true);
+        box.addEventListener('click', function (ev) {
+            if (ev.target === box || (ev.target.closest && ev.target.closest('[data-mail-close]'))) close();
+        });
+        document.body.appendChild(box);
+        var first = box.querySelector(noBox ? '[data-mail-close]' : (info.to ? '#dm_subject' : '#dm_to'));
+        if (first) first.focus();
+
+        var send = box.querySelector('#dm_send');
+        if (send) send.addEventListener('click', async function () {
+            var err = box.querySelector('#dm_error');
+            err.classList.add('hidden');
+            var to = box.querySelector('#dm_to').value.trim();
+            if (!to) {
+                err.textContent = 'Ajoutez l\'adresse du client.';
+                err.classList.remove('hidden');
+                box.querySelector('#dm_to').focus();
+                return;
+            }
+            send.disabled = true;
+            send.textContent = 'Envoi…';
+            var json = null;
+            try {
+                var r = await fetch('/api/v1/proposal_mail.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'send', id: d.data.id,
+                        account_id: Number(box.querySelector('#dm_from').value),
+                        to: to, cc: box.querySelector('#dm_cc').value.trim(),
+                        subject: box.querySelector('#dm_subject').value,
+                        before: box.querySelector('#dm_before').value,
+                        after: box.querySelector('#dm_after').value
+                    })
+                });
+                json = await r.json();
+            } catch (e) { json = null; }
+
+            if (!json || json.status !== 'success') {
+                send.disabled = false;
+                send.textContent = 'Envoyer';
+                err.textContent = (json && json.message) || 'Erreur réseau : le message n\'est pas parti.';
+                err.classList.remove('hidden');
+                var f = json && json.field && box.querySelector('#dm_' + json.field);
+                if (f) f.focus();
+                return;
+            }
+            close();
+            undoBar(json.outboxId, json.seconds || 10, json.from);
+        });
+    }
+
+    // « Envoi dans 10 s · Annuler », then send at once (Courrier's own undo / deliver).
+    function undoBar(outboxId, seconds, from) {
+        var old = document.getElementById('devisMailUndo');
+        if (old) old.remove();
+        var bar = document.createElement('div');
+        bar.id = 'devisMailUndo';
+        bar.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] bg-gray-900 text-white rounded-xl shadow-2xl px-5 py-3 flex items-center gap-4 text-sm';
+        bar.setAttribute('role', 'status');
+        bar.innerHTML = H`<span>Envoi depuis ${from} dans <b data-left>${seconds}</b> s</span>
+            <button type="button" data-undo class="font-black text-emerald-300 hover:text-emerald-200 uppercase text-xs tracking-wider">Annuler</button>`;
+        document.body.appendChild(bar);
+
+        var left = seconds, done = false;
+        var tick = setInterval(function () {
+            left -= 1;
+            var b = bar.querySelector('[data-left]');
+            if (b) b.textContent = String(Math.max(left, 0));
+            if (left <= 0) finish();
+        }, 1000);
+
+        async function compose(action) {
+            var r = await fetch('/api/v1/mail/compose.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ action: action, outboxId: outboxId })
+            });
+            return r.json();
+        }
+        async function finish() {
+            if (done) return;
+            done = true;
+            clearInterval(tick);
+            bar.remove();
+            try {
+                var j = await compose('deliver');
+                if (j.state === 'sent') LPC.toast.success('Devis envoyé à ' + (currentDevis ? currentDevis.data.client_email || 'au client' : 'au client') + '.');
+                else if (j.state === 'failed') LPC.modal.alert(j.message, { title: 'Email non envoyé' });
+                else LPC.toast.info(j.message || 'Message en cours d\'envoi.');
+            } catch (e) {
+                // Still queued: Courrier's cron sends it within the minute.
+                LPC.toast.info('Envoi en cours : Courrier le termine dans la minute.');
+            }
+        }
+        bar.querySelector('[data-undo]').addEventListener('click', async function () {
+            if (done) return;
+            done = true;
+            clearInterval(tick);
+            bar.remove();
+            try {
+                var j = await compose('undo');
+                if (j.undone === false) LPC.toast.info(j.message || 'Trop tard : le message est parti.');
+                else {
+                    await compose('discard');   // a devis email is not worth keeping as a Courrier draft
+                    LPC.toast.info('Envoi annulé.');
+                }
+            } catch (e) {
+                LPC.modal.alert('Annulation impossible : vérifiez Envoyés dans Courrier.');
+            }
+        });
     }
 
     // =========================================================================
@@ -882,6 +1089,8 @@
 
         if (e.target.closest('[data-devis-save]'))      { saveDevis(); return; }
         if (e.target.closest('[data-devis-duplicate]')) { duplicateDevis(); return; }
+
+        if (e.target.closest('[data-devis-mail]')) { openMailDialog(); return; }
 
         if (e.target.closest('[data-devis-copy]')) {
             navigator.clipboard.writeText(currentDevis.quote_url)
