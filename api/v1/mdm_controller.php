@@ -578,9 +578,9 @@ try {
             )->fetchAll(PDO::FETCH_ASSOC);
 
             $response['meta']['products'] = $db->query(
-                "SELECT id, name, code, format, {$cost_expr} AS price
-                   FROM products
-                  WHERE is_active = 1
+                "SELECT p.id, p.name, p.code, p.format, {$cost_expr} AS price
+                   FROM products p
+                  WHERE p.is_active = 1
                   ORDER BY name ASC LIMIT 1000"
             )->fetchAll(PDO::FETCH_ASSOC);
         }

@@ -17,6 +17,7 @@
 
 require __DIR__ . '/support/bootstrap.php';
 
+use LPC\Mail\Config;
 use LPC\Mail\Clock;
 use LPC\Mail\Db;
 use LPC\Mail\Events;
@@ -229,6 +230,23 @@ $other = new PDO('mysql:host=' . (getenv('MAIL_TEST_DB_HOST') ?: '127.0.0.1') . 
 $other->query("SELECT GET_LOCK('" . MailSync::lockName($shared['id']) . "', 0)")->fetchColumn();
 check('one sync per mailbox at a time (busy, not waiting)', MailSync::make()->roles($shared['id'], ['sent'])['status'] === 'busy' && MailSync::make()->account($shared['id'])['status'] === 'busy');
 $other = null;
+
+section('A server that stops answering gets one more try before it counts as a failure');
+Config::set('sync.retry_pause', 0);
+$server->imapFailures = ['timeout'];
+$opened = $server->sessions;
+$r = MailSync::make()->account($shared['id']);
+check('a single timeout: retried in the same run, which succeeds', $r['status'] === 'ok' && $server->sessions === $opened + 1 && Store::account($shared['id'])['last_error'] === null);
+$server->imapFailures = ['timeout', 'timeout'];
+$r = MailSync::make()->account($shared['id']);
+check('timed out twice: the run fails and says why', $r['status'] === 'error' && str_contains((string) Store::account($shared['id'])['last_error'], 'ne répond plus'));
+check('the mailbox stays active (a timeout is not a refused password)', Store::account($shared['id'])['status'] === 'active');
+$server->imapFailures = ['unreachable'];
+check('unreachable once: retried too', MailSync::make()->account($shared['id'])['status'] === 'ok');
+$server->imapFailures = ['timeout'];
+check('no retry when the run has no time left for one', MailSync::make()->account($shared['id'], 5.0)['status'] === 'error');
+$server->imapFailures = [];
+MailSync::make()->account($shared['id']);
 
 section('A refused password stops sync and tells the managers once');
 $server->setPassword('contact@lpc.cm', 'changed');

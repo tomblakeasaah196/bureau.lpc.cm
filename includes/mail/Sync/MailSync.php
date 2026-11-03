@@ -59,32 +59,50 @@ final class MailSync
         $deadline = microtime(true) + ($budget ?? (float) Config::get('sync.budget', 50));
         $session = null;
         try {
-            $session = MailServer::make()->open($account);
-            Db::update('mail_accounts', ['capabilities' => $session->capabilities()], $accountId);
+            // A server that stops answering (timeout) or cannot be reached is often a blip: try once more in the
+            // same run before calling it a failure, so the log only hears about problems that last. Folder sync
+            // carries on where it stopped, so the second attempt does not redo the first one's work.
+            for ($attempt = 1; ; $attempt++) {
+                try {
+                    $session = MailServer::make()->open($account);
+                    Db::update('mail_accounts', ['capabilities' => $session->capabilities()], $accountId);
 
-            $foldersEvery = (int) Config::get('sync.folders_every', 30);
-            $age = Clock::ageSeconds($account['folders_synced_at']);
-            if ($allFolders || $age === null || $age > $foldersEvery * 60) {
-                $this->folderList($account, $session);
-            }
+                    $foldersEvery = (int) Config::get('sync.folders_every', 30);
+                    $age = Clock::ageSeconds($account['folders_synced_at']);
+                    if ($allFolders || $age === null || $age > $foldersEvery * 60) {
+                        $this->folderList($account, $session);
+                    }
 
-            $otherEvery = (int) Config::get('sync.other_folders_every', 5) * 60;
-            $folders = Store::folders($accountId, true);
-            usort($folders, fn ($a, $b) => [Store::ROLE_ORDER[$a['role']] ?? 9, (string) $a['synced_at']] <=> [Store::ROLE_ORDER[$b['role']] ?? 9, (string) $b['synced_at']]);
+                    $otherEvery = (int) Config::get('sync.other_folders_every', 5) * 60;
+                    $folders = Store::folders($accountId, true);
+                    usort($folders, fn ($a, $b) => [Store::ROLE_ORDER[$a['role']] ?? 9, (string) $a['synced_at']] <=> [Store::ROLE_ORDER[$b['role']] ?? 9, (string) $b['synced_at']]);
 
-            foreach ($folders as $folder) {
-                if (microtime(true) >= $deadline) {
+                    foreach ($folders as $folder) {
+                        if (microtime(true) >= $deadline) {
+                            break;
+                        }
+                        $age = Clock::ageSeconds($folder['synced_at']);
+                        $due = $allFolders || $folder['role'] === 'inbox' || !$folder['initial_synced_at'] || $age === null || $age > $otherEvery;
+                        if (!$due) {
+                            continue;
+                        }
+                        $counts = $this->folder($account, $session, $folder, $deadline);
+                        $result['folders']++;
+                        foreach (['added', 'removed', 'updated', 'received'] as $k) {
+                            $result[$k] += $counts[$k];
+                        }
+                    }
                     break;
-                }
-                $age = Clock::ageSeconds($folder['synced_at']);
-                $due = $allFolders || $folder['role'] === 'inbox' || !$folder['initial_synced_at'] || $age === null || $age > $otherEvery;
-                if (!$due) {
-                    continue;
-                }
-                $counts = $this->folder($account, $session, $folder, $deadline);
-                $result['folders']++;
-                foreach (['added', 'removed', 'updated', 'received'] as $k) {
-                    $result[$k] += $counts[$k];
+                } catch (ImapException $e) {
+                    self::closeQuietly($session);
+                    $session = null;
+                    $pause = (float) Config::get('sync.retry_pause', 2);
+                    if ($attempt === 1 && in_array($e->reason, ['timeout', 'unreachable'], true)
+                        && microtime(true) + $pause + 10 < $deadline) {
+                        usleep((int) ($pause * 1e6));
+                        continue;
+                    }
+                    throw $e;
                 }
             }
 
@@ -361,6 +379,15 @@ final class MailSync
         }
 
         return [$updated, $threads, true];
+    }
+
+    private static function closeQuietly(?ImapSession $session): void
+    {
+        try {
+            $session?->logout();
+        } catch (Throwable) {
+            // closing anyway
+        }
     }
 
     private function failed(array $account, ImapException $e): void

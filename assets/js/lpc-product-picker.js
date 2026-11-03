@@ -673,7 +673,7 @@
             ? fmtInt(hits.length) + ' ' + (hits.length > 1
                 ? t('ui.picker.n_results', 'produits')
                 : t('ui.picker.n_result',  'produit'))
-            : t('ui.picker.none', 'Aucun produit');
+            : (this.opts.emptyText || t('ui.picker.none', 'Aucun produit'));
         if (capped) msg += ' · ' + t('ui.picker.capped', 'affinez la recherche');
         this.status.textContent = msg;
 
@@ -756,8 +756,8 @@
         box.appendChild(el('div', 'lpc-pp__empty-icon')).innerHTML =
             '<i class="fas fa-box-open" aria-hidden="true"></i>';
         box.appendChild(el('div', 'lpc-pp__empty-title',
-            q ? t('ui.picker.no_match', 'Aucun produit ne correspond')
-              : t('ui.picker.none', 'Aucun produit')));
+            q ? (this.opts.noMatchText || t('ui.picker.no_match', 'Aucun produit ne correspond'))
+              : (this.opts.emptyText || t('ui.picker.none', 'Aucun produit'))));
         if (q) box.appendChild(el('div', 'lpc-pp__empty-sub', '« ' + q + ' »'));
         // The single most likely reason a search comes back empty here.
         if (q && !this.showEmpties && this.items.some(function (p) {
@@ -1029,6 +1029,8 @@
          *       items: [{ id, name, code?, subtitle?, category?, price? }],
          *       cacheKey: 'clients',        // share one fetch across pickers
          *       placeholder: 'Choisir un client…',
+         *       emptyText:   'Aucun client',            // optional; default speaks of products
+         *       noMatchText: 'Aucun client ne correspond',
          *       onSelect(item) { … }
          *   });
          *

@@ -959,6 +959,8 @@ function openModal(id = null) {
     document.getElementById('mdmModal').classList.remove('hidden');
 }
 
+const PICKER_NOUN = { clients: 'client', suppliers: 'fournisseur' };
+
 /**
  * Upgrade every [data-picker-source] in the form to a searchable picker.
  *
@@ -1010,6 +1012,11 @@ function mountFormPickers(form) {
                 items: metaData[source] || [],
                 cacheKey: 'mdm-' + source,
                 placeholder: source === 'clients' ? 'Rechercher un client…' : 'Rechercher…',
+                // The picker's built-in empty text says "Aucun produit"; this list is not products.
+                ...(PICKER_NOUN[source] ? {
+                    emptyText:   'Aucun ' + PICKER_NOUN[source],
+                    noMatchText: 'Aucun ' + PICKER_NOUN[source] + ' ne correspond',
+                } : {}),
                 onSelect: renderTarifHint
             });
         }

@@ -30,10 +30,12 @@ try {
 
     $stmt = $db->query("
         SELECT c.id, c.lpc_code, c.name, c.type, c.deleted_at,
-               u.name AS deleted_by_name,
+               COALESCE(NULLIF(TRIM(CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, ''))), ''),
+                        u.email) AS deleted_by_name,
                t.id   AS reassigned_to_id, t.name AS reassigned_to_name
           FROM clients c
-     LEFT JOIN users   u ON u.id = c.deleted_by
+     LEFT JOIN users     u ON u.id = c.deleted_by
+     LEFT JOIN employees e ON e.id = u.employee_id
      LEFT JOIN clients t ON t.id = c.deleted_reassigned_to
          WHERE c.deleted_at IS NOT NULL
          ORDER BY c.deleted_at ASC

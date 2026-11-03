@@ -99,9 +99,12 @@ final class Recipients
           LEFT JOIN employees e ON e.id = u.employee_id
               WHERE u.status = 'active'
                 AND (u.email LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR e.first_name LIKE ? OR e.last_name LIKE ?
-                     OR CONCAT(COALESCE(e.first_name, u.first_name), ' ', COALESCE(e.last_name, u.last_name)) LIKE ?)
+                     OR CONCAT(e.first_name, ' ', e.last_name) LIKE ? OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?)
            ORDER BY name LIMIT " . (int) $limit,
-            [$like, $like, $like, $like, $like, $like],
+            // Each LIKE reads one table's columns only. employees and users do not share a collation on every
+            // install, and an expression mixing them (COALESCE(e.first_name, u.first_name)) has none at all, so
+            // MySQL refused the LIKE (1267 Illegal mix of collations) on every keystroke of the To field.
+            [$like, $like, $like, $like, $like, $like, $like],
         );
         foreach ($staff as $s) {
             $email = strtolower((string) ($s['mailbox'] ?: $s['email']));

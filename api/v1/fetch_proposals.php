@@ -188,8 +188,9 @@ $where  = [];
 $params = [];
 
 if ($search !== '') {
-    $where[] = '(p.reference LIKE :q OR p.client_name LIKE :q OR p.client_contact LIKE :q)';
-    $params[':q'] = '%' . $search . '%';
+    // One placeholder per column: real prepares allow each name only once (HY093).
+    $where[] = '(p.reference LIKE :q1 OR p.client_name LIKE :q2 OR p.client_contact LIKE :q3)';
+    $params[':q1'] = $params[':q2'] = $params[':q3'] = '%' . $search . '%';
 }
 if ($from !== '') { $where[] = 'p.`date` >= :from'; $params[':from'] = $from; }
 if ($to   !== '') { $where[] = 'p.`date` <= :to';   $params[':to']   = $to; }
