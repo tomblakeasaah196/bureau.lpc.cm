@@ -230,7 +230,7 @@
                         <td class="py-3 px-6 text-right text-xs font-bold text-gray-400">${fmt(totalAllow)}</td>
                         <td class="py-3 px-6 text-center text-xs font-mono text-gray-500">${c.cnps_number || '-'}</td>
                         <td class="py-3 px-6 text-right">
-                            <a href="/modules/admin/master_data.php"
+                            <a href="${ficheUrl(c)}"
                                title="Ouvrir la fiche employé (Données de Base)"
                                class="inline-flex items-center gap-1 text-gray-600 hover:text-lpc-dark bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg text-xs font-bold border border-gray-200">
                                 <i class="fas fa-external-link-alt"></i> Voir la fiche
@@ -238,6 +238,15 @@
                         </td>
                     </tr>`;
             });
+        }
+
+        // « Voir la fiche »: Données de Base, Employés & RH tab, searched by matricule (unique, and the server
+        // search matches it exactly, unlike a full name), with this employee's form open.
+        function ficheUrl(c) {
+            const p = new URLSearchParams({ tab: 'employees' });
+            if (c.employee_code) p.set('q', c.employee_code);
+            if (c.employee_id) p.set('open', c.employee_id);
+            return '/modules/admin/master_data.php?' + p.toString();
         }
 
         function filterTable(tbodyId, query) {

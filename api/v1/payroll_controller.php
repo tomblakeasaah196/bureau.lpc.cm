@@ -779,6 +779,7 @@ try {
         ");
 
         $created = [];
+        $skipped = [];
         foreach ($employees as $emp) {
             $uid = (int) ($emp['user_id'] ?? 0);
             if ($uid <= 0) continue;
@@ -788,7 +789,8 @@ try {
             $stmt = $db->prepare("
                 SELECT e.base_salary, e.housing_allowance, e.transport_allowance,
                        e.tax_regime, e.seniority_years, e.marital_status,
-                       e.dependents_count, e.cnps_number, e.is_active
+                       e.dependents_count, e.cnps_number, e.is_active,
+                       CONCAT(e.first_name, ' ', e.last_name) AS employee_name
                   FROM employees e
                   JOIN users u ON u.employee_id = e.id
                  WHERE u.id = ? AND e.is_active = 1
@@ -806,6 +808,16 @@ try {
                 'other_deductions'     => (float) ($emp['other_deductions']     ?? 0),
             ];
             $result = Payroll::compute($contract, $inputs, $month);
+
+            // Nothing to pay (no salary on the HR record yet, e.g. a support or
+            // newly created account): no payslip and no journal entry. The
+            // entry would open with a 0/0 line on 661, which the journal_lines
+            // trigger refuses (1644 "both debit and credit are zero"), and that
+            // rolled back the WHOLE run, so nobody got paid.
+            if ((float) $result['gross_salary'] <= 0) {
+                $skipped[] = trim((string) $contract['employee_name']) ?: ('#' . $uid);
+                continue;
+            }
 
             // Insert payslip.
             $token = bin2hex(random_bytes(32));
@@ -902,7 +914,7 @@ try {
                 'info'
             );
         }
-        lpc_notify_permission(
+        if ($created) lpc_notify_permission(
             $db,
             'hr.payroll.generate',
             'Paie générée',
@@ -912,7 +924,12 @@ try {
             [$user_id]
         );
 
-        sendJson('success', count($created) . ' bulletin(s) générés.', ['created' => $created]);
+        $msg = count($created) . ' bulletin(s) générés.';
+        if ($skipped) {
+            $msg .= ' Ignoré(s), salaire à 0 : ' . implode(', ', $skipped)
+                  . ". Renseignez leur salaire dans Données de Base → Employés & RH, puis relancez la paie pour eux.";
+        }
+        sendJson('success', $msg, ['created' => $created, 'skipped' => $skipped]);
     }
 
     // Fallthrough

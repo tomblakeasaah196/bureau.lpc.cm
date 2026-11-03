@@ -1876,4 +1876,16 @@ function filterTable() {
     searchTimer = setTimeout(function () { pageState.page = 1; fetchData(); }, 300);
 }
 
-document.addEventListener('DOMContentLoaded', () => { initTabs(); switchTab('products'); });
+// Deep link, e.g. from Paie → « Voir la fiche »:
+//   master_data.php?tab=employees&q=<matricule>&open=<employee id>
+// opens that tab, already searched, then that record's form. An unknown tab falls back to Produits, and an id
+// that is not in the loaded rows opens nothing (the search still narrows the list).
+document.addEventListener('DOMContentLoaded', async () => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    const q = (params.get('q') || '').trim();
+    const openId = params.get('open');
+    if (q) document.getElementById('mdm-search').value = q;
+    await switchTab(tab && Object.prototype.hasOwnProperty.call(mdmConfig, tab) ? tab : 'products');
+    if (openId && moduleData.some(r => String(r.id) === openId)) openModal(openId);
+});

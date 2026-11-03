@@ -28,6 +28,9 @@ $user_role = $_SESSION['user_role'];
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .input-grid { width: 100px; text-align: right; font-weight: 900; }
+        /* The grid inputs (Primes, Abs., Dettes) match the cells around them: 12px bold. Tailwind (loaded after
+           this block) gives inputs 1rem/1.5rem through @tailwindcss/forms, hence the more specific selector. */
+        #tbody-payroll .input-grid { font-size: inherit; line-height: 1rem; font-weight: 700; }
     </style>
 <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
 </head>
