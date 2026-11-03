@@ -53,11 +53,12 @@ jobs:
         run: |
           node scripts/tests/product_picker.test.js
           node scripts/tests/facture_render.test.js "$PWD"
-      - name: Document tests (QR, one-page quote PDF, header, signature cell and signature hashes)
+      - name: Document tests (QR, one-page quote and payslip PDFs, header, signature cell and signature hashes)
         run: |
           command -v pdftotext >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils >/dev/null; }
           php scripts/tests/qr_render.test.php
           php scripts/tests/quote_onepager.test.php
+          php scripts/tests/payslip_onepager.test.php
           python3 scripts/tests/document_header.test.py
           php scripts/tests/signature_canonical_payload.test.php
       - name: Account recovery (masked address, reset-link guarantees)
