@@ -34,7 +34,7 @@ $user_role = $_SESSION['user_role'];
 
 
     <?php
-    $pageTitle    = __t('ui.x.fiche_de_stock');
+    $pageTitle    = lpc_nav_label('inv_fiche');
     $pageSubtitle = __t('ui.x.analyse_des_flux_et_valorisation');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

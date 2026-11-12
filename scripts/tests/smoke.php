@@ -93,12 +93,14 @@ if ($configured === 0) {
 
 $nav = require __DIR__ . '/../../includes/config/nav.php';
 
-// Flatten nav into a list of items with their required permission.
+// Every destination with its required permission. nav.php returns
+// ['catalogue' => ..., 'profiles' => ..., 'aliases' => ...]; the catalogue is
+// the complete list of hrefs, one entry per page. (This used to iterate the
+// top-level keys as if they were sections, which never matched an 'items'
+// key, so the script always stopped at the "0 items" check below.)
 $navFlat = [];
-foreach ($nav as $section) {
-    foreach (($section['items'] ?? []) as $item) {
-        $navFlat[] = ['href' => $item['href'], 'permission' => $item['permission']];
-    }
+foreach (($nav['catalogue'] ?? []) as $item) {
+    $navFlat[] = ['href' => $item['href'], 'permission' => $item['permission']];
 }
 if (!$navFlat) {
     fwrite(STDERR, "{$R}✗{$N} nav.php produced 0 items — did the file structure change?\n");

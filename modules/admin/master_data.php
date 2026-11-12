@@ -9,7 +9,7 @@ $lang = lpc_i18n_current_lang();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Master Data Hub | LPC ERP</title>
+    <title><?= htmlspecialchars(lpc_nav_label('admin_mdm')) ?> | LPC ERP</title>
     <!-- Sprint 5: client-side avatar compression before upload. -->
     <script src="<?= lpc_asset('/assets/js/lpc-image-compress.js') ?>" defer></script>
 <?php require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/head_assets.php'; ?>
@@ -19,7 +19,7 @@ $lang = lpc_i18n_current_lang();
 
 
     <?php
-    $pageTitle    = 'Master Data Hub';
+    $pageTitle    = lpc_nav_label('admin_mdm');
     $pageSubtitle = __t('ui.x.gestion_des_referentiels');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

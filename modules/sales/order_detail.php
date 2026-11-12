@@ -29,7 +29,7 @@ $so_id = (int) ($_GET['id'] ?? 0);
 
     <?php
     $pageTitle    = 'Détail de la Commande';
-    $pageSubtitle = 'Ventes & Dispatch';
+    $pageSubtitle = lpc_nav_label('sales_orders');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     ?>

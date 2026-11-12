@@ -17,7 +17,7 @@ $lang = lpc_i18n_current_lang();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo __t('ui.centre_d_op_rations'); ?> | LPC ERP</title>
+    <title><?php echo htmlspecialchars(lpc_nav_label('dash_ops')); ?> | LPC ERP</title>
 
     <script src="<?= lpc_asset('/assets/vendor/chartjs/chart.umd.min.js') ?>"
             integrity="sha384-G436+Z2nlA8+PNoeRvWdxKbvOf8E/y+lYxqht2iBwNHTQDV5CJr3+AGVj8fGZi5t"
@@ -29,7 +29,7 @@ $lang = lpc_i18n_current_lang();
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 <?php
-$pageTitle    = __t('ui.centre_d_op_rations');
+$pageTitle    = lpc_nav_label('dash_ops');
 $pageSubtitle = __t('ui.direction_des_op_rations');
 require_once '../../../includes/components/ops_sidebar.php';
 require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

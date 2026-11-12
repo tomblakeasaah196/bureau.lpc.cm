@@ -39,7 +39,7 @@ $user_role = $_SESSION['user_role'];
 
 
     <?php
-    $pageTitle    = __t('ui.x.ressources_humaines_paie');
+    $pageTitle    = lpc_nav_label('hr_payroll');
     $pageSubtitle = __t('ui.x.contrats_acomptes_fiches_de_paie_camerou');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

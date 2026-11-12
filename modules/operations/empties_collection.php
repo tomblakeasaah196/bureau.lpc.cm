@@ -69,7 +69,7 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
     <?php
-    $pageTitle    = __t('ui.x.consignes_vides');
+    $pageTitle    = lpc_nav_label('ops_empties');
     $pageSubtitle = __t('ui.x.suivi_cre_vente_recyclage');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

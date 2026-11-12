@@ -57,7 +57,7 @@ $user_role = $_SESSION['user_role'];
 
 
     <?php
-    $pageTitle    = __t('ui.x.facturation_creances');
+    $pageTitle    = lpc_nav_label('acc_invoices');
     $pageSubtitle = 'Accounts Receivable (AR) & OHADA';
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

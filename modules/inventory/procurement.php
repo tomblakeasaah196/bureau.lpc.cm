@@ -43,7 +43,7 @@ $user_role = $_SESSION['user_role'];
     // "Frais Généraux (OPEX)" has moved to its own module
     // (modules/accounting/expenses.php) and this page is now exclusively
     // about purchase orders. The tab strip is gone with it.
-    $pageTitle    = 'Gestion des Achats';
+    $pageTitle    = lpc_nav_label('inv_procure');
     $pageSubtitle = 'Bons de commande fournisseurs et réception de stocks';
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

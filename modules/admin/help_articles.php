@@ -46,7 +46,7 @@ $articles   = $ready ? lpc_help_all_articles()   : [];
 $LPC_PERMISSIONS = [];
 require __DIR__ . '/../../includes/config/permissions.php';
 
-$pageTitle    = $en ? 'Help articles' : "Articles d'aide";
+$pageTitle    = lpc_nav_label('admin_help');
 $pageSubtitle = $en ? 'Help centre · authoring' : "Centre d'aide · rédaction";
 ?>
 <!DOCTYPE html>

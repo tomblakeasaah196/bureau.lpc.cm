@@ -37,7 +37,7 @@ $lang = lpc_i18n_current_lang();
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 <?php
-$pageTitle    = __t('ui.tableau_de_bord_ex_cutif');
+$pageTitle    = lpc_nav_label('dash_md');
 $pageSubtitle = __t('ui.direction_g_n_rale');
 require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
 require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

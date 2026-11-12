@@ -42,7 +42,7 @@ $user_role = $_SESSION['user_role'];
 
 
     <?php
-    $pageTitle    = __t('ui.x.immobilisations');
+    $pageTitle    = lpc_nav_label('acc_assets');
     $pageSubtitle = __t('ui.x.actifs_amortissements_cessions');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

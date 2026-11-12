@@ -29,7 +29,7 @@ $po_id = (int) ($_GET['id'] ?? 0);
 
     <?php
     $pageTitle    = 'Détail du Bon de Commande';
-    $pageSubtitle = 'Gestion des Achats';
+    $pageSubtitle = lpc_nav_label('inv_procure');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     ?>

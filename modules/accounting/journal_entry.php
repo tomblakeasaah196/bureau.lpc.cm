@@ -37,7 +37,7 @@ $user_role = $_SESSION['user_role'];
 
 
     <?php
-    $pageTitle    = __t('ui.x.saisie_journaux');
+    $pageTitle    = lpc_nav_label('acc_journal');
     $pageSubtitle = __t('ui.x.plan_comptable_brouillards');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

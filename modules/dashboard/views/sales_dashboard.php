@@ -48,7 +48,7 @@ $monthNames = [
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tableau de Bord Ventes | LPC ERP</title>
+    <title><?= htmlspecialchars(lpc_nav_label('dash_sales')) ?> | LPC ERP</title>
 
     <?php /* Chart.js is vendored and SRI-pinned; the same hash as the other four
              dashboards. lpc_asset() carries ?v=<mtime> — SRI is computed over
@@ -63,7 +63,7 @@ $monthNames = [
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 <?php
-$pageTitle    = 'Tableau de Bord Ventes';
+$pageTitle    = lpc_nav_label('dash_sales');
 $pageSubtitle = 'Ma performance commerciale';
 require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/sidebar.php';
 require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

@@ -8,7 +8,11 @@
  * includes/components/command_palette.php. They must never disagree about what
  * a user can reach or what it is called, so neither reads the config directly.
  *
- * SECURITY: the per-role profile decides presentation only — order, grouping and
+ * Since 12 Nov 2026 every office role gets the same menu ($MENU in nav.php,
+ * the admin's sections and names); only the driver has a profile of its own.
+ * See the header of nav.php for why.
+ *
+ * SECURITY: the menu/profile decides presentation only — order, grouping and
  * wording. Every resolved item is still filtered through Rbac::hasPermission()
  * here, using the permission from the CATALOGUE, not from the profile. A profile
  * cannot grant anything; listing an item a user lacks permission for simply
@@ -265,5 +269,37 @@ if (!function_exists('lpc_nav_sections')) {
                            // the next foreach over $out overwrite the last row
 
         return $memo[$key] = $out;
+    }
+}
+
+if (!function_exists('lpc_nav_label')) {
+
+    /**
+     * The one name of a menu destination, for a page to use as its own title,
+     * so the title bar always says what the menu item says (owner decision,
+     * 12 Nov 2026 — see the header of includes/config/nav.php).
+     *
+     *     $pageTitle = lpc_nav_label('acc_ledger');   // "Grand Livre OHADA"
+     *
+     * Reads the catalogue only — no RBAC, no role, no profile — so it is the
+     * same string for everyone. An unknown ref returns $fallback (or the ref
+     * itself) rather than throwing: a typo must not take a page down.
+     */
+    function lpc_nav_label(string $ref, ?string $lang = null, ?string $fallback = null): string
+    {
+        static $catalogue = null;
+        if ($catalogue === null) {
+            $cfg       = require __DIR__ . '/../config/nav.php';
+            $catalogue = $cfg['catalogue'] ?? [];
+        }
+
+        $lang = $lang ?: (function_exists('lpc_i18n_current_lang') ? lpc_i18n_current_lang() : 'fr');
+        $base = $catalogue[$ref] ?? null;
+        if ($base === null) {
+            return $fallback ?? $ref;
+        }
+        return $lang === 'en'
+            ? (string) ($base['label_en'] ?? $base['label_fr'] ?? $ref)
+            : (string) ($base['label_fr'] ?? $ref);
     }
 }

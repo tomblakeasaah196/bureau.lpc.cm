@@ -587,9 +587,15 @@ if (LPC.isAdmin()) { ... }
 
 ### 4.8 Adding a new sidebar item
 
-Edit `includes/config/nav.php`. Sections are ordered arrays with `heading_fr`, `heading_en`, `items[]`. Each item needs `href`, `label_fr`, `label_en`, `icon` (Heroicons v2 outline `d` path), `permission`.
+Edit `includes/config/nav.php`:
 
-The sidebar renderer skips any section whose items are all hidden by RBAC — so an ops-only user won't see an empty "Comptabilité" heading.
+1. Add the destination to `$CATALOGUE` with `href`, `icon` (Heroicons v2 outline `d` path), `permission`, and its one name, `label_fr` / `label_en`.
+2. Place it (`['ref' => '<key>']`) in `$MENU` under the section it belongs to.
+3. On the page itself, set `$pageTitle = lpc_nav_label('<key>');` so the title bar says exactly what the menu says.
+
+**One menu for everybody (owner decision, 12 Nov 2026).** Every office role (admin, accountant, operations, sales, any custom role) gets the same `$MENU`: the admin's sections, order and names. A person sees that menu with the items they have no permission for taken out, so a page is always under the same heading and with the same name on every computer, which is what makes training the team possible. Do not give an office role its own labels or its own profile again. To keep something from a role, revoke the permission. Only the driver keeps a short profile, for the fleet pages they open from the mobile portal.
+
+The sidebar renderer skips any section whose items are all hidden by RBAC — so an ops-only user won't see an empty "Comptabilité & Finance" heading.
 
 ---
 
