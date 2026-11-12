@@ -16,7 +16,7 @@ $lang = lpc_i18n_current_lang();
 <body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 <?php
-$pageTitle    = "Bilan d'Ouverture";
+$pageTitle    = lpc_nav_label('acc_opening');
 $pageSubtitle = "Saisie des soldes d'ouverture par compte — SYSCOHADA";
 require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
 require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

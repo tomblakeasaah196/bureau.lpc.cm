@@ -88,7 +88,7 @@ $can_recur    = Rbac::hasPermission('accounting.expenses.recurring.manage');
 <a href="#main" class="lpc-skip-link">Aller au contenu</a>
 
 <?php
-$pageTitle    = 'Gestion des Dépenses';
+$pageTitle    = lpc_nav_label('acc_expenses');
 $pageSubtitle = 'Charges opérationnelles, comptabilisation et suivi budgétaire';
 require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
 require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

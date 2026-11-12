@@ -52,7 +52,7 @@ $user_role = $_SESSION['user_role'];
 
 
     <?php
-    $pageTitle    = __t('ui.flotte_maintenance');
+    $pageTitle    = lpc_nav_label('fleet_vehicles');
     $pageSubtitle = 'Logistics & Asset Management';
     $sidebar_path = $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     if(file_exists($sidebar_path)) require_once $sidebar_path;

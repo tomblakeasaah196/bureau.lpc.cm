@@ -89,7 +89,7 @@ $settings  = TaxEngine::settings();
 <body class="lpc-body bg-lpc-bg font-sans text-gray-800 antialiased">
 
 <?php
-$pageTitle    = __t('ui.x.declarations_fiscales_sociales');
+$pageTitle    = lpc_nav_label('acc_tax');
 $pageSubtitle = 'DGI · CNPS · Commune — Cameroun 2026';
 $sidebar_path = $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
 if (file_exists($sidebar_path)) require_once $sidebar_path;

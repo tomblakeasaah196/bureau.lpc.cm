@@ -4,44 +4,51 @@
  * -----------------------------------------------------------------------------
  * Bureau LPC ERP — declarative navigation.
  *
- * TWO LAYERS, and the distinction matters:
+ * THREE PARTS, and the distinction matters:
  *
  *   $CATALOGUE  — one entry per destination. Carries the `permission` that gates
- *                 it. This is the SECURITY layer and is never bypassed.
+ *                 it (the SECURITY layer, never bypassed) and its one name.
  *
- *   $PROFILES   — per-role PRESENTATION: which items appear, in what order,
- *                 under which section headings, and under what name. Purely
- *                 cosmetic. A profile listing an item does NOT grant access —
+ *   $MENU       — the one menu: sections, order. The same for every office
+ *                 role. Listing an item does NOT grant access —
  *                 `Rbac::hasPermission()` still filters every entry at render
- *                 time, so an unauthorised item is dropped no matter what the
- *                 profile says.
+ *                 time, so each person sees this menu minus what they may not
+ *                 open.
  *
- * WHY PROFILES EXIST
- * ------------------
- * The pre-Sprint-7C sidebars were four hand-written files, and they encoded a
- * deliberate per-role vocabulary that a single `label_fr` per item cannot
- * express. The same module was named for the job the reader does:
+ *   $PROFILES   — which menu a role gets. All office roles get $MENU; only the
+ *                 driver keeps a short profile of their own.
  *
- *   accounting/cashflow.php   admin: "Trésorerie & Banque"
- *                             accountant: "Validations Caisse (EOD)"
- *   accounting/invoices.php   admin: "Facturation & AR"
- *                             accountant: "Factures Clients (AR)"
- *   sales/orders.php          admin: "Ventes & Commandes"
- *                             accountant: "Ventes & Dispatch"
- *                             operations: "Ventes et BL" AND, again under
- *                                         Flotte, "Affectation / Dispatch"
+ * ONE MENU, ONE NAME PER PAGE (owner decision, 12 Nov 2026)
+ * ---------------------------------------------------------
+ * Until then each role had its own profile here, which renamed and regrouped
+ * the same pages for the job the reader does:
  *
- * Flattening that to one generic label per item lost real work. Profiles
- * restore it, and also allow the same destination to appear twice under
- * different names (operations/orders, driver/driver_dashboard) via `suffix`.
+ *   crm/clients.php           admin "Base Clients & Devis", ops "Clients &
+ *                             Devis", sales "Clients & Prospects"
+ *   accounting/cashflow.php   admin "Trésorerie & Banque", accountant
+ *                             "Validations Caisse (EOD)"
+ *   sales/orders.php          admin "Ventes & Commandes", accountant "Ventes &
+ *                             Dispatch" (under "Achats & Logistique"), ops
+ *                             "Ventes et BL" and "Affectation / Dispatch",
+ *                             sales "Commandes Clients" and "Dispatch & BL"
  *
- * Resolution lives in includes/functions/navigation.php — both the sidebar and
- * the ⌘K palette call lpc_nav_sections() so they can never disagree.
+ * It made training impossible: the owner learned the app on the admin menu,
+ * and when he showed the team a menu item, nobody had it under that name or
+ * in that section, so he had to go round each computer to find where it was.
+ * His request: one same menu for everybody, with each person only seeing what
+ * their access allows. So the admin's sections and names are now THE menu,
+ * and the per-role vocabulary is gone. Do not reintroduce per-role labels or
+ * per-role profiles for office roles — that is the bug, not a feature.
+ *
+ * Resolution lives in includes/functions/navigation.php — the sidebar, the ⌘K
+ * palette and the landing-page picker call lpc_nav_sections(), and page titles
+ * call lpc_nav_label(), so they can never disagree.
  *
  * ADDING AN ITEM
- *   1. add it to $CATALOGUE with its permission
- *   2. reference it from each profile that should show it, with that role's name
- *   3. new permission? see README §4.3 — catalogue + migration
+ *   1. add it to $CATALOGUE with its permission and its name
+ *   2. place it in $MENU under the section it belongs to
+ *   3. on its page, set `$pageTitle = lpc_nav_label('<ref>');`
+ *   4. new permission? see README §4.3 — catalogue + migration
  * -----------------------------------------------------------------------------
  */
 
@@ -78,179 +85,156 @@ $I = [
 
 // -----------------------------------------------------------------------------
 // 1. CATALOGUE — destinations + the permission that gates each one.
-//    `label_fr` / `label_en` here are the NEUTRAL fallback names, used by the
-//    default profile and by any role a profile doesn't cover.
+//    `label_fr` / `label_en` are THE name of the page — in the menu, in the
+//    ⌘K palette and in the page's own title bar — for every role.
 // -----------------------------------------------------------------------------
 $CATALOGUE = [
-  'dash_md'        => ['href'=>'/modules/dashboard/views/md_dashboard.php',      'icon'=>$I['grid'],      'permission'=>'dashboard.md.view',            'label_fr'=>'Direction Générale',      'label_en'=>'Management'],
-  'dash_finance'   => ['href'=>'/modules/dashboard/views/finance_dashboard.php', 'icon'=>$I['wallet'],    'permission'=>'dashboard.finance.view',       'label_fr'=>'Finance',                 'label_en'=>'Finance'],
-  'dash_ops'       => ['href'=>'/modules/dashboard/views/ops_dashboard.php',     'icon'=>$I['gauge'],     'permission'=>'dashboard.ops.view',           'label_fr'=>'Opérations',              'label_en'=>'Operations'],
-  'dash_sales'     => ['href'=>'/modules/dashboard/views/sales_dashboard.php',   'icon'=>$I['chart'],     'permission'=>'dashboard.sales.view',         'label_fr'=>'Ventes',                  'label_en'=>'Sales'],
-  'dash_driver'    => ['href'=>'/modules/dashboard/views/driver_dashboard.php',  'icon'=>$I['truck'],     'permission'=>'dashboard.driver.view',        'label_fr'=>'Chauffeur',               'label_en'=>'Driver'],
+  'dash_md'        => ['href'=>'/modules/dashboard/views/md_dashboard.php',      'icon'=>$I['grid'],      'permission'=>'dashboard.md.view',            'label_fr'=>'Tableau de Bord Exécutif',  'label_en'=>'Executive Dashboard'],
+  'dash_finance'   => ['href'=>'/modules/dashboard/views/finance_dashboard.php', 'icon'=>$I['wallet'],    'permission'=>'dashboard.finance.view',       'label_fr'=>'Vue Finance',  'label_en'=>'Finance View'],
+  'dash_ops'       => ['href'=>'/modules/dashboard/views/ops_dashboard.php',     'icon'=>$I['gauge'],     'permission'=>'dashboard.ops.view',           'label_fr'=>'Vue Opérations',  'label_en'=>'Operations View'],
+  'dash_sales'     => ['href'=>'/modules/dashboard/views/sales_dashboard.php',   'icon'=>$I['chart'],     'permission'=>'dashboard.sales.view',         'label_fr'=>'Vue Ventes',  'label_en'=>'Sales View'],
+  'dash_driver'    => ['href'=>'/modules/dashboard/views/driver_dashboard.php',  'icon'=>$I['truck'],     'permission'=>'dashboard.driver.view',        'label_fr'=>'Vue Chauffeur',  'label_en'=>'Driver View'],
 
-  'crm_clients'    => ['href'=>'/modules/crm/clients.php',                       'icon'=>$I['users'],     'permission'=>'crm.clients.view',             'label_fr'=>'Base Clients',            'label_en'=>'Clients'],
-  'crm_studio'     => ['href'=>'/modules/crm/proposal_studio.php',               'icon'=>$I['clipboard'], 'permission'=>'crm.proposals.template',       'label_fr'=>'Studio Proposition',      'label_en'=>'Proposal Studio'],
-  'sales_orders'   => ['href'=>'/modules/sales/orders.php',                      'icon'=>$I['cart'],      'permission'=>'sales.orders.view',            'label_fr'=>'Commandes & Dispatch',    'label_en'=>'Orders & Dispatch'],
+  'crm_clients'    => ['href'=>'/modules/crm/clients.php',                       'icon'=>$I['users'],     'permission'=>'crm.clients.view',             'label_fr'=>'Base Clients & Devis',  'label_en'=>'Clients & Quotes'],
+  'crm_studio'     => ['href'=>'/modules/crm/proposal_studio.php',               'icon'=>$I['clipboard'], 'permission'=>'crm.proposals.template',       'label_fr'=>'Studio Proposition',  'label_en'=>'Proposal Studio'],
+  'sales_orders'   => ['href'=>'/modules/sales/orders.php',                      'icon'=>$I['cart'],      'permission'=>'sales.orders.view',            'label_fr'=>'Ventes & Commandes',  'label_en'=>'Sales & Orders'],
 
-  'inv_procure'    => ['href'=>'/modules/inventory/procurement.php',             'icon'=>$I['archive'],   'permission'=>'inventory.procurement.view',   'label_fr'=>'Bons de Commande',        'label_en'=>'Purchase Orders'],
-  'inv_stock'      => ['href'=>'/modules/inventory/stock.php',                   'icon'=>$I['boxes'],     'permission'=>'inventory.stock.view',         'label_fr'=>'État du Stock',           'label_en'=>'Stock'],
-  'inv_fiche'      => ['href'=>'/modules/inventory/fiche_stock.php',             'icon'=>$I['clipboard'], 'permission'=>'inventory.fiche.view',         'label_fr'=>'Fiche de Stock',          'label_en'=>'Kardex'],
-  'ops_empties'    => ['href'=>'/modules/operations/empties_collection.php',     'icon'=>$I['refresh'],   'permission'=>'operations.empties.view',      'label_fr'=>'Emballages & Recyclage',  'label_en'=>'Empties & Recycling'],
+  'inv_procure'    => ['href'=>'/modules/inventory/procurement.php',             'icon'=>$I['archive'],   'permission'=>'inventory.procurement.view',   'label_fr'=>'Gestion des Achats',  'label_en'=>'Procurement'],
+  'inv_stock'      => ['href'=>'/modules/inventory/stock.php',                   'icon'=>$I['boxes'],     'permission'=>'inventory.stock.view',         'label_fr'=>'Stock & Emballages',  'label_en'=>'Stock & Packaging'],
+  'inv_fiche'      => ['href'=>'/modules/inventory/fiche_stock.php',             'icon'=>$I['clipboard'], 'permission'=>'inventory.fiche.view',         'label_fr'=>'Fiche de Stock',  'label_en'=>'Kardex'],
+  'ops_empties'    => ['href'=>'/modules/operations/empties_collection.php',     'icon'=>$I['refresh'],   'permission'=>'operations.empties.view',      'label_fr'=>'Gestion des Vides',  'label_en'=>'Empties Management'],
 
-  'fleet_vehicles' => ['href'=>'/modules/fleet/vehicles.php',                    'icon'=>$I['truck'],     'permission'=>'fleet.vehicles.view',          'label_fr'=>'Véhicules',               'label_en'=>'Vehicles'],
+  'fleet_vehicles' => ['href'=>'/modules/fleet/vehicles.php',                    'icon'=>$I['truck'],     'permission'=>'fleet.vehicles.view',          'label_fr'=>'Flotte & Maintenance',  'label_en'=>'Fleet & Maintenance'],
   'fleet_fuel'     => ['href'=>'/modules/fleet/fuel_log.php',                    'icon'=>$I['refresh'],   'permission'=>'fleet.fuel.log',               'label_fr'=>'Relevé Carburant',        'label_en'=>'Fuel Log'],
   'fleet_break'    => ['href'=>'/modules/fleet/report_breakdown.php',            'icon'=>$I['shield'],    'permission'=>'fleet.breakdown.report',       'label_fr'=>'Déclarer une Panne',      'label_en'=>'Report Breakdown'],
 
-  'acc_invoices'   => ['href'=>'/modules/accounting/invoices.php',               'icon'=>$I['doc'],       'permission'=>'accounting.invoices.view',     'label_fr'=>'Factures & Paiements',    'label_en'=>'Invoices & Payments'],
-  'acc_journal'    => ['href'=>'/modules/accounting/journal_entry.php',          'icon'=>$I['book'],      'permission'=>'accounting.journal.view',      'label_fr'=>'Écritures',               'label_en'=>'Journal Entries'],
-  'acc_ledger'     => ['href'=>'/modules/accounting/ledger.php',                 'icon'=>$I['book'],      'permission'=>'accounting.ledger.view',       'label_fr'=>'Grand Livre',             'label_en'=>'Ledger'],
-  'acc_cashflow'   => ['href'=>'/modules/accounting/cashflow.php',               'icon'=>$I['wallet'],    'permission'=>'accounting.cashflow.view',     'label_fr'=>'Trésorerie',              'label_en'=>'Cashflow'],
+  'acc_invoices'   => ['href'=>'/modules/accounting/invoices.php',               'icon'=>$I['doc'],       'permission'=>'accounting.invoices.view',     'label_fr'=>'Facturation & AR',  'label_en'=>'Invoicing & AR'],
+  'acc_journal'    => ['href'=>'/modules/accounting/journal_entry.php',          'icon'=>$I['book'],      'permission'=>'accounting.journal.view',      'label_fr'=>'Écritures',  'label_en'=>'Journal Entries'],
+  'acc_ledger'     => ['href'=>'/modules/accounting/ledger.php',                 'icon'=>$I['book'],      'permission'=>'accounting.ledger.view',       'label_fr'=>'Grand Livre OHADA',  'label_en'=>'OHADA Ledger'],
+  'acc_cashflow'   => ['href'=>'/modules/accounting/cashflow.php',               'icon'=>$I['wallet'],    'permission'=>'accounting.cashflow.view',     'label_fr'=>'Trésorerie & Banque',  'label_en'=>'Treasury & Bank'],
   // acc_expenses added 31 July 2026 with migration 053_expenses_module.sql.
   // The OPEX tab on inv_procure is gone; this is where Frais Généraux + the
   // Sortie de Caisse quick-entry both land now.
-  'acc_expenses'   => ['href'=>'/modules/accounting/expenses.php',               'icon'=>$I['calculator'],'permission'=>'accounting.expenses.view',     'label_fr'=>'Dépenses',                'label_en'=>'Expenses'],
-  'acc_budgets'    => ['href'=>'/modules/accounting/budgets.php',                'icon'=>$I['chart'],     'permission'=>'accounting.budgets.view',      'label_fr'=>'Budgets',                 'label_en'=>'Budgets'],
-  'acc_assets'     => ['href'=>'/modules/accounting/fixed_assets.php',           'icon'=>$I['building'],  'permission'=>'accounting.fixed_assets.view', 'label_fr'=>'Immobilisations',         'label_en'=>'Fixed Assets'],
-  'acc_reports'    => ['href'=>'/modules/accounting/reports.php',                'icon'=>$I['calculator'],'permission'=>'accounting.reports.view',      'label_fr'=>'États Financiers',        'label_en'=>'Financial Statements (SYSCOHADA)'],
+  'acc_expenses'   => ['href'=>'/modules/accounting/expenses.php',               'icon'=>$I['calculator'],'permission'=>'accounting.expenses.view',     'label_fr'=>'Gestion des Dépenses',  'label_en'=>'Expenses Management'],
+  'acc_budgets'    => ['href'=>'/modules/accounting/budgets.php',                'icon'=>$I['chart'],     'permission'=>'accounting.budgets.view',      'label_fr'=>'Budgets & Performance',  'label_en'=>'Budgets & Performance'],
+  'acc_assets'     => ['href'=>'/modules/accounting/fixed_assets.php',           'icon'=>$I['building'],  'permission'=>'accounting.fixed_assets.view', 'label_fr'=>'Immobilisations',  'label_en'=>'Fixed Assets'],
+  'acc_reports'    => ['href'=>'/modules/accounting/reports.php',                'icon'=>$I['calculator'],'permission'=>'accounting.reports.view',      'label_fr'=>'États Financiers (Bilan · Résultat · TFT · Notes · Clôture)',  'label_en'=>'Financial Statements (Bilan · P&L · TFT · Notes · Closing)'],
   // tax_declarations.php gates on accounting.invoices.view (see its header).
-  'acc_tax'        => ['href'=>'/modules/accounting/tax_declarations.php',       'icon'=>$I['calculator'],'permission'=>'accounting.invoices.view',     'label_fr'=>'Déclarations Fiscales',   'label_en'=>'Tax Declarations'],
+  'acc_tax'        => ['href'=>'/modules/accounting/tax_declarations.php',       'icon'=>$I['calculator'],'permission'=>'accounting.invoices.view',     'label_fr'=>'Déclarations Fiscales',  'label_en'=>'Tax Declarations'],
 
-  'hr_payroll'     => ['href'=>'/modules/hr/payroll_finance.php',                'icon'=>$I['briefcase'], 'permission'=>'hr.payroll.view',              'label_fr'=>'Paie & Contrats',         'label_en'=>'Payroll & Contracts'],
-  'analytics'      => ['href'=>'/modules/analytics/reports.php',                 'icon'=>$I['chart'],     'permission'=>'analytics.reports.view',       'label_fr'=>'Rapports Consolidés',     'label_en'=>'Consolidated Reports'],
+  'hr_payroll'     => ['href'=>'/modules/hr/payroll_finance.php',                'icon'=>$I['briefcase'], 'permission'=>'hr.payroll.view',              'label_fr'=>'Gestion du Personnel',  'label_en'=>'Staff Management'],
+  'analytics'      => ['href'=>'/modules/analytics/reports.php',                 'icon'=>$I['chart'],     'permission'=>'analytics.reports.view',       'label_fr'=>'Rapports Consolidés',  'label_en'=>'Consolidated Reports'],
 
-  'admin_mdm'      => ['href'=>'/modules/admin/master_data.php',                 'icon'=>$I['building'],  'permission'=>'admin.master_data.view',       'label_fr'=>'Données de Base (GDB)',   'label_en'=>'Master Data'],
+  'admin_mdm'      => ['href'=>'/modules/admin/master_data.php',                 'icon'=>$I['building'],  'permission'=>'admin.master_data.view',       'label_fr'=>'Données de Base',  'label_en'=>'Master Data'],
   // Plan Comptable admin (migration 117): add / rename / deactivate OHADA
   // and CoA rows, and remap expense categories at their target account.
-  'admin_coa'      => ['href'=>'/modules/admin/chart_of_accounts.php',            'icon'=>$I['calculator'],'permission'=>'accounting.chart.view',        'label_fr'=>'Plan Comptable',          'label_en'=>'Chart of Accounts'],
+  'admin_coa'      => ['href'=>'/modules/admin/chart_of_accounts.php',            'icon'=>$I['calculator'],'permission'=>'accounting.chart.view',        'label_fr'=>'Plan Comptable',  'label_en'=>'Chart of Accounts'],
   // Bilan d'Ouverture — first-year opening balances across every account.
   // View gate is chart.view; POST save requires accounting.opening_balance.enter
   // (migration 118), enforced by the controller.
-  'acc_opening'    => ['href'=>'/modules/accounting/opening_balance.php',          'icon'=>$I['calculator'],'permission'=>'accounting.chart.view',        'label_fr'=>"Bilan d'Ouverture",       'label_en'=>'Opening Balance'],
+  'acc_opening'    => ['href'=>'/modules/accounting/opening_balance.php',          'icon'=>$I['calculator'],'permission'=>'accounting.chart.view',        'label_fr'=>"Bilan d'Ouverture",  'label_en'=>'Opening Balance'],
   // Sprint 8: points at the Settings module's RBAC tab, not the old standalone
   // page. modules/admin/roles.php still exists but only 302s here — two UIs
   // over one API (api/v1/rbac_controller.php) was the duplication that left the
   // settings tab blank. Deep-links straight to the tab.
-  'admin_roles'    => ['href'=>'/modules/settings/index.php?tab=roles',          'icon'=>$I['shield'],    'permission'=>'admin.roles.view',             'label_fr'=>'Rôles & Permissions',     'label_en'=>'Roles & Permissions'],
-  'admin_company'  => ['href'=>'/modules/settings/index.php?tab=company',        'icon'=>$I['building'],  'permission'=>'admin.settings.view',          'label_fr'=>"Identité de l'Entreprise",'label_en'=>'Company Identity'],
-  'admin_errors'   => ['href'=>'/modules/admin/error_monitor.php',               'icon'=>$I['signal'],    'permission'=>'admin.errors.view',            'label_fr'=>"Journal d'Erreurs",       'label_en'=>'Error Monitor'],
-  'admin_settings' => ['href'=>'/modules/settings/index.php',                    'icon'=>$I['cog'],       'permission'=>'admin.settings.view',          'label_fr'=>'Paramètres',              'label_en'=>'Settings'],
+  'admin_roles'    => ['href'=>'/modules/settings/index.php?tab=roles',          'icon'=>$I['shield'],    'permission'=>'admin.roles.view',             'label_fr'=>'Rôles & Permissions',  'label_en'=>'Roles & Permissions'],
+  'admin_company'  => ['href'=>'/modules/settings/index.php?tab=company',        'icon'=>$I['building'],  'permission'=>'admin.settings.view',          'label_fr'=>"Identité de l'Entreprise",  'label_en'=>'Company Identity'],
+  'admin_errors'   => ['href'=>'/modules/admin/error_monitor.php',               'icon'=>$I['signal'],    'permission'=>'admin.errors.view',            'label_fr'=>"Journal d'Erreurs",  'label_en'=>'Error Monitor'],
+  'admin_settings' => ['href'=>'/modules/settings/index.php',                    'icon'=>$I['cog'],       'permission'=>'admin.settings.view',          'label_fr'=>'Paramètres Système & Audit',  'label_en'=>'System Settings & Audit'],
   // The help EDITOR only. The help centre itself is reached from the "?" in the
   // topbar and is open to every authenticated user, so it has no catalogue entry
   // — an entry needs a permission, and inventing one would create a second,
   // drifting answer to "who may read the manual". See modules/help/index.php.
-  'admin_help'     => ['href'=>'/modules/admin/help_articles.php',               'icon'=>$I['book'],      'permission'=>'help.manage',                  'label_fr'=>"Centre d'aide",           'label_en'=>'Help Centre'],
+  'admin_help'     => ['href'=>'/modules/admin/help_articles.php',               'icon'=>$I['book'],      'permission'=>'help.manage',                  'label_fr'=>"Centre d'Aide (articles)",  'label_en'=>'Help Centre (articles)'],
 ];
 
 // -----------------------------------------------------------------------------
-// 2. PROFILES — per-role presentation. `collapsed => true` makes a section start
-//    closed; the user's own toggling is then remembered per browser.
-//    `suffix` appends to the href so one destination can appear twice.
+// 2. THE MENU — one structure for every office role.
+//
+//    The sections, their order and the item names are the admin's menu, word
+//    for word: it is the menu the owner learned the app on and now trains the
+//    team with. Nothing here is per role. What a person sees is this menu with
+//    the items they have no permission for taken out (and any section left
+//    empty dropped), so an item is always under the same heading, in the same
+//    place, with the same name, on every computer.
+//
+//    Items carry no labels here: the name is the catalogue's, so the sidebar,
+//    the ⌘K palette, the landing-page picker and each page's own title
+//    (lpc_nav_label()) all read one string.
+//
+//    `collapsed => true` makes a section start closed; the user's own toggling
+//    is then remembered per browser. `suffix` appends to the href so one
+//    destination can appear twice.
+// -----------------------------------------------------------------------------
+$MENU = [
+  // No `collapsed` flag: this is the first section, and lpc_nav_sections()
+  // expands the first section by default. See rule 4 in
+  // includes/functions/navigation.php.
+  ['heading_fr'=>'Stratégie & BI', 'heading_en'=>'Strategy & BI', 'items'=>[
+    ['ref'=>'dash_md'],
+    ['ref'=>'dash_finance'],
+    ['ref'=>'dash_ops'],
+    ['ref'=>'dash_sales'],
+    // Not in the admin's own menu (admin does not hold dashboard.driver.view,
+    // migration 028), placed with the other dashboards for any office role
+    // that is granted it rather than left to fall into "Autres Modules".
+    ['ref'=>'dash_driver'],
+    ['ref'=>'analytics'],
+  ]],
+  ['heading_fr'=>'Commerce & CRM', 'heading_en'=>'Commerce & CRM', 'items'=>[
+    ['ref'=>'crm_clients'],
+    ['ref'=>'crm_studio'],
+    ['ref'=>'sales_orders'],
+  ]],
+  ['heading_fr'=>'Logistique & Stock', 'heading_en'=>'Logistics & Stock', 'items'=>[
+    ['ref'=>'inv_procure'],
+    ['ref'=>'inv_stock'],
+    ['ref'=>'inv_fiche'],
+    ['ref'=>'ops_empties'],
+    ['ref'=>'fleet_vehicles'],
+    // Driver tools; same reasoning as dash_driver above.
+    ['ref'=>'fleet_fuel'],
+    ['ref'=>'fleet_break'],
+  ]],
+  ['heading_fr'=>'Comptabilité & Finance', 'heading_en'=>'Accounting & Finance', 'items'=>[
+    ['ref'=>'acc_invoices'],
+    ['ref'=>'acc_expenses'],
+    ['ref'=>'acc_journal'],
+    ['ref'=>'acc_ledger'],
+    ['ref'=>'acc_cashflow'],
+    ['ref'=>'acc_assets'],
+    ['ref'=>'acc_tax'],
+    ['ref'=>'acc_reports'],
+    ['ref'=>'acc_budgets'],
+    ['ref'=>'admin_coa'],
+    ['ref'=>'acc_opening'],
+  ]],
+  ['heading_fr'=>'Administration & RH', 'heading_en'=>'Administration & HR', 'items'=>[
+    ['ref'=>'hr_payroll'],
+    ['ref'=>'admin_mdm'],
+    ['ref'=>'admin_company'],
+    ['ref'=>'admin_settings'],
+    ['ref'=>'admin_roles'],
+    ['ref'=>'admin_errors'],
+    ['ref'=>'admin_help'],
+  ]],
+];
+
+// -----------------------------------------------------------------------------
+// 3. PROFILES — which menu a role gets.
+//
+//    Every role uses $MENU ('default' is what the resolver falls back to for any
+//    role without an entry of its own, which is now all of them: admin,
+//    accountant, operations, sales and any custom role).
+//
+//    The one exception is `driver`. Drivers work from a phone on the separate
+//    mobile portal (driver_dashboard.php renders its own driver_sidebar.php);
+//    this short profile only applies to the two fleet pages they open from it,
+//    which use the shared sidebar. Left as it was, on the owner's instruction.
 // -----------------------------------------------------------------------------
 $PROFILES = [
+  'default' => $MENU,
 
-  // --- ADMIN / Direction ---------------------------------------------------
-  'admin' => [
-    // No `collapsed` flag: this is the first section, and lpc_nav_sections()
-    // expands the first section by default. It used to carry
-    // `collapsed => true`, which made the ONE section people land in start
-    // shut while every other section started open — the exact inverse of the
-    // intent. See rule 4 in includes/functions/navigation.php.
-    ['heading_fr'=>'Stratégie & BI', 'heading_en'=>'Strategy & BI', 'items'=>[
-      ['ref'=>'dash_md',        'label_fr'=>'Tableau de Bord Exécutif', 'label_en'=>'Executive Dashboard'],
-      // The MD oversees the other three. Placed here rather than left to fall
-      // into "Autres Modules", which is where the overlay rule would otherwise
-      // put them since admin holds all three permissions.
-      ['ref'=>'dash_finance',   'label_fr'=>'Vue Finance',              'label_en'=>'Finance View'],
-      ['ref'=>'dash_ops',       'label_fr'=>'Vue Opérations',           'label_en'=>'Operations View'],
-      ['ref'=>'dash_sales',     'label_fr'=>'Vue Ventes',               'label_en'=>'Sales View'],
-      ['ref'=>'analytics',      'label_fr'=>'Rapports Consolidés',      'label_en'=>'Consolidated Reports'],
-    ]],
-    ['heading_fr'=>'Commerce & CRM', 'heading_en'=>'Commerce & CRM', 'items'=>[
-      ['ref'=>'crm_clients',    'label_fr'=>'Base Clients & Devis',     'label_en'=>'Clients & Quotes'],
-      ['ref'=>'crm_studio',     'label_fr'=>'Studio Proposition',       'label_en'=>'Proposal Studio'],
-      ['ref'=>'sales_orders',   'label_fr'=>'Ventes & Commandes',       'label_en'=>'Sales & Orders'],
-    ]],
-    ['heading_fr'=>'Logistique & Stock', 'heading_en'=>'Logistics & Stock', 'items'=>[
-      ['ref'=>'inv_procure',    'label_fr'=>'Gestion des Achats',       'label_en'=>'Procurement'],
-      ['ref'=>'inv_stock',      'label_fr'=>'Stock & Emballages',       'label_en'=>'Stock & Packaging'],
-      ['ref'=>'inv_fiche',      'label_fr'=>'Fiche de Stock',           'label_en'=>'Kardex'],
-      ['ref'=>'ops_empties',    'label_fr'=>'Gestion des Vides',        'label_en'=>'Empties Management'],
-      ['ref'=>'fleet_vehicles', 'label_fr'=>'Flotte & Maintenance',     'label_en'=>'Fleet & Maintenance'],
-    ]],
-    ['heading_fr'=>'Comptabilité & Finance', 'heading_en'=>'Accounting & Finance', 'items'=>[
-      ['ref'=>'acc_invoices',   'label_fr'=>'Facturation & AR',         'label_en'=>'Invoicing & AR'],
-      ['ref'=>'acc_expenses',   'label_fr'=>'Gestion des Dépenses',     'label_en'=>'Expenses Management'],
-      ['ref'=>'acc_journal',    'label_fr'=>'Écritures',                'label_en'=>'Journal Entries'],
-      ['ref'=>'acc_ledger',     'label_fr'=>'Grand Livre OHADA',        'label_en'=>'OHADA Ledger'],
-      ['ref'=>'acc_cashflow',   'label_fr'=>'Trésorerie & Banque',      'label_en'=>'Treasury & Bank'],
-      ['ref'=>'acc_assets',     'label_fr'=>'Immobilisations',          'label_en'=>'Fixed Assets'],
-      ['ref'=>'acc_tax',        'label_fr'=>'Déclarations Fiscales',    'label_en'=>'Tax Declarations'],
-      ['ref'=>'acc_reports',    'label_fr'=>'États Financiers (Bilan · Résultat · TFT · Notes · Clôture)', 'label_en'=>'Financial Statements (Bilan · P&L · TFT · Notes · Closing)'],
-      ['ref'=>'acc_budgets',    'label_fr'=>'Budgets & Performance',    'label_en'=>'Budgets & Performance'],
-      ['ref'=>'admin_coa',      'label_fr'=>'Plan Comptable',           'label_en'=>'Chart of Accounts'],
-      ['ref'=>'acc_opening',    'label_fr'=>"Bilan d'Ouverture",        'label_en'=>'Opening Balance'],
-    ]],
-    ['heading_fr'=>'Administration & RH', 'heading_en'=>'Administration & HR', 'items'=>[
-      ['ref'=>'hr_payroll',     'label_fr'=>'Gestion du Personnel',     'label_en'=>'Staff Management'],
-      ['ref'=>'admin_mdm',      'label_fr'=>'Données de Base',          'label_en'=>'Master Data'],
-      ['ref'=>'admin_company',  'label_fr'=>"Identité de l'Entreprise", 'label_en'=>'Company Identity'],
-      ['ref'=>'admin_settings', 'label_fr'=>'Paramètres Système & Audit','label_en'=>'System Settings & Audit'],
-      ['ref'=>'admin_roles',    'label_fr'=>'Rôles & Permissions',      'label_en'=>'Roles & Permissions'],
-      ['ref'=>'admin_errors',   'label_fr'=>"Journal d'Erreurs",        'label_en'=>'Error Monitor'],
-      ['ref'=>'admin_help',     'label_fr'=>"Centre d'Aide (articles)", 'label_en'=>'Help Centre (articles)'],
-    ]],
-  ],
-
-  // --- ACCOUNTANT / Finance ------------------------------------------------
-  'accountant' => [
-    ['heading_fr'=>'Trésorerie', 'heading_en'=>'Treasury', 'items'=>[
-      ['ref'=>'dash_finance',   'label_fr'=>'Tableau de Bord',              'label_en'=>'Dashboard'],
-      ['ref'=>'acc_cashflow',   'label_fr'=>'Validations Caisse (EOD)',     'label_en'=>'Cash Validation (EOD)'],
-    ]],
-    ['heading_fr'=>'Achats & Logistique', 'heading_en'=>'Procurement & Logistics', 'items'=>[
-      ['ref'=>'inv_procure',    'label_fr'=>'Gestion des Achats',           'label_en'=>'Procurement'],
-      ['ref'=>'sales_orders',   'label_fr'=>'Ventes & Dispatch',            'label_en'=>'Sales & Dispatch'],
-    ]],
-    ['heading_fr'=>'Tiers (AR/AP)', 'heading_en'=>'Receivables & Payables', 'items'=>[
-      ['ref'=>'acc_invoices',   'label_fr'=>'Factures Clients (AR)',        'label_en'=>'Customer Invoices (AR)'],
-      ['ref'=>'acc_expenses',   'label_fr'=>'Dépenses & Charges',           'label_en'=>'Expenses & Charges'],
-    ]],
-    ['heading_fr'=>'Comptabilité Générale', 'heading_en'=>'General Ledger', 'items'=>[
-      ['ref'=>'acc_journal',    'label_fr'=>'Saisie des Journaux',          'label_en'=>'Journal Entry'],
-      ['ref'=>'acc_ledger',     'label_fr'=>'Grand Livre',                  'label_en'=>'Ledger'],
-      ['ref'=>'acc_assets',     'label_fr'=>'Immobilisations & Amortissements','label_en'=>'Assets & Depreciation'],
-      ['ref'=>'acc_reports',    'label_fr'=>'États Financiers (Bilan)',     'label_en'=>'Financial Statements'],
-      ['ref'=>'acc_tax',        'label_fr'=>'Déclarations Fiscales',        'label_en'=>'Tax Declarations'],
-      ['ref'=>'admin_coa',      'label_fr'=>'Plan Comptable',              'label_en'=>'Chart of Accounts'],
-      ['ref'=>'acc_opening',    'label_fr'=>"Bilan d'Ouverture",           'label_en'=>'Opening Balance'],
-    ]],
-    ['heading_fr'=>'Contrôle & RH', 'heading_en'=>'Control & HR', 'items'=>[
-      ['ref'=>'acc_budgets',    'label_fr'=>'Budgets & Cibles',             'label_en'=>'Budgets & Targets'],
-      ['ref'=>'hr_payroll',     'label_fr'=>'Paie & Acomptes',              'label_en'=>'Payroll & Advances'],
-      ['ref'=>'admin_mdm',      'label_fr'=>'Données de Base (GDB)',        'label_en'=>'Master Data'],
-    ]],
-  ],
-
-  // --- OPERATIONS ----------------------------------------------------------
-  'operations' => [
-    ['heading_fr'=>'Supervision', 'heading_en'=>'Supervision', 'items'=>[
-      ['ref'=>'dash_ops',       'label_fr'=>'Tableau de Bord Ops',      'label_en'=>'Ops Dashboard'],
-    ]],
-    ['heading_fr'=>'Ventes & Fulfilment', 'heading_en'=>'Sales & Fulfilment', 'items'=>[
-      ['ref'=>'crm_clients',    'label_fr'=>'Clients & Devis',          'label_en'=>'Clients & Quotes'],
-      ['ref'=>'sales_orders',   'label_fr'=>'Ventes et BL',             'label_en'=>'Sales & Delivery Notes'],
-    ]],
-    ['heading_fr'=>'Entrepôt & Stock', 'heading_en'=>'Warehouse & Stock', 'items'=>[
-      ['ref'=>'inv_stock',      'label_fr'=>'État du Stock',            'label_en'=>'Stock Levels'],
-      ['ref'=>'inv_procure',    'label_fr'=>'Bons de Commande (SDP)',   'label_en'=>'Purchase Orders'],
-    ]],
-    ['heading_fr'=>'Flotte & Chauffeurs', 'heading_en'=>'Fleet & Drivers', 'items'=>[
-      ['ref'=>'fleet_vehicles', 'label_fr'=>'Véhicules & Maintenance',  'label_en'=>'Vehicles & Maintenance'],
-      ['ref'=>'sales_orders',   'label_fr'=>'Affectation / Dispatch',   'label_en'=>'Assignment / Dispatch', 'suffix'=>'#dispatch'],
-    ]],
-  ],
-
-  // --- DRIVER --------------------------------------------------------------
   'driver' => [
     ['heading_fr'=>'Ma Logistique', 'heading_en'=>'My Logistics', 'items'=>[
       ['ref'=>'dash_driver',    'label_fr'=>'Mes Livraisons (BL)',      'label_en'=>'My Deliveries'],
@@ -261,52 +245,10 @@ $PROFILES = [
       ['ref'=>'fleet_break',    'label_fr'=>'Signaler une Panne',       'label_en'=>'Report Breakdown'],
     ]],
   ],
-  // --- SALES ---------------------------------------------------------------
-  'sales' => [
-    ['heading_fr'=>'Ma Performance', 'heading_en'=>'My Performance', 'items'=>[
-      ['ref'=>'dash_sales',     'label_fr'=>'Tableau de Bord Ventes',   'label_en'=>'Sales Dashboard'],
-    ]],
-    ['heading_fr'=>'Portefeuille Clients', 'heading_en'=>'Client Portfolio', 'items'=>[
-      ['ref'=>'crm_clients',    'label_fr'=>'Clients & Prospects',      'label_en'=>'Clients & Prospects'],
-    ]],
-    ['heading_fr'=>'Ventes', 'heading_en'=>'Sales', 'items'=>[
-      ['ref'=>'sales_orders',   'label_fr'=>'Commandes Clients',        'label_en'=>'Customer Orders'],
-      ['ref'=>'sales_orders',   'label_fr'=>'Dispatch & BL',            'label_en'=>'Dispatch & Delivery Notes', 'suffix'=>'#dispatch'],
-    ]],
-    ['heading_fr'=>'Disponibilité', 'heading_en'=>'Availability', 'items'=>[
-      ['ref'=>'inv_stock',      'label_fr'=>'État du Stock',            'label_en'=>'Stock Levels'],
-      ['ref'=>'ops_empties',    'label_fr'=>'Vides Clients',            'label_en'=>'Client Empties'],
-    ]],
-    ['heading_fr'=>'Suivi', 'heading_en'=>'Follow-up', 'items'=>[
-      ['ref'=>'acc_invoices',   'label_fr'=>'Encours Clients',          'label_en'=>'Client Receivables'],
-    ]],
-  ],
 ];
 
-// Role aliases — session values seen in the wild that map onto a profile above.
-$PROFILE_ALIASES = ['finance' => 'accountant', 'compta' => 'accountant', 'ops' => 'operations'];
-
-// -----------------------------------------------------------------------------
-// 3. DEFAULT profile — used for any role without one of its own (custom roles
-//    created at runtime via Administration → Rôles & Permissions). Neutral
-//    labels, everything in the catalogue; RBAC still filters it down.
-// -----------------------------------------------------------------------------
-$PROFILES['default'] = [
-  ['heading_fr'=>'Tableaux de bord','heading_en'=>'Dashboards','items'=>[
-    ['ref'=>'dash_md'],['ref'=>'dash_finance'],['ref'=>'dash_ops'],['ref'=>'dash_driver']]],
-  ['heading_fr'=>'Ventes & Clients','heading_en'=>'Sales & Clients','items'=>[
-    ['ref'=>'crm_clients'],['ref'=>'sales_orders']]],
-  ['heading_fr'=>'Inventaire & Achats','heading_en'=>'Inventory & Procurement','items'=>[
-    ['ref'=>'inv_stock'],['ref'=>'inv_fiche'],['ref'=>'inv_procure'],['ref'=>'ops_empties']]],
-  ['heading_fr'=>'Flotte','heading_en'=>'Fleet','items'=>[
-    ['ref'=>'fleet_vehicles'],['ref'=>'fleet_fuel'],['ref'=>'fleet_break']]],
-  ['heading_fr'=>'Comptabilité','heading_en'=>'Accounting','items'=>[
-    ['ref'=>'acc_invoices'],['ref'=>'acc_expenses'],['ref'=>'acc_journal'],['ref'=>'acc_ledger'],['ref'=>'acc_cashflow'],
-    ['ref'=>'acc_budgets'],['ref'=>'acc_assets'],['ref'=>'acc_reports'],['ref'=>'acc_tax'],['ref'=>'acc_opening']]],
-  ['heading_fr'=>'Ressources Humaines','heading_en'=>'Human Resources','items'=>[['ref'=>'hr_payroll']]],
-  ['heading_fr'=>'Analyses','heading_en'=>'Analytics','items'=>[['ref'=>'analytics']]],
-  ['heading_fr'=>'Administration','heading_en'=>'Administration','items'=>[
-    ['ref'=>'admin_mdm'],['ref'=>'admin_coa'],['ref'=>'admin_roles'],['ref'=>'admin_errors'],['ref'=>'admin_settings']]],
-];
+// Kept for the resolver's signature. Every office role resolves to 'default'
+// on its own now, so there is nothing to alias.
+$PROFILE_ALIASES = [];
 
 return ['catalogue' => $CATALOGUE, 'profiles' => $PROFILES, 'aliases' => $PROFILE_ALIASES];

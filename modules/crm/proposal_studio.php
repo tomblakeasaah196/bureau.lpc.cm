@@ -115,7 +115,7 @@ try {
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 <?php
-$pageTitle    = __t('ui.x.studio_proposition');
+$pageTitle    = lpc_nav_label('crm_studio');
 $pageSubtitle = __t('ui.x.modele_de_proposition_commerciale');
 require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
 require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

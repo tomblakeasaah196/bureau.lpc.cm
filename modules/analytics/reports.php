@@ -51,7 +51,7 @@ $user_role = $_SESSION['user_role'] ?? '';
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
 <?php
-$pageTitle    = __t('ui.x.rapports_consolides');
+$pageTitle    = lpc_nav_label('analytics');
 $pageSubtitle = __t('accounting.vue_dirigeant.title');
 require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
 require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

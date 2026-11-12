@@ -49,7 +49,7 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
 
 
     <?php
-    $pageTitle    = __t('ui.ventes_dispatch');
+    $pageTitle    = lpc_nav_label('sales_orders');
     $pageSubtitle = __t('ui.x.gestion_des_commandes_et_logistique_de_s');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

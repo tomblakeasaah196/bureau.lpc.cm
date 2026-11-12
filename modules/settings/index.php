@@ -141,7 +141,7 @@ $tabDefs = [
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
     <?php
-    $pageTitle    = __t('ui.x.administration_configuration');
+    $pageTitle    = lpc_nav_label('admin_settings');
     $pageSubtitle = __t('ui.x.identite_securite_preferences_audits');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

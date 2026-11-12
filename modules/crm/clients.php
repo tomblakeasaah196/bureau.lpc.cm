@@ -142,7 +142,7 @@ $lang = lpc_i18n_current_lang();
 
 
     <?php
-    $pageTitle    = __t('ui.base_clients_devis');
+    $pageTitle    = lpc_nav_label('crm_clients');
     $pageSubtitle = __t('ui.g_rez_vos_clients_b2b_b2c_et_g_n_rez_des');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

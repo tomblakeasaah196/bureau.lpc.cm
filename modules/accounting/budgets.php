@@ -64,7 +64,7 @@ $year = (int)($_GET['year'] ?? date('Y'));
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
     <?php
-    $pageTitle    = __t('ui.x.controle_de_gestion');
+    $pageTitle    = lpc_nav_label('acc_budgets');
     $pageSubtitle = __t('ui.x.budget_performance_reporting_ifrs_ohada');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
@@ -100,7 +100,7 @@ $year = (int)($_GET['year'] ?? date('Y'));
         </div>
 
         <nav class="lpc-tabs" role="tablist"
-             aria-label="<?= htmlspecialchars(__t('ui.x.controle_de_gestion')) ?>"
+             aria-label="<?= htmlspecialchars(lpc_nav_label('acc_budgets')) ?>"
              id="budgets-tablist">
             <button role="tab" aria-selected="true" aria-controls="content-overview"
                     class="tab-link py-4 border-b-[3px] border-finance-highlight text-finance-dark font-black text-sm uppercase tracking-wider whitespace-nowrap"
