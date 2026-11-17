@@ -134,7 +134,8 @@ $maxAuthPerIp = Prefs::int('sec_max_login_attempts_ip', 50);
 // A refused sign-in goes back to the sign-in page with a sentence, not a raw 429.
 $__tooMany = '/index.php?error=too_many_attempts';
 RateLimiter::guard('auth_ip', $ip_address, $maxAuthPerIp, $authWindow, $__tooMany);
-RateLimiter::guard('auth_acct', 'acct:' . substr(hash('sha256', $login), 0, 40), $maxAuth, $authWindow, $__tooMany);
+$__acctKey = 'acct:' . substr(hash('sha256', $login), 0, 40);
+RateLimiter::guard('auth_acct', $__acctKey, $maxAuth, $authWindow, $__tooMany);
 
 try {
     $db = Database::getInstance()->getConnection();
@@ -210,6 +211,10 @@ try {
     // RBAC) is opened by lpc_login_complete(), shared with the PIN and
     // passkey sign-ins of api/v1/device_auth.php so the three cannot drift.
     $next = lpc_login_complete($db, $user, $login, $ip_address, $user_agent);
+
+    // A success ends the run of tries on this account: the per-account limit counts
+    // failed attempts, not a person signing in again later (RateLimiter::clear).
+    RateLimiter::clear('auth_acct', $__acctKey);
 
     // "Se souvenir de cet appareil": remember this browser, then offer to set
     // its PIN and passkey before carrying on to where the person was going.

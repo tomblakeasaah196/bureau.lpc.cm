@@ -94,6 +94,7 @@ $__langUrl = function (string $to) use ($__base): string {
                 <a role="menuitem" data-perm="accounting.invoices.create" href="/modules/accounting/invoices.php#to_invoice" class="lpc-pop-item"><span class="lpc-pop-dot lpc-pop-dot--info"></span><?= $lang === 'en' ? 'New invoice' : 'Nouvelle facture' ?></a>
                 <a role="menuitem" data-perm="crm.clients.create"      href="/modules/crm/clients.php?new=1"        class="lpc-pop-item"><span class="lpc-pop-dot lpc-pop-dot--info"></span><?= $lang === 'en' ? 'New client'  : 'Nouveau client'   ?></a>
                 <a role="menuitem" data-perm="sales.orders.create"     href="/modules/sales/orders.php?new=1"       class="lpc-pop-item"><span class="lpc-pop-dot lpc-pop-dot--info"></span><?= $lang === 'en' ? 'New order'   : 'Nouvelle commande' ?></a>
+                <a role="menuitem" data-perm="inventory.procurement.create_po" href="/modules/inventory/procurement.php?new=1" class="lpc-pop-item"><span class="lpc-pop-dot lpc-pop-dot--info"></span><?= $lang === 'en' ? 'New purchase order' : 'Nouvelle commande fournisseur' ?></a>
             </div>
         </div>
     </div>

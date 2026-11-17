@@ -74,6 +74,27 @@ class RateLimiter
     }
 
     /**
+     * Forget a key's attempts in a bucket: what a successful sign-in does for its account.
+     *
+     * guard() counts every attempt, the good ones too. With the per-account limit at 3 in
+     * 15 minutes (Paramètres → Sécurité, as live has it), a person who signed in a fourth
+     * time inside a quarter of an hour, with the right password (after a sign-out, a timeout,
+     * another browser), was refused « Trop de tentatives ». The setting's own help says it
+     * limits tries on an account; a success ends the run of tries, so it clears the count
+     * (found while filming the training videos).
+     */
+    public static function clear(string $bucket, string $key): void
+    {
+        try {
+            Database::getInstance()->getConnection()
+                ->prepare('DELETE FROM login_attempts WHERE bucket = ? AND ip = ?')
+                ->execute([$bucket, $key]);
+        } catch (Throwable $e) {
+            error_log('RateLimiter::clear: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Optional: cleanup old attempts. Call from a cron / deploy script.
      * Deletes rows older than 2× the longest window we use.
      */
