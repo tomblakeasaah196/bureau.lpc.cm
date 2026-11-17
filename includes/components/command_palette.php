@@ -176,14 +176,14 @@ foreach ($__tabPages as $__pg) {
 // -----------------------------------------------------------------------------
 $__plusIcon  = 'M12 4.5v15m7.5-7.5h-15';
 $__actions = [
-    ['perm' => 'accounting.invoices.view', 'fr' => 'Nouvelle facture',   'en' => 'New invoice',   'u' => '/modules/accounting/invoices.php?new=1'],
-    ['perm' => 'crm.clients.view',         'fr' => 'Nouveau client',     'en' => 'New client',    'u' => '/modules/crm/clients.php?new=1'],
-    ['perm' => 'sales.orders.view',        'fr' => 'Nouvelle commande',  'en' => 'New order',     'u' => '/modules/sales/orders.php?new=1'],
+    ['perm' => 'accounting.invoices.create', 'fr' => 'Nouvelle facture',   'en' => 'New invoice',   'u' => '/modules/accounting/invoices.php#to_invoice'],
+    ['perm' => 'crm.clients.create',       'fr' => 'Nouveau client',     'en' => 'New client',    'u' => '/modules/crm/clients.php?new=1'],
+    ['perm' => 'sales.orders.create',      'fr' => 'Nouvelle commande',  'en' => 'New order',     'u' => '/modules/sales/orders.php?new=1'],
     // Was ?tab=wizard — journal_entry.php never read that param, so this quietly
     // always landed on the default "queue" tab. Fixed now that #wizard works
     // (see accounting-journal_entry.js).
     ['perm' => 'accounting.journal.view',  'fr' => 'Nouvelle écriture',  'en' => 'New journal entry', 'u' => '/modules/accounting/journal_entry.php#wizard'],
-    ['perm' => 'inventory.procurement.view', 'fr' => 'Nouvelle commande fournisseur', 'en' => 'New purchase order', 'u' => '/modules/inventory/procurement.php?new=1'],
+    ['perm' => 'inventory.procurement.create_po', 'fr' => 'Nouvelle commande fournisseur', 'en' => 'New purchase order', 'u' => '/modules/inventory/procurement.php?new=1'],
 ];
 foreach ($__actions as $__a) {
     if (!Rbac::hasPermission($__a['perm'])) continue;

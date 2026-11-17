@@ -88,7 +88,7 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
                      this for the dispatch tab and shows it again for orders, so
                      the node must exist in the DOM for every role or that
                      toggle hits null. sales_controller.php re-checks on write. */ ?>
-            <button id="btn-primary-action" onclick="openOrderModal()"
+            <button id="btn-primary-action" data-lpc-new onclick="openOrderModal()"
                     data-perm="sales.orders.create"
                     class="bg-gray-900 hover:bg-black text-white px-4 md:px-5 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2 shrink-0 lpc-focusable">
                 <i class="fas fa-plus"></i>
