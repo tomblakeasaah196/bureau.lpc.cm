@@ -154,6 +154,28 @@ final class HelpRetrieval
         return $out;
     }
 
+    /**
+     * The training-video moments that answer a question (migration 126): the
+     * transcript lines of the videos the current user may see, by keyword —
+     * no embedding call, so it also works when the provider is not configured.
+     * Same contract as search(): nothing leaves here that the user may not see
+     * (HelpVideoLibrary::visible(), built on lpc_help_visible()). Each moment
+     * carries `context` (the line and the ones around it) for the prompt.
+     *
+     * @return list<array> HelpVideoLibrary moments, best first
+     */
+    public static function videoMoments(string $question, ?string $lang = null, int $limit = 3): array
+    {
+        if (trim($question) === '') {
+            return [];
+        }
+        require_once __DIR__ . '/HelpVideoLibrary.php';
+        if (!HelpVideoLibrary::ready()) {
+            return [];
+        }
+        return HelpVideoLibrary::chatMoments($question, lpc_help_lang($lang), $limit);
+    }
+
     /** @param array<int,float> $a @param array<int,float> $b */
     private static function cosine(array $a, array $b): float
     {

@@ -36,6 +36,7 @@
         networkError: lang === 'en' ? 'Connection failed. Check your network.'     : 'Connexion impossible. Vérifiez votre réseau.',
         sessionDead:  lang === 'en' ? 'Session expired. Reload the page.'          : 'Session expirée. Rechargez la page.',
         sourcesLabel: lang === 'en' ? 'Sources'                                    : 'Sources',
+        videosLabel:  lang === 'en' ? 'Training videos'                            : 'Vidéos de formation',
         goToPage:     lang === 'en' ? 'Go to this page'                           : 'Aller à cette page',
         quotaLeft:    lang === 'en' ? '{n} of {cap} questions left today'          : "{n} question(s) restantes aujourd'hui sur {cap}",
     };
@@ -237,6 +238,31 @@
                 });
                 bubble.appendChild(srcWrap);
             }
+        }
+
+        // Training-video moments (migration 126): « Voir dans la vidéo
+        // « Premiers pas » à 02:14 », built server-side from the transcript
+        // lines this user may see. Shown for every non-error reply — also when
+        // Praxis is not configured, since finding them costs no provider call.
+        if (json.status !== 'error' && json.videos && json.videos.length) {
+            var vids = document.createElement('div');
+            vids.className = 'lpc-ai-chat-sources';
+            var vl = document.createElement('p');
+            vl.className = 'lpc-ai-chat-sources-label';
+            vl.textContent = t.videosLabel;
+            vids.appendChild(vl);
+            json.videos.forEach(function (v) {
+                if (!v || typeof v.url !== 'string' || !/^\/modules\/help\/video\.php\?/.test(v.url)) return;
+                var row = document.createElement('div');
+                row.className = 'lpc-ai-chat-source-row';
+                var a = document.createElement('a');
+                a.href = v.url + '&lang=' + lang;
+                a.className = 'lpc-ai-chat-source lpc-ai-chat-source--video';
+                a.textContent = v.label;
+                row.appendChild(a);
+                vids.appendChild(row);
+            });
+            bubble.appendChild(vids);
         }
 
         placeholderEl.innerHTML = '';
