@@ -100,7 +100,7 @@
                 url:   '/api/v1/ops_dashboard_api.php?action=drilldown_completed_today',
                 columns: ['Référence', 'Client', 'Chauffeur', 'Heure'],
                 csv: true,
-                deeplink: { href: '/modules/operations/deliveries.php?date=today&from=dashboard_ops', label: 'Voir les livraisons du jour' },
+                deeplink: { href: '/modules/sales/orders.php#dispatch&from=dashboard_ops', label: 'Voir les livraisons' },
                 renderRow: function (r) {
                     return LPC.html`<tr>
                         <td>${r.reference || ''}</td>

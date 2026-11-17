@@ -38,7 +38,7 @@
                 url: '/api/v1/md_dashboard_api.php?action=drilldown_revenue',
                 columns: ['Date', 'Écriture', 'Compte', 'Montant'],
                 csv: true,
-                deeplink: { href: '/modules/accounting/journal_entries.php?from=dashboard_md', label: 'Ouvrir le grand livre' },
+                deeplink: { href: '/modules/accounting/ledger.php?from=dashboard_md', label: 'Ouvrir le grand livre' },
                 renderRow: function (r) {
                     return LPC.html`<tr>
                         <td>${LPC.fmt.date(r.date)}</td>
@@ -117,7 +117,7 @@
                 url: '/api/v1/md_dashboard_api.php?action=drilldown_cash',
                 columns: ['Compte', 'Code', 'Solde'],
                 csv: true,
-                deeplink: { href: '/modules/accounting/journal_entries.php?from=dashboard_md', label: 'Voir les écritures' },
+                deeplink: { href: '/modules/accounting/cashflow.php?from=dashboard_md', label: 'Ouvrir la trésorerie' },
                 renderRow: function (r) {
                     return LPC.html`<tr>
                         <td>${r.account_name || ''}</td>
