@@ -265,6 +265,8 @@
             const u = new URL(window.location.href);
             u.searchParams.set('tab', tabKey);
             window.history.replaceState({}, '', u);
+            // The sidebar lights the menu item for this tab (lpc-sidebar.js).
+            document.dispatchEvent(new CustomEvent('lpc:location'));
         } catch (e) { /* non-fatal */ }
 
         switch (config.shape) {
