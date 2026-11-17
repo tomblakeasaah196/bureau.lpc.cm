@@ -91,13 +91,26 @@ final class HelpVideoStore
         if (isset($memo[$dir])) {
             return $memo[$dir];
         }
+        $site = str_replace('\\', '/', (string) realpath(self::appRoot()));
+        $inside = static function (string $p) use ($site): bool {
+            return $site !== '' && str_starts_with(strtolower(rtrim($p, '/')) . '/', strtolower($site) . '/');
+        };
+        $refuse = 'Le dossier des vidéos doit être hors du site (HELP_VIDEO_PATH) : les vidéos ne doivent jamais être servies directement.';
+        // Checked before creating anything: the nearest existing parent, resolved.
+        $probe = $dir;
+        while (!file_exists($probe) && dirname($probe) !== $probe) {
+            $probe = dirname($probe);
+        }
+        $resolved = str_replace('\\', '/', (string) realpath($probe)) . substr($dir, strlen($probe));
+        if ($inside($resolved)) {
+            throw new RuntimeException($refuse);
+        }
         if (!is_dir($dir) && !@mkdir($dir, 0750, true) && !is_dir($dir)) {
             throw new RuntimeException("Le dossier des vidéos ({$dir}) ne peut pas être créé. Vérifiez HELP_VIDEO_PATH.");
         }
         $real = str_replace('\\', '/', (string) realpath($dir));
-        $site = str_replace('\\', '/', (string) realpath(self::appRoot()));
-        if ($real === '' || ($site !== '' && str_starts_with(strtolower($real) . '/', strtolower($site) . '/'))) {
-            throw new RuntimeException('Le dossier des vidéos doit être hors du site (HELP_VIDEO_PATH) : les vidéos ne doivent jamais être servies directement.');
+        if ($real === '' || $inside($real)) {
+            throw new RuntimeException($refuse);
         }
         // Belt and braces: never served even if someone points the path into a docroot.
         if (!is_file($real . '/.htaccess')) {

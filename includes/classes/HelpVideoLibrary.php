@@ -126,7 +126,11 @@ final class HelpVideoLibrary
         if ($path === '') {
             return null;
         }
-        $p = (string) parse_url($path, PHP_URL_PATH);
+        $parts = parse_url($path);
+        if ($parts === false || isset($parts['scheme']) || isset($parts['host']) || str_starts_with($path, '//')) {
+            return null;   // a page of the app, never another site
+        }
+        $p = (string) ($parts['path'] ?? '');
         $p = '/' . ltrim(preg_replace('#/+#', '/', str_replace('\\', '/', $p)), '/');
         if ($p === '/') {
             $p = '/index.php';
