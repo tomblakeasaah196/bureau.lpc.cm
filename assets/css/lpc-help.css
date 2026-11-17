@@ -1258,6 +1258,8 @@ a.lpc-help-btn { text-decoration: none; }
     cursor: pointer;
     transition: border-color .12s, background .12s;
 }
+.lpc-vadm-drop { position: relative; }
+.lpc-vadm-drop input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
 .lpc-vadm-drop strong { color: var(--lpc-ink, #111827); }
 .lpc-vadm-drop.is-over,
 .lpc-vadm-drop:hover { border-color: var(--lpc-accent-on-light, #005A2B); }

@@ -70,9 +70,9 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     <div class="lpc-toolbar">
         <?php
         // Page help — icon pinned to the toolbar's right edge by
-        // `.lpc-toolbar > .lpc-help-btn { order: 99 }`. Renders a
-        // muted « Aide (à venir) » link until articles are authored
-        // against the anchor 'admin.help_articles'.
+        // `.lpc-toolbar > .lpc-help-btn { order: 99 }`. Links to the
+        // Centre d'Aide until an article or a video covers the anchor
+        // 'admin.help_articles' (see lpc_help_link()).
         echo lpc_help_link('admin.help_articles', $lang);
         ?>
         <a href="?new=1&lang=<?= $lang ?>"
@@ -95,6 +95,12 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
         <a role="tab" href="?new=1&lang=<?= $lang ?>"
            class="px-4 py-2 text-sm font-bold <?= $tab === 'edit' ? 'text-lpc-dark' : 'border-transparent text-gray-400' ?>">
             <?= $en ? 'Editor' : 'Éditeur' ?>
+        </a>
+        <!-- The training videos (migration 126) are managed on a sibling page,
+             behind the same help.manage permission. -->
+        <a role="tab" href="/modules/admin/help_videos.php?lang=<?= $lang ?>"
+           class="px-4 py-2 text-sm font-bold border-transparent text-gray-400">
+            <?= $en ? 'Videos' : 'Vidéos' ?>
         </a>
     </nav>
 
