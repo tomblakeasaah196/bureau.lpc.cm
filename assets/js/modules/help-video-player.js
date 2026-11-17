@@ -175,7 +175,11 @@
         return u;
     }
     video.addEventListener('pause', function () {
-        try { history.replaceState(null, '', momentUrl(video.currentTime).toString()); } catch (e) { /* ignore */ }
+        try {
+            var u = momentUrl(video.currentTime);
+            if (video.ended) u.searchParams.delete('t');   // finished: a refresh starts over
+            history.replaceState(null, '', u.toString());
+        } catch (e) { /* ignore */ }
     });
 
     var copyBtn = document.getElementById('vp-copy');
