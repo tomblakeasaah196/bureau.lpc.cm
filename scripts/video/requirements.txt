@@ -1,0 +1,12 @@
+# The narration's Python (scripts/video/narrate.py; docs/TRAINING_VIDEOS.md §1).
+# Python 3.12: spaCy, which Kokoro needs, does not build on 3.13.
+#   uv venv -p 3.12 ~/.video-venv
+#   uv pip install --python ~/.video-venv/Scripts/python.exe torch --index-url https://download.pytorch.org/whl/cpu
+#   uv pip install --python ~/.video-venv/Scripts/python.exe -r scripts/video/requirements.txt
+# torch's CPU build first: the default pulls several gigabytes of CUDA. Kokoro is only the fallback voice;
+# the chosen voice (Denise) needs edge-tts alone.
+edge-tts==7.3.1
+kokoro==0.9.4
+misaki[en]==0.9.4
+soundfile==0.14.0
+numpy==2.5.5
