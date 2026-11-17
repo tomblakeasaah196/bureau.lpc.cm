@@ -1,0 +1,277 @@
+# Training videos
+
+**Start here when asked for a training video of Bureau LPC** ("make the video for the Ventes module",
+"the accountant's month-end video"). Every video looks and sounds like the first one: the same cards,
+the same caption bar, the same voice at the same pace, the same real people. This file is how any
+session, in any chat, makes one, in order, and what has been learnt so far. Read all of it before
+filming. The finished videos live in the app itself, in the Centre d'Aide (docs/HELP_VIDEOS.md).
+
+The tooling is `scripts/video/`. A video is one file in `scripts/video/scenes/<id>.js`: its script and
+its choreography together.
+
+| Video | Scene | Status |
+| --- | --- | --- |
+| Introduction, partie 1 : Premiers pas (the app, signing in, the shell, signing out) | `intro-1-premiers-pas.js` | Made 17/11/2026, 6:57, 10 chapters, -16.0 LUFS, 18.8 MB; sent in the chat; to publish in the live Centre d'Aide once this branch is deployed (§5) |
+| Introduction, partie 2 : Chacun son espace (each role's home and menu) | not yet written | planned (§8) |
+
+---
+
+## 1 · What a session needs
+
+Everything below is on the owner's PC already (17/11/2026). A new machine needs the same.
+
+1. **The repository and Node** (`npm ci` at the root): `playwright-core` (pinned 1.64.1) and the Inter
+   font (`@fontsource-variable/inter`) are dev dependencies. Playwright never downloads a browser: the
+   installed **Google Chrome** is used (`scripts/video/browser.js`; `LPC_CHROMIUM` overrides). On the
+   owner's PC Windows refuses to run Playwright's cached Chromium ("Permission denied"): Chrome works.
+2. **ffmpeg** on the PATH (any recent build; the owner's is 9.0 from gyan.dev).
+3. **Laragon**: PHP 8.3 (`C:/laragon/bin/php/php-8.3.30-Win32-vs16-x64`, the server's version; the
+   `php` on the PATH is 8.5 without pdo_mysql), MySQL 8.4 and Mailpit (`C:/laragon/bin/mailpit/1.22.3`).
+4. **Python 3.12 for the voice** (Kokoro's spaCy does not build on 3.13), in `~/.video-venv`:
+   ```bash
+   uv venv -p 3.12 ~/.video-venv
+   uv pip install --python ~/.video-venv/Scripts/python.exe torch --index-url https://download.pytorch.org/whl/cpu
+   uv pip install --python ~/.video-venv/Scripts/python.exe -r scripts/video/requirements.txt
+   ```
+   torch's CPU build first: the default pulls gigabytes of CUDA. Only the fallback voice needs torch.
+5. **Network** for the voice: Microsoft's read-aloud service (`speech.platform.bing.com`), and Google
+   Fonts, which the app's pages load.
+6. **The owner's rule**: at most 5 agents at once on this PC, all chats together. Filming is a
+   foreground job; say how long a step takes before starting it.
+
+## 2 · The pattern (decided with the owner, 17/11/2026; do not change without a new decision)
+
+**The file.** 1920 × 1080, 30 fps, H.264; AAC mono 48 kHz, 160 kb/s; loudness -16 LUFS. MP4 tags:
+`title` "LPC ERP · <Titre> (Introduction, partie N)", `artist` "JBS Praxis", audio language `fra`.
+Chapters in the file, one per chapter of the script. Hard cuts, no fades. Beside the MP4: `.fr.srt`,
+`.fr.vtt`, the poster (`.jpg`, the opening card) and `.manifest.json`, which the Centre d'Aide imports.
+
+**The frame.** The picture, 1920 × 960, above a caption bar, 1920 × 120: deep green with a 3 px lime
+rule on top; on the left "CHAPITRE N SUR M" in lime capitals and the chapter's name in white bold; the
+line being spoken, centred, white, Inter 28 px. A long line shows in two halves (split at `|`, else
+where the sentence rests nearest its middle).
+
+**The cards.** La Petite Cour's own look, as the app wears it: the brand green #005A2B and lime
+#8CC63F (tailwind.config.js), Inter, the full logo (`assets/img/full_logo.svg`) on a white tile, a
+faint leaf in the corner. An eyebrow in lime capitals ("FORMATION LPC ERP · INTRODUCTION, PARTIE 1"),
+the title at up to 132 px, a subtitle, a lime rule, `bureau.lpc.cm` on the left and "Conçu par
+**JBS Praxis**" on the right. The closing card is the same with "Merci". Narration starts on the
+opening card at once and ends on the closing one. `scripts/video/style.js` holds all of it.
+
+**Desktop only.** The app at 1536 × 768 CSS pixels, device scale 1.25, so it fills the picture
+exactly. The app was built for the PC; the phone frame exists in `style.js` for a later need but no
+video uses it. A drawn arrow pointer glides to what is pressed. Real records, real clicks, nothing
+faked. Chrome presents as Chrome on Windows, French, Africa/Douala.
+
+**The voice.** Microsoft **Denise** (`fr-FR-DeniseNeural`), rate -4 %, chosen by the owner from a
+nine-voice audition. It is spoken through Microsoft Edge's read-aloud service (the `edge-tts`
+package): free, no account, unofficial; the owner accepted that for an internal training library and
+declined an Azure account. The script's words go to Microsoft to be spoken. The fallback, if that
+service stops, is Kokoro's `ff_siwis` on this machine (`VIDEO_VOICE=kokoro`), and then **every** line
+of the video is voiced again with it: never two voices in one video. `SAID` in `make.js` says how a
+word on screen is read (LPC, ERP, BL, FCFA, Ctrl…): the caption keeps what the screen says.
+
+**The language.** French narration, French captions, the app in French (its default). Buttons, menus
+and fields are named exactly as the screen reads them, between « and » in the caption when it helps.
+
+**The script.** Present tense, "vous" to the viewer, plain words, one fact a sentence, about 20 words
+at most. It follows named people doing real work ("Daniel Massomba, le comptable, ouvre…"). It says who
+may do what and the rules a person meets; it never explains how the system is built. Chapter 1 is
+Bienvenue: what the video covers and whom it follows. The last is Pour conclure and names the next
+video. **No dash (— or –) in anything a viewer reads**: `make.js` refuses a line that has one.
+
+## 3 · The people
+
+LPC's real staff, by their real names (the owner's decision: an internal library). They are the five
+logins of the live database; `scripts/video/cast.js` names them by key. Add a person there, never in a
+scene, so the next video meets the same colleagues.
+
+| Key | Person | Post | Role (menu) |
+| --- | --- | --- | --- |
+| `timothee` | Timothée Massomba | Directeur Général | admin |
+| `luc` | Luc Nana | Contrôleur Financier | controleur_financier |
+| `daniel` | Daniel Massomba | Comptable | accountant |
+| `bertin` | Bertin Chadeu | Responsable des Opérations | operations |
+| `support` | JBS Praxis Support | Support technique (the IT partner) | admin |
+
+- **No Sales login exists yet** (17/11/2026): the owner expects one. Add it to `cast.js` once LPC
+  creates it on live and a new export is loaded (§4.1).
+- **No drivers.** The owner will not use driver accounts and plans to take the driver screens out.
+  Videos never show the driver pages; "Vue Chauffeur" still shows in some menus until that work lands.
+- **Clients and suppliers** on screen are real Cameroonian companies, as LPC deals with them (the owner
+  named PROMETAL, not yet a client, and Afriland First Bank). Create them on the copy when a video
+  needs them, with their real public details; never invent a company.
+- **Courrier** holds people's real mail: never open a mailbox on camera. Pointing at the menu item is
+  fine. Timothée has unread mail; his badge shows a count.
+
+## 4 · Filming
+
+### 4.1 · The copy (never the live site)
+
+Filming signs people in and creates records, so it never touches bureau.lpc.cm. It runs on a private
+copy on this machine, whose address bar still reads `bureau.lpc.cm` (Chrome sends that host to the
+local server). Typing a real person's password into the live site is also something a Claude session
+will not do. Everything that holds LPC's data lives OUTSIDE the repository, in `VIDEO_HOME`
+(`C:/Users/Tom-Blake/bureau_video`), and is never committed:
+
+| Path | What |
+| --- | --- |
+| `filming.env` | the app's `.env` for the copy: database `bureau_video` on `127.0.0.1:3317`, `APP_URL=http://bureau.lpc.cm`, `SESSION_COOKIE_SECURE=false`, `MAIL_FROM` set (mail goes to Mailpit) |
+| `mysql-data/` | the copy's own MySQL 8.4 on port **3317** (never the 3307 the other bureau chats use) |
+| `dumps/` | live exports (`live-2026-11-17.sql`, phpMyAdmin Quick SQL export of `smartqaq_lpc_core`) |
+| `snapshots/` | the copy saved before a chapter that writes |
+| `out/<scene>/` | each video's narration, shots and finished files |
+
+Starting it (each in its own background terminal; leave them running):
+```bash
+"/c/laragon/bin/mysql/mysql-8.4.3-winx64/bin/mysqld.exe" --datadir="C:/Users/Tom-Blake/bureau_video/mysql-data" --port=3317 --bind-address=127.0.0.1 --mysqlx=OFF --max_allowed_packet=256M --sql-mode="NO_ENGINE_SUBSTITUTION" --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --console
+/c/laragon/bin/mailpit/1.22.3/mailpit.exe --listen 127.0.0.1:8025 --smtp 127.0.0.1:1025 --database C:/Users/Tom-Blake/bureau_video/mailpit.db
+node scripts/video/make.js - serve        # php -S 127.0.0.1:8140 with scripts/video/router.php
+npm run build                             # once per checkout: the CSS and JS the deploy builds (§6.7)
+```
+
+A fresh copy from a new live export (the owner exports `smartqaq_lpc_core` from cPanel's phpMyAdmin,
+Export, Quick, SQL; a Claude session asks before downloading it):
+```bash
+node -e 'const g=require("./scripts/video/ground"); g.load("C:/Users/Tom-Blake/bureau_video/dumps/<file>.sql"); g.migrate()'
+```
+`ground.js` refuses any database but `bureau_video*` on 127.0.0.1:3317. `ready()` gives the people a
+scene signs in as the filming password (`VIDEO_PASSWORD`, default in `ground.js`), on the copy only.
+
+**Snapshots.** A chapter that writes changes the copy; a retake needs the state before it:
+`node scripts/video/make.js - snapshot <name>` before, `- restore <name>` to retake.
+
+### 4.2 · A scene
+
+```js
+module.exports = {
+  id, file, meta: { title, artist },                  // file: the MP4's name
+  library: { slug, title, subtitle, series, part, parts, audience },  // the Centre d'Aide entry
+  opening: { eyebrow, title, subtitle, left },         // the cards (§2)
+  closing: { eyebrow, title: "Merci", subtitle, left: "bureau.lpc.cm" },
+  signsIn: ["daniel"],                                 // people typed in on camera (they get the filming password)
+  chapters: [{ name: "Bienvenue", shots: [
+    { kind: "card", card: "opening", lines: ["…", "…"] },
+    { kind: "desktop", as: "daniel", start: "/modules/…", setup, lines: [
+      "A line said over the screen as it is.",
+      { say: "A line with an action.", do: (s) => s.click("Accéder au Bureau") },
+    ] },
+  ] }],
+};
+```
+A shot with no `as` is filmed signed out (a sign-in shown on camera); `as` signs the person in off
+camera first. A line's `do` starts as its narration starts; the next line waits for both. `before` runs
+first, `after` once the line is said, `hold` adds seconds. The hands (`s`): `click(name or Locator)` (a
+button, link, tab, menu item or option by its exact name, any case), `hover`, `type(label, text)`,
+`key("Control+K")`, `scroll(dy)`, `go(path)`, `wait(seconds)`, `settle()`, `s.page` for anything else.
+`helpers.js` has the finders (`button`, `link`, `dialog`, `heading`, `shell.menu`, `shell.user`…),
+`soft` (glide there if it shows within a few seconds, so a line that only points never costs a take),
+`tour`, and `mailPage` (an email as the app wrote it, from Mailpit through `ground.mailTo`).
+
+### 4.3 · The commands
+
+```bash
+node scripts/video/make.js <scene> script      # read it, with its length
+node scripts/video/make.js <scene> narrate     # the voice, cached by words: only changed lines are spoken again
+node scripts/video/make.js <scene> film        # or --only=c03s01,c04s02 to refilm some shots
+node scripts/video/make.js <scene> assemble    # MP4, captions, poster and manifest in VIDEO_HOME/out/<scene>
+php scripts/help_videos/import.php <out>/<file>.manifest.json   # into the copy's Centre d'Aide (LPC_ENV_PATH=filming.env)
+```
+Shots are named `cCCsSS` (chapter, shot). **Look at every shot before assembling**: a contact sheet
+(`ffmpeg -i x.mp4 -vf "fps=1/4,scale=480:270,tile=4x4" sheet%02d.jpg`). Check the loudness
+(`ffmpeg -i x.mp4 -af ebur128 -f null -`, about -16 LUFS) and the chapters (`ffprobe -show_chapters`).
+
+## 5 · Delivering
+
+The MP4 is sent to the owner in the chat, and published in the app: Centre d'Aide, « Vidéos de
+formation », uploaded by JBS Praxis Support (docs/HELP_VIDEOS.md), where staff search what is said and
+open the video at that second. Name: `LPC-ERP-<Serie>-<N>-<Titre>.mp4`. Add the row to the table at the
+top of this file.
+
+## 6 · Pitfalls already met
+
+1. **Git Bash rewrites a path argument** that starts with `/` into `C:/Program Files/Git/…`: run probes
+   and commands that take an app path with `MSYS_NO_PATHCONV=1`.
+2. **Playwright's cached Chromium will not start** on the owner's PC ("spawn UNKNOWN", "Permission
+   denied"); `browser.js` falls back to the installed Chrome.
+3. **Microsoft's read-aloud service drops connections** and can return a clip cut short: `narrate.py`
+   retries each line six times and rejects a clip shorter than its words. A run that still fails stops,
+   and resumes where it stopped (durations are saved line by line).
+4. **`php -S` ignores `.htaccess`**: `scripts/video/router.php` applies the same refusals and short
+   addresses. It refuses to run under anything but the built-in server, and `scripts/` is refused on the
+   live site anyway.
+5. **The sign-in form posts `_csrf`**, not `csrf_token`, and wrong passwords count against the account
+   (10 in 15 minutes): never send wrong passwords for a person the video signs in as; `ground.ready()`
+   empties `login_attempts`.
+6. **Live data is young** (17/11/2026): 3 clients (SMART LOGISTICS AND SERVICES LTD, BOULANGERIE SAKER,
+   NOFIA SA), 2 suppliers, 4 purchase orders, 4 quotes, 6 products, 8 payslips, 3 treasury accounts, no
+   sales or invoices yet. InnoDB's `table_rows` is an estimate: count with `COUNT(*)` before saying a
+   table is empty. Dashboards honestly read 0 F where nothing is recorded: the script says the figures
+   fill in as the work is recorded, never pretends otherwise.
+7. **Build before filming.** The checkout's `assets/css/tailwind.css` is older than what CI builds and
+   deploys (`npm run build` in `pipeline.yml`): an unbuilt copy drew some text in the wrong colour. Run
+   `npm run build` once; leave the rebuilt `tailwind.css` and `lpc-core.manifest.json` uncommitted unless
+   a change of yours needs them.
+8. **The sign-in limit is 3 attempts an account in 15 minutes on live** (`sec_max_login_attempts`). Since
+   this branch a success clears the count (§7); before it, a fourth sign-in of the same person inside a
+   quarter of an hour was refused even with the right password, which stalled takes.
+9. **The idle timeout on live is 120 minutes** (`sec_session_timeout_min`), not the code's default of 30.
+   Read Paramètres (or `app_preferences`) before saying a number on camera.
+10. **A remembered device's code signs in on its fourth digit**: there is nothing to press. Type it with
+    a slow delay so the viewer sees the dots fill.
+11. **`from:` chains shots.** A shot that continues another's browser (`from: "c08s01"`) needs that shot
+    filmed in the same run: a previous take may have signed that session out. Refilm both together
+    (`--only=c08s01,c09s01`).
+12. **Google Fonts can stall a page's `load` for 20 s and more.** `film.js` answers them with the same
+    Inter from `node_modules`, so takes no longer depend on the network.
+13. **Quick create is per role.** The « + » menu lists only what the person may create (Daniel, the
+    accountant: invoice and supplier order; no client). Probe a person's menu before scripting it.
+14. **A video that shows the Centre d'Aide** is filmed twice: once, then imported into the copy's
+    library (`scripts/help_videos/import.php … --publish`), then that chapter again, so the library and
+    the « Aide » drawer show the video itself.
+15. **PHP's built-in server answers one request at a time on Windows**: a page with many calls takes a
+    few seconds to settle. Leave it; `settle()` waits for the network to go quiet.
+16. **Never film Courrier's mailboxes**: they hold people's real mail (Timothée has unread mail).
+
+## 7 · Bugs found while filming
+
+Each is fixed on the video's branch, in the screen's own code, and listed here.
+
+| Date | Screen | What filming showed | Fix |
+| --- | --- | --- | --- |
+| 17/11/2026 | Topbar « + » and Ctrl+K actions | « Nouveau client », « Nouvelle commande », « Nouvelle commande fournisseur » linked to `?new=1`, which no page read: they landed on the list; « Nouvelle facture » too, and invoices have no blank form. Items were gated on view, not create | Fixed: a page marks its primary button `data-lpc-new` and `lpc-deeplink.js` presses it after load (only if visible), then drops `new=1`; « Nouvelle facture » opens « BL Non Facturés » (`#to_invoice`); items gated on the create permission |
+| 17/11/2026 | Sign-in, too many attempts | The form posts to `/api/v1/auth.php`, so the rate limiter answered with raw JSON | Fixed: `RateLimiter::guard` takes an app path for a refused browser form; sign-in returns to `?error=too_many_attempts` with a sentence |
+| 17/11/2026 | Sign-in after an idle timeout | `?error=session_expired` showed « Une erreur est survenue » | Fixed: « Votre session a expiré après une période d'inactivité… » |
+| 17/11/2026 | Sign-in, « Changer mon mot de passe » | A dead end: « Connexion requise », whose « Se connecter » lost the way back | Fixed: the link is gone from the sign-in page (changing a password needs a session; it is in the account menu) |
+| 17/11/2026 | Dashboards, a KPI's « Ouvrir … » | Six links to pages never built (`journal_entries.php`, `procurement/supplier_invoices.php`, `operations/deliveries.php`, `hr/payroll.php`) came back to the dashboard silently | Fixed: Trésorerie & Banque, Grand Livre OHADA, Écritures `#queue`, Gestion des Achats, BL tab of Ventes & Commandes, Gestion du Personnel `#payroll` |
+| 17/11/2026 | Sidebar on Paramètres | « Rôles & Permissions », « Identité de l'Entreprise » and « Paramètres Système & Audit » lit up together: they share one path and differ by `?tab=` | Fixed: the link whose query matches the page wins (`lpc-sidebar.js`), and switching tabs updates it (`lpc:location`) |
+| 17/11/2026 | Help « ? » on pages with no article | « Aide (à venir) » placeholder | Fixed with the library: the page « Aide » offers the video or the Centre d'Aide (docs/HELP_VIDEOS.md) |
+| 17/11/2026 | Sign-in, the per-account limit | Every sign-in counted, the good ones too: with live's 3 in 15 minutes, a fourth correct sign-in of the same person was refused « Trop de tentatives » | Fixed: a success clears its account's count (`RateLimiter::clear`); five good sign-ins pass, the fourth wrong password is still refused |
+| 17/11/2026 | Help article « Mot de passe oublié » | Said « Il n'y a pas de lien par email », while live's page sends one (1 hour, single use) | Fixed: migration 127 rewrites the FR and EN article and its assistant chunks |
+| 17/11/2026 | Ctrl+K palette | A result's section ran into its name (« Factures & CaisseFactures & Paiements ») | Fixed: the hint stacks under the label (`lpc-shell.css`) |
+| 17/11/2026 | « + » menu | « Nouvelle commande fournisseur » was in Ctrl+K but not in the menu | Fixed: added, gated on `create_po` |
+| 17/11/2026 | `scripts/migrate.php` on a Windows checkout | CRLF files read as « file checksum has changed » for every applied migration | Fixed: checksums count line endings as LF (the server's recorded checksums are unchanged: all 133 matched) |
+| 17/11/2026 | Trésorerie, MTN MOBILE MONEY | The account holds 889 000 FCFA in Trésorerie & Banque but has no chart-of-accounts link (`coa_account_id` empty), so the dashboards' cash (accounts 52/57) reads 0 F | **Not fixed**: an accounting decision for the owner (link it to a 5x account and post its opening balance) |
+| 17/11/2026 | Help article « Vue Finance » | The page's « Aide » shows formulas from the code (`SUM(…)`, column names) to the reader | **Not fixed**: content to rewrite in plain words with the Finance videos |
+| 17/11/2026 | `migrations/003_ohada_backfill.sql:80` | Fails on a fresh MySQL 8.4 (error 1830: NOT NULL column under an ON DELETE SET NULL key); MariaDB accepts it | **Not fixed**: only a fresh MySQL install meets it; live and CI are MariaDB |
+| 17/11/2026 | Menus | « Vue Chauffeur » still shows to admin and the accountant although LPC uses no driver accounts | **Not fixed**: the owner plans to take the driver screens out |
+
+## 8 · Where the work stands
+
+**17/11/2026 · the owner (with Claude). The foundation and the introduction.** Decided by the owner
+(nine questions asked first): film a private local copy of live data, not the live site; LPC's real
+staff by name; French voice and captions, Microsoft Denise through the free read-aloud route, Kokoro as
+fallback; desktop only, no drivers; the introduction in two parts; videos published in the app's own
+Centre d'Aide (self-hosted behind the login, by role like the help articles, transcripts searchable from
+the help search, the help AI's answers and each page's « ? »), and sent in the chat.
+
+- [x] The pipeline (`scripts/video/`), the copy, the cast, this runbook.
+- [x] The Centre d'Aide library (docs/HELP_VIDEOS.md).
+- [x] Part 1, Premiers pas: written, filmed and checked (6:57, 10 chapters), sent in the chat.
+- [ ] Publish Part 1 in the live Centre d'Aide once this branch is deployed: JBS Praxis Support
+      uploads the four files from `VIDEO_HOME/out/intro-1-premiers-pas/` (MP4, `.fr.vtt`, `.jpg`,
+      `.manifest.json`) on Centre d'Aide → Vidéos (docs/HELP_VIDEOS.md).
+- [ ] Part 2, Chacun son espace: Timothée's Tableau de Bord Exécutif, Luc's and Daniel's Vue Finance,
+      Bertin's Vue Opérations, JBS Praxis Support's Paramètres; Sales once a Sales login exists.
+- [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
+      Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.
