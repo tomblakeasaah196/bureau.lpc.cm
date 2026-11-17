@@ -57,14 +57,19 @@ Rbac::requirePermission('dashboard.sales.view');
 /**
  * Product-family matching.
  *
- * `products.format` is NOT reliable — the 20L SKU (WAT-20L-OP) has format NULL
- * while the 1.5L SKU (WAT-1.5L-SM) has format '1.5L'. `code` is the dependable
+ * `products.format` is NOT reliable on its own, so `code` is the dependable
  * discriminator, with `format` kept as a secondary match so a future SKU that
  * fills in format but breaks the code convention still lands in the right
  * bucket. Both are constants below — never interpolated from a request.
+ *
+ * The two families are LPC's two bottle sizes: 20L (OPUR 20L, WAT-20L-001) and
+ * 10L (OPUR 10L, WAT-10L-001). The second card used to count a 1.5L family
+ * (WAT-1.5L-*) that LPC's catalogue does not have, so it read 0 for ever while
+ * the 10L bottles sold were counted nowhere (found while filming the training
+ * videos, docs/TRAINING_VIDEOS.md §7; migration 128 renames its target column).
  */
 const LPC_SQL_IS_20L  = "(p.category = 'Eau' AND (p.code LIKE '%-20L-%'  OR p.format = '20L'))";
-const LPC_SQL_IS_15L  = "(p.category = 'Eau' AND (p.code LIKE '%-1.5L-%' OR p.format = '1.5L'))";
+const LPC_SQL_IS_10L  = "(p.category = 'Eau' AND (p.code LIKE '%-10L-%'  OR p.format = '10L'))";
 
 /** Cancelled orders are not sales. Applied everywhere revenue or volume is counted. */
 const LPC_SQL_LIVE_ORDER = "so.status <> 'cancelled'";
@@ -177,11 +182,9 @@ try {
         );
     }
 
-    if ($action === 'drilldown_vol_20l' || $action === 'drilldown_vol_15l') {
+    if ($action === 'drilldown_vol_20l' || $action === 'drilldown_vol_10l') {
         $isTwenty = ($action === 'drilldown_vol_20l');
-        $familyPred = $isTwenty
-            ? "(p.category = 'Eau' AND (p.code LIKE '%-20L-%' OR p.format = '20L'))"
-            : "(p.category = 'Eau' AND (p.code LIKE '%-1.5L-%' OR p.format = '1.5L'))";
+        $familyPred = $isTwenty ? LPC_SQL_IS_20L : LPC_SQL_IS_10L;
         $sql = "
             FROM sales_orders so
             JOIN sales_order_items soi ON soi.sales_order_id = so.id
@@ -200,9 +203,9 @@ try {
              COUNT(DISTINCT so.id) AS order_count,
              SUM(soi.quantity)     AS quantity",
             ['c.name'],
-            ['Client', 'Commandes', $isTwenty ? 'Bouteilles 20L' : 'Bouteilles 1,5L'],
+            ['Client', 'Commandes', $isTwenty ? 'Bouteilles 20L' : 'Bouteilles 10L'],
             ['client_name', 'order_count', 'quantity'],
-            $isTwenty ? 'sd-vol-20l' : 'sd-vol-15l'
+            $isTwenty ? 'sd-vol-20l' : 'sd-vol-10l'
         );
     }
 
@@ -346,7 +349,7 @@ try {
             SELECT COUNT(*)                        AS n_rows,
                    SUM(pt.target_revenue_fcfa)     AS target_revenue,
                    SUM(pt.target_volume_20l)       AS target_vol_20l,
-                   SUM(pt.target_volume_1_5l)      AS target_vol_1_5l,
+                   SUM(pt.target_volume_10l)       AS target_vol_10l,
                    MIN(pt.max_return_debt_rate)    AS max_return_debt_rate
               FROM performance_targets pt
              WHERE pt.budget_id = :bid
@@ -361,7 +364,7 @@ try {
     // the binding constraint is the strictest one that applies.
     $targetRevenue  = $hasTargets ? (float)$t['target_revenue']       : null;
     $targetVol20L   = $hasTargets ? (int)  $t['target_vol_20l']       : null;
-    $targetVol15L   = $hasTargets ? (int)  $t['target_vol_1_5l']      : null;
+    $targetVol10L   = $hasTargets ? (int)  $t['target_vol_10l']       : null;
     $maxReturnRate  = $hasTargets ? (float)$t['max_return_debt_rate'] : null;
 
     // Per-segment targets for the B2B/B2C split. Same resolved budget.
@@ -405,7 +408,7 @@ try {
     $stmt = $db->prepare("
         SELECT
             COALESCE(SUM(CASE WHEN " . LPC_SQL_IS_20L . " THEN soi.quantity ELSE 0 END), 0) AS vol_20l,
-            COALESCE(SUM(CASE WHEN " . LPC_SQL_IS_15L . " THEN soi.quantity ELSE 0 END), 0) AS vol_1_5l
+            COALESCE(SUM(CASE WHEN " . LPC_SQL_IS_10L . " THEN soi.quantity ELSE 0 END), 0) AS vol_10l
           FROM sales_order_items soi
           JOIN sales_orders so ON so.id = soi.sales_order_id
           JOIN products      p ON p.id  = soi.product_id
@@ -414,7 +417,7 @@ try {
            AND YEAR(so.date) = :y AND MONTH(so.date) = :m
     ");
     $stmt->execute($withUid([':y' => $year, ':m' => $month]));
-    $vol = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['vol_20l' => 0, 'vol_1_5l' => 0];
+    $vol = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['vol_20l' => 0, 'vol_10l' => 0];
 
     // =========================================================================
     // CARD 3 — Commandes en attente de dispatch
@@ -626,8 +629,8 @@ try {
             'volume' => [
                 'actual_20l'  => (int)$vol['vol_20l'],
                 'target_20l'  => $targetVol20L,
-                'actual_1_5l' => (int)$vol['vol_1_5l'],
-                'target_1_5l' => $targetVol15L,
+                'actual_10l'  => (int)$vol['vol_10l'],
+                'target_10l'  => $targetVol10L,
             ],
             'dispatch' => [
                 'count'       => (int)($disp['pending_count'] ?? 0),

@@ -78,12 +78,12 @@
             },
         },
         {
-            id: 'sd-vol-15l', label: 'Volume 1,5L', kind: 'int', rail: 'info',
-            drill: 'vol_15l',
+            id: 'sd-vol-10l', label: 'Volume 10L', kind: 'int', rail: 'info',
+            drill: 'vol_10l',
             drillCfg: {
-                title: 'Volume 1,5L — par client',
-                url:   ENDPOINT + '?action=drilldown_vol_15l',
-                columns: ['Client', 'Commandes', 'Bouteilles 1,5L'],
+                title: 'Volume 10L — par client',
+                url:   ENDPOINT + '?action=drilldown_vol_10l',
+                columns: ['Client', 'Commandes', 'Bouteilles 10L'],
                 csv: true,
                 deeplink: { href: '/modules/sales/orders.php?from=dashboard_sales', label: 'Ouvrir les ventes' },
                 renderRow: function (r) {
@@ -176,12 +176,12 @@
                      : 'Cible ' + LPC.fmt.int(v.target_20l) + ' × 20L',
         });
         LPC.kpi.update({
-            id: 'sd-vol-15l',
-            value: v.actual_1_5l,
-            delta: attainmentDelta(v.actual_1_5l, v.target_1_5l),
-            sub:   v.target_1_5l === null
+            id: 'sd-vol-10l',
+            value: v.actual_10l,
+            delta: attainmentDelta(v.actual_10l, v.target_10l),
+            sub:   v.target_10l === null
                      ? 'Objectif non défini'
-                     : 'Cible ' + LPC.fmt.int(v.target_1_5l) + ' × 1,5L',
+                     : 'Cible ' + LPC.fmt.int(v.target_10l) + ' × 10L',
         });
     }
 
