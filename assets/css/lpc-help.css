@@ -66,19 +66,10 @@
     margin-left: auto;
 }
 
-/* Empty state: no articles wired yet. The icon still renders (so the reader
-   knows help exists in principle) but softens the border and colour to signal
-   "coming soon". Emitted as an <a> in help.php so a click still leads to the
-   help centre index instead of doing nothing. */
-.lpc-help-btn-empty {
-    opacity: .55;
-    border-style: dashed;
-    text-decoration: none;
-}
-.lpc-help-btn-empty:hover {
-    opacity: 1;
-    border-style: solid;
-}
+/* No article and no video for the page: the same « Aide » button, as an <a> to
+   the Centre d'Aide (help.php). It used to be dashed and faded with « Aide (à
+   venir) », which looked unfinished on screen; now only the link differs. */
+a.lpc-help-btn { text-decoration: none; }
 
 /* The topbar "?" — sits beside the + and must read as chrome, not as content.
    Mirrors .lpc-icon-btn so the three round buttons stay visually identical. */
@@ -905,3 +896,410 @@
     transition: background .12s;
 }
 .lpc-ai-chat-send:hover { background: var(--lpc-chrome-top, #00341A); }
+/* A video moment cited by the assistant (« Voir dans la vidéo … à 02:14 »). */
+.lpc-ai-chat-source--video { display: inline-flex; align-items: center; gap: .35rem; }
+.lpc-ai-chat-source--video::before {
+    content: '';
+    flex: none;
+    width: 0; height: 0;
+    border-style: solid;
+    border-width: 4px 0 4px 7px;
+    border-color: transparent transparent transparent currentColor;
+}
+
+/* ============================================================================
+   7. TRAINING VIDEOS (migration 126, docs/HELP_VIDEOS.md)
+   The drawer's « Voir la vidéo » offer, the Centre d'Aide's « Vidéos de
+   formation » grid and search moments, the player (modules/help/video.php)
+   and the upload panel (modules/admin/help_videos.php). Colours come from the
+   shell variables, so dark mode follows; tints use color-mix() over the
+   surface, with a light fallback for browsers without it. Buttons that carry
+   white text use the fixed brand green (--lpc-brand), which does not switch
+   in dark mode, unlike --lpc-accent-on-light.
+   ========================================================================== */
+
+/* -- 7.1 The drawer's offer ------------------------------------------------- */
+.lpc-help-vcard {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem;
+    margin-bottom: 1.25rem;
+    border-radius: var(--lpc-radius, 14px);
+    border: 1px solid var(--lpc-border, #E6EAEE);
+    background: #F3F8F3;
+    background: color-mix(in srgb, var(--lpc-accent-on-light) 7%, var(--lpc-surface));
+}
+.lpc-help-vcard-thumb {
+    position: relative;
+    flex: none;
+    width: 148px;
+    aspect-ratio: 16 / 9;
+    border-radius: var(--lpc-radius-xs, 8px);
+    overflow: hidden;
+    background: #0B1410;
+    align-self: flex-start;
+}
+.lpc-help-vcard-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lpc-help-vcard-play,
+.lpc-help-vid-play {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 34px; height: 34px;
+    margin: -17px 0 0 -17px;
+    border-radius: 50%;
+    background: rgba(0, 52, 26, .82);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, .25);
+}
+.lpc-help-vcard-play::after,
+.lpc-help-vid-play::after {
+    content: '';
+    position: absolute;
+    left: 13px; top: 10px;
+    border-style: solid;
+    border-width: 7px 0 7px 11px;
+    border-color: transparent transparent transparent #fff;
+}
+.lpc-help-vcard-info { min-width: 0; flex: 1 1 auto; }
+.lpc-help-vcard-eyebrow {
+    margin: 0;
+    font-size: .625rem;
+    font-weight: 800;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--lpc-accent-on-light, #005A2B);
+}
+.lpc-help-vcard-title { margin: .15rem 0 0; font-weight: 800; font-size: .9375rem; color: var(--lpc-ink, #111827); }
+.lpc-help-vcard-meta  { margin: .15rem 0 0; font-size: .75rem; color: var(--lpc-ink-soft, #667085); }
+.lpc-help-vcard-quote {
+    margin: .45rem 0 0;
+    font-size: .8125rem;
+    line-height: 1.45;
+    color: var(--lpc-ink-soft, #667085);
+    font-style: italic;
+}
+.lpc-help-vcard-btn,
+.lpc-vp-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    margin-top: .7rem;
+    padding: .5rem .9rem;
+    border-radius: var(--lpc-radius-sm, 10px);
+    background: var(--lpc-brand, #005A2B);
+    color: #fff;
+    font-size: .8125rem;
+    font-weight: 800;
+    text-decoration: none;
+    border: 0;
+    cursor: pointer;
+    transition: background .12s;
+}
+.lpc-help-vcard-btn:hover,
+.lpc-vp-btn:hover { background: var(--lpc-chrome-top, #00341A); color: #fff; }
+
+/* -- 7.2 The Centre d'Aide grid -------------------------------------------- */
+.lpc-help-vids {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1.15rem;
+    margin-bottom: 2rem;
+}
+.lpc-help-vid {
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--lpc-radius, 14px);
+    border: 1px solid var(--lpc-border, #E6EAEE);
+    background: var(--lpc-surface, #fff);
+    box-shadow: var(--lpc-shadow-card, 0 1px 2px rgba(16,24,40,.04));
+    overflow: hidden;
+    text-decoration: none;
+    color: inherit;
+    transition: transform .15s, box-shadow .15s, border-color .15s;
+}
+.lpc-help-vid:hover {
+    transform: translateY(-2px);
+    border-color: var(--lpc-accent-on-light, #005A2B);
+    box-shadow: 0 12px 24px -14px rgba(0, 52, 26, .4);
+}
+.lpc-help-vid-thumb {
+    position: relative;
+    display: block;
+    aspect-ratio: 16 / 9;
+    background: linear-gradient(135deg, var(--lpc-chrome-top, #00341A), var(--lpc-chrome-bottom, #005A2B));
+}
+.lpc-help-vid-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lpc-help-vid-play { width: 46px; height: 46px; margin: -23px 0 0 -23px; transition: transform .15s; }
+.lpc-help-vid-play::after { left: 18px; top: 14px; border-width: 9px 0 9px 14px; }
+.lpc-help-vid:hover .lpc-help-vid-play { transform: scale(1.08); }
+.lpc-help-vid-dur {
+    position: absolute;
+    right: .5rem; bottom: .5rem;
+    padding: .12rem .4rem;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, .72);
+    color: #fff;
+    font-size: .6875rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.lpc-help-vid-body { display: flex; flex-direction: column; gap: .25rem; padding: .9rem 1rem 1rem; flex: 1 1 auto; }
+.lpc-help-vid-series {
+    font-size: .625rem;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--lpc-accent-on-light, #005A2B);
+}
+.lpc-help-vid-title { font-weight: 800; font-size: .9375rem; color: var(--lpc-ink, #111827); }
+.lpc-help-vid-sub   { font-size: .8125rem; line-height: 1.45; color: var(--lpc-ink-soft, #667085); }
+.lpc-help-vid-meta  {
+    margin-top: auto;
+    padding-top: .4rem;
+    font-size: .6875rem;
+    font-weight: 700;
+    color: var(--lpc-ink-mute, #98A2B3);
+}
+
+/* Search: a moment of a video, beside the articles */
+.lpc-help-moment-time {
+    flex: none;
+    min-width: 3.4rem;
+    padding: .3rem .45rem;
+    border-radius: 8px;
+    background: var(--lpc-brand, #005A2B);
+    color: #fff;
+    font-size: .75rem;
+    font-weight: 800;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+.lpc-help-moment-text { font-size: .8125rem; color: var(--lpc-ink-soft, #667085); margin-top: .12rem; }
+.lpc-help-moment-text mark { background: transparent; color: var(--lpc-ink, #111827); font-weight: 700; }
+
+/* -- 7.3 The player --------------------------------------------------------- */
+.lpc-vp-head { margin-bottom: 1.1rem; }
+.lpc-vp-head h1 {
+    margin: .2rem 0 0;
+    font-size: clamp(1.35rem, 2.2vw, 1.75rem);
+    font-weight: 900;
+    letter-spacing: -.02em;
+    color: var(--lpc-ink, #111827);
+}
+.lpc-vp-head p { margin: .3rem 0 0; color: var(--lpc-ink-soft, #667085); font-size: .9375rem; }
+.lpc-vp-eyebrow {
+    font-size: .6875rem;
+    font-weight: 800;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--lpc-accent-on-light, #005A2B);
+}
+.lpc-vp-meta { display: flex; flex-wrap: wrap; gap: .4rem .9rem; margin-top: .55rem; font-size: .75rem; font-weight: 700; color: var(--lpc-ink-mute, #98A2B3); }
+
+.lpc-vp {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 380px;
+    gap: 1.25rem;
+    align-items: start;
+}
+@media (max-width: 1100px) {
+    .lpc-vp { grid-template-columns: minmax(0, 1fr); }
+}
+.lpc-vp-frame {
+    border-radius: var(--lpc-radius, 14px);
+    overflow: hidden;
+    background: #000;
+    box-shadow: 0 18px 40px -24px rgba(0, 0, 0, .6);
+}
+.lpc-vp-frame video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; }
+.lpc-vp-tools { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin: .8rem 0 0; }
+.lpc-vp-tools .lpc-vp-btn { margin-top: 0; }
+.lpc-vp-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .45rem .8rem;
+    border-radius: var(--lpc-radius-sm, 10px);
+    border: 1px solid var(--lpc-border, #E6EAEE);
+    background: var(--lpc-surface, #fff);
+    color: var(--lpc-ink-soft, #667085);
+    font-size: .8125rem;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+}
+.lpc-vp-ghost:hover { color: var(--lpc-accent-on-light, #005A2B); border-color: var(--lpc-accent-on-light, #005A2B); }
+.lpc-vp-spacer { flex: 1 1 auto; }
+
+.lpc-vp-box {
+    border-radius: var(--lpc-radius, 14px);
+    border: 1px solid var(--lpc-border, #E6EAEE);
+    background: var(--lpc-surface, #fff);
+    box-shadow: var(--lpc-shadow-card, 0 1px 2px rgba(16,24,40,.04));
+}
+.lpc-vp-box-head {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    padding: .8rem 1rem;
+    border-bottom: 1px solid var(--lpc-border, #E6EAEE);
+}
+.lpc-vp-box-title {
+    margin: 0;
+    font-size: .6875rem;
+    font-weight: 800;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--lpc-ink-mute, #98A2B3);
+}
+.lpc-vp-chapters { margin-top: 1.1rem; }
+.lpc-vp-chapters ol { list-style: none; margin: 0; padding: .4rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .25rem; }
+
+.lpc-vp-item {
+    display: flex;
+    align-items: baseline;
+    gap: .7rem;
+    width: 100%;
+    padding: .5rem .65rem;
+    border: 0;
+    border-radius: var(--lpc-radius-xs, 8px);
+    background: transparent;
+    color: var(--lpc-ink, #111827);
+    text-align: left;
+    font: inherit;
+    font-size: .8125rem;
+    line-height: 1.45;
+    cursor: pointer;
+}
+.lpc-vp-item:hover { background: var(--lpc-surface-sunken, #F7F9FA); }
+.lpc-vp-item:focus-visible { outline: none; box-shadow: var(--lpc-ring, 0 0 0 3px rgba(140,198,63,.35)); }
+.lpc-vp-time {
+    flex: none;
+    font-size: .6875rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: var(--lpc-accent-on-light, #005A2B);
+}
+.lpc-vp-item.is-current {
+    background: #EAF3EA;
+    background: color-mix(in srgb, var(--lpc-accent-on-light) 13%, var(--lpc-surface));
+    box-shadow: inset 3px 0 0 var(--lpc-accent-on-light, #005A2B);
+    font-weight: 600;
+}
+.lpc-vp-chapter-n { font-weight: 800; color: var(--lpc-ink-mute, #98A2B3); font-variant-numeric: tabular-nums; }
+
+.lpc-vp-side { position: sticky; top: 1rem; display: flex; flex-direction: column; max-height: calc(100vh - 2rem); }
+@media (max-width: 1100px) {
+    .lpc-vp-side { position: static; max-height: 32rem; }
+}
+.lpc-vp-filter {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 32px;
+    padding: 0 .65rem;
+    border-radius: var(--lpc-radius-xs, 8px);
+    border: 1px solid var(--lpc-border, #E6EAEE);
+    background: var(--lpc-surface-sunken, #F7F9FA);
+    color: var(--lpc-ink, #111827);
+    font: inherit;
+    font-size: .8125rem;
+}
+.lpc-vp-filter:focus { outline: none; border-color: var(--lpc-accent-on-light, #005A2B); box-shadow: var(--lpc-ring, 0 0 0 3px rgba(140,198,63,.35)); }
+.lpc-vp-transcript { list-style: none; margin: 0; padding: .4rem; overflow-y: auto; flex: 1 1 auto; overscroll-behavior: contain; }
+.lpc-vp-transcript li[hidden] { display: none; }
+.lpc-vp-chap-sep {
+    padding: .7rem .65rem .25rem;
+    font-size: .625rem;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--lpc-ink-mute, #98A2B3);
+}
+.lpc-vp-follow {
+    margin: 0;
+    padding: .5rem 1rem;
+    border-top: 1px solid var(--lpc-border, #E6EAEE);
+    font-size: .6875rem;
+    color: var(--lpc-ink-mute, #98A2B3);
+}
+.lpc-vp-follow button { border: 0; background: none; padding: 0; font: inherit; font-weight: 800; color: var(--lpc-accent-on-light, #005A2B); cursor: pointer; }
+
+.lpc-vp-parts { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1.1rem; }
+.lpc-vp-part {
+    flex: 1 1 240px;
+    display: flex;
+    flex-direction: column;
+    gap: .15rem;
+    padding: .8rem 1rem;
+    border-radius: var(--lpc-radius-sm, 10px);
+    border: 1px solid var(--lpc-border, #E6EAEE);
+    background: var(--lpc-surface, #fff);
+    text-decoration: none;
+    color: inherit;
+}
+.lpc-vp-part:hover { border-color: var(--lpc-accent-on-light, #005A2B); }
+.lpc-vp-part--next { text-align: right; }
+.lpc-vp-part small { font-size: .6875rem; font-weight: 800; color: var(--lpc-ink-mute, #98A2B3); text-transform: uppercase; letter-spacing: .06em; }
+.lpc-vp-part span  { font-weight: 800; color: var(--lpc-ink, #111827); font-size: .875rem; }
+
+/* -- 7.4 The upload panel (admin) ------------------------------------------ */
+.lpc-vadm-drop {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .35rem;
+    padding: 1.6rem 1rem;
+    border: 2px dashed var(--lpc-border, #E6EAEE);
+    border-radius: var(--lpc-radius, 14px);
+    background: var(--lpc-surface-sunken, #F7F9FA);
+    color: var(--lpc-ink-soft, #667085);
+    text-align: center;
+    font-size: .875rem;
+    cursor: pointer;
+    transition: border-color .12s, background .12s;
+}
+.lpc-vadm-drop strong { color: var(--lpc-ink, #111827); }
+.lpc-vadm-drop.is-over,
+.lpc-vadm-drop:hover { border-color: var(--lpc-accent-on-light, #005A2B); }
+.lpc-vadm-drop:focus-within { border-color: var(--lpc-accent-on-light, #005A2B); box-shadow: var(--lpc-ring, 0 0 0 3px rgba(140,198,63,.35)); }
+.lpc-vadm-files { list-style: none; margin: .9rem 0 0; padding: 0; display: grid; gap: .3rem; font-size: .8125rem; }
+.lpc-vadm-files li { display: flex; gap: .5rem; align-items: baseline; }
+.lpc-vadm-ok   { color: var(--lpc-status-success-fg, #166534); font-weight: 800; }
+.lpc-vadm-bad  { color: var(--lpc-status-danger-fg, #991B1B); font-weight: 800; }
+.lpc-vadm-progress {
+    height: 10px;
+    border-radius: 999px;
+    background: var(--lpc-surface-sunken, #F7F9FA);
+    border: 1px solid var(--lpc-border, #E6EAEE);
+    overflow: hidden;
+}
+.lpc-vadm-progress > span {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, var(--lpc-brand, #005A2B), var(--lpc-brand-light, #8CC63F));
+    transition: width .2s;
+}
+.lpc-vadm-thumb {
+    width: 96px;
+    aspect-ratio: 16 / 9;
+    border-radius: 6px;
+    object-fit: cover;
+    background: var(--lpc-surface-sunken, #F7F9FA);
+    display: block;
+}
+.lpc-vadm-warn {
+    display: block;
+    margin-top: .25rem;
+    font-size: .6875rem;
+    font-weight: 700;
+    color: var(--lpc-status-warning-fg, #92400E);
+}
+
+@media (max-width: 640px) {
+    .lpc-help-vcard { flex-direction: column; }
+    .lpc-help-vcard-thumb { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .lpc-help-vid, .lpc-help-vid-play, .lpc-vadm-progress > span { transition: none; }
+}

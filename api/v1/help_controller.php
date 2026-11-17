@@ -115,10 +115,21 @@ switch ($action) {
     case 'search': {
         $q = trim((string) ($_GET['q'] ?? ''));
         $limit = min(max((int) ($_GET['limit'] ?? 8), 1), 25);
+        // Beside the articles: the moments of the training videos where the
+        // words are spoken (migration 126), already filtered by each video's
+        // audience. Empty before the migration. Never fails the article search.
+        $videos = [];
+        try {
+            require_once __DIR__ . '/../../includes/classes/HelpVideoLibrary.php';
+            $videos = HelpVideoLibrary::searchMoments($q, $lang, min($limit, 10));
+        } catch (Throwable $e) {
+            error_log('help_controller search videos: ' . $e->getMessage());
+        }
         help_out([
             'status'  => 'success',
             'query'   => $q,
             'results' => lpc_help_search($q, $lang, $limit),
+            'videos'  => $videos,
         ]);
     }
 
