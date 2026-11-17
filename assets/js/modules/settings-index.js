@@ -51,6 +51,25 @@
     let rolesCache = null;    // role list for the user modal dropdown
     let landingOptionsCache = null;  // dashboards catalogue for the role landing-page picker
 
+    /**
+     * A role as a person reads it. Roles are stored by their technical name
+     * (accountant, controleur_financier…), which the Users table and the Roles
+     * list used to print as is (found while filming the training videos). The
+     * seeded roles get their French or English name; a role created on this
+     * screen keeps the name its author gave it, underscores as spaces.
+     */
+    const ROLE_LABELS = {
+        fr: { admin: 'Administrateur', accountant: 'Comptable', operations: 'Opérations', sales: 'Commercial',
+              driver: 'Chauffeur', directeur_general: 'Directeur Général', controleur_financier: 'Contrôleur Financier' },
+        en: { admin: 'Administrator', accountant: 'Accountant', operations: 'Operations', sales: 'Sales',
+              driver: 'Driver', directeur_general: 'Managing Director', controleur_financier: 'Financial Controller' },
+    };
+    function roleLabel(name) {
+        const key = String(name || '').toLowerCase();
+        const known = (ROLE_LABELS[BOOT.lang === 'en' ? 'en' : 'fr'] || {})[key];
+        return known || String(name || '').replace(/_/g, ' ');
+    }
+
     // -------------------------------------------------------------------------
     // 1. TAB REGISTRY
     //    One entry per tab button rendered by index.php. A tab button with no
@@ -81,7 +100,7 @@
                     `<a href="/modules/admin/master_data.php" title="Ouvrir la fiche employé" class="font-bold text-gray-500 hover:text-lpc-dark hover:underline">${esc(v || '—')}</a>` },
                 { key: 'email',         label: 'Connexion', render: v => `<span class="text-gray-700">${esc(v || '—')}</span>` },
                 { key: 'first_name',    label: 'Identité', render: (v, row) => `<span class="font-black text-gray-900">${esc(v || '')} ${esc(row.last_name || '')}</span>` },
-                { key: 'role_name',     label: 'Rôle',     render: v => `<span class="px-2 py-1 bg-gray-100 text-gray-700 rounded text-[10px] uppercase font-bold tracking-wider border border-gray-200">${esc(v || 'NON ASSIGNÉ')}</span>` },
+                { key: 'role_name',     label: 'Rôle',     render: v => `<span class="px-2 py-1 bg-gray-100 text-gray-700 rounded text-[10px] uppercase font-bold tracking-wider border border-gray-200" title="${esc(v || '')}">${esc(v ? roleLabel(v) : 'NON ASSIGNÉ')}</span>` },
                 { key: 'status',        label: 'Accès',    render: v => v === 'active'
                     ? '<span class="text-green-500 text-xs font-bold"><i class="fas fa-check-circle mr-1"></i>Actif</span>'
                     : '<span class="text-red-500 text-xs font-bold"><i class="fas fa-lock mr-1"></i>Bloqué</span>' }
@@ -892,7 +911,7 @@
         list.innerHTML = matrixState.roles.map(r => `
             <button type="button" onclick="LPCSettings.selectRole(${r.id})"
                     class="lpc-role-chip ${r.id === matrixState.activeRoleId ? 'active' : ''}">
-                <div class="font-black text-sm text-gray-900 capitalize">${esc(r.name)}</div>
+                <div class="font-black text-sm text-gray-900">${esc(roleLabel(r.name))} <span class="font-mono text-[10px] font-normal text-gray-400">${esc(r.name)}</span></div>
                 <div class="text-[11px] text-gray-400 mt-0.5">
                     ${esc(r.user_count)} utilisateur(s) · ${esc(r.perm_count)} permission(s)
                 </div>
@@ -979,7 +998,7 @@
                             <i class="fas fa-key"></i>
                         </div>
                         <div>
-                            <h3 class="font-black text-sm uppercase tracking-wider text-gray-900 capitalize">${esc(data.role.name)}</h3>
+                            <h3 class="font-black text-sm uppercase tracking-wider text-gray-900">${esc(roleLabel(data.role.name))}</h3>
                             <p class="text-xs text-gray-400 mt-0.5">
                                 <span id="perm-count">${data.granted.length}</span> permission(s) accordée(s) sur ${totalPerms}
                             </p>
@@ -1209,7 +1228,7 @@
         $('modal-title').innerText = 'Inviter un utilisateur';
         const roles = await loadRoles();
         const roleOpts = roles.length
-            ? '<option value="">— Choisir un rôle —</option>' + roles.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('')
+            ? '<option value="">— Choisir un rôle —</option>' + roles.map(r => `<option value="${r.id}">${esc(roleLabel(r.name))}</option>`).join('')
             : '<option value="">— aucun rôle disponible —</option>';
         form.innerHTML = `
             <div class="md:col-span-2 p-3 rounded-xl bg-blue-50 border border-blue-100 text-[12px] text-blue-800">
@@ -1264,7 +1283,7 @@
         const roleOpts = rolesCache.length
             ? rolesCache.map(r => {
                 const sel = String(user.role_name || '').toLowerCase() === String(r.name).toLowerCase();
-                return `<option value="${r.id}" ${sel ? 'selected' : ''}>${esc(r.name)}</option>`;
+                return `<option value="${r.id}" ${sel ? 'selected' : ''}>${esc(roleLabel(r.name))}</option>`;
               }).join('')
             : '<option value="">— aucun rôle disponible —</option>';
 
