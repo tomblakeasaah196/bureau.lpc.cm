@@ -443,9 +443,11 @@ if ($fleet['ok']) {
         'id'    => 'ops-fleet',
         'kind'  => 'text',
         'value' => $fleet['value']['active'],
-        'text'  => $fleet['value']['active'] . ' actifs / ' . $fleet['value']['offline'] . ' hors service',
+        // The big figure is the active count, the split goes on the line under it: the whole
+        // sentence in the figure ran out of the card at desktop widths (« 0 actifs / 0 h… »).
+        'text'  => $fleet['value']['active'] . ' actifs',
         'delta' => ['kind' => 'none'],
-        'sub'   => 'Véhicules opérationnels',
+        'sub'   => $fleet['value']['offline'] . ' hors service',
     ];
 } else {
     $cards[] = ['id' => 'ops-fleet', 'value' => null, 'empty' => 'Indisponible'];

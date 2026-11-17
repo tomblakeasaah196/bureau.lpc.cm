@@ -12,7 +12,7 @@ its choreography together.
 | Video | Scene | Status |
 | --- | --- | --- |
 | Introduction, partie 1 : Premiers pas (the app, signing in, the shell, signing out) | `intro-1-premiers-pas.js` | Made 17/11/2026, 6:57, 10 chapters, -16.0 LUFS, 18.8 MB; sent in the chat; to publish in the live Centre d'Aide once this branch is deployed (§5) |
-| Introduction, partie 2 : Chacun son espace (each role's home and menu) | not yet written | planned (§8) |
+| Introduction, partie 2 : Chacun son espace (each role's home and menu) | `intro-2-chacun-son-espace.js` | Made 18/11/2026, 4:44, 7 chapters, -16.1 LUFS, 12.7 MB; sent in the chat; to publish in the live Centre d'Aide once deployed (§5) |
 
 ---
 
@@ -255,6 +255,11 @@ Each is fixed on the video's branch, in the screen's own code, and listed here.
 | 17/11/2026 | Help article « Vue Finance » | The page's « Aide » shows formulas from the code (`SUM(…)`, column names) to the reader | **Not fixed**: content to rewrite in plain words with the Finance videos |
 | 17/11/2026 | `migrations/003_ohada_backfill.sql:80` | Fails on a fresh MySQL 8.4 (error 1830: NOT NULL column under an ON DELETE SET NULL key); MariaDB accepts it | **Not fixed**: only a fresh MySQL install meets it; live and CI are MariaDB |
 | 17/11/2026 | Menus | « Vue Chauffeur » still shows to admin and the accountant although LPC uses no driver accounts | **Not fixed**: the owner plans to take the driver screens out |
+| 18/11/2026 | Vue Ventes | The card « Volume 1,5L » counted a WAT-1.5L family LPC does not sell (its water is OPUR 20L and OPUR 10L): 0 for ever, and the 10L bottles counted nowhere | Fixed: the card, its drill-down and its target count the 10L family; migration 128 renames the unused target column and updates the help article |
+| 18/11/2026 | Paramètres · Utilisateurs, Rôles | Roles printed by their technical name (accountant, controleur_financier) | Fixed: Comptable, Contrôleur Financier, Administrateur… (technical name kept small) |
+| 18/11/2026 | Vue Opérations · État de la flotte | « 0 actifs / 0 hors service » in the big figure ran out of the card | Fixed: the figure is the active count, the split the line under it |
+| 18/11/2026 | Paramètres · Rôles, Comptable | The accountant's role holds permissions whose labels say they are the DG's or the MD's: « Ré-ouvrir un exercice verrouillé (DG) », « Approuver ou refuser une demande de transfert (MD / Admin) » | **Not changed**: access is the owner's decision (Paramètres → Rôles & Permissions) |
+| 18/11/2026 | Journal d'Erreurs on the copy | « Aucun fichier de log accessible »: the copy has no server log in the place the page reads | Not code: never film it from the copy |
 
 ## 8 · Where the work stands
 
@@ -271,7 +276,10 @@ the help search, the help AI's answers and each page's « ? »), and sent in the
 - [ ] Publish Part 1 in the live Centre d'Aide once this branch is deployed: JBS Praxis Support
       uploads the four files from `VIDEO_HOME/out/intro-1-premiers-pas/` (MP4, `.fr.vtt`, `.jpg`,
       `.manifest.json`) on Centre d'Aide → Vidéos (docs/HELP_VIDEOS.md).
-- [ ] Part 2, Chacun son espace: Timothée's Tableau de Bord Exécutif, Luc's and Daniel's Vue Finance,
-      Bertin's Vue Opérations, JBS Praxis Support's Paramètres; Sales once a Sales login exists.
+- [x] Part 2, Chacun son espace (18/11/2026): Timothée's Tableau de Bord Exécutif and, from his menu,
+      the Vue Ventes a salesperson will land on; Luc's Vue Finance and how his menu differs from Daniel's;
+      Bertin's Vue Opérations and the stock alert; JBS Praxis Support's Utilisateurs, Rôles & Permissions,
+      Identité de l'Entreprise and the training videos' page. Nothing changed on screen. Three bugs fixed.
+      Refilm the Vue Ventes chapter with a real salesperson once LPC creates a Sales login.
 - [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
       Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.
