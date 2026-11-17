@@ -10,6 +10,10 @@
  *
  * Results are built with createElement/textContent, never innerHTML: the server
  * returns article titles and summaries as plain strings and they stay strings.
+ *
+ * The same response carries `videos`: moments of the training videos where the
+ * words are spoken (migration 126), listed under the articles and linking to
+ * the player at that second.
  * -----------------------------------------------------------------------------
  */
 (function () {
@@ -64,12 +68,93 @@
         return a;
     }
 
-    function render(q, list) {
+    // ------------------------------------------------------------ videos
+    // A moment of a training video (HelpVideoLibrary::searchMoments()):
+    // « Premiers pas · Chapitre 3 · 02:14 — Appuyez sur Accéder au Bureau »,
+    // linking to the player at that second. The words of the query are marked
+    // in the line, built with text nodes only.
+    function fold(s) {
+        return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    }
+
+    function highlight(el, text, q) {
+        var words = fold(q).split(/[^a-z0-9]+/).filter(function (w) { return w.length >= 2; });
+        var plain = fold(text);
+        // NFD folding keeps one character per character for French text, so
+        // offsets in `plain` are offsets in `text`.
+        if (plain.length !== text.length || !words.length) { el.textContent = text; return; }
+        var marks = [];
+        words.forEach(function (w) {
+            var re = new RegExp('(^|[^a-z0-9])(' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'g'), m;
+            while ((m = re.exec(plain))) { marks.push([m.index + m[1].length, m.index + m[1].length + w.length]); }
+        });
+        marks.sort(function (a, b) { return a[0] - b[0]; });
+        var pos = 0;
+        marks.forEach(function (r) {
+            if (r[0] < pos) return;
+            el.appendChild(document.createTextNode(text.slice(pos, r[0])));
+            var mk = document.createElement('mark');
+            mk.textContent = text.slice(r[0], r[1]);
+            el.appendChild(mk);
+            pos = r[1];
+        });
+        el.appendChild(document.createTextNode(text.slice(pos)));
+    }
+
+    function momentRow(m, q) {
+        var a = document.createElement('a');
+        a.className = 'lpc-help-row';
+        if (!/^\/modules\/help\/video\.php\?/.test(m.url)) return a;
+        a.href = m.url + '&lang=' + encodeURIComponent(lang());
+        a.setAttribute('aria-label', m.label + ' — ' + m.text);
+
+        var time = document.createElement('span');
+        time.className = 'lpc-help-moment-time';
+        time.textContent = m.timecode;
+        a.appendChild(time);
+
+        var wrap = document.createElement('span');
+        wrap.className = 'min-w-0';
+        var t = document.createElement('span');
+        t.className = 'lpc-help-row-title';
+        t.textContent = m.label;
+        wrap.appendChild(t);
+        var s = document.createElement('span');
+        s.className = 'lpc-help-moment-text block';
+        s.appendChild(document.createTextNode('— '));
+        var line = document.createElement('span');
+        highlight(line, m.text, q);
+        s.appendChild(line);
+        wrap.appendChild(s);
+        a.appendChild(wrap);
+
+        var chev = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        chev.setAttribute('class', 'lpc-help-row-chev');
+        chev.setAttribute('width', '18'); chev.setAttribute('height', '18');
+        chev.setAttribute('viewBox', '0 0 24 24'); chev.setAttribute('fill', 'currentColor');
+        chev.setAttribute('aria-hidden', 'true');
+        var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        p.setAttribute('d', 'M8 5.14v13.72a1 1 0 001.5.86l11-6.86a1 1 0 000-1.72l-11-6.86A1 1 0 008 5.14z');
+        chev.appendChild(p);
+        a.appendChild(chev);
+        return a;
+    }
+
+    function heading(text) {
+        var h = document.createElement('p');
+        h.className = 'lpc-help-section-title';
+        h.style.marginTop = '1.25rem';
+        h.textContent = text;
+        return h;
+    }
+
+    function render(q, list, videos) {
+        videos = videos || [];
         if (browse) browse.hidden = true;
         results.hidden = false;
         resultsList.textContent = '';
 
-        if (!list.length) {
+        if (!list.length && !videos.length) {
             resultsTitle.textContent = isEn()
                 ? 'No results for “' + q + '”'
                 : 'Aucun résultat pour « ' + q + ' »';
@@ -83,10 +168,18 @@
             return;
         }
 
-        resultsTitle.textContent = list.length + (isEn()
-            ? (list.length > 1 ? ' results' : ' result')
-            : (list.length > 1 ? ' résultats' : ' résultat'));
+        var n = list.length + videos.length;
+        resultsTitle.textContent = n + (isEn()
+            ? (n > 1 ? ' results' : ' result')
+            : (n > 1 ? ' résultats' : ' résultat'));
+        if (list.length && videos.length) {
+            resultsList.appendChild(heading(isEn() ? 'Articles' : 'Articles'));
+        }
         list.forEach(function (r) { resultsList.appendChild(row(r)); });
+        if (videos.length) {
+            resultsList.appendChild(heading(isEn() ? 'In the training videos' : 'Dans les vidéos de formation'));
+            videos.forEach(function (m) { resultsList.appendChild(momentRow(m, q)); });
+        }
     }
 
     function run(q) {
@@ -99,7 +192,7 @@
         .then(function (r) { return r.json(); })
         .then(function (j) {
             if (mine !== seq) return;                 // a newer query won
-            render(q, (j && j.results) || []);
+            render(q, (j && j.results) || [], (j && j.videos) || []);
         })
         .catch(function () { if (mine === seq) render(q, []); });
     }

@@ -756,13 +756,29 @@ function lpc_help_all_articles(): array
  *       <?= lpc_help_link('crm.clients') ?>
  *   </div>
  *
- * Returns '' — rendering nothing at all — when the anchor has no readable
- * article. A help button that opens an empty drawer is worse than no button,
- * and this is also what makes it safe to add the call to a page before its
- * articles are written.
+ * Three states, and the button always reads « Aide » with the same icon in the
+ * same place, so a trainer can say "click Aide, top right" on any page:
+ *
+ *   · an article (with or without a video) — opens the drawer on the article;
+ *     when a training video shows this page, the drawer offers « Voir la
+ *     vidéo » above it, at the moment the page is on screen;
+ *   · a video but no article               — opens the drawer on the video
+ *     offer alone;
+ *   · neither                              — a link to the Centre d'Aide
+ *     (search, videos, the assistant). It used to say « Aide (à venir) » in
+ *     a muted style, which looked unfinished on screen and in the training
+ *     videos; data-lpc-help-empty="1" still marks it for anyone grepping for
+ *     pages that need an article.
+ *
+ * The video offer comes from lpc_help_page_videos(): the published videos
+ * whose transcript has a line spoken on this page, filtered by the videos'
+ * own gate, so the button never offers a video the reader may not see.
  *
  * Per README §5.5 this belongs in the page's toolbar, not the topbar: it is
  * page-specific. The topbar's own "?" goes to the centre as a whole.
+ *
+ * $opts: label (tooltip), class (extra classes), page (the page path, when it
+ * is not the script being run).
  */
 function lpc_help_link(string $anchorKey, ?string $lang = null, array $opts = []): string
 {
@@ -771,31 +787,24 @@ function lpc_help_link(string $anchorKey, ?string $lang = null, array $opts = []
     // that opens an empty drawer is worse than no button — render nothing.
     if (!lpc_help_ready()) { return ''; }
     $lang     = lpc_help_lang($lang);
+    $en       = $lang === 'en';
     $articles = lpc_help_anchored($anchorKey, $lang);
+    $videos   = lpc_help_page_videos($opts['page'] ?? null, $lang);
 
-    // Two states:
-    //   · articles present   — normal button; data-lpc-help = primary slug,
-    //                          the drawer opens on click.
-    //   · no articles yet    — muted button labelled « Aide à venir » that
-    //                          opens the help centre index. Introduced Aug
-    //                          2026 so we can wire the icon on every page
-    //                          straight away and author articles later
-    //                          without a follow-up sweep.
     $hasArticles = !empty($articles);
+    $hasVideos   = !empty($videos);
     $primarySlug = $hasArticles ? $articles[0]['slug'] : '';
+    $btnText     = $en ? 'Help' : 'Aide';
 
     if ($hasArticles) {
-        $label = $opts['label'] ?? ($lang === 'en' ? 'Help for this page' : 'Aide sur cette page');
-        $btnText = $lang === 'en' ? 'Help' : 'Aide';
+        $label = $opts['label'] ?? ($en ? 'Help for this page' : 'Aide sur cette page');
+    } elseif ($hasVideos) {
+        $label = $en ? 'Help for this page: training video' : 'Aide sur cette page : vidéo de formation';
     } else {
-        $label = $lang === 'en'
-            ? 'Help article coming soon — opens the help centre'
-            : "Article d'aide à venir — ouvre le centre d'aide";
-        $btnText = $lang === 'en' ? 'Help (soon)' : 'Aide (à venir)';
+        $label = $en ? 'Open the help centre' : "Ouvrir le centre d'aide";
     }
 
     $classes = 'lpc-help-btn lpc-focusable'
-             . ($hasArticles ? '' : ' lpc-help-btn-empty')
              . (isset($opts['class']) ? ' ' . $opts['class'] : '');
 
     $svg = '<svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">'
@@ -803,24 +812,35 @@ function lpc_help_link(string $anchorKey, ?string $lang = null, array $opts = []
          . ' d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z"/>'
          . '</svg><span class="lpc-help-btn-label">' . htmlspecialchars($btnText) . '</span>';
 
-    if ($hasArticles) {
+    if ($hasArticles || $hasVideos) {
         // Wired-up button: the delegated handler in lpc-help.js reads
-        // data-lpc-help and opens the drawer at that slug.
+        // data-lpc-help (the article, may be empty) and data-lpc-help-videos
+        // (the video moments) and opens the drawer.
+        $videoAttr = '';
+        if ($hasVideos) {
+            $slim = array_map(static fn($m) => [
+                'url' => $m['url'], 'title' => $m['title'], 'timecode' => $m['timecode'],
+                'chapter' => $m['chapter'], 'chapter_title' => $m['chapter_title'],
+                'text' => $m['text'], 'poster_url' => $m['poster_url'],
+            ], $videos);
+            $videoAttr = ' data-lpc-help-videos="'
+                       . htmlspecialchars((string) json_encode($slim, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') . '"';
+        }
         return '<button type="button" class="' . htmlspecialchars($classes, ENT_QUOTES) . '"'
              . ' data-lpc-help="' . htmlspecialchars($primarySlug, ENT_QUOTES) . '"'
+             . $videoAttr
              . ' data-lpc-help-anchor="' . htmlspecialchars($anchorKey, ENT_QUOTES) . '"'
-             . ' data-lpc-help-empty="0"'
+             . ' data-lpc-help-empty="' . ($hasArticles ? '0' : '1') . '"'
              . ' title="' . htmlspecialchars($label, ENT_QUOTES) . '"'
              . ' aria-label="' . htmlspecialchars($label, ENT_QUOTES) . '">'
              . $svg . '</button>';
     }
 
-    // Empty-state fallback: emit an anchor to /modules/help/index.php so a
-    // click still leads somewhere useful without needing to wake the drawer
-    // JS up. anchor key stays in the DOM so we can grep for pages that need
-    // articles authored, and the moment their articles are added the same
-    // callsite starts rendering the wired-up button above — no page edit
-    // required.
+    // Nothing page-specific: an ordinary « Aide » link to the Centre d'Aide,
+    // where search, the videos and the assistant are. The anchor key stays in
+    // the DOM so pages that need an article can be grepped for, and the moment
+    // an article or a video covers the page, the same callsite renders the
+    // wired-up button above — no page edit required.
     $href = '/modules/help/index.php?lang=' . rawurlencode($lang);
     return '<a href="' . htmlspecialchars($href, ENT_QUOTES) . '"'
          . ' class="' . htmlspecialchars($classes, ENT_QUOTES) . '"'
@@ -829,4 +849,25 @@ function lpc_help_link(string $anchorKey, ?string $lang = null, array $opts = []
          . ' title="' . htmlspecialchars($label, ENT_QUOTES) . '"'
          . ' aria-label="' . htmlspecialchars($label, ENT_QUOTES) . '">'
          . $svg . '</a>';
+}
+
+/**
+ * The training-video moments that show a page (default: the script being run),
+ * for the "?" button: the visible videos with a transcript line spoken on that
+ * page, the one showing it longest first, each at the first such line. Empty
+ * before migration 126 or on any error — a help button must never take a page
+ * down.
+ */
+function lpc_help_page_videos(?string $pagePath = null, ?string $lang = null): array
+{
+    $page = $pagePath ?? (string) ($_SERVER['SCRIPT_NAME'] ?? '');
+    if ($page === '') { return []; }
+    try {
+        require_once __DIR__ . '/../classes/HelpVideoLibrary.php';
+        if (!HelpVideoLibrary::ready()) { return []; }
+        return HelpVideoLibrary::pageMoments($page, $lang, 3);
+    } catch (Throwable $e) {
+        error_log('help: page videos: ' . $e->getMessage());
+        return [];
+    }
 }

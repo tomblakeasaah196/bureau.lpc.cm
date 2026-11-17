@@ -5,6 +5,9 @@
  *
  * Opens the slide-over from:
  *   · any element carrying  data-lpc-help="<article-slug>"   (the toolbar "?")
+ *     and/or data-lpc-help-videos='[…]' — the training-video moments that
+ *     show the page (lpc_help_link()); the drawer offers « Voir la vidéo »
+ *     above the article, or alone when the page has no article
  *   · the topbar "?" when it carries data-lpc-help-home
  *   · ?help=<slug> in the URL, so an article is deep-linkable into context
  *   · window.LPC.help.open('<slug>')
@@ -27,6 +30,111 @@
     var lastFocus = null;
     var cache = {};          // slug → rendered payload; help text doesn't change mid-session
     var currentSlug = null;
+    var currentVideos = [];  // training-video moments for this page (data-lpc-help-videos)
+
+    // ---------------------------------------------------------------- videos
+    // The "?" button carries the moments where a training video shows this
+    // page (lpc_help_page_videos(), already filtered by the videos' gate).
+    // Only links to the player page are ever followed.
+    function readVideos(el) {
+        if (!el) return [];
+        try {
+            var v = JSON.parse(el.getAttribute('data-lpc-help-videos') || '[]');
+            return Array.isArray(v) ? v.filter(function (m) {
+                return m && typeof m.url === 'string' && /^\/modules\/help\/video\.php\?/.test(m.url);
+            }) : [];
+        } catch (e) { return []; }
+    }
+
+    function videoCard(list) {
+        var first = list[0];
+        var card = document.createElement('div');
+        card.className = 'lpc-help-vcard';
+
+        if (first.poster_url && /^\/api\/v1\/help_videos_controller\.php\?/.test(first.poster_url)) {
+            var thumb = document.createElement('a');
+            thumb.className = 'lpc-help-vcard-thumb';
+            thumb.href = first.url;
+            thumb.setAttribute('aria-hidden', 'true');
+            thumb.tabIndex = -1;
+            var img = document.createElement('img');
+            img.src = first.poster_url;
+            img.alt = '';
+            img.loading = 'lazy';
+            thumb.appendChild(img);
+            var play = document.createElement('span');
+            play.className = 'lpc-help-vcard-play';
+            thumb.appendChild(play);
+            card.appendChild(thumb);
+        }
+
+        var info = document.createElement('div');
+        info.className = 'lpc-help-vcard-info';
+        var eb = document.createElement('p');
+        eb.className = 'lpc-help-vcard-eyebrow';
+        eb.textContent = S.videoEyebrow || 'Video';
+        info.appendChild(eb);
+        var t = document.createElement('p');
+        t.className = 'lpc-help-vcard-title';
+        t.textContent = first.title;
+        info.appendChild(t);
+        var meta = document.createElement('p');
+        meta.className = 'lpc-help-vcard-meta';
+        meta.textContent = (first.chapter ? (S.chapter || 'Chapitre') + ' ' + first.chapter +
+                           (first.chapter_title ? ' · ' + first.chapter_title : '') + ' · ' : '') +
+                           (S.videoAt || 'à') + ' ' + first.timecode;
+        info.appendChild(meta);
+        if (first.text) {
+            var q = document.createElement('p');
+            q.className = 'lpc-help-vcard-quote';
+            q.textContent = '« ' + first.text + ' »';
+            info.appendChild(q);
+        }
+        var go = document.createElement('a');
+        go.className = 'lpc-help-vcard-btn';
+        go.href = first.url;
+        go.textContent = (S.video || 'Voir la vidéo') + ' · ' + first.timecode;
+        info.appendChild(go);
+        card.appendChild(info);
+
+        var wrap = document.createDocumentFragment();
+        wrap.appendChild(card);
+        if (list.length > 1) {
+            var h = document.createElement('p');
+            h.className = 'lpc-help-section-title';
+            h.textContent = S.videoMore || '';
+            wrap.appendChild(h);
+            var more = document.createElement('div');
+            more.className = 'lpc-help-list';
+            list.slice(1).forEach(function (m) {
+                var a = document.createElement('a');
+                a.className = 'lpc-help-row';
+                a.href = m.url;
+                var s = document.createElement('span');
+                s.className = 'lpc-help-row-title';
+                s.textContent = m.title + ' · ' + m.timecode;
+                a.appendChild(s);
+                more.appendChild(a);
+            });
+            wrap.appendChild(more);
+        }
+        return wrap;
+    }
+
+    function prependVideos() {
+        if (!currentVideos.length) return;
+        body.insertBefore(videoCard(currentVideos), body.firstChild);
+    }
+
+    function renderVideosOnly() {
+        titleEl.textContent = S.pageTitle || S.eyebrow || '';
+        eyebrowEl.textContent = S.eyebrow || '';
+        body.textContent = '';
+        prependVideos();
+        fullLink.href = currentVideos[0].url;
+        fullLink.textContent = (S.video || 'Voir la vidéo') + ' →';
+        body.scrollTop = 0;
+    }
 
     // ------------------------------------------------------------------ data
     function loadConfig() {
@@ -104,7 +212,9 @@
             body.appendChild(list);
         }
 
+        prependVideos();
         fullLink.href = '/modules/help/article.php?slug=' + encodeURIComponent(a.slug) + '&lang=' + LANG;
+        fullLink.textContent = (S.full || '') + ' →';
         body.scrollTop = 0;
     }
 
@@ -147,14 +257,23 @@
     }
 
     // ------------------------------------------------------------ open/close
-    function open(slug) {
+    function open(slug, videos) {
         if (!root) return;
         if (root.hidden) {
             lastFocus = document.activeElement;
             root.hidden = false;
             document.documentElement.style.overflow = 'hidden';
         }
-        load(slug);
+        // Without an explicit list (?help= deep link, LPC.help.open()), use the
+        // page's own "?" button's videos, if it has any.
+        currentVideos = Array.isArray(videos) ? videos
+            : readVideos(document.querySelector('.lpc-help-btn[data-lpc-help-videos]'));
+        if (slug) {
+            load(slug);
+        } else if (currentVideos.length) {
+            currentSlug = null;
+            renderVideosOnly();
+        }
         closeBtn.focus();
     }
 
@@ -196,12 +315,13 @@
 
         // Delegated: works for buttons rendered after load (modals, tabs).
         document.addEventListener('click', function (e) {
-            var t = e.target.closest ? e.target.closest('[data-lpc-help]') : null;
+            var t = e.target.closest ? e.target.closest('[data-lpc-help], [data-lpc-help-videos]') : null;
             if (!t) return;
-            var slug = t.getAttribute('data-lpc-help');
-            if (!slug) return;
+            var slug = t.getAttribute('data-lpc-help') || '';
+            var videos = readVideos(t);
+            if (!slug && !videos.length) return;
             e.preventDefault();
-            open(slug);
+            open(slug, videos);
         });
 
         closeBtn.addEventListener('click', close);

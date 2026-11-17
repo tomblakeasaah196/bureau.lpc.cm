@@ -46,6 +46,14 @@ $__hStrings = [
     'fallback'  => $__hEn ? 'English version coming soon — showing the French article.'
                           : 'Version française affichée.',
     'seealso'   => $__hEn ? 'See also'             : 'Voir aussi',
+    // Training videos (migration 126): the "?" button carries the moments
+    // where a video shows this page; the drawer offers them above the article.
+    'video'       => $__hEn ? 'Watch the video'      : 'Voir la vidéo',
+    'videoEyebrow'=> $__hEn ? 'Training video'       : 'Vidéo de formation',
+    'videoAt'     => $__hEn ? 'from'                 : 'à partir de',
+    'videoMore'   => $__hEn ? 'Other videos showing this page' : 'Autres vidéos qui montrent cette page',
+    'pageTitle'   => $__hEn ? 'Help for this page'   : 'Aide sur cette page',
+    'chapter'     => $__hEn ? 'Chapter'              : 'Chapitre',
 ];
 ?>
 <div id="lpc-help-drawer" hidden role="dialog" aria-modal="true"
