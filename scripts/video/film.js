@@ -159,6 +159,30 @@ async function signIn(page, origin, email, password) {
   await clearOffers(page);
 }
 
+/**
+ * The app loads Inter from Google Fonts (head_assets.php). A slow answer from Google holds a page's
+ * `load` for tens of seconds and stalls a take, so filming answers those requests itself with the same
+ * face from the repository (@fontsource-variable/inter): the screen looks exactly as it does live.
+ */
+const INTER = (() => {
+  const dir = path.join(__dirname, "..", "..", "node_modules", "@fontsource-variable", "inter", "files");
+  const read = (f) => { try { return fs.readFileSync(path.join(dir, f)); } catch { return null; } };
+  return { latin: read("inter-latin-wght-normal.woff2"), ext: read("inter-latin-ext-wght-normal.woff2") };
+})();
+async function localFonts(context) {
+  if (!INTER.latin) return;
+  await context.route(/^https:\/\/fonts\.googleapis\.com\/css2?\?family=Inter/, (route) => route.fulfill({
+    contentType: "text/css",
+    body: `@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url(https://fonts.gstatic.com/lpc-video/inter-latin.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url(https://fonts.gstatic.com/lpc-video/inter-ext.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1E00-1E9F,U+20A0-20AB,U+20AD-20C0,U+2C60-2C7F,U+A720-A7FF}`,
+  }));
+  await context.route(/^https:\/\/fonts\.gstatic\.com\/lpc-video\//, (route) => route.fulfill({
+    contentType: "font/woff2",
+    headers: { "access-control-allow-origin": "*" },
+    body: route.request().url().endsWith("inter-ext.woff2") ? INTER.ext : INTER.latin,
+  }));
+}
+
 const pathOf = (page) => { try { const u = new URL(page.url()); return u.protocol.startsWith("http") ? u.pathname : null; } catch { return null; } };
 
 /**
@@ -166,9 +190,14 @@ const pathOf = (page) => { try { const u = new URL(page.url()); return u.protoco
  * { id, duration, before, do, after, hold }. A shot with no `as` is filmed signed out (a sign-in shown on
  * camera). `ground` runs before the sign-in, `setup` after it.
  */
-async function filmShot(browser, shot, dir, { origin, password, emailOf }) {
+async function filmShot(browser, shot, dir, { origin, password, emailOf, out }) {
   const phone = shot.kind === "phone";
+  // `from: "c09s01"`: this shot opens the browser that shot left (its cookies and storage), so a
+  // remembered device, a session or a choice carries over, as it does for a person between two moments.
+  const carried = shot.from ? path.join(out, "shots", shot.from, "state.json") : null;
+  if (carried && !fs.existsSync(carried)) throw new Error(`${shot.id} continues from ${shot.from}, which has not been filmed.`);
   const context = await browser.newContext({
+    ...(carried ? { storageState: carried } : {}),
     ...(phone ? { viewport: PHONE.viewport, deviceScaleFactor: PHONE.deviceScaleFactor, isMobile: true, hasTouch: true }
       : { viewport: DESKTOP.viewport, deviceScaleFactor: DESKTOP.deviceScaleFactor }),
     userAgent: phone ? UA.phone : UA.desktop,
@@ -182,8 +211,10 @@ async function filmShot(browser, shot, dir, { origin, password, emailOf }) {
   if (!phone) await context.addInitScript(CURSOR);
   // No red underline under words the dictionary lacks as a person types.
   await context.addInitScript(() => document.addEventListener("DOMContentLoaded", () => document.documentElement.setAttribute("spellcheck", "false")));
+  await localFonts(context);
   const page = await context.newPage();
   page.setDefaultTimeout(20000);
+  page.setDefaultNavigationTimeout(45000);
   if (shot.ground) await shot.ground();
   if (shot.as) await signIn(page, origin, emailOf(shot.as), password);
   if (shot.start) { await page.goto(origin + shot.start); await settle(page, 800); }
@@ -245,6 +276,8 @@ async function filmShot(browser, shot, dir, { origin, password, emailOf }) {
     await camera;
   }
   fs.writeFileSync(path.join(dir, "take.json"), JSON.stringify(take, null, 1));
+  // The browser as the shot leaves it, for a shot that continues from this one (`from`).
+  await context.storageState({ path: path.join(dir, "state.json") }).catch(() => null);
   await context.close();
   return take;
 }
@@ -258,7 +291,7 @@ async function film(plan, out, opts) {
       process.stdout.write(`filming ${shot.id} (${shot.kind}, ${shot.lines.length} lines) ... `);
       // A shot takes about as long as its narration; far longer means it is stuck, and the run stops there.
       const limit = shot.lines.reduce((t, l) => t + l.duration + 2, 0) * 1.6 + 120;
-      const take = await within(filmShot(browser, shot, path.join(out, "shots", shot.id), opts), limit, `shot ${shot.id}`);
+      const take = await within(filmShot(browser, shot, path.join(out, "shots", shot.id), { ...opts, out }), limit, `shot ${shot.id}`);
       const secs = take.end - take.start;
       console.warn(`${secs.toFixed(1)}s, ${take.frames.length} frames (${(take.frames.length / secs).toFixed(1)} a second)`);
     }

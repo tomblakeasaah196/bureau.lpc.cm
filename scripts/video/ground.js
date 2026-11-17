@@ -170,7 +170,12 @@ async function mailTo(to, { subject } = {}) {
   const hit = list.messages.find((m) => m.To.some((t) => t.Address.toLowerCase() === to.toLowerCase()) && (!subject || subject.test(m.Subject)));
   if (!hit) return null;
   const full = await fetch(`http://127.0.0.1:8025/api/v1/message/${hit.ID}`).then((r) => r.json());
-  return { to, subject: full.Subject, html: full.HTML || `<pre>${full.Text}</pre>`, at: full.Date };
+  // A plain-text message (the app's reset email is one) is shown as a mail reader shows it: the words
+  // as written, line breaks kept, in a readable face, links underlined.
+  const esc = (t) => String(t || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const text = `<div style="padding:28px 34px;font:17px/1.65 Inter,system-ui,sans-serif;color:#1d2b24;white-space:pre-wrap;word-break:break-word">${
+    esc(full.Text).replace(/(https?:\/\/\S+)/g, '<span style="color:#005A2B;text-decoration:underline">$1</span>')}</div>`;
+  return { to, subject: full.Subject, html: full.HTML || text, at: full.Date };
 }
 
 module.exports = { ROOT, HOME, ENV_FILE, ORIGIN, PORT, DB_PORT, PASSWORD, PHP, env, db, guard, sql, quote, ready, snapshot, restore, load, migrate, serve, mailTo };
