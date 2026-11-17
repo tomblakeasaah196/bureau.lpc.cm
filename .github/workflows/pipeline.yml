@@ -143,6 +143,48 @@ jobs:
           done
           exit $fail
 
+  help_videos:
+    # Training videos (migration 126, docs/HELP_VIDEOS.md): every
+    # scripts/tests/help_videos/*.test.php, each blocking, on a throwaway
+    # MariaDB 10.11 (the server's version) built from support/fixture_schema.sql
+    # plus migrations 032 and 126. The HTTP test serves the repository with
+    # `php -S`. A tiny MP4 is made with ffmpeg at test time; no media is
+    # committed.
+    name: Training video tests (MariaDB 10.11)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: '1'
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=24
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_mysql
+          coverage: none
+      - name: ffmpeg (makes the test MP4)
+        run: command -v ffmpeg >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null; }
+      - name: Every training video test (scripts/tests/help_videos/*.test.php)
+        env:
+          HELPVID_TEST_DB_HOST: 127.0.0.1
+          HELPVID_TEST_DB_PORT: '3306'
+          HELPVID_TEST_DB_USER: root
+        run: |
+          fail=0
+          for f in scripts/tests/help_videos/*.test.php; do
+            echo "::group::$f"
+            php "$f" || { echo "::error file=$f::$f failed"; fail=1; }
+            echo "::endgroup::"
+          done
+          exit $fail
+
   deployer:
     name: Deployer tests (deploy/server)
     runs-on: ubuntu-latest
@@ -156,7 +198,7 @@ jobs:
 
   release:
     name: Release to production
-    needs: [checks, mail, wipe, deployer]
+    needs: [checks, mail, wipe, help_videos, deployer]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15

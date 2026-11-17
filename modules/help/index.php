@@ -7,8 +7,13 @@
  * Reached from the "?" in the topbar, beside the +.
  *
  * Two views in one file, because they are the same page at two depths:
- *   no ?cat  → hero + search + the category grid
+ *   no ?cat  → hero + search + « Vidéos de formation » + the category grid
  *   ?cat=…   → that category's articles, then its FAQ accordion
+ *
+ * The training videos (migration 126, HelpVideoLibrary) are listed only when
+ * the reader may see at least one — filtered by each video's audience, the
+ * same way categories are filtered here. The search box finds articles and,
+ * beside them, the moments of the videos where the words are spoken.
  *
  * NO PERMISSION GATES THIS PAGE, and that is deliberate. Every authenticated
  * user may open the help centre; what they SEE is filtered per article by
@@ -23,6 +28,7 @@
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/functions/help.php';
+require_once __DIR__ . '/../../includes/classes/HelpVideoLibrary.php';
 
 Rbac::requireAuth();
 
@@ -31,6 +37,7 @@ $en   = $lang === 'en';
 
 $catSlug    = trim((string) ($_GET['cat'] ?? ''));
 $categories = lpc_help_categories($lang);
+$videos     = ($catSlug === '' && HelpVideoLibrary::ready()) ? HelpVideoLibrary::listVisible() : [];
 
 // Resolve ?cat against the RBAC-filtered list, never against the raw table —
 // that is what stops ?cat=<restricted-slug> from rendering a category the user
@@ -85,6 +92,11 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
             <svg class="w-5 h-5 md:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
             <span class="hidden md:inline"><?= $en ? 'Manage articles' : 'Gérer les articles' ?></span>
         </a>
+        <a href="/modules/admin/help_videos.php?lang=<?= $lang ?>"
+           class="border border-lpc-border bg-white text-gray-600 hover:text-lpc-dark hover:border-lpc-dark px-4 md:px-5 py-2.5 rounded-xl font-bold transition-all flex items-center shrink-0 no-underline">
+            <svg class="w-5 h-5 md:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z"/></svg>
+            <span class="hidden md:inline"><?= $en ? 'Manage videos' : 'Gérer les vidéos' ?></span>
+        </a>
         <!-- AI assistant settings (Sprint 7H). Same gear-icon-only treatment as
              other secondary toolbar actions — the label lives in the tooltip,
              not on the button, so it doesn't compete with "Manage articles". -->
@@ -114,9 +126,11 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
         <!-- ============================= HOME ============================= -->
         <section class="lpc-help-hero">
             <h1><?= $en ? 'How can we help?' : 'Comment pouvons-nous vous aider ?' ?></h1>
-            <p><?= $en
+            <p><?php if ($videos): ?><?= $en
+                ? 'Step-by-step guides and training videos for every module of the ERP. You only see what you have access to.'
+                : "Des guides pas à pas et des vidéos de formation pour chaque module de l'ERP. Vous ne voyez que ce à quoi vous avez accès." ?><?php else: ?><?= $en
                 ? 'Step-by-step guides for every module of the ERP. You only see the sections you have access to.'
-                : "Des guides pas à pas pour chaque module de l'ERP. Vous ne voyez que les rubriques auxquelles vous avez accès." ?></p>
+                : "Des guides pas à pas pour chaque module de l'ERP. Vous ne voyez que les rubriques auxquelles vous avez accès." ?><?php endif; ?></p>
 
             <div class="lpc-help-searchbox">
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
@@ -134,6 +148,44 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
         </div>
 
         <div id="help-browse">
+            <?php if ($videos): ?>
+            <section id="videos" aria-labelledby="help-videos-title">
+                <p class="lpc-help-section-title" id="help-videos-title"><?= $en ? 'Training videos' : 'Vidéos de formation' ?></p>
+                <div class="lpc-help-vids">
+                    <?php foreach ($videos as $v):
+                        $seriesLine = $v['series'] !== ''
+                            ? $v['series'] . ($v['part'] !== null
+                                ? ' · ' . ($en ? 'Part ' : 'Partie ') . $v['part'] . ($v['parts'] !== null ? '/' . $v['parts'] : '')
+                                : '')
+                            : '';
+                    ?>
+                        <a class="lpc-help-vid" href="<?= htmlspecialchars($v['url']) ?>&amp;lang=<?= $lang ?>">
+                            <span class="lpc-help-vid-thumb">
+                                <?php if ($v['poster_url'] !== ''): ?>
+                                    <img src="<?= htmlspecialchars($v['poster_url']) ?>" alt="" loading="lazy">
+                                <?php endif; ?>
+                                <span class="lpc-help-vid-play" aria-hidden="true"></span>
+                                <span class="lpc-help-vid-dur"><?= htmlspecialchars($v['duration']) ?></span>
+                            </span>
+                            <span class="lpc-help-vid-body">
+                                <?php if ($seriesLine !== ''): ?>
+                                    <span class="lpc-help-vid-series"><?= htmlspecialchars($seriesLine) ?></span>
+                                <?php endif; ?>
+                                <span class="lpc-help-vid-title"><?= htmlspecialchars($v['title']) ?></span>
+                                <?php if ($v['subtitle'] !== ''): ?>
+                                    <span class="lpc-help-vid-sub"><?= htmlspecialchars($v['subtitle']) ?></span>
+                                <?php endif; ?>
+                                <span class="lpc-help-vid-meta">
+                                    <?= htmlspecialchars($v['duration']) ?> ·
+                                    <?= (int) $v['chapters_count'] ?> <?= $en ? ($v['chapters_count'] > 1 ? 'chapters' : 'chapter') : ($v['chapters_count'] > 1 ? 'chapitres' : 'chapitre') ?><?php if ($en && $v['lang'] !== 'en'): ?> · <?= strtoupper(htmlspecialchars($v['lang'])) ?><?php endif; ?>
+                                </span>
+                            </span>
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+            </section>
+            <?php endif; ?>
+
             <p class="lpc-help-section-title"><?= $en ? 'Browse by module' : 'Parcourir par module' ?></p>
 
             <?php if (!$categories): ?>

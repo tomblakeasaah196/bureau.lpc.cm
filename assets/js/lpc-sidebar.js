@@ -86,23 +86,38 @@
         var links = sb.querySelectorAll('a.lpc-nav-link');
         if (!links.length) return;
 
+        // One link is the page, never several. Three menu items share
+        // /modules/settings/index.php and differ by ?tab= (Rôles & Permissions,
+        // Identité de l'Entreprise, Paramètres Système & Audit), and comparing
+        // paths alone lit all three at once (found while filming the training
+        // videos). A link matches when its path is the page's and every query
+        // parameter it carries (but lang) has the page's value; the link that
+        // matches the most parameters wins, so ?tab=roles is Rôles and a bare
+        // /modules/settings/index.php is Paramètres. Bail out on non-http hrefs
+        // (mailto, tel, javascript:), which have no meaningful path.
+        var hereParams = new URLSearchParams(window.location.search);
         var activeLink = null;
+        var bestScore = -1;
         links.forEach(function (a) {
-            // Compare pathnames only — the server strips the query and hash
-            // before matching, and a.pathname does the same in the browser.
-            // Bail out on non-http hrefs (mailto, tel, javascript:) which have
-            // no meaningful pathname to match against.
-            var linkPath;
-            try { linkPath = new URL(a.href, window.location.origin).pathname; }
-            catch (e) { linkPath = ''; }
-
-            var isActive = (linkPath && linkPath === here);
-            if (isActive) {
-                a.setAttribute('aria-current', 'page');
+            var url;
+            try { url = new URL(a.href, window.location.origin); }
+            catch (e) { url = null; }
+            if (!url || url.pathname !== here) return;
+            var score = 0;
+            var fits = true;
+            url.searchParams.forEach(function (value, key) {
+                if (key === 'lang') return;
+                if (hereParams.get(key) === value) score++;
+                else fits = false;
+            });
+            if (fits && score > bestScore) {
                 activeLink = a;
-            } else if (a.hasAttribute('aria-current')) {
-                a.removeAttribute('aria-current');
+                bestScore = score;
             }
+        });
+        links.forEach(function (a) {
+            if (a === activeLink) a.setAttribute('aria-current', 'page');
+            else if (a.hasAttribute('aria-current')) a.removeAttribute('aria-current');
         });
 
         if (!activeLink) return;
@@ -174,6 +189,11 @@
     // NOT fire on subsequent navigations. `turbo:load` does. Idempotent — a
     // page loaded without Turbo just runs init once via DOMContentLoaded.
     document.addEventListener('turbo:load', syncActiveItem);
+
+    // A page that changes its own address without loading (Paramètres switches
+    // ?tab= with history.replaceState) says so with this event, so the menu
+    // follows the tab the person is on.
+    document.addEventListener('lpc:location', syncActiveItem);
 
     // Session inactivity handling MOVED to assets/js/lpc-session-lock.js.
     //

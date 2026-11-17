@@ -26,7 +26,7 @@
                 url:   '/api/v1/finance_dashboard_api.php?action=drilldown_cash',
                 columns: ['Date', 'Écriture', 'Compte', 'Entrée', 'Sortie'],
                 csv: true,
-                deeplink: { href: '/modules/accounting/journal_entries.php?from=dashboard_finance', label: 'Ouvrir le grand livre' },
+                deeplink: { href: '/modules/accounting/cashflow.php?from=dashboard_finance', label: 'Ouvrir la trésorerie' },
                 renderRow: function (r) {
                     return LPC.html`<tr>
                         <td>${LPC.fmt.date(r.date)}</td>
@@ -66,7 +66,7 @@
                 url:   '/api/v1/finance_dashboard_api.php?action=drilldown_ap',
                 columns: ['Fournisseur', 'Facture', 'Date', 'Montant'],
                 csv: true,
-                deeplink: { href: '/modules/procurement/supplier_invoices.php?from=dashboard_finance', label: 'Ouvrir les factures fournisseurs' },
+                deeplink: { href: '/modules/inventory/procurement.php?from=dashboard_finance', label: 'Ouvrir les achats' },
                 renderRow: function (r) {
                     return LPC.html`<tr>
                         <td>${r.supplier_name || ''}</td>
@@ -85,7 +85,7 @@
                 url:   '/api/v1/finance_dashboard_api.php?action=drilldown_pending',
                 columns: ['Type', 'Référence', 'Auteur', 'Date', 'Montant'],
                 csv: true,
-                deeplink: { href: '/modules/accounting/journal_entries.php?status=pending&from=dashboard_finance', label: 'Ouvrir la file d\'attente' },
+                deeplink: { href: '/modules/accounting/journal_entry.php?from=dashboard_finance#queue', label: 'Ouvrir la file d\'attente' },
                 renderRow: function (r) {
                     return LPC.html`<tr>
                         <td>${r.kind || ''}</td>

@@ -968,7 +968,7 @@ html.lpc-collapsed #lpc-topbar { left: var(--lpc-sidebar-w-collapsed); }
     background: var(--lpc-accent-on-light);
     color: #fff;
 }
-.lpc-palette-text  { flex: 1 1 auto; min-width: 0; }
+.lpc-palette-text  { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; } /* the hint (its section) sits under the label: as inline spans they ran together, "Factures & CaisseFactures & Paiements" */
 .lpc-palette-label { font-size: .8125rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lpc-palette-hint  { font-size: .6875rem; color: var(--lpc-ink-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lpc-palette-meta  { flex: 0 0 auto; font-size: .625rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--lpc-ink-mute); }

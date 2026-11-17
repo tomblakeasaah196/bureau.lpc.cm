@@ -70,7 +70,7 @@
             url:    '/api/v1/analytics_controller.php?action=drilldown_payroll',
             columns:['Période', 'Employé', 'Rôle', 'Brut FCFA', 'Net FCFA', 'Statut'],
             csv: true,
-            deeplink: { href: '/modules/hr/payroll.php?from=analytics_reports', label: 'Ouvrir la paie' },
+            deeplink: { href: '/modules/hr/payroll_finance.php?from=analytics_reports#payroll', label: 'Ouvrir la paie' },
             renderRow: function (r) {
                 return LPC.html`<tr>
                     <td>${r.year}-${String(r.month).padStart(2, '0')}</td>

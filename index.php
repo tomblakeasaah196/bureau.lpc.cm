@@ -150,6 +150,20 @@ $t = static fn (string $fr, string $en): string => $lang == 'fr' ? $fr : $en;
                             echo $lang == 'fr'
                                 ? 'Votre session a expiré. Rechargez la page et réessayez.'
                                 : 'Your session has expired. Please reload the page and try again.';
+                        } elseif ($error === 'too_many_attempts') {
+                            // api/v1/auth.php's rate limit (Paramètres → Sécurité: 10 tries an
+                            // account, 15 minutes by default). It used to print raw JSON.
+                            echo $lang == 'fr'
+                                ? 'Trop de tentatives de connexion. Patientez quelques minutes avant de réessayer.'
+                                : 'Too many sign-in attempts. Wait a few minutes before trying again.';
+                        } elseif ($error === 'session_expired') {
+                            // bootstrap.php sends a page request here once the idle limit
+                            // (Paramètres → Sécurité, 30 minutes by default) has passed. It
+                            // used to fall through to "Une erreur est survenue", which read
+                            // as a fault rather than the normal end of an idle session.
+                            echo $lang == 'fr'
+                                ? 'Votre session a expiré après une période d\'inactivité. Reconnectez-vous pour continuer.'
+                                : 'Your session ended after a period of inactivity. Sign in again to continue.';
                         } else {
                             echo $lang == 'fr' ? 'Une erreur est survenue.' : 'An error occurred.';
                         }
@@ -266,9 +280,13 @@ $t = static fn (string $fr, string $en): string => $lang == 'fr' ? $fr : $en;
                 <a href="password_forgot.php?lang=<?php echo $lang; ?>" class="block text-sm text-white/60 hover:text-lpc-light transition-colors font-medium">
                     <?php echo $lang == 'fr' ? 'Mot de passe ou adresse oubliés ?' : 'Forgot your password or address?'; ?>
                 </a>
-                <a href="password_manager.php?lang=<?php echo $lang; ?>" class="block text-xs text-white/40 hover:text-lpc-light transition-colors">
-                    <?php echo $lang == 'fr' ? 'Changer mon mot de passe' : 'Change my password'; ?>
-                </a>
+                <?php /* No "Changer mon mot de passe" here: changing a password needs a
+                         session (password_manager.php refuses an anonymous caller), so from
+                         the sign-in page it was a dead end, "Connexion requise", whose
+                         « Se connecter » then lost the way back. It lives in the account
+                         menu once signed in (sidebar user card), and the forgotten-password
+                         link above covers the signed-out case. Found while filming the
+                         training videos (docs/TRAINING_VIDEOS.md §7). */ ?>
             </div>
 
             <button type="submit" 

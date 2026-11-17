@@ -25,6 +25,7 @@ error_log
 !scripts/tests/*.sql
 !scripts/tests/mail/support/*.sql
 !scripts/tests/wipe/support/*.sql
+!scripts/tests/help_videos/support/*.sql
 
 # Backups
 *.bak

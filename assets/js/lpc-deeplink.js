@@ -209,4 +209,42 @@
     } else {
         renderChip();
     }
+
+    /**
+     * ?new=1 — "open the page on its own creation form".
+     *
+     * The topbar's « + » menu and the Ctrl+K palette's actions link to
+     * invoices.php?new=1, clients.php?new=1, orders.php?new=1 and
+     * procurement.php?new=1, but no page ever read the param: « Nouvelle
+     * facture » landed on the invoice list and the person had to find the
+     * button again (found while filming the training videos, 17/11/2026).
+     *
+     * A page marks its own primary "new" button with `data-lpc-new`; this
+     * presses it once the page's scripts have run, exactly as a person would,
+     * so the form opens through the page's own code with its own checks. A
+     * button the person may not use is hidden by data-perm (lpc-rbac.js) and
+     * is therefore never pressed. The param is then removed from the address,
+     * so reloading the page does not open the form a second time.
+     */
+    function openNewForm() {
+        if (params.get('new') !== '1') return;
+        var btn = document.querySelector('[data-lpc-new]');
+        var rest = new URLSearchParams(window.location.search);
+        rest.delete('new');
+        var qs = rest.toString();
+        try {
+            window.history.replaceState(window.history.state, '', window.location.pathname + (qs ? '?' + qs : '') + window.location.hash);
+        } catch (e) { /* an old browser keeps the param: harmless */ }
+        if (!btn || btn.disabled || btn.offsetParent === null) return;
+        btn.click();
+    }
+
+    // After `load`, and a tick more: page scripts (deferred, or inline at the
+    // end of <body>) define the functions the button calls and lpc-rbac.js
+    // hides what the person may not use.
+    if (document.readyState === 'complete') {
+        setTimeout(openNewForm, 0);
+    } else {
+        window.addEventListener('load', function () { setTimeout(openNewForm, 0); });
+    }
 })();

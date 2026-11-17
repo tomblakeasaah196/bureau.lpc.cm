@@ -28,6 +28,13 @@
  *   6. Every ask is logged (help_chat_log, migration 101) — the raw material
  *      for a future "what can't the assistant answer" report.
  *
+ * TRAINING VIDEOS (migration 126). Beside the article chunks, the transcript
+ * lines of the videos this reader may see are searched by keyword
+ * (HelpVideoLibrary::chatMoments(), gated like the chunks). They join the
+ * grounding text as sources, and the answer carries `videos`: « Voir dans la
+ * vidéo « Premiers pas » à 02:14 » links built from those moments, never from
+ * the model's text. A question answered only by a video still gets an answer.
+ *
  * "NOT CONFIGURED" AND "NOTHING FOUND" ARE NOT ERRORS. Both return HTTP 200
  * with status=success and a message the widget renders inline — the same
  * "degrade, don't fatal" contract as the rest of the help centre.
@@ -90,6 +97,31 @@ function chat_resolve_inline_links(string $html, array $matches, bool $en): stri
 }
 
 /**
+ * The training-video citations shown under an answer:
+ * « Voir dans la vidéo « Premiers pas » à 02:14 », linking to the player at
+ * that second. Built only from HelpVideoLibrary moments (already gated), never
+ * from the model's text — same rule as the article sources.
+ *
+ * @param list<array> $moments HelpVideoLibrary::chatMoments()
+ */
+function chat_video_sources(array $moments, bool $en): array
+{
+    $out = [];
+    foreach ($moments as $m) {
+        $out[] = [
+            'title'         => $m['title'],
+            'timecode'      => $m['timecode'],
+            'chapter_title' => $m['chapter_title'],
+            'url'           => $m['url'],
+            'label'         => $en
+                ? "Watch in the video “{$m['title']}” at {$m['timecode']}"
+                : "Voir dans la vidéo « {$m['title']} » à {$m['timecode']}",
+        ];
+    }
+    return $out;
+}
+
+/**
  * Best-effort log — a logging failure must never take down the actual
  * answer the visitor is about to receive.
  *
@@ -101,10 +133,16 @@ function chat_resolve_inline_links(string $html, array $matches, bool $en): stri
  * @param array<int,array{slug:string}> $matches
  */
 function chat_log(string $question, string $lang, string $pagePath, array $matches,
-                   bool $hadGoodMatch, bool $billable, ?string $answer, string $errorMessage): void
+                   bool $hadGoodMatch, bool $billable, ?string $answer, string $errorMessage,
+                   array $moments = []): void
 {
     try {
         $slugs = array_values(array_unique(array_column($matches, 'slug')));
+        // Video moments cited, as video:<slug>@<seconds> (migration 126).
+        foreach ($moments as $mo) {
+            $slugs[] = 'video:' . $mo['slug'] . '@' . $mo['t'];
+        }
+        $slugs = mb_substr(implode(',', $slugs), 0, 600);
         Database::getInstance()->getConnection()->prepare(
             "INSERT INTO help_chat_log
                 (user_id, lang, page_path, question, matched_article_slugs,
@@ -112,7 +150,7 @@ function chat_log(string $question, string $lang, string $pagePath, array $match
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )->execute([
             $_SESSION['user_id'] ?? null, $lang, $pagePath, $question,
-            implode(',', $slugs), $hadGoodMatch ? 1 : 0, $billable ? 1 : 0, $answer, $errorMessage,
+            $slugs, $hadGoodMatch ? 1 : 0, $billable ? 1 : 0, $answer, $errorMessage,
         ]);
     } catch (Throwable $e) {
         error_log('help_chat_controller log: ' . $e->getMessage());
@@ -170,13 +208,28 @@ switch ($action) {
         // the host's own (longer, presumably) limit applies instead.
         @set_time_limit(75);
 
+        // Training videos (migration 126): the transcript lines that answer
+        // the question, in videos this reader may see (HelpVideoLibrary's gate
+        // runs before anything is returned, as lpc_help_visible() does for the
+        // chunks below). A keyword search with no provider call, so the
+        // citations « Voir dans la vidéo « … » à 02:14 » are offered even when
+        // Praxis is not configured or finds no article.
+        $moments = [];
+        try {
+            $moments = HelpRetrieval::videoMoments($question, $lang, 3);
+        } catch (Throwable $e) {
+            error_log('help_chat_controller video moments: ' . $e->getMessage());
+        }
+        $videos = chat_video_sources($moments, $en);
+
         if (!AiSettings::isDeepSeekConfigured() || !AiSettings::isEmbeddingConfigured()) {
             chat_out([
                 'status'      => 'success',
                 'configured'  => false,
-                'had_match'   => false,
+                'had_match'   => (bool) $moments,
                 'answer_html' => '',
                 'sources'     => [],
+                'videos'      => $videos,
                 'message'     => $en
                     ? "Praxis isn't configured yet. Ask an administrator to set it up from the gear icon."
                     : "Praxis n'est pas encore configuré. Demandez à un administrateur de le configurer depuis l'icône en forme d'engrenage.",
@@ -192,7 +245,7 @@ switch ($action) {
         if ($dailyCap !== null) {
             $usedToday = AiRoleLimits::todayUsageFor((int) ($_SESSION['user_id'] ?? 0));
             if ($usedToday >= $dailyCap) {
-                chat_log($question, $lang, $pagePath, [], false, false, null, 'quota_exceeded');
+                chat_log($question, $lang, $pagePath, [], false, false, null, 'quota_exceeded', $moments);
                 chat_out([
                     'status'         => 'success',
                     'configured'     => true,
@@ -200,6 +253,7 @@ switch ($action) {
                     'quota_exceeded' => true,
                     'answer_html'    => '',
                     'sources'        => [],
+                    'videos'         => $videos,
                     'quota'          => ['cap' => $dailyCap, 'used' => $usedToday, 'remaining' => 0],
                     'message'        => $en
                         ? "You've reached today's limit of {$dailyCap} questions for Praxis. It resets at midnight."
@@ -210,7 +264,10 @@ switch ($action) {
 
         $matches = HelpRetrieval::search($question, $lang);
 
-        if (!$matches) {
+        // Nothing in the articles AND nothing spoken in a video: the canned
+        // answer, no DeepSeek call. A video moment alone is grounding enough —
+        // its narration is reviewed text, like an article.
+        if (!$matches && !$moments) {
             chat_log($question, $lang, $pagePath, [], false, false, null, '');
             chat_out([
                 'status'      => 'success',
@@ -220,6 +277,7 @@ switch ($action) {
                     ? "I couldn't find anything in the help centre about that — try rephrasing, or browse by module below."
                     : "Je n'ai rien trouvé dans le centre d'aide à ce sujet — essayez de reformuler, ou parcourez par module ci-dessous."),
                 'sources'     => [],
+                'videos'      => [],
             ]);
         }
 
@@ -238,6 +296,15 @@ switch ($action) {
             $hasPage = $m['page_path'] !== '';
             $context .= "[Source {$n}: {$m['title']}" . ($hasPage ? ', has a linkable page' : '') . "]\n{$m['chunk_text']}\n\n";
         }
+        // The video lines, numbered after the articles. They carry no page, so
+        // a {{go:N}} on one resolves to nothing (chat_resolve_inline_links()
+        // only reads $matches); the reader gets the « Voir dans la vidéo »
+        // links under the answer instead.
+        foreach ($moments as $i => $mo) {
+            $n = count($matches) + $i + 1;
+            $context .= "[Source {$n}: training video « {$mo['title']} », spoken at {$mo['timecode']}]\n"
+                      . ($mo['context'] ?? $mo['text']) . "\n\n";
+        }
 
         $langName = $en ? 'English' : 'French';
         $system = <<<SYS
@@ -249,6 +316,7 @@ Rules:
 - If the sources only partially cover the question, answer the part they cover and say plainly what they don't.
 - If the sources don't answer the question at all, say so plainly instead of guessing.
 - Do not refer to "Source 1" / "Source 2" by number in your answer — write naturally. The sources are shown to the user separately, underneath your answer.
+- Some sources are lines spoken in a training video of the ERP; use them like the others. The user gets a link to that moment of the video underneath your answer.
 - Do not write any links or URLs yourself, ever.
 - The ONLY exception: when your answer describes a concrete action or screen documented by a source marked "has a linkable page", insert the marker {{go:N}} (N = that source's number) immediately after the sentence describing it — e.g. "...bascule dans le panier « À facturer ».{{go:2}}". Use it at most once per source, only for sources marked "has a linkable page", and only where it is genuinely useful — not after every sentence.
 
@@ -263,7 +331,7 @@ SYS;
             ]);
         } catch (Throwable $e) {
             error_log('help_chat_controller ask: ' . $e->getMessage());
-            chat_log($question, $lang, $pagePath, $matches, false, false, null, $e->getMessage());
+            chat_log($question, $lang, $pagePath, $matches, false, false, null, $e->getMessage(), $moments);
             chat_fail(
                 $en ? 'Praxis is temporarily unavailable. Try again shortly.'
                     : "Praxis est momentanément indisponible. Réessayez dans un instant.",
@@ -291,7 +359,7 @@ SYS;
             ];
         }
 
-        chat_log($question, $lang, $pagePath, $matches, true, true, $answer, '');
+        chat_log($question, $lang, $pagePath, $matches, true, true, $answer, '', $moments);
 
         // This question just consumed one quota slot (billable = true above)
         // — recompute rather than assume $usedToday + 1, so the widget's
@@ -315,6 +383,9 @@ SYS;
             // never from anything the model wrote.
             'answer_html' => chat_resolve_inline_links(lpc_help_markdown($answer), $matches, $en),
             'sources'     => $sources,
+            // « Voir dans la vidéo « Premiers pas » à 02:14 » — built from the
+            // moments this controller found and gated, never from the model.
+            'videos'      => $videos,
         ]);
     }
 

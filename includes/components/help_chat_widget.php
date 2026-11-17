@@ -10,7 +10,8 @@
  * like the sidebar/topbar) is a natural follow-up once it's proven out here.
  *
  * Pure markup + a mount point. assets/js/modules/help-chat-widget.js owns all
- * behaviour (open/close, the ask() call, rendering). CSS lives in
+ * behaviour (open/close, the ask() call, rendering — including the training
+ * video citations « Voir dans la vidéo « … » à 02:14 », migration 126). CSS lives in
  * assets/css/lpc-help.css §6, alongside the rest of the help centre's chrome
  * — that file already loads on every page (see head_assets.php), so nothing
  * new needs linking here.
@@ -59,8 +60,8 @@ $en   = $en   ?? ($lang === 'en');
         <div class="lpc-ai-chat-msg lpc-ai-chat-msg--bot">
             <div class="lpc-ai-chat-bubble">
                 <p><?= $en
-                    ? "Hi, I'm Praxis. Ask me anything about the ERP — I'll search the help articles you have access to and answer from those, with links to the sources and, where relevant, straight to the page itself."
-                    : "Bonjour, je suis Praxis. Posez-moi une question sur l'ERP — je chercherai dans les articles d'aide auxquels vous avez accès et je répondrai à partir de ceux-ci, avec des liens vers les sources et, si utile, directement vers la page concernée." ?></p>
+                    ? "Hi, I'm Praxis. Ask me anything about the ERP — I'll search the help articles and training videos you have access to and answer from those, with links to the sources, to the moment in the video and, where relevant, straight to the page itself."
+                    : "Bonjour, je suis Praxis. Posez-moi une question sur l'ERP — je chercherai dans les articles d'aide et les vidéos de formation auxquels vous avez accès et je répondrai à partir de ceux-ci, avec des liens vers les sources, vers le moment de la vidéo et, si utile, directement vers la page concernée." ?></p>
             </div>
         </div>
     </div>

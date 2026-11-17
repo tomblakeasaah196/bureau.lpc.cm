@@ -29,8 +29,13 @@ class RateLimiter
      * @param string $ip            Client IP (already sanitized)
      * @param int    $maxAttempts   Threshold (default 10)
      * @param int    $windowMinutes Window length in minutes (default 15)
+     * @param string|null $redirectTo Where to send a browser form that is refused
+     *                    (a page of the app, e.g. '/index.php?error=too_many_attempts').
+     *                    Without it a refused browser request gets the 429 page below;
+     *                    the sign-in form posts to /api/v1/auth.php, so it used to get
+     *                    the raw JSON (found while filming the training videos).
      */
-    public static function guard(string $bucket, string $ip, int $maxAttempts = 10, int $windowMinutes = 15): void
+    public static function guard(string $bucket, string $ip, int $maxAttempts = 10, int $windowMinutes = 15, ?string $redirectTo = null): void
     {
         try {
             $db = Database::getInstance()->getConnection();
@@ -58,13 +63,34 @@ class RateLimiter
             $total = (int) $sumStmt->fetchColumn();
 
             if ($total > $maxAttempts) {
-                self::deny($bucket, $windowMinutes);
+                self::deny($bucket, $windowMinutes, $redirectTo);
             }
         } catch (Throwable $e) {
             // Never fail-open silently for auth rate limiter — but never fail-close
             // on a transient DB blip either. Log and let the request proceed;
             // the surrounding auth check itself is still hard.
             error_log('RateLimiter: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Forget a key's attempts in a bucket: what a successful sign-in does for its account.
+     *
+     * guard() counts every attempt, the good ones too. With the per-account limit at 3 in
+     * 15 minutes (Paramètres → Sécurité, as live has it), a person who signed in a fourth
+     * time inside a quarter of an hour, with the right password (after a sign-out, a timeout,
+     * another browser), was refused « Trop de tentatives ». The setting's own help says it
+     * limits tries on an account; a success ends the run of tries, so it clears the count
+     * (found while filming the training videos).
+     */
+    public static function clear(string $bucket, string $key): void
+    {
+        try {
+            Database::getInstance()->getConnection()
+                ->prepare('DELETE FROM login_attempts WHERE bucket = ? AND ip = ?')
+                ->execute([$bucket, $key]);
+        } catch (Throwable $e) {
+            error_log('RateLimiter::clear: ' . $e->getMessage());
         }
     }
 
@@ -88,11 +114,20 @@ class RateLimiter
         }
     }
 
-    private static function deny(string $bucket, int $windowMinutes): void
+    private static function deny(string $bucket, int $windowMinutes, ?string $redirectTo = null): void
     {
+        $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
+        $wantsJson = stripos($accept, 'application/json') !== false
+            || strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest';
+        // A browser form (the sign-in page) goes back to its page with a sentence it can show.
+        // Only an app path is accepted, never a URL, so this can never redirect off the site.
+        if ($redirectTo !== null && !$wantsJson && str_starts_with($redirectTo, '/')
+            && !str_starts_with($redirectTo, '//') && strpos($redirectTo, chr(92)) === false) {
+            header('Location: ' . $redirectTo, true, 303);
+            exit;
+        }
         http_response_code(429);
         header("Retry-After: " . ($windowMinutes * 60));
-        $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
         if (stripos($accept, 'application/json') !== false ||
             strpos($_SERVER['REQUEST_URI'] ?? '', '/api/') !== false) {
             header('Content-Type: application/json; charset=utf-8');

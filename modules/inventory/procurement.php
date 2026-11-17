@@ -77,7 +77,7 @@ $user_role = $_SESSION['user_role'];
                      DOM for every role. Omitting it server-side would reproduce
                      the exact null-reference crash the tab strip caused.
                      procurement_controller.php re-checks on write regardless. */ ?>
-            <button id="btn-primary-action" onclick="openActionModal()"
+            <button id="btn-primary-action" data-lpc-new onclick="openActionModal()"
                     data-perm="inventory.procurement.create_po"
                     class="bg-lpc-dark hover:bg-[#004722] text-white px-4 md:px-5 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2 shrink-0 lpc-focusable">
                 <i class="fas fa-plus"></i>

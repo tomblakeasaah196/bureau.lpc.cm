@@ -303,3 +303,60 @@ if (!function_exists('lpc_nav_label')) {
             : (string) ($base['label_fr'] ?? $ref);
     }
 }
+
+if (!function_exists('lpc_nav_page_catalogue')) {
+
+    /**
+     * Every page of the catalogue by its path: path => [permission => true],
+     * plus its name. Several catalogue entries can share a page
+     * ('/modules/settings/index.php' is Rôles & Permissions, Identité de
+     * l'Entreprise and Paramètres Système & Audit), so a page can carry
+     * several permissions — holding any one of them opens it.
+     *
+     * @return array<string,array{permissions:array<string,bool>,label_fr:string,label_en:string}>
+     */
+    function lpc_nav_page_catalogue(): array
+    {
+        static $byPath = null;
+        if ($byPath === null) {
+            $byPath = [];
+            $cfg = require __DIR__ . '/../config/nav.php';
+            foreach (($cfg['catalogue'] ?? []) as $item) {
+                $href = (string) ($item['href'] ?? '');
+                $perm = (string) ($item['permission'] ?? '');
+                if ($href === '' || $perm === '') {
+                    continue;
+                }
+                $p = (string) parse_url($href, PHP_URL_PATH);
+                $byPath[$p] ??= ['permissions' => [], 'label_fr' => (string) ($item['label_fr'] ?? ''), 'label_en' => (string) ($item['label_en'] ?? '')];
+                $byPath[$p]['permissions'][$perm] = true;
+            }
+        }
+        return $byPath;
+    }
+}
+
+if (!function_exists('lpc_nav_permissions_for_path')) {
+
+    /**
+     * The permissions that gate a page, by its path, from the catalogue:
+     *
+     *     lpc_nav_permissions_for_path('/modules/crm/clients.php')    // ['crm.clients.view']
+     *     lpc_nav_permissions_for_path('/modules/settings/index.php') // ['admin.roles.view', 'admin.settings.view']
+     *
+     * A path the catalogue does not list (the login page, a detail page, the
+     * help centre) returns [] — the menu says nothing about who may open it.
+     * Used by the training videos (HelpVideoLibrary): a video is shown to
+     * whoever can open one of the pages it films, the menu's own answer.
+     *
+     * @return list<string>
+     */
+    function lpc_nav_permissions_for_path(string $path): array
+    {
+        $p = (string) parse_url(trim($path), PHP_URL_PATH);
+        if ($p === '' || $p[0] !== '/') {
+            $p = '/' . $p;
+        }
+        return array_keys(lpc_nav_page_catalogue()[$p]['permissions'] ?? []);
+    }
+}

@@ -350,5 +350,15 @@ function run_sql_statement(PDO $pdo, string $stmt): void {
     }
 }
 
-function sha256_file(string $path): string { return hash_file('sha256', $path) ?: ''; }
+/**
+ * The checksum of a migration's text, line endings counted as LF. The server's checkout is LF, so
+ * every checksum it recorded is unchanged; a Windows checkout (git core.autocrlf) holds the same
+ * files with CRLF, which used to read as "file checksum has changed" for every migration and stop
+ * the runner on a local copy (found while building the training videos' filming copy).
+ */
+function sha256_file(string $path): string
+{
+    $text = @file_get_contents($path);
+    return $text === false ? '' : hash('sha256', str_replace("\r\n", "\n", $text));
+}
 function info(string $msg): void { fwrite(STDOUT, "[migrate] $msg\n"); }
