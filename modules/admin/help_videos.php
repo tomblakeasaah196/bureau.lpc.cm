@@ -194,7 +194,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                                 <?php else: ?>
                                     <span class="lpc-vadm-thumb" aria-hidden="true"></span>
                                 <?php endif; ?>
-                                <div class="min-w-0">
+                                <div style="min-width: 12rem">
                                     <span class="font-bold text-gray-900"><?= htmlspecialchars($v['title']) ?></span>
                                     <span class="block text-[11px] text-gray-400 font-mono"><?= htmlspecialchars($v['slug']) ?></span>
                                     <span class="block text-[11px] text-gray-400"><?= $en ? 'Updated' : 'Mise à jour' ?> <?= htmlspecialchars(substr($v['updated_at'], 0, 16)) ?></span>
