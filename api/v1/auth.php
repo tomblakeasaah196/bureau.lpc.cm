@@ -131,8 +131,10 @@ $maxAuth      = Prefs::int('sec_max_login_attempts', (int) env('AUTH_MAX_ATTEMPT
 $authWindow   = Prefs::int('sec_lockout_minutes', 15);
 $maxAuthPerIp = Prefs::int('sec_max_login_attempts_ip', 50);
 
-RateLimiter::guard('auth_ip', $ip_address, $maxAuthPerIp, $authWindow);
-RateLimiter::guard('auth_acct', 'acct:' . substr(hash('sha256', $login), 0, 40), $maxAuth, $authWindow);
+// A refused sign-in goes back to the sign-in page with a sentence, not a raw 429.
+$__tooMany = '/index.php?error=too_many_attempts';
+RateLimiter::guard('auth_ip', $ip_address, $maxAuthPerIp, $authWindow, $__tooMany);
+RateLimiter::guard('auth_acct', 'acct:' . substr(hash('sha256', $login), 0, 40), $maxAuth, $authWindow, $__tooMany);
 
 try {
     $db = Database::getInstance()->getConnection();
