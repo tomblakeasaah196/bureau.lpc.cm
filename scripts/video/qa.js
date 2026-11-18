@@ -10,7 +10,9 @@
  *
  *   <who>      a cast key (cast.js), signed in through the real sign-in page
  *   <page>     an app path, e.g. /modules/dashboard/views/md_dashboard.php
- *   --selects  also try every option of each filter <select> outside a form (periods, years, statuses)
+ *   --selects  also try every option of each filter <select> outside a form (periods, years, statuses);
+ *              never one that saves on change (data-autosave, or an onchange that saves or sets): the
+ *              roles' home-page list changed a role each run before (18/11/2026)
  *
  * On each page it clicks every visible tab; on the page and on each tab it opens every KPI card,
  * detail, "Voir" and <summary>, one at a time, and closes it again. It never presses a button that
@@ -247,7 +249,7 @@ async function main() {
       }
 
       if (opt.selects) {
-        const selects = await page.evaluate(() => [...document.querySelectorAll("select")].filter((s) => !s.closest("form[method=post i], [role=dialog], .lpc-modal, #lpc-sidebar") && s.offsetParent)
+        const selects = await page.evaluate(() => [...document.querySelectorAll("select")].filter((s) => !s.closest("form[method=post i], [role=dialog], .lpc-modal, #lpc-sidebar, [data-autosave]") && !s.hasAttribute("data-autosave") && !/save|set[A-Z]/i.test(s.getAttribute("onchange") || "") && s.offsetParent)
           .map((s, i) => { s.dataset.qaSel = String(i); return { i, label: (s.getAttribute("aria-label") || s.name || s.id || "").slice(0, 40), values: [...s.options].map((o) => o.value).slice(0, 8) }; }));
         for (const s of selects) {
           for (const v of s.values) {

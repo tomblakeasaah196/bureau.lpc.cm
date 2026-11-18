@@ -177,6 +177,49 @@ if (!empty($_SESSION['user_id'])) {
         exit;
     }
 
+    // A session an administrator closed (Paramètres → Sessions, « Déconnecter »),
+    // an account they locked, or a password changed elsewhere marks the session
+    // row closed. Nothing used to read that mark: the closed browser kept working
+    // until its idle limit (found while filming the admin videos, 18/11/2026).
+    // One indexed lookup per request ends it at the next click.
+    if (!empty($_SESSION['session_token'])) {
+        $__revoked = false;
+        try {
+            $__db = Database::getInstance()->getConnection();
+            $__chk = $__db->prepare(
+                "SELECT us.logout_time, u.status
+                   FROM user_sessions us
+                   LEFT JOIN users u ON u.id = us.user_id
+                  WHERE us.session_token_hash = ?
+                  LIMIT 1"
+            );
+            $__chk->execute([hash('sha256', $_SESSION['session_token'])]);
+            $__row = $__chk->fetch(PDO::FETCH_ASSOC);
+            // No row (an old session, a purged log) is left alone.
+            $__revoked = $__row && ($__row['logout_time'] !== null
+                || ($__row['status'] !== null && $__row['status'] !== 'active'));
+        } catch (Throwable $e) { error_log('bootstrap session-revoked: ' . $e->getMessage()); }
+
+        if ($__revoked) {
+            $_SESSION = [];
+            if (ini_get('session.use_cookies')) {
+                $p = session_get_cookie_params();
+                setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'], $p['secure'], $p['httponly']);
+            }
+            session_destroy();
+            if (strpos($_SERVER['REQUEST_URI'] ?? '', '/api/') !== false ||
+                stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false) {
+                http_response_code(401);
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(['status' => 'error', 'code' => 'session_revoked', 'message' => 'Session fermée par un administrateur.']);
+                exit;
+            }
+            header('Location: /index.php?error=session_revoked');
+            exit;
+        }
+        unset($__revoked, $__chk, $__row);
+    }
+
     // Bump last-activity marker. Persist to DB no more than once every 5 min
     // to avoid a write on every request.
     $_SESSION['last_activity'] = time();

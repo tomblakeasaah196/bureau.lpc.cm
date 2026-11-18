@@ -189,12 +189,14 @@ $__nav = lpc_nav_sections($lang);
             </summary>
             <ul role="menu" class="space-y-0.5" aria-labelledby="<?= $__headingId ?>">
                 <?php foreach ($__section['items'] as $__item):
-                    $__active = ($__currentPath === strtok($__item['href'], '#'));
+                    $__also   = (array) ($__item['also'] ?? []);
+                    $__active = ($__currentPath === strtok($__item['href'], '#')) || in_array($__currentPath, $__also, true);
                 ?>
                 <li role="none">
                     <a href="<?= htmlspecialchars($__item['href']) ?>"
                        role="menuitem"
                        data-perm="<?= htmlspecialchars($__item['permission']) ?>"
+                       <?= $__also ? 'data-lpc-also="' . htmlspecialchars(implode(' ', $__also)) . '"' : '' ?>
                        <?= $__active ? 'aria-current="page"' : '' ?>
                        title="<?= htmlspecialchars($__item['label']) ?>"
                        class="lpc-focusable lpc-nav-link group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all">

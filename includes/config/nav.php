@@ -145,7 +145,7 @@ $CATALOGUE = [
   // topbar and is open to every authenticated user, so it has no catalogue entry
   // — an entry needs a permission, and inventing one would create a second,
   // drifting answer to "who may read the manual". See modules/help/index.php.
-  'admin_help'     => ['href'=>'/modules/admin/help_articles.php',               'icon'=>$I['book'],      'permission'=>'help.manage',                  'label_fr'=>"Centre d'Aide (articles)",  'label_en'=>'Help Centre (articles)'],
+  'admin_help'     => ['href'=>'/modules/admin/help_articles.php',               'icon'=>$I['book'],      'permission'=>'help.manage', 'also'=>['/modules/admin/help_videos.php', '/modules/admin/help_ai_settings.php'], 'label_fr'=>"Centre d'Aide (articles)",  'label_en'=>'Help Centre (articles)'],
 ];
 
 // -----------------------------------------------------------------------------

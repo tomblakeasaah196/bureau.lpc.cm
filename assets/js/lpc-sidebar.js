@@ -102,7 +102,13 @@
             var url;
             try { url = new URL(a.href, window.location.origin); }
             catch (e) { url = null; }
-            if (!url || url.pathname !== here) return;
+            if (!url) return;
+            if (url.pathname !== here) {
+                // A page outside the menu that belongs to this item (data-lpc-also).
+                var also = (a.getAttribute('data-lpc-also') || '').split(' ');
+                if (also.indexOf(here) !== -1 && bestScore < 0) { activeLink = a; bestScore = 0; }
+                return;
+            }
             var score = 0;
             var fits = true;
             url.searchParams.forEach(function (value, key) {

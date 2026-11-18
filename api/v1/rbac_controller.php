@@ -60,7 +60,7 @@ try {
         // ------------------------------------------------------------------
         case 'list_roles':
             $stmt = $db->query("
-                SELECT r.id, r.name,
+                SELECT r.id, r.name, r.description AS label,
                        (SELECT COUNT(*) FROM users u WHERE u.role_id = r.id) AS user_count,
                        (SELECT COUNT(*) FROM role_permissions rp WHERE rp.role_id = r.id) AS perm_count
                   FROM roles r
@@ -128,24 +128,38 @@ try {
         // ------------------------------------------------------------------
         case 'create_role':
             Rbac::requirePermission('admin.roles.create');
-            $name = strtolower(trim($body['name'] ?? ''));
-            if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/', $name)) {
-                throw_bad("Nom invalide. Utilisez uniquement lettres, chiffres, tirets et underscores (2-32 caractères).");
+            // The screen sends the name people will read (« Responsable
+            // Commercial »); the technical name is derived from it. An older
+            // page that sends a technical `name` still works.
+            $label = trim(preg_replace('/\s+/u', ' ', (string) ($body['label'] ?? '')));
+            $name  = strtolower(trim($body['name'] ?? ''));
+            if ($label !== '') {
+                if (mb_strlen($label) < 2 || mb_strlen($label) > 60) {
+                    throw_bad("Le nom du rôle doit faire entre 2 et 60 caractères.");
+                }
+                $ascii = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $label);
+                $name  = trim(preg_replace('/[^a-z0-9]+/', '_', strtolower((string) $ascii)), '_');
+                $name  = substr($name, 0, 32);
+                if ($name === '' || !preg_match('/^[a-z]/', $name)) { $name = 'role_' . $name; }
+                $name  = rtrim(substr($name, 0, 32), '_');
             }
-            $chk = $db->prepare("SELECT id FROM roles WHERE name = ?");
-            $chk->execute([$name]);
+            if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/', $name)) {
+                throw_bad("Nom invalide. Utilisez au moins deux lettres.");
+            }
+            $chk = $db->prepare("SELECT id FROM roles WHERE name = ? OR (description IS NOT NULL AND description = ?)");
+            $chk->execute([$name, $label !== '' ? $label : $name]);
             if ($chk->fetch()) throw_bad("Un rôle avec ce nom existe déjà.");
 
-            $ins = $db->prepare("INSERT INTO roles (name) VALUES (?)");
-            $ins->execute([$name]);
+            $ins = $db->prepare("INSERT INTO roles (name, description) VALUES (?, ?)");
+            $ins->execute([$name, $label !== '' ? $label : null]);
             $new_role_id = (int) $db->lastInsertId();
-            audit('CREATE', 'roles', $new_role_id, "role.name=$name");
+            audit('CREATE', 'roles', $new_role_id, "role.name=" . ($label !== '' ? $label : $name));
 
             lpc_notify_permission(
                 $db,
                 'admin.roles.edit',
                 'Nouveau rôle créé',
-                ($_SESSION['user_name'] ?? 'Un administrateur') . " a créé le rôle « $name » (sans permission pour l'instant).",
+                ($_SESSION['user_name'] ?? 'Un administrateur') . " a créé le rôle « " . ($label !== '' ? $label : $name) . " » (sans permission pour l'instant).",
                 '/modules/admin/roles.php',
                 'info',
                 [(int) ($_SESSION['user_id'] ?? 0)]
@@ -259,6 +273,12 @@ try {
                 }
             }
 
+            // What the role held before, so the audit trail can say what was
+            // added and removed (it used to record only the new count).
+            $prevStmt = $db->prepare("SELECT permission_id FROM role_permissions WHERE role_id = ?");
+            $prevStmt->execute([$role_id]);
+            $prevIds = array_map('intval', $prevStmt->fetchAll(PDO::FETCH_COLUMN));
+
             $db->beginTransaction();
             $db->prepare("DELETE FROM role_permissions WHERE role_id = ?")->execute([$role_id]);
             if ($ids) {
@@ -270,7 +290,19 @@ try {
             }
             $db->commit();
 
-            audit('UPDATE', 'role_permissions', $role_id, 'perm_count=' . count($ids));
+            $added   = array_values(array_diff($ids, $prevIds));
+            $removed = array_values(array_diff($prevIds, $ids));
+            $labelOf = static function (array $pids) use ($db): string {
+                if (!$pids) return '';
+                $q = $db->prepare('SELECT COALESCE(NULLIF(description, \'\'), name) FROM permissions WHERE id IN ('
+                                . implode(',', array_fill(0, count($pids), '?')) . ') ORDER BY name');
+                $q->execute($pids);
+                return implode(', ', $q->fetchAll(PDO::FETCH_COLUMN));
+            };
+            $change = ['perm_count' => ['de' => count($prevIds), 'à' => count($ids)]];
+            if ($added)   { $change['perm_added']   = $labelOf($added); }
+            if ($removed) { $change['perm_removed'] = $labelOf($removed); }
+            audit('UPDATE', 'role_permissions', $role_id, json_encode($change, JSON_UNESCAPED_UNICODE));
 
             // Force-invalidate the session cache for whoever's currently logged in
             // and shares this role (only affects the CURRENT session; other users

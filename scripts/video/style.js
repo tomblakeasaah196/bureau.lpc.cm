@@ -136,6 +136,8 @@ const ROLES = Object.freeze({
   operations: { label: "Responsable des Opérations", short: "Opérations", colour: "#6FD3F7" },
   comptable: { label: "Comptable", short: "Comptable", colour: "#B5E36B" },
   controleur: { label: "Contrôleur Financier", short: "Contrôleur", colour: "#C9B2FF" },
+  // The IT partner (JBS Praxis Support), who runs the admin screens with the DG: the admin series.
+  support: { label: "Support technique", short: "Support", colour: "#9FD8C8" },
 });
 
 /**
