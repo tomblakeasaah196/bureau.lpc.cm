@@ -11,6 +11,7 @@ its choreography together.
 
 | Video | Scene | Status |
 | --- | --- | --- |
+| **Video 0** · Introduction, partie 0 : L'histoire d'une bonbonne (one OPUR 20L for PROMETAL through the twelve stations on a journey map, a few seconds of the real screen at each, every role's place in the chain). For every role: no pay on screen | `histoire.js` | Made 19/11/2026 (track B), 8:02, 15 chapters, -16.2 LUFS, 22.3 MB; sent in the chat; files in `bureau_video/publish/histoire/`; to publish (§5) **first in the library**, with no `audience` |
 | Introduction, partie 1 : Premiers pas (the app, signing in, the shell, signing out) | `intro-1-premiers-pas.js` | Made 17/11/2026, 6:57, 10 chapters, -16.0 LUFS, 18.8 MB; sent in the chat; to publish in the live Centre d'Aide once this branch is deployed (§5) |
 | Courrier (your mailbox, shared mailboxes, Praxis AI) | `courrier.js` (+ `courrier.seed.php`) | Made 18/11/2026, 6:28, 10 chapters, -16.0 LUFS, 18.0 MB; sent in the chat; to publish (§5) |
 | Introduction, partie 2 : Chacun son espace (each role's home and menu) | `intro-2-chacun-son-espace.js` | Made 18/11/2026, 4:44, 7 chapters, -16.1 LUFS, 12.7 MB; sent in the chat; to publish in the live Centre d'Aide once deployed (§5) |
@@ -777,5 +778,14 @@ the help search, the help AI's answers and each page's « ? »), and sent in the
       result phase's message, the year left open. Owner table 33 (CNPS accident du travail: payroll group C, Paramètres
       group A) and 34 (opening receivables at go-live) added with defaults. Left for Tableaux de bord: 13.6 (the Vue
       Dirigeant's ratios). The copy is left as snapshot `after-13-comptabilite-3` (no Gestion des Vides data on it).
+- [x] **Video 0 · L'histoire d'une bonbonne** (18-19/11/2026, track B on copy B): the series' opening, for every role. A journey
+      map (`style.journey`) carries one OPUR 20L bottle through twelve stations for PROMETAL; at each, the role acting signs in and
+      the screen is shown for a few seconds (16 glimpses). Every line was rewritten to what the app does after the week's fixes,
+      from the module scenes. Grounds, read only and copied into copy B's folder: copy A's `after-05-ventes` (stations 1 to 6, 9, 11),
+      `after-07-vides`, `after-08-facturation` and copy C's `after-14-tableaux-de-bord`. Privacy: Salaires shows the payroll page
+      before a grid loads (a treasury glimpse that named a colleague's advance was dropped); payroll appears only as class 6 totals.
+      The crawler ran on every glimpsed page as its role: clean. PRs #87 and #91 (the scene, « Camion » in the capitalisation queue),
+      then the delivery PR (station 12 and a second map line per station, which brought it from 6:56 to 8:02 without new filming).
+      Series « Introduction », part 0: it comes before Premiers pas.
 - [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
       Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.
