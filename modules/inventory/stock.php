@@ -238,7 +238,7 @@ $user_role = $_SESSION['user_role'];
         </main>
     </div>
 
-    <div id="modal-reception" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
+    <div id="modal-reception" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col">
             <div class="bg-blue-600 px-6 py-4 flex justify-between items-center text-white">
                 <div>
@@ -265,12 +265,12 @@ $user_role = $_SESSION['user_role'];
             </div>
             <div class="bg-white px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
                 <button onclick="closeModal('modal-reception')" class="px-5 py-2 text-sm font-bold text-gray-500"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
-                <button onclick="submitReception()" class="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm shadow-md"><?= htmlspecialchars(__t('ui.x.valider_l_entree')) ?></button>
+                <button onclick="submitReception()" data-perm-any="inventory.stock.receive,inventory.procurement.approve" class="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm shadow-md"><?= htmlspecialchars(__t('ui.x.valider_l_entree')) ?></button>
             </div>
         </div>
     </div>
     
-    <div id="summaryModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="summaryModal" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col text-center">
             <div class="bg-emerald-500 py-6 text-white">
                 <div class="w-16 h-16 bg-white text-emerald-500 rounded-full flex items-center justify-center text-3xl mx-auto mb-3 shadow-lg">
@@ -300,7 +300,7 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
-    <div id="damageModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
+    <div id="damageModal" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
             <div class="bg-red-500 px-6 py-4 flex justify-between items-center text-white">
                 <h3 class="font-black"><i class="fas fa-trash-alt mr-2"></i> <?= htmlspecialchars(__t('ui.x.saisir_avarie_perte')) ?></h3>
@@ -324,7 +324,7 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
     
-    <div id="auditConfirmModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
+    <div id="auditConfirmModal" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
             <div class="bg-gray-900 px-6 py-4 flex justify-between items-center text-white">
                 <h3 class="font-black tracking-widest uppercase text-sm"><i class="fas fa-lock mr-2"></i> <?= htmlspecialchars(__t('ui.x.verrouillage_d_inventaire')) ?></h3>
@@ -360,7 +360,7 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
     
-    <div id="historyAuditModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
+    <div id="historyAuditModal" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[85vh]">
             <div class="bg-gray-900 px-6 py-4 flex justify-between items-center text-white shrink-0">
                 <h3 class="font-black tracking-widest uppercase text-sm"><i class="fas fa-file-archive mr-2"></i> <?= htmlspecialchars(__t('ui.x.historique_des_inventaires')) ?></h3>

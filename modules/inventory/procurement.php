@@ -94,9 +94,9 @@ $user_role = $_SESSION['user_role'];
                  Migration 093 · standalone Payer Fournisseur entry point.
                  Behind the same .approve permission as PO cancellation —
                  settling a payable moves money and hits the general ledger,
-                 which is not a "view" operation. Cash-on-delivery is still
-                 the inline path on the PO form; this button covers every
-                 PO created "Non payé (à crédit)" that needs settling later.
+                 which is not a "view" operation. It is the only way an
+                 order gets paid: the PO form no longer takes a payment
+                 status, and only fully received orders can be settled.
             */ ?>
             <button id="btn-pay-supplier" onclick="openPaySupplierModal()"
                     data-perm="inventory.procurement.approve"
@@ -208,7 +208,7 @@ $user_role = $_SESSION['user_role'];
         </main>
     </div>
 
-    <div id="poModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/70 backdrop-blur-sm p-4 transition-opacity">
+    <div id="poModal" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/70 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col h-[90vh]">
             <div class="bg-lpc-dark px-8 py-5 flex justify-between items-center text-white shrink-0">
                 <div>
@@ -218,7 +218,10 @@ $user_role = $_SESSION['user_role'];
                          is right for an icon or a 20px heading, not for small caps on
                          the dark green. White at 80% keeps the header subordinate to
                          the title without giving up legibility. -->
-                    <p class="text-xs text-white/80 font-bold mt-1 uppercase"><?= htmlspecialchars(__t('ui.x.aucune_entree_en_stock_la_reception_modu')) ?></p>
+                    <?php /* Hardcoded rather than ui.x.aucune_entree_en_stock_la_reception_modu:
+                             that dictionary string carries a dash, and saving an order
+                             must read as what it is: no stock moves until reception. */ ?>
+                    <p class="text-xs text-white/80 font-bold mt-1 uppercase">L'entrée en stock se fait à la réception</p>
                 </div>
                 <button type="button" onclick="closeModal('poModal')" class="text-white/70 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
             </div>
@@ -227,7 +230,10 @@ $user_role = $_SESSION['user_role'];
                 <form id="form-po" class="space-y-8">
                     <input type="hidden" name="id" id="po_id" value="">
                     
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <?php /* No payment status and no treasury account at save any more:
+                             an order is always saved unpaid, and is paid only through
+                             « Payer Fournisseur » once it is fully received. */ ?>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                         <div>
                             <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.fournisseur_mdm')) ?></label>
                             <select name="supplier_id" id="po_supplier" onchange="onSupplierChange(this)" required class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
@@ -239,13 +245,6 @@ $user_role = $_SESSION['user_role'];
                             <input type="date" name="date" id="po_date" required class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
                         </div>
                         <div>
-                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.statut_de_paiement')) ?></label>
-                            <select name="payment_status" id="po_payment_status" onchange="onPaymentStatusChange()" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
-                                <option value="unpaid"><?= htmlspecialchars(__t('ui.x.non_paye_a_credit')) ?></option>
-                                <option value="paid" selected><?= htmlspecialchars(__t('ui.x.paye_cash_virement')) ?></option>
-                            </select>
-                        </div>
-                        <div>
                             <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 flex items-center justify-between">
                                 <span>Lieu de Livraison</span>
                                 <button type="button" onclick="openDeliveryPlacesModal()" class="text-lpc-dark hover:underline normal-case font-bold text-[10px]"><i class="fas fa-cog mr-1"></i>Gérer</button>
@@ -253,44 +252,6 @@ $user_role = $_SESSION['user_role'];
                             <select name="delivery_place_id" id="po_delivery_place" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
                                 <option value="">Non spécifié</option>
                             </select>
-                        </div>
-                    </div>
-
-                    <!--
-                        Migration 093 · treasury account picker for the "Payé"
-                        branch. Kept in its own block below the header grid so
-                        it can be shown/hidden without collapsing the 4-column
-                        layout above. Shown when payment_status='paid', hidden
-                        when 'unpaid' (à crédit) — see onPaymentStatusChange().
-
-                        Pre-selection order (onSupplierChange handles it):
-                          1. Supplier's default_payment_account_id, if set.
-                          2. First treasury account in metaData.treasury_accounts.
-                        The buyer can always override.
-                    -->
-                    <div id="po-treasury-block" class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
-                                    <i class="fas fa-wallet mr-1 text-lpc-dark"></i>
-                                    Compte de Trésorerie *
-                                </label>
-                                <select name="treasury_account_id" id="po_treasury_account" required
-                                        onchange="updateTreasuryBalanceInfo()"
-                                        class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
-                                    <option value="">Choisir un compte...</option>
-                                </select>
-                                <p class="text-[10px] font-bold text-gray-500 mt-1.5">
-                                    <i class="fas fa-info-circle mr-1"></i>
-                                    Le solde de ce compte sera débité à la réception des marchandises.
-                                </p>
-                            </div>
-                            <div class="flex items-end">
-                                <div id="po-treasury-balance-info" class="w-full bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs font-bold text-emerald-900 hidden">
-                                    <span class="uppercase tracking-widest text-[10px] text-emerald-700">Solde actuel</span><br>
-                                    <span id="po-treasury-balance-value" class="text-lg font-black">0 F</span>
-                                </div>
-                            </div>
                         </div>
                     </div>
 
@@ -323,7 +284,12 @@ $user_role = $_SESSION['user_role'];
                             
                             <div class="border-t border-gray-100 pt-3 relative">
                                 <div class="flex justify-between items-center mb-1">
-                                    <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.remise_fcfa')) ?></label>
+                                    <?php /* Label set per supplier by applyDiscountKind(): a supplier
+                                             with a ristourne ladder reads « Ristourne utilisée » and
+                                             shows the balance chip; any other supplier reads « Remise
+                                             accordée par le fournisseur ». The server decides the kind
+                                             from the supplier; this only labels it. */ ?>
+                                    <label for="po_discount_amount" id="po_discount_label" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest">Remise accordée par le fournisseur (FCFA)</label>
                                     <div id="sdp-rebate-info" class="hidden text-[9px] font-black text-amber-800 bg-amber-50 px-2 py-0.5 rounded cursor-pointer hover:bg-amber-100" onclick="applyMaxRebate()">
                                         Solde Dispo: <span id="sdp-rebate-val">0</span> F <i class="fas fa-arrow-down ml-1"></i>
                                     </div>
@@ -346,7 +312,7 @@ $user_role = $_SESSION['user_role'];
             
             <div class="bg-gray-50 px-8 py-5 border-t border-gray-200 flex justify-end gap-4 shrink-0">
                 <button type="button" onclick="closeModal('poModal')" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
-                <button type="button" onclick="submitPO()" class="px-8 py-2.5 bg-lpc-dark hover:bg-green-800 text-white rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2"><i class="fas fa-save"></i> <?= htmlspecialchars(__t('ui.x.enregistrer_valider_stock')) ?></button>
+                <button type="button" onclick="submitPO()" class="px-8 py-2.5 bg-lpc-dark hover:bg-green-800 text-white rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2"><i class="fas fa-save"></i> Enregistrer la commande</button>
             </div>
         </div>
     </div>
@@ -405,14 +371,14 @@ $user_role = $_SESSION['user_role'];
 
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                     <div class="bg-gray-900 px-6 py-3 flex justify-between items-center">
-                        <h4 class="text-xs font-black text-white uppercase tracking-widest">Bons de Commande Impayés</h4>
+                        <h4 class="text-xs font-black text-white uppercase tracking-widest">Reçus, à payer</h4>
                         <label class="text-xs font-bold text-lpc-light cursor-pointer">
                             <input type="checkbox" id="pay_pos_all" onchange="togglePayPosAll(this.checked)" class="mr-2 align-middle"> Tout cocher
                         </label>
                     </div>
                     <div id="pay-pos-body" class="divide-y divide-gray-100">
                         <div class="p-8 text-center text-sm font-bold text-gray-400">
-                            Sélectionnez un fournisseur pour afficher ses bons impayés.
+                            Sélectionnez un fournisseur : ses bons de commande reçus en totalité et non payés s'affichent ici.
                         </div>
                     </div>
                 </div>
@@ -456,7 +422,7 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
-    <div id="ristourneModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="ristourneModal" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-lpc-bg rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col h-[85vh]">
             <div class="bg-lpc-dark px-8 py-6 flex justify-between items-center shrink-0">
                 <div class="flex items-center gap-4">
@@ -527,7 +493,7 @@ $user_role = $_SESSION['user_role'];
          Ristournes button — three unrelated things silently contaminating each
          other. Nothing is pre-ticked, for the same reason as on the sell side.
          =================================================================== -->
-    <div id="poPriceConfirmModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="poPriceConfirmModal" style="z-index: 9500;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[85vh]">
             <div class="bg-lpc-dark px-8 py-5 text-white shrink-0">
                 <h3 class="font-black text-xl tracking-wide flex items-center"><i class="fas fa-tags mr-3"></i> Prix différents du tarif fournisseur</h3>
@@ -574,7 +540,7 @@ $user_role = $_SESSION['user_role'];
     </div>
 
     <!-- Modal: KPI Details -->
-    <div id="kpiDetailsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="kpiDetailsModal" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-3xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col h-[70vh]">
             <div class="bg-gray-900 px-8 py-5 flex justify-between items-center shrink-0">
                 <h3 class="font-black text-white text-xl flex items-center"><i class="fas fa-list-alt mr-3 text-lpc-light"></i> <span id="kpi-detail-title"><?= htmlspecialchars(__t('ui.x.details')) ?></span></h3>

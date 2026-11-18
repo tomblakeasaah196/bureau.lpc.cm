@@ -48,30 +48,21 @@ $user_role = $_SESSION['user_role'];
 
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-                <!-- LEFT: supplier picker + shared tax settings -->
+                <!-- LEFT: supplier picker + how the ristourne is computed -->
                 <div class="lg:col-span-1 space-y-6">
                     <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-                        <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Fournisseur</label>
+                        <label for="supplier_select" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Fournisseur</label>
                         <select id="supplier_select" onchange="onSupplierChange(this.value)" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
                             <option value="">Sélectionner un fournisseur...</option>
                         </select>
-                        <p class="text-xs text-gray-400 font-bold mt-3">N'importe quel fournisseur peut recevoir une configuration de ristourne par catégorie — ce n'est pas réservé à un fournisseur en particulier.</p>
+                        <p class="text-xs text-gray-400 font-bold mt-3">N'importe quel fournisseur peut recevoir une configuration de ristourne par catégorie : ce n'est pas réservé à un fournisseur en particulier.</p>
                     </div>
 
+                    <?php /* The shared TVA / précompte block is gone: the server no longer
+                             withholds either from a ristourne (purchases are booked without
+                             TVA), so the ristourne is simply rate × amount received. */ ?>
                     <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-                        <h3 class="text-xs font-black text-gray-800 uppercase tracking-widest mb-1"><i class="fas fa-percentage mr-2 text-gray-400"></i>Taux Fiscaux Partagés</h3>
-                        <p class="text-xs text-gray-400 font-bold mb-4">Utilisés pour tous les fournisseurs : convertir le prix TTC en HT, et retenir la part fiscale sur la ristourne calculée.</p>
-                        <div class="space-y-3">
-                            <div>
-                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">TVA (%)</label>
-                                <input type="number" id="tax_vat_rate" step="0.01" min="0" max="100" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm font-black text-right outline-none focus:ring-2 focus:ring-lpc-light">
-                            </div>
-                            <div>
-                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Précompte (%)</label>
-                                <input type="number" id="tax_precompte_rate" step="0.01" min="0" max="100" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm font-black text-right outline-none focus:ring-2 focus:ring-lpc-light">
-                            </div>
-                            <button onclick="saveTaxSettings()" class="w-full py-2.5 bg-gray-900 hover:bg-black text-white rounded-lg font-bold text-sm shadow-sm"><i class="fas fa-save mr-2"></i>Enregistrer les taux</button>
-                        </div>
+                        <p class="text-xs text-gray-600 font-bold"><i class="fas fa-info-circle mr-2 text-gray-400"></i>La ristourne se calcule sur le montant des achats reçus, tel qu'il est comptabilisé (sans TVA).</p>
                     </div>
                 </div>
 

@@ -32,15 +32,14 @@
                     { key: 'delivery_place_name', label: 'Lieu de Livraison', render: v => v
                         ? `<span class="text-xs font-bold text-gray-600"><i class="fas fa-map-marker-alt mr-1 text-gray-500"></i>${v}</span>`
                         : `<span class="text-xs text-gray-300 italic">Non spécifié</span>` },
+                    // Reception state of the order (purchase_orders.status).
+                    { key: 'status', label: 'Réception', render: v => receptionBadge(v) },
+                    // Payment reads the real state. An order is saved unpaid and
+                    // can only be paid (« Payer Fournisseur ») once fully
+                    // received, so an unpaid order says what it is waiting for.
                     // A cancelled order is no longer owed, whatever its payment
-                    // status column still says — show that first so a reversed
-                    // order can never be read as an outstanding debt.
-                    { key: 'payment_status', label: 'Paiement', render: (v, row) =>
-                        row.status === 'cancelled'
-                            ? '<span class="text-gray-500 bg-gray-100 px-2 py-1 rounded text-[10px] font-black uppercase"><i class="fas fa-ban mr-1"></i>Annulé</span>'
-                            : (v === 'paid'
-                                ? '<span class="text-green-600 bg-green-50 px-2 py-1 rounded text-[10px] font-black uppercase"><i class="fas fa-check mr-1"></i>Payé</span>'
-                                : '<span class="text-red-600 bg-red-50 px-2 py-1 rounded text-[10px] font-black uppercase"><i class="fas fa-hourglass-half mr-1"></i>À Crédit</span>') },
+                    // status column still says, so that shows first.
+                    { key: 'payment_status', label: 'Paiement', render: (v, row) => paymentBadge(v, row.status) },
                     { key: 'total_amount', label: 'Net à Payer', render: v => `<span class="font-black text-lpc-dark text-base">${LPC.fmt.int(v)} FCFA</span>` }
                 ],
                 kpis: [
@@ -50,13 +49,46 @@
                     { id: 'kpi_inv_total', label: 'Total Achats (Période)', icon: 'fa-chart-line', color: 'text-indigo-600', bg: 'bg-indigo-50' },
                     { id: 'kpi_inv_unpaid', label: 'Dettes Fournisseurs', icon: 'fa-hand-holding-usd', color: 'text-red-600', bg: 'bg-red-50' },
                     { id: 'kpi_inv_discount', label: 'Remises Obtenues', icon: 'fa-tags', color: 'text-emerald-700', bg: 'bg-emerald-50',
-                      hint: "Toute remise saisie manuellement sur une commande, qu'elle vienne d'une ristourne ou non. Différent de « Ristournes » (bouton ci-dessus), qui est le système de paliers par catégorie chez un fournisseur." },
+                      hint: "Total des montants saisis dans le champ Remise des commandes. Une ristourne utilisée réduit ce que LPC doit à ce fournisseur. Une remise accordée par le fournisseur réduit le montant de la commande." },
                     { id: 'kpi_inv_count', label: 'Volume Commandes', icon: 'fa-boxes', color: 'text-blue-600', bg: 'bg-blue-50' }
                 ]
             },
             // overheads config removed with the OPEX tab. See
             // modules/accounting/expenses.php for its replacement.
         };
+
+        const BADGE = 'px-2 py-1 rounded text-[10px] font-black uppercase';
+
+        function receptionBadge(status) {
+            const map = {
+                pending:   ['text-blue-700 bg-blue-50',       'fa-clock',         'En attente'],
+                partial:   ['text-amber-700 bg-amber-50',     'fa-truck-loading', 'Partielle'],
+                received:  ['text-emerald-700 bg-emerald-50', 'fa-check-circle',  'Reçue'],
+                cancelled: ['text-gray-500 bg-gray-100',      'fa-ban',           'Annulée'],
+            };
+            const [cls, icon, label] = map[status] || map.pending;
+            return `<span class="${cls} ${BADGE}"><i class="fas ${icon} mr-1"></i>${label}</span>`;
+        }
+
+        function paymentBadge(paymentStatus, status) {
+            if (status === 'cancelled') {
+                return `<span class="text-gray-500 bg-gray-100 ${BADGE}"><i class="fas fa-ban mr-1"></i>Annulée</span>`;
+            }
+            if (paymentStatus === 'paid') {
+                return `<span class="text-green-600 bg-green-50 ${BADGE}"><i class="fas fa-check mr-1"></i>Payé</span>`;
+            }
+            if (status === 'received') {
+                return `<span class="text-red-600 bg-red-50 ${BADGE}"><i class="fas fa-hand-holding-usd mr-1"></i>À payer</span>`;
+            }
+            if (status === 'partial') {
+                return `<span class="text-amber-700 bg-amber-50 ${BADGE}"><i class="fas fa-truck-loading mr-1"></i>Réception partielle</span>`;
+            }
+            return `<span class="text-blue-700 bg-blue-50 ${BADGE}"><i class="fas fa-hourglass-half mr-1"></i>En attente de réception</span>`;
+        }
+
+        function lpcCan(perm) {
+            return !!(window.LPC && typeof LPC.can === 'function' && LPC.can(perm));
+        }
 
         // --- 2. INITIALIZATION & DATA FETCHING ---
         document.addEventListener('DOMContentLoaded', async () => {
@@ -80,12 +112,10 @@
 
                     populateDeliveryPlaceSelect();
 
-                    // Migration 093 · seed the treasury account picker for
-                    // the "Payé" branch of the PO form. Populated once on
-                    // load; onSupplierChange picks the supplier's default
-                    // afterwards. onPaymentStatusChange toggles visibility.
-                    populateTreasuryAccountSelect();
-                    onPaymentStatusChange();
+                    // The PO form no longer carries a payment status or a
+                    // treasury account: an order is paid only through « Payer
+                    // Fournisseur » once fully received. metaData.treasury_accounts
+                    // still feeds that modal.
 
                     // Which supplier the Ristournes modal opens for by default —
                     // no more name-matching "Source du Pays"/"SDP", and no more
@@ -114,31 +144,10 @@
             if (current) sel.value = current;
         }
 
-        // Migration 093 · treasury account picker helpers for the PO form.
-        //
-        // The four accounts on show mirror the ones the encaissement modal
-        // uses on the AR side (Caisse Principale, CCA Bank, MoMo…), so the
-        // buyer never needs to remember which is which — the picker matches
-        // what they see everywhere else in the app.
-        function populateTreasuryAccountSelect() {
-            const sel = document.getElementById('po_treasury_account');
-            if (!sel) return;
-            sel.innerHTML = '<option value="">Choisir un compte...</option>';
-            const accounts = metaData.treasury_accounts || [];
-            accounts.forEach(a => {
-                // The label mirrors what expenses.php shows in the same
-                // dropdown ("Nom — 2 540 000 F"), for continuity of UX.
-                const bal = LPC.fmt.int(Number(a.balance) || 0);
-                sel.innerHTML += LPC.html`<option value="${a.id}" data-balance="${a.balance}">${a.name} — ${bal} F</option>`;
-            });
-        }
-
         function onSupplierChange(selectElement) {
-            // Two independent duties folded into one handler so the form has
-            // ONE onchange to bind: refresh the ristourne panel (old
-            // behaviour), and pre-select this supplier's default treasury
-            // account (migration 093). Keeping them separate would mean two
-            // onchange bindings competing on the same select.
+            // Label the discount field for this supplier, then refresh its
+            // ristourne balance chip.
+            applyDiscountKind(selectElement.value);
             checkSupplierRebate(selectElement);
 
             const supplierId = parseInt(selectElement.value, 10);
@@ -149,59 +158,39 @@
                 lines.innerHTML = '';
                 addPOLine();
             }
-            const supplier = (metaData.suppliers || []).find(s => Number(s.id) === supplierId);
-            const defaultAccountId = supplier ? supplier.default_payment_account_id : null;
-
-            const treasurySel = document.getElementById('po_treasury_account');
-            if (!treasurySel) return;
-            if (defaultAccountId) {
-                treasurySel.value = String(defaultAccountId);
-            } else if (!treasurySel.value && (metaData.treasury_accounts || []).length > 0) {
-                // No supplier default set — fall back to the first active
-                // account (matches sort_order from migration 044). Only fires
-                // when nothing is picked yet, so it never overwrites a
-                // deliberate choice.
-                treasurySel.value = String(metaData.treasury_accounts[0].id);
-            }
-            updateTreasuryBalanceInfo();
         }
 
-        function onPaymentStatusChange() {
-            const status = document.getElementById('po_payment_status').value;
-            const block  = document.getElementById('po-treasury-block');
-            const sel    = document.getElementById('po_treasury_account');
-            if (!block || !sel) return;
-
-            if (status === 'paid') {
-                block.classList.remove('hidden');
-                sel.required = true;
-            } else {
-                // À crédit — hide the picker AND clear its value, so a stale
-                // selection from a paid-then-toggled-to-unpaid state doesn't
-                // silently ride along in the submit payload.
-                block.classList.add('hidden');
-                sel.required = false;
-                sel.value = '';
-            }
-            updateTreasuryBalanceInfo();
+        /** True when this supplier has an active ristourne ladder (e.g. Source du Pays). */
+        function supplierHasLadder(supplierId) {
+            const id = Number(supplierId) || 0;
+            if (!id) return false;
+            return (metaData.suppliers_with_ladder || []).some(x => Number(x) === id);
         }
 
-        function updateTreasuryBalanceInfo() {
-            // A live "solde actuel" preview reassures the buyer that the
-            // account they picked has the money. It is informational only —
-            // insufficient balance does NOT block save_po, because the JE
-            // fires at reception, not at creation, and the account might be
-            // topped up between the two events (that is exactly why the
-            // Trésorerie transfer form exists).
-            const sel  = document.getElementById('po_treasury_account');
-            const info = document.getElementById('po-treasury-balance-info');
-            const val  = document.getElementById('po-treasury-balance-value');
-            if (!sel || !info || !val) return;
-            const opt = sel.options[sel.selectedIndex];
-            if (!opt || !opt.value) { info.classList.add('hidden'); return; }
-            const balance = Number(opt.dataset.balance) || 0;
-            val.innerText = LPC.fmt.int(balance) + ' F';
-            info.classList.remove('hidden');
+        /**
+         * The discount field means two different things depending on the
+         * supplier, and the server decides which from the supplier itself:
+         *  · ladder supplier: the amount is ristourne used, it reduces what LPC
+         *    owes this supplier; the « Solde Dispo » chip shows the balance;
+         *  · any other supplier: it is a remise the supplier granted, it
+         *    reduces the order; there is no balance, so no chip.
+         * This only sets the words on screen.
+         */
+        function applyDiscountKind(supplierId) {
+            const label = document.getElementById('po_discount_label');
+            const note  = document.getElementById('po_discount_note');
+            const ladder = supplierHasLadder(supplierId);
+            if (label) {
+                label.textContent = ladder
+                    ? 'Ristourne utilisée (FCFA)'
+                    : 'Remise accordée par le fournisseur (FCFA)';
+            }
+            if (note) {
+                note.placeholder = ladder
+                    ? 'Motif (ex : Utilisation de la ristourne)'
+                    : 'Motif de la remise (ex : Geste commercial)';
+            }
+            if (!ladder) document.getElementById('sdp-rebate-info').classList.add('hidden');
         }
 
         async function switchTab(tab) {
@@ -349,8 +338,8 @@
                 titleEl.innerText = "Toutes les Commandes (Période)";
                 filteredData = moduleData;
             } else if (kpiId === 'kpi_inv_unpaid') {
-                titleEl.innerText = "Dettes Fournisseurs (Non Payées)";
-                filteredData = moduleData.filter(x => x.payment_status !== 'paid');
+                titleEl.innerText = "Dettes Fournisseurs (reçues, non payées)";
+                filteredData = moduleData.filter(x => x.payment_status !== 'paid' && (x.status === 'received' || x.status === 'partial'));
             } else if (kpiId === 'kpi_inv_discount') {
                 titleEl.innerText = "Détails des Achats";
                 filteredData = moduleData;
@@ -418,8 +407,11 @@
                 // cancel button — the server rejects a second cancellation
                 // anyway, and offering an action that can only fail is worse
                 // than not offering it.
-                const cancelBtn = cancelled ? '' : `
+                // Cancelling reverses entries and stock: inventory.procurement.approve
+                // only (DG, CF). Not rendered without it; data-perm as a second guard.
+                const cancelBtn = (cancelled || !lpcCan('inventory.procurement.approve')) ? '' : `
                     <button onclick="event.stopPropagation(); cancelPurchaseOrder(${row.id}, '${String(row.reference).replace(/'/g, "\\'")}')"
+                            data-perm="inventory.procurement.approve"
                             class="text-red-600 hover:text-red-700 p-2" title="Annuler Commande" aria-label="Annuler Commande"><i class="fas fa-ban"></i></button>`;
                 actions = `
                     <a href="/bon_commande.php?token=${row.token}" target="_blank" onclick="event.stopPropagation()" class="text-lpc-dark hover:text-green-700 bg-green-50 p-2 rounded-lg mr-2" title="Voir PDF"><i class="fas fa-file-pdf"></i></a>
@@ -517,10 +509,12 @@
             // supplier it is preselected and the first line is ready; with several, the table says what to
             // do, and onSupplierChange adds the first line once one is picked.
             const supEl = document.getElementById('po_supplier');
+            applyDiscountKind('');
+            currentSdpBalance = 0;
             const active = (metaData.suppliers || []).filter(s => Number(s.is_active ?? 1) === 1);
             if (active.length === 1) {
                 supEl.value = String(active[0].id);
-                onSupplierChange(supEl);   // rebate panel, default treasury account, and the first line
+                onSupplierChange(supEl);   // discount label, rebate chip, and the first line
             } else {
                 showPOLinesHint();
             }
@@ -543,13 +537,17 @@
             const supplierId = selectElement.value;
             const rebateInfoDiv = document.getElementById('sdp-rebate-info');
 
-            if (supplierId) {
+            // The chip belongs to ladder suppliers only: a supplier with no
+            // ladder has no ristourne to draw on, its field is a plain remise.
+            if (supplierId && supplierHasLadder(supplierId)) {
                 try {
                     const res = await fetch(`/api/v1/procurement_controller.php?action=get_ristourne_data&supplier_id=${supplierId}`);
                     const result = await res.json();
+                    // Supplier changed while the balance was loading: ignore.
+                    if (document.getElementById('po_supplier').value !== String(supplierId)) return;
                     if(result.status === 'success') {
-                        currentSdpBalance = result.data.balance;
-                        if(currentSdpBalance > 0) {
+                        currentSdpBalance = Number(result.data.balance) || 0;
+                        if (currentSdpBalance >= 0) {
                             document.getElementById('sdp-rebate-val').innerText = LPC.fmt.int(currentSdpBalance);
                             rebateInfoDiv.classList.remove('hidden');
                         } else {
@@ -879,21 +877,12 @@ function openRistourneModal() {
             const rows = document.querySelectorAll('.item-row');
             if(rows.length === 0) return LPC.modal.alert("Veuillez ajouter au moins un produit.");
 
-            // Migration 093 · treasury account is mandatory on the "Payé"
-            // branch. Client-side check so the buyer sees the error under
-            // the field they need to fix, not as a generic API error banner.
-            const paymentStatus = document.getElementById('po_payment_status').value;
-            const treasuryAccountId = document.getElementById('po_treasury_account').value || null;
-            if (paymentStatus === 'paid' && !treasuryAccountId) {
-                return LPC.modal.alert("Veuillez sélectionner le compte de trésorerie qui paiera ce fournisseur.");
-            }
-
+            // No payment_status / treasury_account_id: an order is always
+            // saved unpaid and is paid only through « Payer Fournisseur ».
             const payload = {
                 action: 'save_po',
                 supplier_id: supplierId,
                 date: document.getElementById('po_date').value,
-                payment_status: paymentStatus,
-                treasury_account_id: paymentStatus === 'paid' ? treasuryAccountId : null,
                 discount_amount: document.getElementById('po_discount_amount').value || 0,
                 discount_note: document.getElementById('po_discount_note').value,
                 delivery_place_id: document.getElementById('po_delivery_place').value || null,
@@ -948,7 +937,7 @@ function openRistourneModal() {
             } catch (e) {
                 LPC.modal.alert("Erreur système.");
             } finally {
-                btn.innerHTML = '<i class="fas fa-save"></i> Enregistrer & Valider Stock';
+                btn.innerHTML = '<i class="fas fa-save"></i> Enregistrer la commande';
                 btn.disabled = false;
             }
         }
@@ -1039,20 +1028,54 @@ function openRistourneModal() {
          * ristourne credits stayed behind, orphaned. The server now reverses
          * instead of deleting, so the honest message is that the order is kept
          * and its accounting entries are extourned.
+         *
+         * A reason is required: it is written on the order (cancel_reason) and
+         * on the reversing entries, and sent as `reason` in the POST body.
          */
         async function cancelPurchaseOrder(id, reference) {
-            const ok = await LPC.modal.confirm(
-                `Annuler la commande ${reference} ?\n\n` +
-                `· Les écritures comptables seront extournées (contre-passées), pas supprimées.\n` +
-                `· Le stock reçu sera retiré et le CUMP recalculé.\n` +
-                `· Toute ristourne gagnée ou utilisée sur cette commande sera reprise.\n\n` +
-                `La commande restera visible, marquée « Annulée ».`
-            );
-            if (!ok) return;
+            if (!lpcCan('inventory.procurement.approve')) return;
+
+            const inputId = 'po-cancel-reason-' + id;
+            let typed = '';
+            const onInput = e => { if (e.target && e.target.id === inputId) typed = e.target.value; };
+            document.addEventListener('input', onInput);
+
+            const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+            let choice;
+            try {
+                choice = await LPC.modal.custom({
+                    title: `Annuler la commande ${reference}`,
+                    level: 'warn',
+                    bodyHtml:
+                        '<p>Les écritures comptables seront contre-passées, pas supprimées. ' +
+                        'Le stock reçu sera retiré et le CUMP recalculé. ' +
+                        'Toute ristourne gagnée ou utilisée sur cette commande sera reprise.</p>' +
+                        '<p>La commande restera visible, marquée « Annulée ».</p>' +
+                        `<label for="${esc(inputId)}" class="lpc-modal-label">Motif de l'annulation (obligatoire)</label>` +
+                        `<input id="${esc(inputId)}" type="text" class="lpc-modal-input lpc-focusable" required ` +
+                        'placeholder="ex : Commande passée en double">',
+                    buttons: [
+                        { label: 'Garder la commande', value: 'keep', variant: 'secondary' },
+                        { label: 'Annuler la commande', value: 'cancel', variant: 'danger', primary: true },
+                    ],
+                });
+                // The dialog is removed on the next frame, so the field is still readable here.
+                const field = document.getElementById(inputId);
+                if (field) typed = field.value;
+            } finally {
+                document.removeEventListener('input', onInput);
+            }
+            if (choice !== 'cancel') return;
+
+            const reason = String(typed || '').trim();
+            if (!reason) {
+                return LPC.modal.alert("Indiquez le motif de l'annulation : la commande n'a pas été annulée.");
+            }
 
             const fd = new FormData();
             fd.append('action', 'cancel_inventory');
             fd.append('id', id);
+            fd.append('reason', reason);
 
             try {
                 const response = await fetch('/api/v1/procurement_controller.php', { method: 'POST', body: fd });
@@ -1072,9 +1095,9 @@ function openRistourneModal() {
         // ==================================================================
         // PAYER FOURNISSEUR — migration 093, PR-1.
         // ------------------------------------------------------------------
-        // Standalone settlement path for POs created "Non payé (à crédit)".
-        // Cash-on-delivery still goes through the inline picker on the PO
-        // form; this modal covers everything paid later.
+        // The only settlement path for purchase orders: the PO form no longer
+        // takes a payment status, and the server settles fully received
+        // orders only.
         //
         // State: a single object holds the current supplier's unpaid POs
         // so the tick-all handler and the total-computer can reach them
@@ -1173,7 +1196,7 @@ function openRistourneModal() {
                            data-idx="${i}" onchange="onPayPoCheck(${i}, this.checked)" ${p.checked ? 'checked' : ''}>
                     <div class="flex-1 min-w-0">
                         <p class="font-bold text-gray-900 text-sm truncate">${p.reference}</p>
-                        <p class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">${p.date} · ${p.status}</p>
+                        <p class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">${new Date(p.date).toLocaleDateString("fr-FR")} · Reçue en totalité</p>
                     </div>
                     <p class="font-black text-gray-900 text-sm shrink-0">${LPC.fmt.int(p.total_amount)} F</p>
                 </label>

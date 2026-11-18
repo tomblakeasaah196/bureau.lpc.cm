@@ -43,6 +43,10 @@ if (empty($action)) {
     exit;
 }
 
+// Every write here is a POST from fetch(), which carries the CSRF header
+// (lpc-rbac.js). A POST without a valid token is refused (18/11/2026).
+if ($method === 'POST') Csrf::requireValid();
+
 try {
     $db = Database::getInstance()->getConnection();
 
@@ -134,7 +138,7 @@ try {
                   FROM purchase_orders
                  WHERE supplier_id = ?
                    AND payment_status = 'unpaid'
-                   AND status <> 'cancelled'
+                   AND status = 'received'
                  ORDER BY date DESC, id DESC
             ");
             $stmt->execute([$supplier_id]);
@@ -212,7 +216,7 @@ try {
             // browser; (2) FOR UPDATE (inside postSupplierPayment) serialises
             // against a concurrent Payer Fournisseur click on the same PO.
             $verify = $db->prepare("
-                SELECT id, reference, supplier_id, payment_status, total_amount
+                SELECT id, reference, supplier_id, payment_status, total_amount, status
                   FROM purchase_orders
                  WHERE id = ? AND status <> 'cancelled'
             ");
@@ -241,6 +245,14 @@ try {
                     // than silently skipping one PO out of the batch.
                     throw new UserFacingException(
                         "Le bon de commande {$po['reference']} est déjà payé. Rafraîchissez la liste."
+                    );
+                }
+                // An order is paid once all its goods are in (VIDEO_QA_FINDINGS
+                // 2.7): paying a partial reception in full put 401 in debit for
+                // goods LPC never received.
+                if ($po['status'] !== 'received') {
+                    throw new UserFacingException(
+                        "Le bon de commande {$po['reference']} n'est pas encore entièrement reçu : il se paie après la dernière réception."
                     );
                 }
 
@@ -670,7 +682,19 @@ try {
                 $stmtKpi = $db->prepare("
                     SELECT
                         COALESCE(SUM(total_amount), 0) as kpi_inv_total,
-                        COALESCE(SUM(CASE WHEN payment_status = 'unpaid' THEN total_amount ELSE 0 END), 0) as kpi_inv_unpaid,
+                        -- What LPC owes: goods received and not paid. An order not
+                        -- yet received is no debt (401 is credited at reception);
+                        -- a partial one owes what has arrived (18/11/2026).
+                        COALESCE(SUM(CASE
+                            WHEN payment_status = 'unpaid' AND status = 'received' THEN total_amount
+                            WHEN payment_status = 'unpaid' AND status = 'partial' THEN (
+                                SELECT COALESCE(SUM(m.quantity * poi.unit_price), 0)
+                                  FROM inventory_movements m
+                                  JOIN purchase_order_items poi
+                                    ON poi.purchase_order_id = m.reference_id AND poi.product_id = m.product_id
+                                 WHERE m.reference_id = purchase_orders.id AND m.movement_type = 'in_supplier'
+                                   AND m.deleted_at IS NULL)
+                            ELSE 0 END), 0) as kpi_inv_unpaid,
                         COALESCE(SUM(discount_amount), 0) as kpi_inv_discount,
                         COUNT(id) as kpi_inv_count
                     FROM purchase_orders
@@ -748,7 +772,11 @@ try {
 
             $supplier_id = (int)$jsonData['supplier_id'];
             $date = $jsonData['date'];
-            $payment_status = $jsonData['payment_status'];
+            // An order is never saved « Payé »: money moves only through
+            // « Payer Fournisseur », once the goods are all in (VIDEO_QA_FINDINGS
+            // 2.6, 18/11/2026). An order saved « Payé » used to show as paid with
+            // no money moved, and its first reception, even partial, paid it all.
+            $payment_status = 'unpaid';
             $discount_amount = (float)($jsonData['discount_amount'] ?? 0);
             $discount_note = trim($jsonData['discount_note'] ?? '');
             $delivery_place_id = (int)($jsonData['delivery_place_id'] ?? 0) ?: null;
@@ -764,39 +792,7 @@ try {
             if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $date)) {
                 throw new UserFacingException("Date de commande invalide.");
             }
-            if (!in_array($payment_status, ['paid', 'unpaid'], true)) {
-                throw new UserFacingException("Statut de paiement invalide.");
-            }
-
-            // Migration 093 — a PO created "Payé" must name the treasury
-            // account the money is coming from, so the payment JE posted at
-            // reception (inventory_controller::receive_po) can debit 401 and
-            // credit the right sub-ledger (571 Caisse vs 521 Banques vs 552
-            // MoMo). Without this, the payment JE either can't post or has
-            // to guess an account — the whole reason this hole existed.
-            //
-            // "Non payé" (à crédit) legitimately has no account yet — the
-            // Payer Fournisseur screen fills it in when the settlement
-            // happens later. The picker is only required on the paid path.
-            if ($payment_status === 'paid') {
-                if (!$treasury_account_id) {
-                    throw new UserFacingException("Compte de trésorerie requis pour un achat payé.");
-                }
-                // Verify the account exists and is active. Detected rather
-                // than assumed, so a badly-formed payload from an old client
-                // still surfaces as a UserFacingException instead of a raw
-                // FK violation later.
-                $chk = $db->prepare("SELECT 1 FROM treasury_accounts WHERE id = ? AND status = 'active'");
-                $chk->execute([$treasury_account_id]);
-                if (!$chk->fetchColumn()) {
-                    throw new UserFacingException("Compte de trésorerie invalide ou inactif.");
-                }
-            } else {
-                // Discard any account the client sent — a PO à crédit stores
-                // NULL and the standalone Payer Fournisseur screen picks the
-                // account at settlement time.
-                $treasury_account_id = null;
-            }
+            $treasury_account_id = null;
 
             // The TVA rate in force right now, resolved once and frozen onto the
             // order below. Also used by the ristourne ladder further down, which
@@ -1006,6 +1002,23 @@ try {
             }
 
             $total_amount = max(0, $subtotal - $discount_amount);
+            if ($total_amount <= 0) {
+                // A remise that takes the order to 0 left an order nobody could
+                // pay (postSupplierPayment refuses 0) and failed its reception.
+                throw new UserFacingException("La remise ne peut pas couvrir toute la commande.");
+            }
+
+            // Which kind of remise the typed field is (VIDEO_QA_FINDINGS 2.4).
+            // A supplier with a ristourne ladder: the remise is ristourne used,
+            // drawn on the balance, and settles part of what LPC owes him
+            // (Dr 401 / Cr 4098 below). A supplier with none (HOREB SARL): the
+            // remise is a price reduction he grants on this order; the goods
+            // are booked net at reception. It used to be a ristourne draw in
+            // every case, so any remise on HOREB failed.
+            $remise_type = 'none';
+            if ($rebate_spent > 0) {
+                $remise_type = lpc_supplier_has_any_rebate($db, $supplier_id) ? 'ristourne' : 'discount';
+            }
 
             // PO-2611-0001: the next in an unbroken sequence (DocCounter,
             // migration 350). Was a random 4-character code.
@@ -1160,13 +1173,12 @@ try {
             //    Sprint-4-Batch-B: lock the supplier's rebate ledger before
             //    reading the running balance so two concurrent POs against
             //    the same rebate pool can't double-spend.
-            if ($rebate_spent > 0) {
-                // Whether a supplier can spend rebate credit now comes from
-                // having at least one active category ladder (migration 052)
-                // — see includes/functions/procurement.php.
-                if (!lpc_supplier_has_any_rebate($db, $supplier_id)) {
-                    throw new UserFacingException("Ce fournisseur ne dispose pas d'un compte ristourne.");
-                }
+            if (lpc_po_has_remise_columns($db)) {
+                $db->prepare("UPDATE purchase_orders SET remise_type = ?, remise_amount = ? WHERE id = ?")
+                   ->execute([$remise_type, $rebate_spent, (int) $po_id]);
+            }
+
+            if ($remise_type === 'ristourne') {
 
                 // Lock the rebate rows for this supplier before reading the
                 // running balance; MySQL FOR UPDATE acquires row-level locks on
@@ -1253,6 +1265,9 @@ try {
             $po_id  = (int)($_POST['id'] ?? 0);
             $reason = trim((string)($_POST['reason'] ?? ''));
             if ($po_id <= 0) throw new UserFacingException("Bon de commande non spécifié.");
+            // The list never sent one (VIDEO_QA_FINDINGS 2.10): an order is
+            // not cancelled without saying why.
+            if ($reason === '') throw new UserFacingException("Indiquez le motif de l'annulation.");
 
             $db->beginTransaction();
 
@@ -1368,7 +1383,9 @@ try {
                 JournalPoster::reverseSource('purchase_order',         $po_id, $reason),
                 JournalPoster::reverseSource('purchase_order_payment', $po_id, $reason),
                 JournalPoster::reverseSource('rebate_accrual',         $po_id, $reason),
-                JournalPoster::reverseSource('rebate_usage',           $po_id, $reason)
+                JournalPoster::reverseSource('rebate_usage',           $po_id, $reason),
+                // The goods leave 31x again (VIDEO_QA_FINDINGS 3.1).
+                JournalPoster::reverseSource('purchase_stock_entry',   $po_id, $reason)
             );
 
             // The reversal above corrected the GENERAL LEDGER. It does NOT
@@ -1386,7 +1403,7 @@ try {
                 $pay_row->execute([$po_id]);
                 if ($pay = $pay_row->fetch(PDO::FETCH_ASSOC)) {
                     $refund_amount = (float) $pay['total_amount'];
-                    $refund_desc   = "Extourne règlement — annulation {$po['reference']}"
+                    $refund_desc   = "Extourne règlement · annulation {$po['reference']}"
                                    . ($reason !== '' ? " · {$reason}" : '');
                     $db->prepare("
                         INSERT INTO treasury_transactions

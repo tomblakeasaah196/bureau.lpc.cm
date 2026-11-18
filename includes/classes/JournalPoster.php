@@ -838,6 +838,88 @@ final class JournalPoster
     }
 
     /**
+     * Goods received enter the stock account: Dr 31x / Cr 6031, at cost.
+     *
+     * SYSCOHADA perpetual inventory (owner default, VIDEO_QA_FINDINGS 3.1 and
+     * « For the owner » #3, 18/11/2026). The purchase itself stays in 601
+     * (postGoodsReceipt); this second entry moves the value into stock, and
+     * each delivery takes it out again at CUMP (postDeliveryCogs: Dr 6031 /
+     * Cr 31x). Over a period 601 plus the 6031 movements is the cost of the
+     * goods sold, and 31x holds the stock still on hand. Before this, nothing
+     * ever debited 31x: each delivery drove it into credit and counted the
+     * cost of the bottles twice (601 at purchase, 6031 at delivery).
+     *
+     * The account is the one the delivery entry uses for the same product
+     * (its own stock / variation account, else its category's), so the two
+     * entries always meet in the same accounts.
+     *
+     * @param array<int,float> $values product_id => value received, at cost
+     * @return int|null the entry, or null when nothing could be mapped
+     */
+    public static function postStockEntry(
+        int $po_id,
+        array $values,
+        string $date,
+        string $po_reference
+    ): ?int {
+        $db      = Database::getInstance()->getConnection();
+        $user_id = (int) ($_SESSION['user_id'] ?? 0);
+
+        if (!self::hasProductAccountMapping($db) || !$values) return null;
+
+        $cogs_default = self::coaByOhada($db, '6031');
+        if (!$cogs_default) {
+            throw new RuntimeException("JournalPoster: OHADA 6031 is not mapped in chart_of_accounts. Apply migration 041.");
+        }
+
+        $ids = implode(',', array_map('intval', array_keys($values)));
+        $map = [];
+        foreach ($db->query("
+            SELECT p.id,
+                   COALESCE(p.stock_account_id, pc.stock_account_id) AS stock_coa,
+                   COALESCE(p.cogs_account_id,  pc.cogs_account_id)  AS cogs_coa
+              FROM products p
+              LEFT JOIN product_categories pc ON pc.id = p.category_id
+             WHERE p.id IN ({$ids})
+        ")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $map[(int) $r['id']] = $r;
+        }
+
+        $lines = [];   // "stock|variation" => value
+        foreach ($values as $pid => $value) {
+            $m = $map[(int) $pid] ?? null;
+            if (!$m || empty($m['stock_coa'])) {
+                // Same rule as the delivery: refuse to guess an account. The
+                // reception still stands; the accountant sees the log.
+                error_log("JournalPoster::postStockEntry — PO #{$po_id}: product #{$pid} has no stock account, "
+                        . round((float) $value) . " FCFA not moved into stock.");
+                continue;
+            }
+            $key = (int) $m['stock_coa'] . '|' . (!empty($m['cogs_coa']) ? (int) $m['cogs_coa'] : $cogs_default);
+            $lines[$key] = ($lines[$key] ?? 0) + (float) $value;
+        }
+
+        $total = 0.0;
+        foreach ($lines as $k => $v) { $lines[$k] = self::roundFcfa($v); $total += $lines[$k]; }
+        if ($total <= 0) return null;
+
+        $je_id = self::createDraftJe(
+            $db, 'STK-' . $po_reference, 'OD', $date,
+            "Entrée en stock sur réception {$po_reference} (au coût d'achat)", $user_id,
+            'purchase_stock_entry', $po_id
+        );
+        foreach ($lines as $k => $v) {
+            if ($v <= 0) continue;
+            [$stock, $variation] = array_map('intval', explode('|', $k));
+            self::addLine($db, $je_id, $stock,     $v,  0.0);
+            self::addLine($db, $je_id, $variation, 0.0, $v);
+        }
+        self::post($db, $je_id, $user_id);
+
+        return $je_id;
+    }
+
+    /**
      * Ristourne earned on reception — Debit 4098 / Credit 6019.
      *
      *   Debit  4098 Fournisseurs - RRR à obtenir  — the supplier now owes us this
@@ -940,7 +1022,7 @@ final class JournalPoster
 
         $je_id = self::createDraftJe(
             $db, 'JRN-AC-' . date('ym'), 'AC', $date,
-            ($narration ?? "Ristourne 2,47% acquise") . " — réf: {$po_reference}", $user_id,
+            ($narration ?? "Ristourne acquise") . " · réf: {$po_reference}", $user_id,
             'rebate_accrual', $po_id
         );
         self::addLine($db, $je_id, $receivable_coa, $amount, 0.0);
@@ -994,7 +1076,7 @@ final class JournalPoster
 
         $je_id = self::createDraftJe(
             $db, 'JRN-AC-' . date('ym'), 'AC', $date,
-            "Utilisation ristourne — réf: {$po_reference}", $user_id,
+            "Utilisation ristourne · réf: {$po_reference}", $user_id,
             'rebate_usage', $po_id
         );
         self::addLine($db, $je_id, $supplier_coa,   $amount, 0.0);
@@ -1127,7 +1209,7 @@ final class JournalPoster
         //    (bank, caisse, MoMo). The sub-ledger distinction lives in the
         //    treasury COA the coaFromTreasury lookup returned.
         $ref  = 'PAY-FRS-' . $po['reference'];
-        $desc = "Règlement fournisseur — PO {$po['reference']}";
+        $desc = "Règlement fournisseur · {$po['reference']}";
         if ($note !== '') $desc .= " · {$note}";
 
         $je_id = self::createDraftJe(

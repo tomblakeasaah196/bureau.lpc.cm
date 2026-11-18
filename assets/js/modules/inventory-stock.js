@@ -37,7 +37,16 @@
         /** Deep-link entry point: we may not have the PO's reference handy
          *  (it isn't in the URL), so fetch the detail endpoint for it first,
          *  then reuse the normal openReception() flow. */
+        // Receiving needs inventory.stock.receive OR inventory.procurement.approve
+        // (the server accepts either). Without one, the Réceptions tab stays a
+        // read-only list.
+        function canReceive() {
+            return !!(window.LPC && typeof LPC.canAny === 'function'
+                && LPC.canAny(['inventory.stock.receive', 'inventory.procurement.approve']));
+        }
+
         async function openReceptionForOrder(poId) {
+            if (!canReceive()) return;
             try {
                 const res = await fetch(`/api/v1/procurement_controller.php?action=get_po_detail&id=${poId}`);
                 const result = await res.json();
@@ -250,6 +259,7 @@
             badge.innerText = pos.length;
             badge.classList.remove('hidden');
 
+            const mayReceive = canReceive();
             pos.forEach(po => {
                 // expected_items is [{qty, product_name}, ...] from the API. It
                 // used to be a `product_details` string with the <span> already
@@ -262,6 +272,10 @@
                     .map(it => LPC.html`<span class="font-black">${it.qty}x</span> ${it.product_name}`)
                     .join('<br>'));
 
+                const receiveBtn = LPC.raw(mayReceive
+                    ? LPC.html`<button onclick="openReception(${po.id}, '${po.reference}')" data-perm-any="inventory.stock.receive,inventory.procurement.approve" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm hover:bg-blue-700">Recevoir</button>`
+                    : '');
+
                 tbody.innerHTML += LPC.html`
                     <tr class="hover:bg-blue-50/20 border-b border-gray-50">
                         <td class="py-3 px-6 text-xs font-bold text-gray-500">${po.date}</td>
@@ -269,9 +283,7 @@
                         <td class="py-3 px-6 font-bold text-blue-700">${po.supplier_name}</td>
                         <td class="py-3 px-6 text-xs text-gray-600 leading-relaxed">${expected}</td>
                         <td class="py-3 px-6 text-center font-black text-gray-800 bg-gray-50/50">${po.total_items} Unités</td>
-                        <td class="py-3 px-6 text-right">
-                            <button onclick="openReception(${po.id}, '${po.reference}')" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm hover:bg-blue-700">Recevoir</button>
-                        </td>
+                        <td class="py-3 px-6 text-right">${receiveBtn}</td>
                     </tr>`;
             });
         }
@@ -344,6 +356,7 @@
         }
 
         async function openReception(poId, ref) {
+            if (!canReceive()) return;
             document.getElementById('rec_po_ref').innerText = ref;
             document.getElementById('rec_po_id').value = poId;
             const tbody = document.getElementById('tbody-rec-lines');
@@ -403,6 +416,7 @@
         }
 
         async function submitReception() {
+            if (!canReceive()) return;
             const payload = { action: 'receive_po', po_id: document.getElementById('rec_po_id').value, items: [] };
             
             document.querySelectorAll('.rec-qty').forEach(i => {

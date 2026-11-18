@@ -161,47 +161,103 @@ def scenario_goods_receipt_exonerated():
 
 def scenario_rebate_accrual():
     """
-    Ristourne earned at reception. Category ladder tier 4 %, TVA 19,25 %,
-    précompte 2 % — all three frozen on the order.
+    Ristourne earned at reception (VIDEO_QA_FINDINGS 2.5, 18/11/2026).
+    Source du Pays: tier 3 % on Eau. LPC's purchases are booked without TVA
+    (migration 124: no TVA is recovered on them), so the ristourne is the tier
+    rate times the purchases received as booked, and nothing is withheld:
 
-    SYSCOHADA:
-        Dr 4098 Fournisseurs, RRR à obtenir   net (what the supplier settles)
-        Dr 4452 TVA récupérable               VAT withheld from the rebate
-        Dr 4473 Précompte subi                précompte withheld
-        Cr 6019 RRR obtenus sur achats        GROSS — the full cost reduction
+        Dr 4098 Fournisseurs, RRR à obtenir   rate x amount received
+        Cr 6019 RRR obtenus sur achats        the same
 
-    THE DEFECT: only the net was posted, to both sides. 6019 understated the
-    reduction in cost of goods, and the withheld tax — which is imputable
-    against the company's own tax — was recorded nowhere at all.
-
-    THE CONSTRAINT THAT MATTERS OPERATIONALLY: 4098 must still carry exactly
-    the net, because that is what supplier_rebate_ledger and the Ristournes SDP
-    panel track. If this fix moved 4098 the panel and the ledger would diverge
-    and every historical balance would need restating.
+    THE DEFECT: the base was divided by 1,1925 and 19,25 % TVA plus 2 %
+    précompte were taken out of the ristourne and debited to 4452 / 4473, on
+    purchases that never carried any TVA. 50 x 1 850 = 92 500 earned 1 832
+    in 4098 instead of 2 775.
     """
-    ht = Decimal("1000000")
-    tier_rate = Decimal("0.04")
-    vat_rate = Decimal("0.1925")
-    precompte_rate = Decimal("0.02")
+    received = Decimal("92500")       # 50 x OPUR 20L at 1 850
+    tier_rate = Decimal("0.03")
 
-    # Rounding ORDER is part of the contract: each component to the franc, then
-    # the net as the remainder. Rounding all three independently can leave a
-    # 1 FCFA residual, and post_journal_entry rejects the entry — rolling back
-    # a goods reception over a rounding artefact.
-    gross = fcfa(ht * tier_rate)
-    vat = fcfa(gross * vat_rate)
-    precompte = fcfa(gross * precompte_rate)
-    net = gross - vat - precompte
+    gross = fcfa(received * tier_rate)
 
-    e = Entry("Achats · ristourne acquise (palier 4%)")
-    e.debit("4098", net).debit("4452", vat).debit("4473", precompte).credit("6019", gross)
+    e = Entry("Achats · ristourne acquise (Eau 3 %, achats sans TVA)")
+    e.debit("4098", gross).credit("6019", gross)
 
     check_balanced(e)
-    check("rebate · components sum to gross exactly", net + vat + precompte, gross)
-    check("rebate · 6019 credited the gross", -e.net("6019"), gross)
-    check("rebate · 4098 still carries the net (panel parity)", e.net("4098"), net)
-    check("rebate · net matches the legacy formula to the franc",
-          abs(net - fcfa(gross * (1 - (vat_rate + precompte_rate)))) <= 1, True)
+    check("rebate · 3 % of the amount received as booked", gross, Decimal("2775"))
+    check("rebate · nothing in 4452 (purchases carry no TVA)", e.net("4452"), Decimal("0"))
+    check("rebate · nothing in 4473", e.net("4473"), Decimal("0"))
+    check("rebate · 4098 equals 6019", e.net("4098"), -e.net("6019"))
+    return e
+
+
+def scenario_stock_entry_on_reception():
+    """
+    Perpetual inventory (VIDEO_QA_FINDINGS 3.1, owner default #3). Reception of
+    50 x OPUR 20L at 1 850 posts the purchase AND moves it into stock:
+
+        Dr 601  Achats de marchandises            92 500
+        Cr 401  Fournisseur                       92 500
+        Dr 311  Stocks Eau                        92 500
+        Cr 6031 Variations des stocks             92 500
+
+    THE DEFECT: only the first entry existed. Nothing ever debited 31x, so each
+    delivery's Dr 6031 / Cr 31x drove the stock account into credit and the
+    cost of the bottles was counted twice (601 at purchase, 6031 at delivery).
+    """
+    value = fcfa(Decimal("50") * Decimal("1850"))
+    e = Entry("Achats · réception et entrée en stock (50 OPUR 20L)")
+    e.debit("601", value).credit("401", value).debit("311", value).credit("6031", value)
+
+    check_balanced(e)
+    check("stock entry · 31x debited at cost", e.net("311"), Decimal("92500"))
+    check("stock entry · 6031 credited the same", -e.net("6031"), Decimal("92500"))
+    return e
+
+
+def scenario_perpetual_cycle():
+    """
+    Buy 100 bottles at 1 850, deliver 60 at CUMP 1 850. Perpetual inventory
+    must leave 31x = the 40 bottles still on hand, and 601 + 6031 = the cost of
+    the 60 bottles sold, once and only once.
+    """
+    bought = fcfa(Decimal("100") * Decimal("1850"))
+    sold = fcfa(Decimal("60") * Decimal("1850"))
+
+    e = Entry("Cycle · achat 100, livraison 60")
+    e.debit("601", bought).credit("401", bought)          # reception, purchase
+    e.debit("311", bought).credit("6031", bought)         # reception, into stock
+    e.debit("6031", sold).credit("311", sold)             # delivery, at CUMP
+
+    check_balanced(e)
+    check("cycle · 31x holds the 40 bottles left", e.net("311"), fcfa(Decimal("40") * Decimal("1850")))
+    check("cycle · 601 + 6031 is the cost of the 60 sold", e.net("601") + e.net("6031"), sold)
+    # What the books said before the fix: 601 bought + 6031 sold, 31x in credit.
+    check("cycle · old path counted the sold bottles twice",
+          (bought + sold) - (e.net("601") + e.net("6031")), bought)
+    return e
+
+
+def scenario_supplier_remise():
+    """
+    A remise HOREB SARL grants on an order (no ristourne ladder, VIDEO_QA_FINDINGS
+    2.4): 100 x 2 275 = 227 500, remise 7 500, so 220 000 owed. Received in two
+    deliveries, 60 then 40: each is booked net, in proportion, and the two add
+    up to what is owed. No 4098 line: it is not a ristourne used.
+    """
+    gross = Decimal("227500")
+    remise = Decimal("7500")
+    factor = 1 - remise / gross
+
+    first = fcfa(Decimal("60") * Decimal("2275") * factor)
+    second = fcfa(Decimal("40") * Decimal("2275") * factor)
+
+    e = Entry("Achats · remise fournisseur, deux réceptions")
+    e.debit("601", first).credit("401", first)
+    e.debit("601", second).credit("401", second)
+
+    check_balanced(e)
+    check("supplier remise · 401 owes the order net of the remise", -e.net("401"), gross - remise)
+    check("supplier remise · no ristourne drawn", e.net("4098"), Decimal("0"))
     return e
 
 
@@ -459,6 +515,9 @@ def main():
         scenario_goods_receipt,
         scenario_goods_receipt_exonerated,
         scenario_rebate_accrual,
+        scenario_stock_entry_on_reception,
+        scenario_perpetual_cycle,
+        scenario_supplier_remise,
         scenario_purchase_line_remise,
         scenario_invoice_with_remise,
         scenario_invoice_full_fiscal_stack,

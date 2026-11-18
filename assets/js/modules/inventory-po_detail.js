@@ -57,11 +57,19 @@
         return `<span class="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${cls}"><i class="fas ${icon} mr-1"></i>${label}</span>`;
     }
 
-    function paymentBadge(status, cancelled) {
-        if (cancelled) return '<span class="text-gray-500"><i class="fas fa-ban mr-1"></i>Annulé</span>';
-        return status === 'paid'
-            ? '<span class="text-emerald-600"><i class="fas fa-check mr-1"></i>Payé</span>'
-            : '<span class="text-red-600"><i class="fas fa-hourglass-half mr-1"></i>À Crédit</span>';
+    // Same reading as the list on procurement.php: an order is paid only
+    // through « Payer Fournisseur », once fully received.
+    function paymentBadge(paymentStatus, status) {
+        if (status === 'cancelled') return '<span class="text-gray-500"><i class="fas fa-ban mr-1"></i>Annulée</span>';
+        if (paymentStatus === 'paid') return '<span class="text-emerald-600"><i class="fas fa-check mr-1"></i>Payé</span>';
+        if (status === 'received')    return '<span class="text-red-600"><i class="fas fa-hand-holding-usd mr-1"></i>À payer</span>';
+        if (status === 'partial')     return '<span class="text-amber-700"><i class="fas fa-truck-loading mr-1"></i>Réception partielle</span>';
+        return '<span class="text-blue-700"><i class="fas fa-hourglass-half mr-1"></i>En attente de réception</span>';
+    }
+
+    function canReceive() {
+        return !!(window.LPC && typeof LPC.canAny === 'function'
+            && LPC.canAny(['inventory.stock.receive', 'inventory.procurement.approve']));
     }
 
     function render(data) {
@@ -78,19 +86,20 @@
         document.getElementById('po-supplier-name').innerHTML = `<i class="fas fa-industry mr-1 text-gray-300"></i>${po.supplier_name}`;
         document.getElementById('po-total').textContent = LPC.fmt.int(po.total_amount) + ' FCFA';
         document.getElementById('po-date').textContent = LPC.fmt.date(po.date);
-        document.getElementById('po-payment-status').innerHTML = paymentBadge(po.payment_status, cancelled);
+        document.getElementById('po-payment-status').innerHTML = paymentBadge(po.payment_status, po.status);
         document.getElementById('po-delivery-place').textContent = po.delivery_place_name || 'Non spécifié';
         document.getElementById('po-created-by').textContent = (po.created_by_name || '').trim() || '—';
         document.getElementById('po-rebate-earned').textContent = totals.rebate_earned > 0
             ? LPC.fmt.int(totals.rebate_earned) + ' F'
             : '0 F';
 
-        // Header action buttons: PDF always; Recevoir only if something remains
-        // and the order isn't cancelled.
+        // Header action buttons: PDF always; Recevoir only if something remains,
+        // the order isn't cancelled, and the user may receive
+        // (inventory.stock.receive or inventory.procurement.approve, as the server).
         const actions = document.getElementById('detail-header-actions');
         let actionsHtml = `<a href="/bon_commande.php?token=${po.token}" target="_blank" class="px-4 py-2 bg-white border border-gray-200 rounded-xl font-bold text-sm text-gray-700 shadow-sm hover:bg-gray-50"><i class="fas fa-file-pdf mr-2 text-red-500"></i>Voir PDF</a>`;
-        if (!cancelled && totals.qty_remaining > 0) {
-            actionsHtml += `<a href="/modules/inventory/stock.php?receive_po=${po.id}#receptions" class="px-4 py-2 bg-lpc-dark hover:bg-green-800 text-white rounded-xl font-bold text-sm shadow-lg shadow-lpc-dark/20"><i class="fas fa-truck-loading mr-2"></i>Recevoir la Marchandise</a>`;
+        if (!cancelled && totals.qty_remaining > 0 && canReceive()) {
+            actionsHtml += `<a href="/modules/inventory/stock.php?receive_po=${po.id}#receptions" data-perm-any="inventory.stock.receive,inventory.procurement.approve" class="px-4 py-2 bg-lpc-dark hover:bg-green-800 text-white rounded-xl font-bold text-sm shadow-lg shadow-lpc-dark/20"><i class="fas fa-truck-loading mr-2"></i>Recevoir la Marchandise</a>`;
         }
         actions.innerHTML = actionsHtml;
 
@@ -123,24 +132,24 @@
             </tr>
         `).join('') || `<tr><td colspan="7" class="py-8 text-center text-gray-400 italic">Aucune ligne.</td></tr>`;
 
-        // Ristourne per category — the ladder tier frozen at order creation
-        // and the net amount actually accrued so far (partial receptions
-        // each add their share; this may be less than the theoretical max
-        // until the order is fully received).
+        // Ristourne per category: the ladder tier frozen at order creation
+        // and the amount actually accrued so far (partial receptions each
+        // add their share). Nothing is withheld any more: purchases are
+        // booked without TVA, so the ristourne is simply rate × amount
+        // received, and what is shown is what LPC gets.
         const catBody = document.getElementById('po-category-rebates-body');
         if (!data.category_rebates || !data.category_rebates.length) {
-            catBody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-gray-400 italic">Aucune catégorie de ce fournisseur n'a de palier de ristourne configuré.</td></tr>`;
+            catBody.innerHTML = `<tr><td colspan="4" class="py-8 text-center text-gray-400 italic">Aucune catégorie de ce fournisseur n'a de palier de ristourne configuré.</td></tr>`;
         } else {
             catBody.innerHTML = data.category_rebates.map(cr => {
-                const withheld = (Number(cr.vat_rate_applied) + Number(cr.precompte_rate_applied)) * 100;
+                const rate = Number(cr.tier_rate) || 0;
+                const earned = Number(cr.rebate_amount_earned) || 0;
                 return `
                     <tr class="hover:bg-gray-50">
                         <td class="py-3 px-6 font-bold text-gray-800">${escapeHtml(cr.category_name)}</td>
                         <td class="py-3 px-4 text-right font-bold text-gray-600">${LPC.fmt.int(cr.category_amount_ttc)}</td>
-                        <td class="py-3 px-4 text-right font-bold text-gray-600">${LPC.fmt.int(cr.category_amount_ht)}</td>
-                        <td class="py-3 px-4 text-center font-black ${cr.tier_rate > 0 ? 'text-amber-700' : 'text-gray-300'}">${cr.tier_rate > 0 ? (cr.tier_rate * 100).toFixed(2) + '%' : '—'}</td>
-                        <td class="py-3 px-4 text-center text-xs font-bold text-gray-400">${withheld.toFixed(2)}%</td>
-                        <td class="py-3 px-6 text-right font-black ${cr.rebate_amount_earned > 0 ? 'text-amber-600' : 'text-gray-300'}">${cr.rebate_amount_earned > 0 ? LPC.fmt.int(cr.rebate_amount_earned) + ' F' : '—'}</td>
+                        <td class="py-3 px-4 text-center font-black ${rate > 0 ? 'text-amber-700' : 'text-gray-300'}">${(rate * 100).toFixed(2)} %</td>
+                        <td class="py-3 px-6 text-right font-black ${earned > 0 ? 'text-amber-600' : 'text-gray-300'}">${LPC.fmt.int(earned)} F</td>
                     </tr>`;
             }).join('');
         }
