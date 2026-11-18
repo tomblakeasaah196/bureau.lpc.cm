@@ -134,7 +134,7 @@
                     <td>${r.client_code || ''}</td>
                     <td>${r.client_name || '—'}</td>
                     <td>${r.client_phone || ''}</td>
-                    <td class="text-right">${LPC.fmt.percent(r.min_pct)}</td>
+                    <td class="text-right">${LPC.fmt.percent(Number(r.min_pct))}</td>
                     <td class="text-right">${LPC.fmt.int(r.bottles_with_client || 0)}</td>
                     <td class="text-right">${LPC.fmt.fcfa(r.financial_risk_fcfa || 0)}</td>
                 </tr>`;

@@ -103,8 +103,8 @@
                         <td>${r.client_name || ''}</td>
                         <td class="text-right">${LPC.fmt.int(r.delivered)}</td>
                         <td class="text-right">${LPC.fmt.int(r.returned)}</td>
-                        <td class="text-right">${r.rate === null ? '—' : LPC.fmt.percent(r.rate)}</td>
-                        <td class="text-right">${LPC.fmt.percent(r.min_pct)}</td>
+                        <td class="text-right">${r.rate === null ? '—' : LPC.fmt.percent(Number(r.rate))}</td>
+                        <td class="text-right">${LPC.fmt.percent(Number(r.min_pct))}</td>
                         <td class="text-right">${LPC.fmt.int(r.to_recover)}</td>
                     </tr>`;
                 },

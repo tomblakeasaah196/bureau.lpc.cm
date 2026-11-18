@@ -67,8 +67,8 @@
                         <td>${r.client_name || ''}</td>
                         <td class="text-right">${LPC.fmt.int(r.delivered)}</td>
                         <td class="text-right">${LPC.fmt.int(r.returned)}</td>
-                        <td class="text-right">${r.rate === null ? '—' : LPC.fmt.percent(r.rate)}</td>
-                        <td class="text-right">${LPC.fmt.percent(r.min_pct)}</td>
+                        <td class="text-right">${r.rate === null ? '—' : LPC.fmt.percent(Number(r.rate))}</td>
+                        <td class="text-right">${LPC.fmt.percent(Number(r.min_pct))}</td>
                         <td class="text-right">${LPC.fmt.int(r.to_recover)}</td>
                     </tr>`;
                 },
@@ -198,7 +198,8 @@
                 responsive: true, maintainAspectRatio: false,
                 animation: { duration: 700 },
                 plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } } },
-                scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, grid: { borderDash: [4, 4] } } },
+                // BLs are whole: no 0,1 … 1,0 steps on the axis.
+                scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 }, grid: { borderDash: [4, 4] } } },
             },
         });
     }
