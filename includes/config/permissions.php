@@ -314,6 +314,8 @@ $LPC_DEFAULT_ROLE_PERMISSIONS = [
         'inventory.stock.damage', 'inventory.stock.audit',
         'inventory.procurement.view', 'inventory.procurement.create_po',
         'inventory.procurement.overhead',
+        // Pays suppliers (the owner, 18/11/2026; migration 132).
+        'inventory.procurement.approve',
         'inventory.fiche.view',
         'operations.empties.view', 'operations.empties.create_cre',
         'fleet.vehicles.view', 'fleet.vehicles.assign', 'fleet.vehicles.maintenance',

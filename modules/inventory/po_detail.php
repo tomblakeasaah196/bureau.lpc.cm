@@ -134,8 +134,10 @@ $po_id = (int) ($_GET['id'] ?? 0);
                             <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-500 font-black tracking-widest">
                                 <tr>
                                     <th class="py-3 px-6">Catégorie</th>
-                                    <th class="py-3 px-4 text-right">Montant des achats</th>
+                                    <th class="py-3 px-4 text-right">Montant TTC</th>
+                                    <th class="py-3 px-4 text-right">Montant HT</th>
                                     <th class="py-3 px-4 text-center">Taux Palier</th>
+                                    <th class="py-3 px-4 text-center">Retenue Fiscale</th>
                                     <th class="py-3 px-6 text-right">Ristourne Gagnée</th>
                                 </tr>
                             </thead>
