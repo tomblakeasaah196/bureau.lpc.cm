@@ -634,6 +634,51 @@ final class JournalPoster
     }
 
     /**
+     * The opening balance of a treasury account created in Trésorerie & Banque
+     * (« Solde d'ouverture »): the money was there before the account was in the
+     * app, so the ledger receives it too (VIDEO_QA_FINDINGS 9.2). It used to log
+     * a treasury movement and post nothing: the screen and the 5x account
+     * disagreed by exactly that amount (copy: MTN MOBILE MONEY, 1 000 000 F).
+     *
+     *   Debit  the account's own 5x (coaFromTreasury)
+     *   Credit 471 « Compte d'attente », until the Comptable says where the money
+     *          came from (capital, an associate's current account, an earlier
+     *          bank...) and moves it there with an OD.
+     *
+     * The first fiscal year's opening balance is Comptabilité → Bilan
+     * d'Ouverture; that screen locks once the year has other entries, which is
+     * why a mid-year account opens here. SOURCE LINK: 'treasury_opening',
+     * source_id = the treasury_transactions row of the opening movement.
+     */
+    public static function postTreasuryOpening(int $treasury_account_id, float $amount, int $transaction_id, ?string $date = null): int
+    {
+        $db = Database::getInstance()->getConnection();
+        $user_id = (int) ($_SESSION['user_id'] ?? 0);
+
+        $amount = self::roundFcfa($amount);
+        if ($amount <= 0) throw new RuntimeException("JournalPoster::postTreasuryOpening — non-positive amount.");
+
+        $treasury_coa = self::coaFromTreasury($db, $treasury_account_id);
+        $suspense_coa = self::coaByOhada($db, '471');
+        if (!$suspense_coa) {
+            throw new RuntimeException("Le compte d'attente 471 manque au plan comptable (migration 139).");
+        }
+        $name = $db->prepare("SELECT name FROM treasury_accounts WHERE id = ?");
+        $name->execute([$treasury_account_id]);
+        $label = (string) ($name->fetchColumn() ?: "#{$treasury_account_id}");
+
+        $day = ($date !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) ? $date : date('Y-m-d');
+        $je_id = self::createDraftJe($db, 'OUV-TRS', 'OD', $day,
+            "Solde d'ouverture · {$label} (à régulariser depuis le compte d'attente)",
+            $user_id, 'treasury_opening', $transaction_id);
+        self::addLine($db, $je_id, $treasury_coa, $amount, 0.0);
+        self::addLine($db, $je_id, $suspense_coa, 0.0,     $amount);
+        self::post($db, $je_id, $user_id);
+
+        return $je_id;
+    }
+
+    /**
      * Post the JE for a treasury expense (petite caisse).
      *   Debit expense COA (typically 6xx)
      *   Credit source treasury COA (typically 5xx)

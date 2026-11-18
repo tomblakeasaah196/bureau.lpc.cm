@@ -115,6 +115,10 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                 class="tab-link py-4 border-b-[3px] border-transparent text-gray-500 hover:text-gray-700 font-bold text-sm uppercase tracking-wider whitespace-nowrap">
             <i class="fas fa-list-ul mr-2"></i> Dépenses
         </button>
+        <button role="tab" aria-selected="false" onclick="switchExpenseTab('fuel')" id="tab-fuel"
+                class="tab-link py-4 border-b-[3px] border-transparent text-gray-500 hover:text-gray-700 font-bold text-sm uppercase tracking-wider whitespace-nowrap">
+            <i class="fas fa-gas-pump mr-2"></i> Carburant
+        </button>
         <?php if ($can_recur): ?>
         <button role="tab" aria-selected="false" onclick="switchExpenseTab('recurring')" id="tab-recurring"
                 class="tab-link py-4 border-b-[3px] border-transparent text-gray-500 hover:text-gray-700 font-bold text-sm uppercase tracking-wider whitespace-nowrap">
@@ -172,7 +176,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                 <div class="stat-card bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
                     <div class="flex items-center gap-3 mb-2">
                         <div class="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center"><i class="fas fa-chart-line"></i></div>
-                        <p class="text-[10px] font-black text-gray-500 uppercase tracking-widest">Cumul YTD</p>
+                        <p class="text-[10px] font-black text-gray-500 uppercase tracking-widest">Cumul de l'année</p>
                     </div>
                     <h3 class="text-2xl font-black text-gray-900" id="kpi_ytd">…</h3>
                 </div>
@@ -182,7 +186,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                         <p class="text-[10px] font-black text-gray-500 uppercase tracking-widest">En attente de paiement</p>
                     </div>
                     <h3 class="text-2xl font-black text-amber-700" id="kpi_unpaid">…</h3>
-                    <p class="text-xs font-bold text-gray-500 mt-1"><span id="kpi_unpaid_count">0</span> facture(s)</p>
+                    <p class="text-xs font-bold text-gray-500 mt-1"><span id="kpi_unpaid_count">0</span> à valider</p>
                 </div>
                 <div class="stat-card bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
                     <div class="flex items-center gap-3 mb-2">
@@ -290,6 +294,88 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                     </table>
                 </div>
                 <div id="list_paginator" class="px-4 py-3 border-t border-gray-100 bg-gray-50 flex justify-between items-center text-xs font-bold text-gray-600"></div>
+            </div>
+        </div>
+
+        <!-- =============================================================
+             TAB: CARBURANT. Finance's fuel money against the fuel
+             Operations logged in Flotte, per period (the owner's answer 6).
+             Read by Finance and Operations alike (accounting.expenses.view).
+        ============================================================== -->
+        <div id="content-fuel" role="tabpanel" aria-labelledby="tab-fuel" class="tab-content flex-col h-full gap-6">
+            <div class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm shrink-0 flex flex-wrap items-center justify-between gap-3">
+                <div class="flex flex-wrap items-center gap-3">
+                    <label for="fuel_kind" class="text-[10px] font-black uppercase tracking-widest text-gray-500">Période</label>
+                    <select id="fuel_kind" class="bg-gray-50 border border-gray-200 rounded-xl pl-4 pr-10 py-2.5 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-lpc-light">
+                        <option value="month">Mois</option>
+                        <option value="quarter">Trimestre</option>
+                        <option value="year">Année</option>
+                    </select>
+                    <label for="fuel_n" class="sr-only">Mois ou trimestre</label>
+                    <select id="fuel_n" class="bg-gray-50 border border-gray-200 rounded-xl pl-4 pr-10 py-2.5 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-lpc-light"></select>
+                    <label for="fuel_year" class="sr-only">Année</label>
+                    <select id="fuel_year" class="bg-gray-50 border border-gray-200 rounded-xl pl-4 pr-10 py-2.5 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-lpc-light">
+                        <?php for ($y=(int)date('Y'); $y>=(int)date('Y')-2; $y--): ?>
+                            <option value="<?= $y ?>"><?= $y ?></option>
+                        <?php endfor; ?>
+                    </select>
+                </div>
+                <p class="text-xs font-bold text-gray-500 max-w-xl">L'argent que la Finance a donné pour le carburant, face aux pleins que les Opérations ont relevés dans Flotte. Chaque côté est prévenu quand un écart apparaît.</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-5 shrink-0">
+                <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+                    <div class="flex items-center gap-3 mb-2">
+                        <div class="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center"><i class="fas fa-hand-holding-usd"></i></div>
+                        <p class="text-[10px] font-black text-gray-500 uppercase tracking-widest">Argent donné par la Finance</p>
+                    </div>
+                    <h3 class="text-2xl font-black text-gray-900" id="fuel_finance">…</h3>
+                    <p class="text-xs font-bold text-gray-500 mt-1">Dépenses carburant payées</p>
+                </div>
+                <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+                    <div class="flex items-center gap-3 mb-2">
+                        <div class="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center"><i class="fas fa-gas-pump"></i></div>
+                        <p class="text-[10px] font-black text-gray-500 uppercase tracking-widest">Carburant relevé par les Opérations</p>
+                    </div>
+                    <h3 class="text-2xl font-black text-gray-900" id="fuel_ops">…</h3>
+                    <p class="text-xs font-bold text-gray-500 mt-1" id="fuel_pending_line">Pleins saisis dans Flotte</p>
+                </div>
+                <div class="bg-white p-5 rounded-2xl border shadow-sm" id="fuel_gap_card">
+                    <div class="flex items-center gap-3 mb-2">
+                        <div class="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center" id="fuel_gap_icon"><i class="fas fa-scale-balanced"></i></div>
+                        <p class="text-[10px] font-black text-gray-500 uppercase tracking-widest">Écart à régulariser</p>
+                    </div>
+                    <h3 class="text-2xl font-black" id="fuel_gap">…</h3>
+                    <p class="text-xs font-bold mt-1" id="fuel_status">…</p>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-gray-200 shadow-sm shrink-0">
+                <div class="px-6 py-4 border-b border-gray-100">
+                    <h3 class="font-black text-gray-800 text-sm uppercase tracking-widest"><i class="fas fa-magnifying-glass mr-2 text-lpc-light"></i> Ce qui explique l'écart · <span id="fuel_label"></span></h3>
+                </div>
+                <div id="fuel_lines" class="divide-y divide-gray-100 text-sm"></div>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden shrink-0">
+                <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                    <h3 class="font-black text-gray-800 text-sm uppercase tracking-widest"><i class="fas fa-table mr-2 text-lpc-light"></i> <span id="fuel_table_title">Mois par mois</span></h3>
+                </div>
+                <div class="overflow-auto">
+                    <table class="min-w-full text-left">
+                        <thead class="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-gray-500 font-black tracking-widest">
+                            <tr>
+                                <th class="py-3 px-4">Période</th>
+                                <th class="py-3 px-4 text-right">Finance</th>
+                                <th class="py-3 px-4 text-right">Opérations</th>
+                                <th class="py-3 px-4 text-right">En attente de paiement</th>
+                                <th class="py-3 px-4 text-right">Écart à régulariser</th>
+                                <th class="py-3 px-4 text-center">État</th>
+                            </tr>
+                        </thead>
+                        <tbody id="fuel_table" class="divide-y divide-gray-100 text-sm"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -415,18 +501,22 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                     </div>
                     <div>
                         <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Statut *</label>
-                        <select id="exp_status" required
+                        <select id="exp_status" required onchange="syncExpenseStatus()"
                                 class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light">
+                            <?php if ($can_pay): ?>
                             <option value="paid">Payé (comptabilisé immédiatement)</option>
                             <option value="unpaid">En attente de paiement</option>
+                            <?php else: ?>
+                            <option value="unpaid">Demande à la Finance (en attente)</option>
+                            <?php endif; ?>
                         </select>
                     </div>
                 </div>
 
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Compte de trésorerie *</label>
-                        <select id="exp_treasury" required
+                        <label for="exp_treasury" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Compte de trésorerie <span id="exp_treasury_req">*</span></label>
+                        <select id="exp_treasury"
                                 class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-lpc-light"></select>
                     </div>
                     <div>
@@ -602,6 +692,33 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
         </div>
     </div>
 </div>
+<?php if ($can_pay): ?>
+<!-- MODAL: attach a Flotte fill-up to a fuel advance already paid (« Rattacher »). -->
+<div id="modal-attach" class="exp-modal">
+    <div class="exp-modal-card max-w-md">
+        <div class="bg-lpc-dark px-8 py-5 flex justify-between items-center text-white shrink-0">
+            <h3 class="font-black text-lg flex items-center gap-3"><i class="fas fa-link"></i> Rattacher à une avance</h3>
+            <button onclick="closeModal('modal-attach')" class="text-white/70 hover:text-white text-xl" aria-label="Fermer"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="p-8 bg-slate-50 space-y-4">
+            <input type="hidden" id="attach_request" value="">
+            <div class="bg-white p-4 rounded-xl border border-gray-200">
+                <p class="text-[10px] font-black text-gray-500 uppercase tracking-widest">Plein relevé dans Flotte</p>
+                <p class="text-sm font-black text-gray-900 mt-1" id="attach_request_label"></p>
+            </div>
+            <div>
+                <label for="attach_advance" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Avance carburant déjà payée *</label>
+                <select id="attach_advance" class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-lpc-light"></select>
+            </div>
+            <p class="text-[11px] text-gray-500 font-medium"><i class="fas fa-info-circle mr-1"></i>Le plein est réglé par cette avance : la demande disparaît, rien n'est payé une seconde fois. Un écart de montant reste visible jusqu'à sa régularisation.</p>
+        </div>
+        <div class="bg-white px-8 py-4 border-t border-gray-200 flex justify-end gap-3 shrink-0">
+            <button onclick="closeModal('modal-attach')" class="px-5 py-2.5 text-sm font-bold text-gray-500">Annuler</button>
+            <button onclick="submitAttach()" class="px-8 py-2.5 bg-lpc-dark hover:bg-green-800 text-white rounded-xl font-bold text-sm shadow-md">Rattacher</button>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 <?php endif; ?>
 
 <!-- ============================================================================

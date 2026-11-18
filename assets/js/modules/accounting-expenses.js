@@ -137,6 +137,13 @@
         if (name === 'list')        loadList();
         if (name === 'recurring')   loadRecurring();
         if (name === 'categories')  loadCategories();
+        if (name === 'fuel')        loadFuel();
+    };
+
+    /** Today in Douala, not in UTC (toISOString() gave yesterday's date after 23:00). */
+    const todayLocal = () => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     };
 
     window.closeModal = function (id) { const m = $('#' + id); if (m) m.classList.remove('open'); };
@@ -268,7 +275,9 @@
             const actions = [];
             if (!paid && flags.can_pay)     actions.push(`<button onclick="openPayModal(${r.id}, ${r.amount})" title="${fromFleet ? 'Valider et payer' : 'Marquer payée'}" aria-label="${fromFleet ? 'Valider et payer' : 'Marquer payée'}" class="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg"><i class="fas fa-check-circle"></i></button>`);
             if (!paid && flags.can_edit)    actions.push(`<button onclick="editExpense(${r.id})" title="Modifier" class="p-2 text-gray-600 hover:bg-gray-100 rounded-lg"><i class="fas fa-pen"></i></button>`);
-            if (flags.can_delete)           actions.push(`<button onclick="deleteExpense(${r.id})" title="Supprimer" class="p-2 text-rose-600 hover:bg-rose-50 rounded-lg"><i class="fas fa-trash"></i></button>`);
+            // An unpaid Flotte request is refused, not deleted: the fill-up or repair stays in Flotte.
+            const refuse = fromFleet && !paid;
+            if (flags.can_delete)           actions.push(`<button onclick="deleteExpense(${r.id}, ${refuse ? 'true' : 'false'})" title="${refuse ? 'Refuser la demande' : 'Supprimer'}" aria-label="${refuse ? 'Refuser la demande' : 'Supprimer'}" class="p-2 text-rose-600 hover:bg-rose-50 rounded-lg"><i class="fas ${refuse ? 'fa-ban' : 'fa-trash'}"></i></button>`);
             return `
                 <tr class="hover:bg-gray-50 transition-colors">
                     <td class="py-3 px-4 text-gray-700 font-bold text-xs whitespace-nowrap">${fmtDate(r.expense_date)}</td>
@@ -320,11 +329,12 @@
             `<option value="${a.id}">${escapeHtml(a.name)} — ${fmtF(a.balance)}</option>`).join('');
         $('#exp_supplier').innerHTML = '<option value="">— aucun —</option>' + listMeta.suppliers.map(s =>
             `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
-        $('#exp_date').value = new Date().toISOString().slice(0,10);
+        $('#exp_date').value = todayLocal();
         $('#exp_amount').value = '';
         $('#exp_title').value = '';
         $('#exp_desc').value = '';
-        $('#exp_status').value = 'paid';
+        // Only Finance pays; anyone else saves a request (9.4).
+        $('#exp_status').value = flags.can_pay ? 'paid' : 'unpaid';
         $('#budget_probe').classList.add('hidden');
 
         if (id) {
@@ -339,9 +349,20 @@
             $('#exp_treasury').value = d.treasury_account_id || '';
             $('#exp_supplier').value = d.supplier_id || '';
         }
+        syncExpenseStatus();
         probeBudget();
         openModal('modal-expense');
     }
+
+    /** The account is required to pay now; a request leaves it to Finance. */
+    function syncExpenseStatus() {
+        const paid = $('#exp_status').value === 'paid';
+        const req = $('#exp_treasury_req');
+        if (req) req.textContent = paid ? '*' : '(choisi par la Finance au paiement)';
+        const first = $('#exp_treasury option[value=""]');
+        if (first) first.textContent = paid ? 'Choisir…' : 'Plus tard';
+    }
+    window.syncExpenseStatus = syncExpenseStatus;
     window.openExpenseModal = openExpenseModal;
     window.editExpense = openExpenseModal;
 
@@ -393,7 +414,7 @@
         if (!title)                     return toast('Titre requis.', 'error');
         if (!Number($('#exp_category').value)) return toast('Catégorie requise.', 'error');
         if (!(amount > 0))              return toast('Le montant doit être supérieur à 0.', 'error');
-        if (!treasury)                  return toast('Compte de trésorerie requis.', 'error');
+        if (!treasury && $('#exp_status').value === 'paid') return toast('Choisissez le compte qui paie.', 'error');
 
         savingExpense = true;
         const btn = $('#btn-save-expense');
@@ -417,7 +438,7 @@
         savingExpense = false;
         btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Enregistrer';
         if (!r) return;
-        toast('Dépense enregistrée.', 'success');
+        toast(payload.payment_status === 'paid' ? 'Dépense enregistrée et comptabilisée.' : 'Dépense enregistrée, en attente de paiement.', 'success');
         closeModal('modal-expense');
         // Refresh whichever tab is active.
         if ($('#content-dashboard').classList.contains('active')) loadDashboard();
@@ -427,11 +448,16 @@
     }
     window.submitExpense = submitExpense;
 
-    async function deleteExpense(id) {
-        if (!confirm('Supprimer cette dépense ? Si elle est comptabilisée, une écriture d\'extourne sera créée automatiquement.')) return;
+    async function deleteExpense(id, isFleetRequest = false) {
+        const ok = await LPC.modal.confirm(isFleetRequest
+            ? 'Refuser cette demande des Opérations ? Le relevé reste dans Flotte, sans paiement, et le demandeur est prévenu.'
+            : 'Supprimer cette dépense ? Si elle est comptabilisée, une écriture d\'extourne est passée automatiquement.',
+            { title: isFleetRequest ? 'Refuser la demande' : 'Supprimer la dépense',
+              confirmLabel: isFleetRequest ? 'Refuser' : 'Supprimer', danger: true });
+        if (!ok) return;
         const r = await apiPost('delete', { id });
         if (!r) return;
-        toast('Dépense supprimée.', 'success');
+        toast(isFleetRequest ? 'Demande refusée.' : 'Dépense supprimée.', 'success');
         loadList();
         if ($('#content-dashboard').classList.contains('active')) loadDashboard();
     }
@@ -444,7 +470,7 @@
         $('#pay_amount_label').textContent = fmtF(amount);
         $('#pay_treasury').innerHTML = '<option value="">Choisir…</option>' +
             listMeta.accounts.map(a => `<option value="${a.id}">${escapeHtml(a.name)} — ${fmtF(a.balance)}</option>`).join('');
-        $('#pay_date').value = new Date().toISOString().slice(0,10);
+        $('#pay_date').value = todayLocal();
         openModal('modal-pay');
     };
     let payingExpense = false;
@@ -719,6 +745,134 @@
     };
 
     // ========================================================================
+    //  CARBURANT : Finance against Operations, per period (owner's answer 6)
+    // ========================================================================
+    const MONTHS_FR = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    let fuelData = null;
+
+    function fuelPeriodOptions() {
+        const kind = $('#fuel_kind')?.value || 'month';
+        const sel = $('#fuel_n');
+        if (!sel) return;
+        const now = new Date();
+        if (kind === 'year') { sel.innerHTML = ''; sel.classList.add('hidden'); return; }
+        sel.classList.remove('hidden');
+        if (kind === 'quarter') {
+            sel.innerHTML = [1, 2, 3, 4].map(q => `<option value="${q}">${q === 1 ? '1er' : q + 'e'} trimestre</option>`).join('');
+            sel.value = String(Math.floor(now.getMonth() / 3) + 1);
+        } else {
+            sel.innerHTML = MONTHS_FR.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+            sel.value = String(now.getMonth() + 1);
+        }
+    }
+
+    async function loadFuel() {
+        const kind = $('#fuel_kind').value;
+        const d = await api('fuel_check', { kind, year: $('#fuel_year').value, n: kind === 'year' ? 1 : $('#fuel_n').value });
+        if (!d) return;
+        fuelData = d;
+        const s = d.summary;
+        $('#fuel_label').textContent = s.label;
+        $('#fuel_finance').textContent = fmtF(s.finance);
+        $('#fuel_ops').textContent = fmtF(s.operations);
+        $('#fuel_pending_line').textContent = s.pending > 0
+            ? `dont ${fmtF(s.pending)} en attente de paiement`
+            : 'Pleins saisis dans Flotte';
+        const ok = s.status === 'ok';
+        $('#fuel_gap').textContent = (s.to_regularise > 0 ? '+' : '') + fmtF(s.to_regularise);
+        $('#fuel_gap').className = 'text-2xl font-black ' + (ok ? 'text-emerald-700' : 'text-rose-600');
+        $('#fuel_gap_card').className = 'bg-white p-5 rounded-2xl border shadow-sm ' + (ok ? 'border-emerald-200' : 'border-rose-300');
+        $('#fuel_status').innerHTML = ok
+            ? '<span class="text-emerald-700"><i class="fas fa-circle-check mr-1"></i>Finance et Opérations concordent</span>'
+            : (s.to_regularise > 0
+                ? '<span class="text-rose-600"><i class="fas fa-triangle-exclamation mr-1"></i>La Finance a donné plus que les pleins relevés</span>'
+                : '<span class="text-rose-600"><i class="fas fa-triangle-exclamation mr-1"></i>Des pleins relevés ne sont pas couverts</span>');
+
+        // The lines that explain the gap.
+        const blocks = [];
+        const row = (left, right, extra = '') => `
+            <div class="px-6 py-3 flex items-center justify-between gap-4">
+                <div class="min-w-0">${left}</div>
+                <div class="flex items-center gap-3 shrink-0">${right}${extra}</div>
+            </div>`;
+        const head = (icon, color, text) => `<div class="px-6 pt-4 pb-1 text-[10px] font-black uppercase tracking-widest ${color}"><i class="fas ${icon} mr-1"></i>${text}</div>`;
+        if (s.advances.length) {
+            blocks.push(head('fa-hand-holding-usd', 'text-rose-700', "Argent donné sans plein relevé dans Flotte"));
+            s.advances.forEach(a => blocks.push(row(
+                `<p class="font-bold text-gray-900">${escapeHtml(a.title)}</p><p class="text-[11px] text-gray-500 font-bold">${escapeHtml(a.reference)} · ${fmtDate(a.date)}</p>`,
+                `<span class="font-black text-rose-600">${fmtF(a.amount)}</span>`)));
+        }
+        if (s.changed.length) {
+            blocks.push(head('fa-not-equal', 'text-rose-700', "Payé à un autre montant que le plein"));
+            s.changed.forEach(c => blocks.push(row(
+                `<p class="font-bold text-gray-900">${escapeHtml(c.title)}</p><p class="text-[11px] text-gray-500 font-bold">${escapeHtml(c.reference)} · plein relevé ${fmtF(c.logged)}, payé ${fmtF(c.amount)}</p>`,
+                `<span class="font-black text-rose-600">${c.gap > 0 ? '+' : ''}${fmtF(c.gap)}</span>`)));
+        }
+        if (s.refused.length) {
+            blocks.push(head('fa-ban', 'text-rose-700', "Pleins relevés dont la demande a été refusée"));
+            s.refused.forEach(f => blocks.push(row(
+                `<p class="font-bold text-gray-900">Plein ${escapeHtml(f.plate)} · ${String(f.liters).replace('.', ',')} L</p><p class="text-[11px] text-gray-500 font-bold">${fmtDate(f.date)}</p>`,
+                `<span class="font-black text-rose-600">-${fmtF(f.logged)}</span>`)));
+        }
+        if (s.waiting.length) {
+            const canAttach = d.can_attach && d.advances.length > 0;
+            blocks.push(head('fa-hourglass-half', 'text-amber-700', "Pleins relevés, en attente de paiement (pas un écart)"));
+            s.waiting.forEach(w => blocks.push(row(
+                `<p class="font-bold text-gray-900">Plein ${escapeHtml(w.plate)} · ${String(w.liters).replace('.', ',')} L</p><p class="text-[11px] text-gray-500 font-bold">${escapeHtml(w.reference || '')} · ${fmtDate(w.date)}</p>`,
+                `<span class="font-black text-amber-700">${fmtF(w.logged)}</span>`,
+                canAttach ? `<button onclick="openAttach(${w.expense_id})" class="px-3 py-1.5 rounded-lg border border-lpc-dark text-lpc-dark text-xs font-black hover:bg-lpc-dark hover:text-white"><i class="fas fa-link mr-1"></i>Rattacher à une avance</button>` : '')));
+        }
+        if (!blocks.length) {
+            blocks.push(`<div class="px-6 py-6 text-sm font-bold text-gray-500">${s.matched > 0
+                ? `<i class="fas fa-circle-check text-emerald-600 mr-1"></i>${s.matched} plein(s) relevé(s), chacun payé à son montant.`
+                : 'Aucun mouvement de carburant sur cette période.'}</div>`);
+        } else if (s.matched > 0) {
+            blocks.push(`<div class="px-6 py-3 text-xs font-bold text-gray-500"><i class="fas fa-circle-check text-emerald-600 mr-1"></i>Et ${s.matched} plein(s) payé(s) à leur montant.</div>`);
+        }
+        $('#fuel_lines').innerHTML = blocks.join('');
+
+        // The year, month by month (or quarter by quarter).
+        $('#fuel_table_title').textContent = (kind === 'quarter' ? 'Trimestre par trimestre, ' : 'Mois par mois, ') + d.year;
+        $('#fuel_table').innerHTML = d.table.map(t => {
+            const quiet = t.finance == 0 && t.operations == 0;
+            const state = quiet ? '<span class="text-gray-300 text-xs font-bold">.</span>'
+                : (t.status === 'ok'
+                    ? '<span class="cat-pill bg-emerald-100 text-emerald-800"><i class="fas fa-check"></i> Concordant</span>'
+                    : '<span class="cat-pill bg-rose-100 text-rose-800"><i class="fas fa-triangle-exclamation"></i> Écart</span>');
+            return `<tr class="${quiet ? 'text-gray-400' : ''}">
+                <td class="py-2.5 px-4 font-bold capitalize">${escapeHtml(t.label)}</td>
+                <td class="py-2.5 px-4 text-right font-bold">${fmtF(t.finance)}</td>
+                <td class="py-2.5 px-4 text-right font-bold">${fmtF(t.operations)}</td>
+                <td class="py-2.5 px-4 text-right font-bold">${fmtF(t.pending)}</td>
+                <td class="py-2.5 px-4 text-right font-black ${t.to_regularise != 0 ? 'text-rose-600' : ''}">${fmtF(t.to_regularise)}</td>
+                <td class="py-2.5 px-4 text-center">${state}</td>
+            </tr>`;
+        }).join('');
+    }
+    window.loadFuel = loadFuel;
+
+    window.openAttach = function (requestId) {
+        if (!fuelData) return;
+        const w = fuelData.summary.waiting.find(x => Number(x.expense_id) === Number(requestId));
+        if (!w) return;
+        $('#attach_request').value = requestId;
+        $('#attach_request_label').textContent = `${w.reference} · Plein ${w.plate}, ${String(w.liters).replace('.', ',')} L : ${fmtF(w.logged)}`;
+        $('#attach_advance').innerHTML = fuelData.advances.map(a =>
+            `<option value="${a.id}">${escapeHtml(a.reference)} · ${escapeHtml(a.title)} : ${fmtF(a.amount)}</option>`).join('');
+        openModal('modal-attach');
+    };
+    window.submitAttach = async function () {
+        const r = await api('attach_fuel', null, 'POST', {
+            request_id: Number($('#attach_request').value),
+            advance_id: Number($('#attach_advance').value),
+        });
+        if (!r) return;
+        closeModal('modal-attach');
+        toast(r.message || 'Plein rattaché à l\'avance.', 'success');
+        loadFuel();
+    };
+
+    // ========================================================================
     //  BOOT
     // ========================================================================
     document.addEventListener('DOMContentLoaded', () => {
@@ -737,8 +891,14 @@
 
         loadDashboard();
 
-        // Deep-link support: /modules/accounting/expenses.php#recurring
-        const EXP_VALID_TABS = ['dashboard', 'list', 'recurring', 'categories'];
+        ['#fuel_kind', '#fuel_n', '#fuel_year'].forEach(sel => $(sel)?.addEventListener('change', (e) => {
+            if (e.target.id === 'fuel_kind') fuelPeriodOptions();
+            loadFuel();
+        }));
+        fuelPeriodOptions();
+
+        // Deep-link support: /modules/accounting/expenses.php#recurring, #fuel (the fuel notices link there)
+        const EXP_VALID_TABS = ['dashboard', 'list', 'recurring', 'categories', 'fuel'];
         const hash = (window.location.hash || '').replace('#', '');
         if (EXP_VALID_TABS.includes(hash) && hash !== 'dashboard') window.switchExpenseTab(hash);
     });
