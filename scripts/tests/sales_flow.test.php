@@ -27,15 +27,17 @@
  */
 
 $root = dirname(__DIR__, 2);
-$sc   = file_get_contents($root . '/api/v1/sales_controller.php');
-$sse  = file_get_contents($root . '/includes/functions/signature_side_effects.php');
-$sd   = file_get_contents($root . '/includes/functions/sales_delivery.php');
-$inv  = file_get_contents($root . '/api/v1/invoices_controller.php');
-$js   = file_get_contents($root . '/assets/js/modules/sales-orders.js');
-$page = file_get_contents($root . '/modules/sales/orders.php');
-$getbl = file_get_contents($root . '/api/v1/get_bl.php');
+// Read as LF whatever the checkout (a Windows checkout may hold CRLF).
+function src(string $path): string { return str_replace("\r\n", "\n", (string) file_get_contents($path)); }
+$sc   = src($root . '/api/v1/sales_controller.php');
+$sse  = src($root . '/includes/functions/signature_side_effects.php');
+$sd   = src($root . '/includes/functions/sales_delivery.php');
+$inv  = src($root . '/api/v1/invoices_controller.php');
+$js   = src($root . '/assets/js/modules/sales-orders.js');
+$page = src($root . '/modules/sales/orders.php');
+$getbl = src($root . '/api/v1/get_bl.php');
 $migs = glob($root . '/migrations/*_sales_fleet_drivers_close_and_remises.sql');
-$mig  = $migs ? file_get_contents($migs[0]) : '';
+$mig  = $migs ? src($migs[0]) : '';
 
 $fail = 0;
 function check(string $label, bool $ok): void

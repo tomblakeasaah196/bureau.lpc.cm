@@ -1279,7 +1279,8 @@ try {
             // LPC sells the bottle; the client must hand back at least the
             // share its signed devis sets (empties_return_min_pct, migration
             // 137; 100 % when none). Counted on what the client accepted once
-            // the BL is signed, on what left before that.
+            // the BL is signed, on what left before that, on what is ordered
+            // before the BL.
             $minPct = $order['empties_return_min_pct'] !== null ? (float) $order['empties_return_min_pct'] : 100.0;
             $expected_empties = [];
             $expected_total = 0;
@@ -1296,7 +1297,8 @@ try {
                     ];
                     continue;
                 }
-                $base = (int) $l['qty_accepted'] > 0 ? (int) $l['qty_accepted'] : (int) $l['qty_dispatched'];
+                $base = (int) $l['qty_accepted'] > 0 ? (int) $l['qty_accepted']
+                      : ((int) $l['qty_dispatched'] > 0 ? (int) $l['qty_dispatched'] : (int) $l['qty_ordered']);
                 $exp  = (int) ceil($base * $minPct / 100 - 1e-9);
                 $expected_total += $exp;
                 $expected_empties[] = [
