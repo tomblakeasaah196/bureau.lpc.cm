@@ -124,7 +124,7 @@ function onFundingChange() {
     document.getElementById('cap_treasury').required = (f === 'treasury');
     const assetSel = document.getElementById('cap_acc_asset');
     const opt = assetSel && assetSel.selectedIndex > 0 ? assetSel.options[assetSel.selectedIndex].text : '';
-    const asset = (opt.match(/^[(d+)]/) || [])[1] || '2x';
+    const asset = (opt.match(/^\[(\d+)\]/) || [])[1] || '2x';
     const credit = asset.startsWith('21') ? '4811' : '4812';
     const hint = document.getElementById('cap_entry_hint');
     if (f === 'existing') hint.textContent = "Aucune écriture : l'acquisition est déjà au bilan (Bilan d'Ouverture ou écriture antérieure). L'actif entre au registre et s'amortit.";
@@ -194,9 +194,9 @@ function renderAssets() {
         tbody.innerHTML += LPC.html`
             <tr class="${rowClass}">
                 <td class="py-3 px-6"><span class="text-xs font-black">${a.name}</span>${LPC.raw(statusHtml)}<br><span class="text-[10px] text-gray-500 font-bold">${sub}</span></td>
-                <td class="py-3 px-6 text-center text-xs font-bold">${a.acquisition_date}</td>
+                <td class="py-3 px-6 text-center text-xs font-bold">${LPC.fmt.date(a.acquisition_date)}</td>
                 <td class="py-3 px-6 text-right font-black">${fmt(a.acquisition_cost)}</td>
-                <td class="py-3 px-6 text-right text-asset-highlight font-bold">-${fmt(a.accumulated_depr)}</td>
+                <td class="py-3 px-6 text-right text-asset-highlight font-bold">${Number(a.accumulated_depr) > 0 ? "-" + fmt(a.accumulated_depr) : "0"}</td>
                 <td class="py-3 px-6 text-right font-black bg-gray-50/50">${fmt(vnc)}</td>
                 <td class="py-3 px-6 text-right">
                     ${LPC.raw(!isZero ? `<button onclick="openDisposalWizard(${a.id}, '${LPC.escapeHtml(a.name)}', ${vnc})" class="text-rose-500 hover:text-rose-700 bg-rose-50 px-2 py-1 rounded text-xs font-bold border border-rose-200" title="Céder ou Rebut" aria-label="Céder ou Rebut">Céder</button>` : '-')}
