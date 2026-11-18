@@ -103,6 +103,8 @@ Left:
 14. [V] The attestation form (Déclarations Fiscales → Retenues à la source) has placeholders but no labels, and
    proposes the previous month. The « AIR en attente d'attestation » total is read by the bell, not shown on that
    tab. Small; for Comptabilité 3.
+16. [V] For Comptabilité 3: Déclarations Fiscales → Échéances, the card « AIR retenu à récupérer » read 0 F while
+   4424 held PROMETAL's 9 810 F (before and after its attestation): it reads something else than 4424.
 15. Not real (copy only): the help drawer's video poster answered 404 on copy C (the copy's videos folder does not
    hold the file); the Responsable des Opérations gets 403 on Facturation and Déclarations Fiscales, as intended.
 
