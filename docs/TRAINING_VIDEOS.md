@@ -408,6 +408,9 @@ Each is fixed on the video's branch, in the screen's own code, and listed here.
 | 18/11/2026 | Gestion du Personnel, family fields | The payslip and the detail window printed marital status and dependents, which Cameroon's IRPP (no family quotient) never uses | Fixed: not printed or sent; they stay on the employee's record (Données de Base) |
 | 18/11/2026 | Gestion du Personnel, salaries (10.5) | Salaries are kept in Données de Base, not here | Not a bug: the video says so; « Voir la fiche » opens the record |
 | 18/11/2026 | Help, Gestion du Personnel articles | They said the run was irreversible, that payroll never pays, deducted approved advances, and taught SQL and server logs | Fixed: migration 136 rewrites ten articles and unpublishes the two technical ones |
+| 18/11/2026 | Gestion du Personnel, a calculated month's grid (rehearsal) | It showed dashes for every withholding and the net, and today's contract instead of the payslip: November's slips (a 50 000 F prime on base 0 for two people) read as 150 000 F and 0 | Fixed: a calculated row shows its payslip's own figures (base, indemnités, prime, brut, retenues, net, mode) |
+| 18/11/2026 | Gestion du Personnel, a row with no salary (rehearsal) | The support account's 0 F row kept a calculated month « open »: « Calculer & Valider Paie » stayed on and no notice said the month was done | Fixed: such a row is locked and marked « Sans salaire » |
+| 18/11/2026 | Gestion du Personnel, layout (rehearsal) | The sidebar handle sat on the detail window's title; the three footer buttons broke onto two lines; the advances list printed 2026-11-18 | Fixed: the page's windows at z-index 9000 (as Achats, PR #53); buttons on one line; 18/11/2026 |
 
 ## 8 · Where the work stands
 

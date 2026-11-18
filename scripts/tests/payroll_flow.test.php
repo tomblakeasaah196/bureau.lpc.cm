@@ -107,6 +107,14 @@ check('migration 136 links the old PAIE entries and fixes « paid » with no pay
       str_contains($mig, "SET je.source_type = 'payslip', je.source_id = p.id")
       && str_contains($mig, "SET status = 'validated' WHERE status = 'paid' AND payment_je_id IS NULL"));
 
+echo "\nThe grid\n";
+$grid = action_body($pc, 'get_payroll_grid');
+check('a calculated row shows its payslip, not today\'s contract', str_contains($grid, "'slip'             => \$slip,") && str_contains($js, "const sl = e.slip || null;"));
+check('a row with no salary is locked and does not keep the month open',
+      str_contains($grid, "'no_salary'") && str_contains($js, "some(g => !g.is_paid && !g.no_salary)"));
+$page = file_get_contents($root . '/modules/hr/payroll_finance.php');
+check('the page\'s windows sit above the shell (z-index 9000)', substr_count($page, 'style="z-index: 9000;"') === 5);
+
 echo "\nThe payslip and the DIPE\n";
 check('the payslip says « À payer » until paid, then « Payé le »', str_contains($pdf, "'validated' => 'À payer'") && str_contains($pdf, '"Payé le {$paidOn}"'));
 check('the payslip prints no family situation', !str_contains($pdf, "'Situation' =>"));

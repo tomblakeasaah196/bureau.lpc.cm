@@ -197,7 +197,10 @@ try {
         // A payslip counts once calculated: 'validated' (booked, to pay) or 'paid'.
         // 'draft' is a payslip never calculated or cancelled by « Annuler la paie ».
         $stmt_paid = $db->prepare("
-            SELECT id, token, status, advances_deducted FROM hr_payslips
+            SELECT id, token, status, advances_deducted, base_salary, bonuses, absences_deducted,
+                   gross_salary, cnps_employee, irpp, cfc, cac, crtv, net_pay, payment_method,
+                   driver_debt_deducted, breakdown_json
+              FROM hr_payslips
              WHERE user_id = ? AND month = ? AND year = ? AND status IN ('validated','paid')
         ");
         $stmt_debt = $db->prepare("
@@ -214,6 +217,28 @@ try {
             $stmt_debt->execute([$e['user_id'], $m, $y]);
             $debt = (float) $stmt_debt->fetchColumn();
 
+            // A calculated row shows its payslip's own figures (what was booked), not
+            // today's contract: a salary changed since then must not seem to be in it.
+            $slip = null;
+            if ($paid) {
+                $bd = json_decode((string) ($paid['breakdown_json'] ?? ''), true) ?: [];
+                $slip = [
+                    'base_salary' => (float) $paid['base_salary'],
+                    'housing'     => (float) ($bd['housing_allowance'] ?? 0),
+                    'transport'   => (float) ($bd['transport_allowance'] ?? 0),
+                    'bonuses'     => (float) $paid['bonuses'],
+                    'absences'    => (float) $paid['absences_deducted'],
+                    'driver_debt' => (float) $paid['driver_debt_deducted'],
+                    'gross'       => (float) $paid['gross_salary'],
+                    'cnps'        => (float) $paid['cnps_employee'],
+                    'irpp'        => (float) $paid['irpp'],
+                    'cfc'         => (float) $paid['cfc'],
+                    'cac'         => (float) $paid['cac'],
+                    'crtv'        => (float) $paid['crtv'],
+                    'net'         => (float) $paid['net_pay'],
+                    'payment'     => $paid['payment_method'],
+                ];
+            }
             $grid[] = [
                 'user_id'          => (int) $e['user_id'],
                 'employee_name'    => $e['employee_name'],
@@ -230,6 +255,9 @@ try {
                 'payslip_status'   => $paid['status'] ?? null,
                 'token'            => $paid['token'] ?? null,
                 'default_payment'  => $e['role_name'] === 'driver' ? 'caisse' : 'bank',
+                'slip'             => $slip,
+                // No salary on the record and no payslip: nothing to calculate.
+                'no_salary'        => !$paid && ((float) $e['base_salary'] + (float) $e['housing_allowance'] + (float) $e['transport_allowance']) <= 0,
             ];
         }
         sendJson('success', '', ['grid' => $grid, 'period' => $period]);

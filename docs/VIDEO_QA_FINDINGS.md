@@ -178,8 +178,13 @@ Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026):
 
 ## 10 · Gestion du Personnel (salaires)
 
-All five rows done by the Salaires session (18/11/2026, PR of `claude/video-10-salaires`): see
-docs/TRAINING_VIDEOS.md §7.
+Rows 1 to 5 done by the Salaires session (18/11/2026, PR #59): see docs/TRAINING_VIDEOS.md §7.
+
+6. [V] The payroll lists only employees who have a login: the grid joins `users` and `hr_payslips` keys on
+   `users.id` (`payroll_controller.php` get_payroll_grid, generate_month). The drivers the Flotte session plans
+   as employees without a login (owner #12) would never appear in « Génération de la Paie ». Before LPC adds
+   them, key payroll and advances on `employees.id` (a migration of `hr_payslips`/`hr_advances`), or give each
+   driver a login (the owner does not want driver accounts).
 
 ## 11 · Comptabilité 1 (Plan Comptable, Bilan d'Ouverture, Écritures, Grand Livre)
 
@@ -249,5 +254,5 @@ docs/TRAINING_VIDEOS.md §7.
 | 10 | Should a purchase order be approved (DG or CF) before it goes to the supplier? | Decided 18/11: no approval before an order goes to the supplier. |
 | 11 | A supplier delivers only part of an order and will not deliver the rest: how should the remainder be closed? | Decided 18/11: the supplier brings the rest later; the order stays open until fully received. |
 | 12 | LPC's vehicles and drivers: the delivery truck's plate, make, insurance and roadworthiness dates; the drivers (e.g. Nelson Tanyu) as employees in Gestion du Personnel (no login needed). Live has no vehicle and no driver yet. | The Flotte video uses an example truck on the copy (LT 742 KL, Toyota Dyna) and Nelson Tanyu, added on copy B with his name and post (Chauffeur) only, as the owner allowed (18/11). **The owner adds the drivers and the real truck on live.** |
-| 13 | **Live payroll of November 2026** was calculated on 03/11 with Daniel Massomba at 50 000 F and JBS Praxis Support (the IT partner's account) at 50 000 F; their records now say 150 000 F and 0. Should November be undone and recalculated on live (« Annuler la Paie », then « Calculer & Valider Paie »)? And were October's and November's salaries already paid outside the app (none is marked paid)? | The video undoes and recalculates November on the copy and pays it by bank. On live nothing is changed: the owner or the CF decides. If October was paid, « Marquer Payées » for October records it (bank, at the real date). |
+| 13 | **Live payroll of November 2026** was calculated on 03/11 when Daniel Massomba's and JBS Praxis Support's records (the IT partner's account) had no salary: each got 50 000 F typed as a prime on a base of 0. Their records now say 150 000 F and 0. Should November be undone and recalculated on live (« Annuler la Paie », then « Calculer & Valider Paie »)? And were October's and November's salaries already paid outside the app (none is marked paid)? | The video undoes and recalculates November on the copy and pays it by bank. On live nothing is changed: the owner or the CF decides. If October was paid, « Marquer Payées » for October records it (bank, at the real date). |
 | 14 | October and November 2026 were booked before the FNE (1 %) was: the DIPE declares 5 300 F (Oct.) and 6 300 F (Nov.) that 432 never received. | Recalculating November books it. For October, the Comptable passes one OD (Dr 6412 / Cr 432, 5 300 F) if October is kept as is. |
