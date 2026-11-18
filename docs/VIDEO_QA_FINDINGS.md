@@ -153,7 +153,7 @@ Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026):
 
 ## 10 · Gestion du Personnel (salaires)
 
-Rows 1 to 5 done by the Salaires session (18/11/2026, PR #59), row 6 by the admin series' session (migration 144):
+Rows 1 to 5 done by the Salaires session (18/11/2026, PR #59), row 6 by the admin series' session (migration 146):
 see docs/TRAINING_VIDEOS.md §7. Left: driver debts (`driver_debts.driver_id`) are still kept by login, so an
 employee without one has none deducted; the data wipe's own-rows list removes payslips and advances by login
 (`DataWipeMap::STAFF_OWN`), not those of an employee who never had one.

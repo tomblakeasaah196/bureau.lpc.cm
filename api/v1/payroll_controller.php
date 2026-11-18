@@ -120,7 +120,7 @@ function lpc_advances_to_deduct(PDO $db, int $eid, int $y, int $m): float {
 }
 
 /**
- * Payroll is keyed on the employee (migration 144, VIDEO_QA_FINDINGS 10.6): an
+ * Payroll is keyed on the employee (migration 146, VIDEO_QA_FINDINGS 10.6): an
  * employee without a login (LPC's drivers) is paid like anyone. A request names
  * `employee_id`; an older page that still sends `user_id` is mapped to its
  * employee.
@@ -153,7 +153,7 @@ try {
     // READ actions
     // -------------------------------------------------------------------------
     if ($action === 'list_contracts') {
-        // Every active employee, with or without a login (migration 144).
+        // Every active employee, with or without a login (migration 146).
         $rows = $db->query("
             SELECT u.id       AS user_id,
                    e.id       AS employee_id,
@@ -199,7 +199,7 @@ try {
         [$y, $m] = explode('-', $period);
         $y = (int) $y; $m = (int) $m;
 
-        // Every active employee, login or not (migration 144, VIDEO_QA_FINDINGS
+        // Every active employee, login or not (migration 146, VIDEO_QA_FINDINGS
         // 10.6): a driver without an account is paid like anyone.
         $emps = $db->query("
             SELECT e.id AS employee_id, u.id AS user_id,

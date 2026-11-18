@@ -29,7 +29,7 @@
             accountant: 'Comptable', operations: 'Opérations', sales: 'Commercial', driver: 'Chauffeur',
         };
         const roleLabel = (name) => ROLE_LABELS[String(name || '').toLowerCase()] || (name || '');
-        // An employee without a login (LPC's drivers, migration 144) has no role: their post says who they are.
+        // An employee without a login (LPC's drivers, migration 146) has no role: their post says who they are.
         const whoLabel = (row) => roleLabel(row && row.role_name) || (row && row.job_title) || 'Sans compte';
 
         // Deep-link support: /modules/hr/payroll_finance.php#payroll

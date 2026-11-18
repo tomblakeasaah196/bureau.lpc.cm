@@ -535,7 +535,7 @@ if ($action === 'drilldown_payroll') {
           AND p.status IN ('validated', 'paid')
         ORDER BY p.year DESC, p.month DESC, e.first_name ASC
     ";
-    // The person from the employee record (migration 144): an employee without a
+    // The person from the employee record (migration 146): an employee without a
     // login is in the payroll too; the role is the login's, else the post.
     $select = "p.id, p.year, p.month, p.gross_salary, p.net_pay, p.status,
                p.cnps_employee, p.irpp,
