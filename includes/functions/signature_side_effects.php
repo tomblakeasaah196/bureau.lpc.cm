@@ -47,6 +47,8 @@ if (basename($_SERVER['PHP_SELF'] ?? '') === basename(__FILE__)) {
 }
 
 require_once __DIR__ . '/stock.php';
+require_once __DIR__ . '/proposal_terms.php';
+require_once __DIR__ . '/notify.php';
 require_once __DIR__ . '/../classes/JournalPoster.php';
 
 /**
@@ -520,12 +522,26 @@ function lpc_signature_side_effects_quote(PDO $db, int $proposalId): void
            ->execute([$proposalId]);
     }
 
-    lpc_signature_notify_admin(
+    // What the signature commits LPC and the client to (VIDEO_QA_FINDINGS
+    // 4.1): the prices become the client's tariff, Net 15 and the empties
+    // minimum go onto the client, a prospect becomes a client, the promised
+    // buffer raises the stock alert. includes/functions/proposal_terms.php.
+    $done = lpc_proposal_accept($db, $proposalId);
+
+    $what = [];
+    if ($done['prices'])            $what[] = $done['prices'] . ' prix enregistré(s) comme tarif du client';
+    if ($done['terms_days'] !== null) $what[] = $done['terms_days'] === 0 ? 'paiement à la livraison' : 'paiement à ' . $done['terms_days'] . ' jours';
+    if ($done['empties_pct'] !== null) $what[] = 'retour minimum des vides ' . $done['empties_pct'] . ' %';
+    if ($done['activated'])          $what[] = 'le prospect devient client actif';
+
+    lpc_notify_permission(
         $db,
+        'crm.proposals.view',
         'Devis accepté et signé',
         "Le devis {$p['reference']} a été signé électroniquement par le client "
-        . "({$p['client_name']}). Bon pour accord.",
-        '/modules/crm/proposal_studio.php',
+        . "({$p['client_name']}). Bon pour accord."
+        . ($what ? ' ' . ucfirst(implode(', ', $what)) . '.' : ''),
+        '/modules/crm/clients.php#devis',
         'info'
     );
 }

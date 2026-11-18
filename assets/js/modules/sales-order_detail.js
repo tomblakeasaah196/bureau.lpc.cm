@@ -76,6 +76,20 @@
         document.getElementById('so-status-badge').innerHTML = STATUS_BADGES[o.status] || o.status;
         document.getElementById('so-client-name').textContent =
             o.client_name + (o.client_phone ? ' · ' + o.client_phone : '');
+        // The signed devis the order was made under, and the terms it set
+        // (migration 137, VIDEO_QA_FINDINGS 4.1).
+        const propEl = document.getElementById('so-proposal');
+        if (propEl && o.proposal_reference) {
+            const terms = [];
+            if (o.payment_terms_days !== null && o.payment_terms_days !== undefined) {
+                terms.push(Number(o.payment_terms_days) === 0 ? 'paiement à la livraison' : `paiement ${Number(o.payment_terms_days)} jours`);
+            }
+            if (o.empties_return_min_pct !== null && o.empties_return_min_pct !== undefined) {
+                terms.push(`retour vides min. ${Number(o.empties_return_min_pct)} %`);
+            }
+            propEl.innerHTML = LPC.html`Devis signé <a href="/modules/crm/clients.php#devis" class="font-bold text-lpc-dark hover:underline">${o.proposal_reference}</a>${terms.length ? ' · ' + terms.join(' · ') : ''}`;
+            propEl.classList.remove('hidden');
+        }
         document.getElementById('so-total').textContent = LPC.fmt.fcfa(o.total_amount);
         document.getElementById('so-date').textContent = LPC.fmt.date(o.date);
         document.getElementById('so-created-by').textContent = o.created_by_name || '—';

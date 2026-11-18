@@ -92,7 +92,7 @@ if ($action === 'reps') {
 // interpolated — except the sort column, which is whitelisted below.
 // -----------------------------------------------------------------------------
 $search  = trim((string) ($_GET['search'] ?? ''));
-$status  = (string) ($_GET['status'] ?? 'all');   // all|sent|signed|expired
+$status  = (string) ($_GET['status'] ?? 'all');   // all|sent|signed|declined|expired
 $from    = trim((string) ($_GET['from'] ?? ''));
 $to      = trim((string) ($_GET['to'] ?? ''));
 $rep     = trim((string) ($_GET['rep'] ?? ''));
@@ -107,7 +107,7 @@ $isDate = static fn(string $d): bool => (bool) preg_match('/^\d{4}-\d{2}-\d{2}$/
 if (!$isDate($from)) { $from = ''; }
 if (!$isDate($to))   { $to   = ''; }
 
-if (!in_array($status, ['all', 'sent', 'signed', 'expired'], true)) {
+if (!in_array($status, ['all', 'sent', 'signed', 'declined', 'expired'], true)) {
     $status = 'all';
 }
 
@@ -183,6 +183,10 @@ $signedExpr = $hasSigTable ? 's.id IS NOT NULL' : '0';
 // validity. COALESCE would have forced an arbitrary 0-day default and marked
 // every such devis expired on the day it was written.
 $expiredExpr = "(DATE_ADD(p.`date`, INTERVAL p.validity_days DAY) < CURDATE())";
+// « Je souhaite discuter »: the client declined without signing (status
+// 'rejected', signatures_controller.php decline). It showed as « Envoyé »
+// (VIDEO_QA_FINDINGS 4.4); it is « À revoir » until the devis is revised.
+$declinedExpr = "(p.status = 'rejected')";
 
 $where  = [];
 $params = [];
@@ -200,10 +204,12 @@ if ($rep  !== '') { $where[] = 'p.sales_rep_name = :rep'; $params[':rep'] = $rep
 // so a row can never be counted in one bucket and displayed in another.
 if ($status === 'signed') {
     $where[] = $signedExpr;
+} elseif ($status === 'declined') {
+    $where[] = 'NOT ' . $signedExpr . ' AND ' . $declinedExpr;
 } elseif ($status === 'expired') {
-    $where[] = 'NOT ' . $signedExpr . ' AND ' . $expiredExpr;
+    $where[] = 'NOT ' . $signedExpr . ' AND NOT ' . $declinedExpr . ' AND ' . $expiredExpr;
 } elseif ($status === 'sent') {
-    $where[] = 'NOT ' . $signedExpr . ' AND NOT ' . $expiredExpr;
+    $where[] = 'NOT ' . $signedExpr . ' AND NOT ' . $declinedExpr . ' AND NOT ' . $expiredExpr;
 }
 
 $whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
@@ -250,8 +256,9 @@ try {
                     : 'NULL AS signer_name, NULL AS signer_role, NULL AS signed_at, NULL AS verify_token,
                        NULL AS lpc_signer_name, NULL AS lpc_signed_at, NULL AS lpc_verify_token') . ",
             CASE
-                WHEN {$signedExpr}  THEN 'signed'
-                WHEN {$expiredExpr} THEN 'expired'
+                WHEN {$signedExpr}   THEN 'signed'
+                WHEN {$declinedExpr} THEN 'declined'
+                WHEN {$expiredExpr}  THEN 'expired'
                 ELSE 'sent'
             END AS derived_status,
             " . ($hasSigTable ? 'si.id IS NOT NULL' : '0') . " AS lpc_signed

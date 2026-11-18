@@ -58,6 +58,7 @@ $so_id = (int) ($_GET['id'] ?? 0);
                                 <span id="so-status-badge"></span>
                             </div>
                             <p class="text-sm font-bold text-gray-500" id="so-client-name">—</p>
+                            <p class="text-xs text-gray-500 mt-0.5 hidden" id="so-proposal"></p>
                         </div>
                         <div class="text-right">
                             <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total TTC</p>

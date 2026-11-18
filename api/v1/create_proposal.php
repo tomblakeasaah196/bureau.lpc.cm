@@ -3,6 +3,12 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 Rbac::requirePermission('crm.proposals.create');
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['status' => 'error', 'message' => 'POST requis.']);
+    exit;
+}
+Csrf::requireValid();
 // api/v1/create_proposal.php
 header('Content-Type: application/json');
 
@@ -32,7 +38,7 @@ try {
     $db->beginTransaction();
 
     // 1. Fetch Client Snapshot
-    $clientStmt = $db->prepare("SELECT name, contact_person, phone FROM clients WHERE id = ?");
+    $clientStmt = $db->prepare("SELECT name, contact_person, email, phone, niu, rc FROM clients WHERE id = ? AND deleted_at IS NULL");
     $clientStmt->execute([$data['client_id']]);
     $client = $clientStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -59,23 +65,28 @@ try {
     // 4. Insert Master Proposal Record (Mapped exactly to your 19 columns)
     $stmt = $db->prepare("
         INSERT INTO proposals (
-            reference, client_name, client_contact, client_title, client_email, client_phone, 
-            date, validity_days, delivery_frequency, buffer_stock_weeks, payment_terms, 
-            empties_policy, language, status, total_amount, sales_rep_name, token
+            reference, client_id, client_name, client_contact, client_title, client_email, client_phone,
+            client_niu, client_rccm,
+            date, validity_days, delivery_frequency, buffer_stock_weeks, payment_terms,
+            empties_policy, language, status, total_amount, sales_rep_name, created_by, token
         ) VALUES (
-            :reference, :client_name, :client_contact, :client_title, :client_email, :client_phone,
+            :reference, :client_id, :client_name, :client_contact, :client_title, :client_email, :client_phone,
+            :client_niu, :client_rccm,
             :date, :validity_days, :delivery_frequency, :buffer_stock_weeks, :payment_terms,
-            :empties_policy, :language, 'sent', :total_amount, :sales_rep_name, :token
+            :empties_policy, :language, 'sent', :total_amount, :sales_rep_name, :created_by, :token
         )
     ");
 
     $stmt->execute([
         'reference'          => $reference,
+        'client_id'          => (int) $data['client_id'],
         'client_name'        => $client['name'],
         'client_contact'     => $client['contact_person'] ?: null,
         'client_title'       => null, 
-        'client_email'       => null, 
+        'client_email'       => $client['email'] ?: null,
         'client_phone'       => $client['phone'] ?: null,
+        'client_niu'         => $client['niu'] ?: null,
+        'client_rccm'        => $client['rc'] ?: null,
         'date'               => $date,
         'validity_days'      => $data['validity_days'] ?? 30,
         'delivery_frequency' => $data['delivery_frequency'] ?? 'Weekly',
@@ -85,6 +96,7 @@ try {
         'language'           => $data['language'] ?? 'fr',
         'total_amount'       => $total_amount,
         'sales_rep_name'     => $sales_rep_name,
+        'created_by'         => (int) $_SESSION['user_id'],
         'token'              => $token
     ]);
 

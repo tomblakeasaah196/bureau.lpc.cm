@@ -42,37 +42,25 @@ Reproduced on the copy and fixed by the « Gestion des Achats » video session (
 
 ## 3 · Stock & Emballages, Fiche de Stock
 
-Rows 1 to 5 were reproduced and fixed by the « Stock & Emballages » video session (18/11/2026): see
-docs/TRAINING_VIDEOS.md §7. Left:
-
-6. [V] Nothing links a proposal's « Stock Tampon (Semaines) » to `min_stock_level` (« Seuil Min. »).
-   Not done here: it is a proposal-side setting, for the Proposition commerciale session (§4) to wire or
-   to explain. Meanwhile « Seuil Min. » is set per product in Données de Base (50 on every product).
+Rows 1 to 5 were reproduced and fixed by the « Stock & Emballages » video session (18/11/2026), and row 6
+(« Stock Tampon » feeding « Seuil Min. ») by the « Proposition commerciale » session: see
+docs/TRAINING_VIDEOS.md §7.
 
 ## 4 · Proposition commerciale (Base Clients & Devis, Studio Proposition)
 
-1. [V] **Acceptance creates nothing downstream** (`signature_side_effects.php:471-504`): no client price
-   list, no link to orders (`sales_orders.proposal_id` is never written), no empties commitment (the 80 %
-   policy is never read outside the proposal files), Net 15 never applied. The story needs at least the
-   negotiated prices, the payment terms and the empties target carried to the client on acceptance.
-2. [V] The template's Article 1 says « 1 vide pour 1 plein » whatever policy is chosen
-   (`proposal_template.php:150`).
-3. [V] Quantities are monthly (« Qté (Mensuelle) »): PROMETAL's line is about 1 667 bottles a month.
-4. [V] A proposal is written straight as `sent` (`create_proposal.php:68`); declined (« Je souhaite
-   discuter », status `rejected`) shows as « Envoyé » in the list; the detail says « Signé » and locks
-   after an LPC-only visa while the list says « Envoyé · Visé LPC » (`proposal_detail.php:155-203`).
-5. [V] On a network error `submitProposal` opens a dummy link `token=sec_a8f93j2k`; the quote link is
-   hardcoded to `https://bureau.lpc.cm` (`crm-clients.js:220-235`).
-6. [V] New clients are always saved as « Prospect » (status field hidden, `crm-clients.js:133, 410-423`);
-   « Convertir » then creates a **second** 411 account (`convert_client.php:35-56`).
-7. [V] Client list columns « Dette Financière » and « Dette Emballages » are hardcoded « 0 FCFA » /
-   « 0 Vides » (`crm-clients.js:306,310`); a static demo row « Prometal S.A. 450,000 FCFA / 15 Vides » is
-   in the HTML before the list loads (`clients.php:276-303`).
-8. [V] An invalid AIR rate is swallowed as « Erreur serveur » (`create_client.php:68, 123-130`); « Devis »
-   and « Nouveau Client » show to roles that are then refused.
-9. [V] The shared product picker (quotes, orders, Données de Base tariffs) shows the linked empty's price as
-   « + consigne 200 FCFA » (`lpc-product-picker.js`): LPC sells the bottle with no deposit, and that price is
-   what a recycler pays for the empty (seen filming Données de Base, 18/11/2026).
+All nine rows were reproduced on the copy and fixed by the « Proposition commerciale » video session
+(18/11/2026): see docs/TRAINING_VIDEOS.md §7. Row 3 (quantities are monthly) was a fact, not a bug: the
+signing page now says « Qté / mois ». Decisions taken with defaults are in the owner table (15 to 18).
+Seen and left:
+
+10. [V] Renaming a client (« Modifier ») does not rename its 411 account (the Données de Base session did
+    it for suppliers).
+11. [V] Live keeps active 411 accounts of clients deleted long ago (Societe Generale Bonapriso, DDLP SA,
+    XYZ Ltd twice, JBS Praxis ×3, HOREB SARL, SCDP, CIMENCAM): no client points at them. For the
+    Comptabilité 1 session to review with the Plan Comptable.
+12. [V] The Studio's « Stock Tampon » paragraph on page 2 promises « Capacité de stockage dédiée »: it is
+    now backed by the threshold rise, but nothing reserves stock for a client (by design: a devis
+    reserves nothing).
 
 ## 5 · Ventes & Commandes
 
@@ -256,3 +244,7 @@ Rows 1 to 5 done by the Salaires session (18/11/2026, PR #59): see docs/TRAINING
 | 12 | LPC's vehicles and drivers: the delivery truck's plate, make, insurance and roadworthiness dates; the drivers (e.g. Nelson Tanyu) as employees in Gestion du Personnel (no login needed). Live has no vehicle and no driver yet. | The Flotte video uses an example truck on the copy (LT 742 KL, Toyota Dyna) and Nelson Tanyu, added on copy B with his name and post (Chauffeur) only, as the owner allowed (18/11). **The owner adds the drivers and the real truck on live.** |
 | 13 | **Live payroll of November 2026** was calculated on 03/11 when Daniel Massomba's and JBS Praxis Support's records (the IT partner's account) had no salary: each got 50 000 F typed as a prime on a base of 0. Their records now say 150 000 F and 0. Should November be undone and recalculated on live (« Annuler la Paie », then « Calculer & Valider Paie »)? And were October's and November's salaries already paid outside the app (none is marked paid)? | The video undoes and recalculates November on the copy and pays it by bank. On live nothing is changed: the owner or the CF decides. If October was paid, « Marquer Payées » for October records it (bank, at the real date). |
 | 14 | October and November 2026 were booked before the FNE (1 %) was: the DIPE declares 5 300 F (Oct.) and 6 300 F (Nov.) that 432 never received. | Recalculating November books it. For October, the Comptable passes one OD (Dr 6412 / Cr 432, 5 300 F) if October is kept as is. |
+| 15 | A signed devis's prices become the client's tariff even when they equal the default price. Fine, or only negotiated ones? | Every signed price becomes the tariff: the contract price holds if the default price later changes. A person changes it in Données de Base (Tarifs Clients) or by repricing an order. |
+| 16 | The buffer a signed devis promises raises the product's « Seuil Min. » (1 667 a month × 2 weeks = 770 for PROMETAL). It never lowers it. Keep? | Yes: the stock alert fires before LPC runs short of what it promised. Lower it by hand in Données de Base when a contract ends. |
+| 17 | Should a new client start as Prospect? | Yes: a client is a prospect until it signs a devis (then Actif by itself) or someone presses « Convertir ». |
+| 18 | SMART LOGISTICS and BOULANGERIE SAKER signed devis before this change (Net 30, 1 pour 1). | Migration 137 carries their terms onto them (Net 30, 100 %), not their prices: orders may have moved the prices since. |

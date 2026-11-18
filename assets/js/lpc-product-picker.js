@@ -69,9 +69,9 @@
  *    modal is a 304.
  *
  * 4. EMBALLAGES ARE HIDDEN, NOT ABSENT.
- *    We lend consignes against a deposit; we do not sell them. They are
- *    excluded from the default list, and a footer toggle reveals them for the
- *    rare quote that bills a deposit as an explicit line. They ship in the same
+ *    LPC sells the bottle with no deposit; the empty is what it later resells
+ *    to recyclers. Empties are excluded from the default list, and a footer
+ *    toggle reveals them for the rare line that sells one. They ship in the same
  *    payload so the toggle is instant — see the header of product_catalog.php.
  *
  * 5. IT DEGRADES, IT DOES NOT DIE.
@@ -415,7 +415,7 @@
         this.emptiesCb = cb;
         this.emptiesLabel.appendChild(cb);
         this.emptiesLabel.appendChild(
-            el('span', null, t('ui.picker.show_empties', 'Afficher les emballages (consigne)'))
+            el('span', null, t('ui.picker.show_empties', 'Afficher les emballages'))
         );
         this.emptiesLabel.hidden = true;
         foot.appendChild(this.emptiesLabel);
@@ -705,7 +705,7 @@
         var line1 = el('div', 'lpc-pp__name');
         line1.appendChild(el('span', 'lpc-pp__name-txt', p.name));
         if (p.format) line1.appendChild(el('span', 'lpc-pp__fmt', p.format));
-        if (p.is_empty) line1.appendChild(el('span', 'lpc-pp__tag', t('ui.picker.consigne', 'consigne')));
+        if (p.is_empty) line1.appendChild(el('span', 'lpc-pp__tag', t('ui.picker.empty', 'emballage')));
         main.appendChild(line1);
 
         // The whole second line is optional. A product row carries SKU, stock,
@@ -736,10 +736,9 @@
             line2.appendChild(el('span', 'lpc-pp__pack',
                 '×' + p.units_per_pack + ' / ' + (p.unit_of_measure || 'pack')));
         }
-        if (p.consigne) {
-            line2.appendChild(el('span', 'lpc-pp__consigne',
-                '+ ' + t('ui.picker.consigne', 'consigne') + ' ' + fmtInt(p.consigne.price)));
-        }
+        // No « + consigne »: LPC takes no deposit on the bottle, and the
+        // linked empty's price is what a recycler pays for it, never an
+        // amount added to this line (VIDEO_QA_FINDINGS 4.9).
         if (line2.children.length) main.appendChild(line2);
 
         row.appendChild(main);
@@ -891,10 +890,6 @@
             if (p.price != null) {
                 this.meta.appendChild(el('span', 'lpc-pp__meta-price',
                     fmtInt(p.price) + ' FCFA' + (p.sold_by === 'pack' ? ' / ' + t('ui.picker.pack', 'pack') : '')));
-            }
-            if (p.consigne) {
-                this.meta.appendChild(el('span', 'lpc-pp__meta-consigne',
-                    '+ ' + t('ui.picker.consigne', 'consigne') + ' ' + fmtInt(p.consigne.price) + ' FCFA'));
             }
             if (p.stock_state === 'out') {
                 this.meta.appendChild(el('span', 'lpc-pp__meta-warn',

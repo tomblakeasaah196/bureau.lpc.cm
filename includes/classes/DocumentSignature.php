@@ -660,6 +660,34 @@ final class DocumentSignature
     }
 
     /**
+     * Most recent non-revoked signature of one party (stale or not). The
+     * devis screens use the client's ('external') to say « Signé »: LPC's own
+     * visa ('internal') attests to LPC's figures and is shown as « Visé LPC »,
+     * never as the client's agreement (VIDEO_QA_FINDINGS 4.4).
+     *
+     * @return array<string,mixed>|null
+     */
+    public static function latestByParty(string $type, int $docId, string $party): ?array
+    {
+        if ($docId <= 0 || !in_array($party, self::PARTIES, true)) return null;
+        try {
+            $db = Database::getInstance()->getConnection();
+            $stmt = $db->prepare('
+                SELECT * FROM document_signatures
+                 WHERE document_type = ? AND document_id = ? AND party = ? AND revoked_at IS NULL
+                 ORDER BY id DESC
+                 LIMIT 1
+            ');
+            $stmt->execute([$type, $docId, $party]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $row ?: null;
+        } catch (Throwable $e) {
+            error_log('DocumentSignature::latestByParty: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Look up a signature by its public verify_token. Used exclusively by
      * public/verify.php, which is unauthenticated by design — the token
      * itself (40 random hex chars, never enumerable) is the credential.

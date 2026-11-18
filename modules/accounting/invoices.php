@@ -397,6 +397,7 @@ $user_role = $_SESSION['user_role'];
                         <div>
                             <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.date_d_echeance_due_date')) ?> <span class="text-red-500">*</span></label>
                             <input type="date" id="gen_due_date" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-gray-900 transition-all">
+                            <p id="gen_due_hint" class="text-[11px] text-gray-500 mt-1"></p>
                         </div>
                         <div>
                             <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.taux_de_tva')) ?> <span class="text-red-500">*</span></label>

@@ -3,6 +3,12 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 Rbac::requirePermission('crm.clients.create');
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['status' => 'error', 'message' => 'POST requis.']);
+    exit;
+}
+Csrf::requireValid();
 // api/v1/create_client.php
 header('Content-Type: application/json');
 
@@ -65,7 +71,7 @@ try {
     // Guard: only the four legal AIR rates per LF 2026.
     $legal    = [0.0, 0.022, 0.055, 0.10, 0.15];
     if (!in_array(round($wa_rate, 4), $legal, true)) {
-        throw new Exception("Taux de retenue AIR invalide. Valeurs autorisées : 2.2 %, 5.5 %, 10 %, 15 %.");
+        throw new UserFacingException("Taux de retenue AIR invalide. Valeurs autorisées : 2,2 %, 5,5 %, 10 %, 15 %.");
     }
 
     $stmt = $db->prepare("
@@ -91,7 +97,10 @@ try {
         'tax_id'         => $niu_value,
         'credit_limit'   => (float)($data['credit_limit'] ?? 0),
         'account_id'     => $account_id,
-        'status'         => $data['status'] ?? 'active',
+        // A new client is a prospect until it signs a devis (which makes it
+        // active, includes/functions/proposal_terms.php) or someone presses
+        // « Convertir » (VIDEO_QA_FINDINGS 4.6).
+        'status'         => in_array($data['status'] ?? '', ['prospect', 'active', 'inactive'], true) ? $data['status'] : 'prospect',
         'is_wa'          => $is_wa,
         'wa_rate'        => $wa_rate,
     ]);
@@ -125,6 +134,12 @@ try {
         $db->rollBack(); // Undo everything if it crashed
     }
     http_response_code(200);
+    if ($e instanceof UserFacingException) {
+        // A rule the person can fix (the AIR rate): say it, in their words (4.8).
+        http_response_code(400);
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+        exit;
+    }
     error_log('API error: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     echo json_encode(['status' => 'error', 'message' => 'Erreur serveur. Veuillez réessayer.']);
 }

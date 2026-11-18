@@ -647,6 +647,7 @@ async function openPriceHistory(pk, partyName, productName) {
         supplier_file:  ['bg-emerald-50 text-emerald-700', 'Données de Base'],
         client_file:    ['bg-emerald-50 text-emerald-700', 'Données de Base'],
         import:         ['bg-blue-50 text-blue-600', 'Import'],
+        proposal:       ['bg-lime-50 text-lime-700', 'Devis signé'],
     };
 
     // bodyHtml is injected raw: every database value must be escaped.

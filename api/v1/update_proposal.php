@@ -100,8 +100,11 @@ try {
     if ($hasSigTable) {
         $sig = $db->prepare("
             SELECT COUNT(*) FROM document_signatures
-             WHERE document_type = 'quote' AND document_id = ? AND revoked_at IS NULL
+             WHERE document_type = 'quote' AND document_id = ? AND party = 'external'
+               AND revoked_at IS NULL
         ");
+        // The CLIENT's signature locks the devis. LPC's own visa does not: it
+        // goes stale on the edit and is given again (VIDEO_QA_FINDINGS 4.4).
         $sig->execute([$id]);
         if ((int) $sig->fetchColumn() > 0) {
             $db->rollBack();
@@ -228,7 +231,8 @@ try {
             payment_terms      = :payment_terms,
             empties_policy     = :empties_policy,
             language           = :language,
-            total_amount       = :total_amount
+            total_amount       = :total_amount,
+            status             = IF(status = 'rejected', 'sent', status)
             " . ($hasUpdatedAt ? ', updated_at = NOW()' : '') . "
         WHERE id = :id
     ";

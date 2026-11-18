@@ -333,6 +333,7 @@ if ($method === 'GET') {
                 $stmt = $pdo->prepare("
                     SELECT
                         c.id as client_id, c.name as client_name,
+                        c.empties_return_min_pct,
                         s.id as site_id, s.name as site_name,
                         p.id as product_id, p.name as product_name,
                         cel.total_out, cel.total_in, cel.quantity_owed,
@@ -350,6 +351,7 @@ if ($method === 'GET') {
                 $stmt = $pdo->query("
                     SELECT
                         c.id as client_id, c.name as client_name,
+                        c.empties_return_min_pct,
                         s.id as site_id, s.name as site_name,
                         p.id as product_id, p.name as product_name,
                         cel.total_out, cel.total_in, cel.quantity_owed,

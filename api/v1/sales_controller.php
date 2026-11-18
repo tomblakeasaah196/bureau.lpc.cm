@@ -543,9 +543,14 @@ try {
 
             if ($client_id <= 0 || empty($items)) throw new UserFacingException("Données incomplètes.");
 
-            $stmtCli = $db->prepare("SELECT id FROM clients WHERE id = ? AND deleted_at IS NULL");
+            $stmtCli = $db->prepare("SELECT id, terms_proposal_id FROM clients WHERE id = ? AND deleted_at IS NULL");
             $stmtCli->execute([$client_id]);
-            if (!$stmtCli->fetchColumn()) throw new UserFacingException("Client introuvable.");
+            $cliRow = $stmtCli->fetch(PDO::FETCH_ASSOC);
+            if (!$cliRow) throw new UserFacingException("Client introuvable.");
+            // The signed devis the client's prices and terms come from
+            // (migration 137): the order is made under it
+            // (VIDEO_QA_FINDINGS 4.1: sales_orders.proposal_id was never written).
+            $proposal_id = !empty($cliRow['terms_proposal_id']) ? (int) $cliRow['terms_proposal_id'] : null;
 
             // Normalise and validate the lines before anything is priced, so a
             // bad quantity fails on its own terms rather than as an arithmetic
@@ -737,11 +742,11 @@ try {
 
             $stmtSO = $db->prepare("
                 INSERT INTO sales_orders
-                    (reference, client_id, date, subtotal, discount_amount, discount_note, surcharge_amount, total_amount, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (reference, client_id, proposal_id, date, subtotal, discount_amount, discount_note, surcharge_amount, total_amount, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $stmtSO->execute([
-                $reference, $client_id, $date, $subtotal, $total_discount,
+                $reference, $client_id, $proposal_id, $date, $subtotal, $total_discount,
                 $discount_note !== '' ? $discount_note : null,
                 $line_surcharge_total,
                 $total_amount, $user_id,
@@ -1086,10 +1091,13 @@ try {
 
             $stmt = $db->prepare("
                 SELECT so.*, c.name AS client_name, c.phone AS client_phone, c.address AS client_address,
+                       c.payment_terms_days, c.empties_return_min_pct,
+                       pr.reference AS proposal_reference,
                        CONCAT(u.first_name, ' ', u.last_name) AS created_by_name,
                        CONCAT(uc.first_name, ' ', uc.last_name) AS cancelled_by_name
                   FROM sales_orders so
                   JOIN clients c ON c.id = so.client_id
+                  LEFT JOIN proposals pr ON pr.id = so.proposal_id
                   LEFT JOIN users u  ON u.id  = so.created_by
                   LEFT JOIN users uc ON uc.id = so.cancelled_by
                  WHERE so.id = ?

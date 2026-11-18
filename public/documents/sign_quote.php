@@ -31,6 +31,7 @@
 if (!defined('LPC_FORCE_LIGHT')) { define('LPC_FORCE_LIGHT', true); }
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/functions/document_pdf.php';
+require_once __DIR__ . '/../../includes/functions/proposal_terms.php';
 
 $token = (string) ($_GET['token'] ?? '');
 $error = null;
@@ -43,7 +44,7 @@ if ($token === '') {
     try {
         $db = Database::getInstance()->getConnection();
 
-        $stmt = $db->prepare("SELECT id, reference, status FROM proposals WHERE token = ? LIMIT 1");
+        $stmt = $db->prepare("SELECT id, reference, status, payment_terms, empties_policy, delivery_frequency FROM proposals WHERE token = ? LIMIT 1");
         $stmt->execute([$token]);
         $raw = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -140,7 +141,7 @@ $fdate = static function ($v): string {
                         <thead>
                             <tr class="bg-gray-50 text-gray-500">
                                 <th class="text-left font-bold p-2">Désignation</th>
-                                <th class="text-right font-bold p-2 w-12">Qté</th>
+                                <th class="text-right font-bold p-2 w-16">Qté / mois</th>
                                 <th class="text-right font-bold p-2 w-20">P.U.</th>
                             </tr>
                         </thead>
@@ -185,6 +186,24 @@ $fdate = static function ($v): string {
                     <?php endif; ?>
                 </div>
 
+                <?php
+                // What the client agrees to besides the prices: these become
+                // its terms in the app once signed (proposal_terms.php,
+                // VIDEO_QA_FINDINGS 4.1). Shown here so nobody signs them unseen.
+                $termsDays = lpc_proposal_terms_days($raw['payment_terms'] ?? '');
+                ?>
+                <div class="mt-4 bg-gray-50 p-3 rounded-xl border border-gray-100 text-xs space-y-1.5">
+                    <div class="flex justify-between gap-3">
+                        <span class="text-gray-500 font-bold">Paiement</span>
+                        <span class="font-bold text-gray-900 text-right"><?= htmlspecialchars($termsDays === null ? (string) ($raw['payment_terms'] ?? '') : ($termsDays === 0 ? 'À la livraison' : "À {$termsDays} jours")) ?></span>
+                    </div>
+                    <div class="flex justify-between gap-3">
+                        <span class="text-gray-500 font-bold">Livraison</span>
+                        <span class="font-bold text-gray-900 text-right"><?= htmlspecialchars((string) ($raw['delivery_frequency'] ?? '')) ?></span>
+                    </div>
+                    <p class="text-gray-600 pt-1 border-t border-gray-200"><?= htmlspecialchars(lpc_proposal_empties_clause($raw['empties_policy'] ?? '')) ?></p>
+                </div>
+
                 <a href="/quote.php?token=<?= htmlspecialchars($token, ENT_QUOTES) ?>" target="_blank" rel="noopener"
                    class="mt-3 w-full inline-flex items-center justify-center gap-2 bg-white border border-gray-200 text-gray-600 text-xs font-bold py-2.5 rounded-xl hover:bg-gray-50 transition-colors">
                     <i class="fas fa-file-lines"></i> Lire la proposition complète
@@ -209,7 +228,7 @@ $fdate = static function ($v): string {
                     <canvas id="signature-pad"></canvas>
                 </div>
                 <p class="text-[9px] text-gray-400 mt-2 text-justify font-medium leading-tight">
-                    En signant, j'accepte l'offre commerciale ci-dessus aux conditions qui y figurent, ainsi que les conditions générales de service, le barème des consignes et les annexes qui y sont incorporés. Je consens à ce que mon adresse IP et l'horodatage soient enregistrés pour garantir l'authenticité de cette acceptation.
+                    En signant, j'accepte l'offre commerciale ci-dessus aux conditions qui y figurent, ainsi que les conditions générales de service et les annexes qui y sont incorporées. Je consens à ce que mon adresse IP et l'horodatage soient enregistrés pour garantir l'authenticité de cette acceptation.
                 </p>
             </div>
 
