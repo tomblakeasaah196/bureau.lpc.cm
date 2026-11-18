@@ -73,7 +73,48 @@ $logSize  = 0; foreach ($sources as $s) { $logSize += (int) @filesize($s); }
 
 $entries  = $logExists ? ErrorMonitor::tailAll($bytes) : [];
 $agg      = ErrorMonitor::aggregate($entries);
-$hourly   = ErrorMonitor::hourlyBuckets($entries);
+
+// -----------------------------------------------------------------------------
+// « Marquer corrigé » / « Rouvrir » (migration 129). A POST from the hidden form
+// below, then back to the same view (post/redirect/get). Only groups the screen
+// can see are marked: a key is matched against the aggregated list, never trusted.
+// -----------------------------------------------------------------------------
+$errDb = Database::getInstance()->getConnection();
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && in_array($_POST['do'] ?? '', ['fix', 'reopen'], true)) {
+    $back = (string) ($_POST['back'] ?? '?');
+    if ($back === '' || $back[0] !== '?') $back = '?';
+    Csrf::requireValidOrRedirect($back);
+    $keys = array_values(array_filter((array) ($_POST['k'] ?? []), fn ($k) => is_string($k) && preg_match('/^[a-f0-9]{32}$/', $k)));
+    $uid  = (int) ($_SESSION['user_id'] ?? 0) ?: null;
+    if ($_POST['do'] === 'fix') {
+        $byKey = [];
+        foreach ($agg as $g) { $byKey[ErrorMonitor::fixKey($g['signature'])] = $g; }
+        $n = ErrorMonitor::markFixed($errDb, array_values(array_intersect_key($byKey, array_flip($keys))), $uid);
+        $_SESSION['err_monitor_flash'] = $lang === 'en' ? "{$n} group(s) marked fixed." : "{$n} groupe(s) marqué(s) corrigé(s).";
+    } else {
+        $n = ErrorMonitor::reopen($errDb, $keys);
+        $_SESSION['err_monitor_flash'] = $lang === 'en' ? "{$n} group(s) reopened." : "{$n} groupe(s) rouvert(s).";
+    }
+    header('Location: ' . $back);
+    exit;
+}
+$errFlash = (string) ($_SESSION['err_monitor_flash'] ?? '');
+unset($_SESSION['err_monitor_flash']);
+
+$fixes = ErrorMonitor::fixes($errDb);
+foreach ($agg as &$__g) {
+    $__g['fix_key']   = ErrorMonitor::fixKey($__g['signature']);
+    $__g['fix_state'] = ErrorMonitor::fixState($__g, $fixes);
+    $__g['fixed_at']  = $fixes[$__g['fix_key']] ?? null;
+}
+unset($__g);
+$openGroups  = count(array_filter($agg, fn ($g) => $g['fix_state'] !== 'fixed'));
+$fixedGroups = count($agg) - $openGroups;
+
+// The 24h count and chart are the OPEN errors: a line of a corrected group written
+// before its mark is history, not something happening.
+$openEntries = array_values(array_filter($entries, fn ($e) => ErrorMonitor::entryOpen($e, $fixes)));
+$hourly   = ErrorMonitor::hourlyBuckets($openEntries);
 $total24h = 0; foreach ($hourly as $h) { $total24h += (int) $h['count']; }
 $totalWin = count($entries);
 $undated  = ErrorMonitor::undatedCount($entries);
@@ -97,10 +138,14 @@ const ERR_PER_PAGE = 20;
 
 $fLevel = trim((string) ($_GET['level'] ?? ''));
 $fText  = mb_strtolower(trim((string) ($_GET['q'] ?? '')));
+// Ouvertes (default: what still needs someone) · Corrigées · Toutes.
+$fState = in_array($_GET['state'] ?? '', ['open', 'fixed', 'all'], true) ? $_GET['state'] : 'open';
 
 $filtered = $agg;
-if ($fLevel !== '' || $fText !== '') {
-    $filtered = array_values(array_filter($agg, function ($row) use ($fLevel, $fText) {
+if ($fLevel !== '' || $fText !== '' || $fState !== 'all') {
+    $filtered = array_values(array_filter($agg, function ($row) use ($fLevel, $fText, $fState) {
+        if ($fState === 'open' && $row['fix_state'] === 'fixed') return false;
+        if ($fState === 'fixed' && $row['fix_state'] !== 'fixed') return false;
         if ($fLevel !== '' && $row['level'] !== $fLevel) return false;
         if ($fText !== '') {
             $hay = mb_strtolower(($row['message'] ?? '') . ' ' . ($row['file'] ?? ''));
@@ -135,11 +180,12 @@ if ($page > $totalPages) $page = $totalPages;
 $pageRows    = array_slice($filtered, ($page - 1) * ERR_PER_PAGE, ERR_PER_PAGE);
 
 /** Rebuild the current query string with one key overridden. */
-$qs = function (array $over = []) use ($bytes, $fLevel, $fText, $page, $sort) {
+$qs = function (array $over = []) use ($bytes, $fLevel, $fText, $page, $sort, $fState) {
     $p = array_merge([
         'bytes' => $bytes,
         'level' => $fLevel,
         'q'     => $fText,
+        'state' => $fState,
         'sort'  => $sort,
         'p'     => $page,
     ], $over);
@@ -297,6 +343,15 @@ details > summary::-webkit-details-marker{display:none}
               gap:.75rem;padding:.6rem .9rem;margin-bottom:.75rem;
               background:#F0FDF4;border:1px solid #BBF7D0;border-radius:.5rem}
 .err-multibar.visible{display:flex}
+.err-fix-btn{background:#fff;color:#166534;border:1px solid #86EFAC;border-radius:.375rem;font-size:.75rem;font-weight:600;padding:.25rem .55rem;cursor:pointer}
+.err-fix-btn:hover{background:#F0FDF4;border-color:#22C55E}
+.err-fix-btn.err-reopen{color:#4B5563;border-color:#D1D5DB}
+.err-state{font-size:.65rem;font-weight:700;border-radius:999px;padding:.05rem .5rem;white-space:nowrap}
+.err-state-fixed{background:#DCFCE7;color:#166534}
+.err-state-returned{background:#FEE2E2;color:#991B1B}
+.err-item.err-fixed{opacity:.75}
+.err-all-green{background:#F0FDF4;border:1px solid #86EFAC;color:#166534}
+.err-kpi-green{box-shadow:inset 0 0 0 1px #86EFAC}
 .err-multibar .count{font-size:.8rem;color:#166534;font-weight:600}
 .err-toast{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);
            background:#111827;color:#fff;padding:.6rem 1rem;border-radius:.5rem;
@@ -376,9 +431,10 @@ require __DIR__ . '/../../includes/components/topbar.php';
         <p class="text-gray-500 text-[10px] font-bold uppercase tracking-widest"><?= __t('ui.24h_total') ?></p>
         <p class="text-2xl font-bold text-gray-900 mt-1"><?= number_format($total24h, 0, ',', ' ') ?></p>
     </div>
-    <div class="glass rounded-xl p-4">
-        <p class="text-gray-500 text-[10px] font-bold uppercase tracking-widest"><?= __t('ui.signatures_uniques') ?></p>
-        <p class="text-2xl font-bold text-gray-900 mt-1"><?= count($agg) ?></p>
+    <div class="glass rounded-xl p-4 <?= $openGroups === 0 ? 'err-kpi-green' : '' ?>">
+        <p class="text-gray-500 text-[10px] font-bold uppercase tracking-widest"><?= $lang === 'en' ? 'Open errors' : 'Erreurs ouvertes' ?></p>
+        <p class="text-2xl font-bold mt-1 <?= $openGroups === 0 ? 'text-green-700' : 'text-gray-900' ?>"><?= (int) $openGroups ?></p>
+        <p class="text-[10px] text-gray-500 mt-1"><?= (int) $fixedGroups ?> <?= $lang === 'en' ? 'marked fixed' : 'marquée(s) corrigée(s)' ?> · <?= count($agg) ?> <?= $lang === 'en' ? 'in all' : 'au total' ?></p>
     </div>
     <div class="glass rounded-xl p-4">
         <p class="text-gray-500 text-[10px] font-bold uppercase tracking-widest"><?= __t('ui.error_monitor.in_window') ?></p>
@@ -390,6 +446,22 @@ require __DIR__ . '/../../includes/components/topbar.php';
         <p class="text-[10px] text-gray-500 mt-1"><?= count($sources) ?> <?= __t('ui.error_monitor.sources') ?> · <?= number_format($bytes / 1024, 0, ',', ' ') ?> KB <?= __t('ui.fen_tre_lue') ?></p>
     </div>
 </section>
+
+<?php if ($errFlash !== ''): ?>
+<section class="glass rounded-xl p-3 mb-4 border-l-4 border-green-500" role="status">
+    <p class="text-xs text-green-800 font-semibold"><?= htmlspecialchars($errFlash, ENT_QUOTES, 'UTF-8') ?></p>
+</section>
+<?php endif; ?>
+
+<?php if ($openGroups === 0 && count($agg) > 0): ?>
+<!-- Every group in the journal is marked fixed and none came back: say so plainly. -->
+<section class="rounded-xl p-4 mb-6 err-all-green" role="status">
+    <p class="text-sm font-bold">✓ <?= $lang === 'en' ? 'No open errors.' : 'Aucune erreur ouverte.' ?></p>
+    <p class="text-xs mt-1"><?= $lang === 'en'
+        ? 'Every group in the journal is marked fixed. An error that happens again reappears here as « came back after the fix ».'
+        : 'Tous les groupes du journal sont marqués corrigés. Une erreur qui se reproduit réapparaît ici, « Revenue après correction ».' ?></p>
+</section>
+<?php endif; ?>
 
 <?php if ($undated > 0): ?>
 <!-- Entries with no parseable timestamp can never land in an hourly bucket.
@@ -489,6 +561,12 @@ require __DIR__ . '/../../includes/components/topbar.php';
             </select>
             <button type="submit" class="btn btn-secondary"><?= __t('ui.filtrer') ?></button>
         </form>
+        <div class="flex items-center gap-1" role="group" aria-label="<?= $lang === 'en' ? 'State' : 'État' ?>">
+            <?php foreach (['open' => [$lang === 'en' ? 'Open' : 'Ouvertes', $openGroups], 'fixed' => [$lang === 'en' ? 'Fixed' : 'Corrigées', $fixedGroups], 'all' => [$lang === 'en' ? 'All' : 'Toutes', count($agg)]] as $__st => [$__label, $__n]): ?>
+                <a class="btn <?= $fState === $__st ? 'btn-primary' : 'btn-secondary' ?>" aria-pressed="<?= $fState === $__st ? 'true' : 'false' ?>"
+                   href="<?= htmlspecialchars($qs(['state' => $__st, 'p' => 1]), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($__label, ENT_QUOTES, 'UTF-8') ?> · <?= (int) $__n ?></a>
+            <?php endforeach; ?>
+        </div>
         <div class="flex items-center gap-1">
             <a class="btn <?= $sort === 'recent' ? 'btn-primary' : 'btn-secondary' ?>"
                href="<?= htmlspecialchars($qs(['sort' => 'recent', 'p' => 1]), ENT_QUOTES, 'UTF-8') ?>"><?= __t('ui.error_monitor.sort_recent') ?></a>
@@ -499,7 +577,9 @@ require __DIR__ . '/../../includes/components/topbar.php';
 
     <?php if (empty($pageRows)): ?>
         <p class="text-gray-500 text-sm py-8 text-center italic">
-            <?= __t('ui.error_monitor.no_errors_in_window') ?>
+            <?= $fState === 'open' && count($agg) > 0
+                ? ($lang === 'en' ? 'No open errors: everything in the journal is marked fixed.' : 'Aucune erreur ouverte : tout le journal est marqué corrigé.')
+                : __t('ui.error_monitor.no_errors_in_window') ?>
         </p>
     <?php else: ?>
     <p class="text-[11px] text-gray-500 mb-3">
@@ -521,11 +601,22 @@ require __DIR__ . '/../../includes/components/topbar.php';
             <button type="button" id="err-multi-clear" class="btn btn-secondary">
                 Effacer
             </button>
-            <button type="button" id="err-multi-copy" class="btn btn-primary">
+            <button type="button" id="err-multi-copy" class="btn btn-secondary">
                 📋 Copier la sélection
             </button>
+            <?php if ($fState !== 'fixed'): ?>
+            <button type="button" id="err-multi-fix" class="btn btn-primary">
+                ✓ <?= $lang === 'en' ? 'Mark fixed' : 'Marquer corrigé' ?>
+            </button>
+            <?php endif; ?>
         </div>
     </div>
+
+    <form method="post" id="err-fix-form" hidden>
+        <?= Csrf::field() ?>
+        <input type="hidden" name="do" value="fix">
+        <input type="hidden" name="back" value="<?= htmlspecialchars($qs(), ENT_QUOTES, 'UTF-8') ?>">
+    </form>
 
     <div class="space-y-2" id="err-list">
         <?php foreach ($pageRows as $row):
@@ -534,7 +625,8 @@ require __DIR__ . '/../../includes/components/topbar.php';
             // and unmapped levels used to render as unstyled grey.
             $cls     = 'lvl lvl-' . ErrorMonitor::severity($row['level']);
             $explain = $row['explain'] !== '' ? __t('ui.error_monitor.explain.' . $row['explain']) : ''; ?>
-            <details class="err-item bg-white border border-gray-200 rounded-lg overflow-hidden"
+            <details class="err-item bg-white border border-gray-200 rounded-lg overflow-hidden <?= $row['fix_state'] === 'fixed' ? 'err-fixed' : '' ?>"
+                     data-key="<?= htmlspecialchars($row['fix_key'], ENT_QUOTES, 'UTF-8') ?>"
                      data-level="<?= htmlspecialchars($row['level'], ENT_QUOTES, 'UTF-8') ?>"
                      data-text="<?= htmlspecialchars(mb_strtolower(($row['message'] ?? '') . ' ' . ($row['file'] ?? '')), ENT_QUOTES, 'UTF-8') ?>">
                 <!-- Copy payload stashed as JSON. Kept out of a data-attribute
@@ -556,6 +648,11 @@ require __DIR__ . '/../../includes/components/topbar.php';
                         <div class="flex items-center gap-2 mb-1">
                             <span class="<?= $cls ?>"><?= htmlspecialchars($row['level'], ENT_QUOTES, 'UTF-8') ?></span>
                             <span class="chip"><?= (int) $row['count'] ?>&times;</span>
+                            <?php if ($row['fix_state'] === 'fixed'): ?>
+                                <span class="err-state err-state-fixed">✓ <?= $lang === 'en' ? 'Fixed' : 'Corrigée' ?> <?= htmlspecialchars(date('d-M-Y H:i', (int) $row['fixed_at']), ENT_QUOTES, 'UTF-8') ?></span>
+                            <?php elseif ($row['fix_state'] === 'returned'): ?>
+                                <span class="err-state err-state-returned"><?= $lang === 'en' ? 'Came back after the fix' : 'Revenue après correction' ?></span>
+                            <?php endif; ?>
                             <?php if ($row['file']): ?>
                                 <span class="mono text-gray-500 truncate"><?= htmlspecialchars(basename($row['file']) . ($row['line'] ? ":{$row['line']}" : ''), ENT_QUOTES, 'UTF-8') ?></span>
                             <?php endif; ?>
@@ -581,10 +678,20 @@ require __DIR__ . '/../../includes/components/topbar.php';
                                 onclick="event.preventDefault();">
                             📋 <span class="err-copy-label">Copier</span>
                         </button>
-                        <button type="button" onclick="event.preventDefault();event.stopPropagation();this.closest('.err-item').remove();window.__lpcErrMon&&window.__lpcErrMon.refresh();"
-                                class="text-gray-500 hover:text-red-300 text-xs px-2 py-1 rounded border border-gray-200">
-                            <?= __t('ui.cacher') ?>
-                        </button>
+                        <?php /* « Marquer corrigé » replaces « Cacher », which only removed the row from this
+                                 browser until the next reload. The mark is kept (migration 129) and lifts if the
+                                 error happens again. admin-error_monitor.js posts the hidden form below. */ ?>
+                        <?php if ($row['fix_state'] === 'fixed'): ?>
+                            <button type="button" class="err-fix-btn err-reopen" data-do="reopen"
+                                    title="<?= $lang === 'en' ? 'Put it back among the open errors' : 'La remettre parmi les erreurs ouvertes' ?>">
+                                <?= $lang === 'en' ? 'Reopen' : 'Rouvrir' ?>
+                            </button>
+                        <?php else: ?>
+                            <button type="button" class="err-fix-btn" data-do="fix"
+                                    title="<?= $lang === 'en' ? 'The cause is fixed: take it off the open errors' : 'La cause est corrigée : la retirer des erreurs ouvertes' ?>">
+                                ✓ <?= $lang === 'en' ? 'Mark fixed' : 'Marquer corrigé' ?>
+                            </button>
+                        <?php endif; ?>
                     </div>
                 </summary>
                 <div class="p-3 border-t border-gray-200 bg-gray-50">

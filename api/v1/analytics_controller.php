@@ -835,21 +835,24 @@ if ($action === 'drilldown_budget_execution') {
         JOIN budgets b ON b.id = bl.budget_id
         LEFT JOIN ohada_accounts oa ON bl.ohada_account_id = oa.id
         LEFT JOIN (
-            SELECT ca.code AS acode, SUM(jl.debit - jl.credit) AS actual
+            -- Actuals per OHADA account, through each chart account's own link to it. The join used
+            -- oa.code, a column ohada_accounts does not have (it is account_number): the detail of
+            -- « Exécution budgétaire » in Rapports Consolidés failed with SQLSTATE 42S22.
+            SELECT ca.ohada_account_id AS oid, SUM(jl.debit - jl.credit) AS actual
               FROM journal_lines jl
               JOIN journal_entries je ON jl.journal_entry_id = je.id
               JOIN chart_of_accounts ca ON jl.account_id = ca.id
              WHERE je.status = 'posted'
                AND ca.type = 'expense'
                AND je.date >= :year_start AND je.date <= :year_end
-             GROUP BY ca.code
-        ) act ON act.acode = oa.code
+             GROUP BY ca.ohada_account_id
+        ) act ON act.oid = oa.id
         WHERE b.fiscal_year = :y AND b.status = 'active'
         ORDER BY (COALESCE(act.actual, 0) - bl.annual_amount) DESC
     ";
     $select = "
         COALESCE(oa.name, '—') AS category,
-        oa.code AS account_code,
+        oa.account_number AS account_code,
         bl.annual_amount AS planned,
         COALESCE(act.actual, 0) AS actual,
         (COALESCE(act.actual, 0) - bl.annual_amount) AS variance,
@@ -861,7 +864,7 @@ if ($action === 'drilldown_budget_execution') {
         $pdo, $sql_body,
         ['y' => $y, 'year_start' => $y . '-01-01', 'year_end' => $y . '-12-31'],
         $select,
-        ['oa.name', 'oa.code'],
+        ['oa.name', 'oa.account_number'],
         ['Catégorie', 'Compte', 'Planifié FCFA', 'Réalisé FCFA', 'Écart FCFA', 'Exécution %'],
         ['category', 'account_code', 'planned', 'actual', 'variance', 'execution_pct'],
         'budget-execution'

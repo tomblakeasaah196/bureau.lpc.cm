@@ -493,6 +493,88 @@ class ErrorMonitor
         return $da->getTimestamp() < $db->getTimestamp();
     }
 
+    // -------------------------------------------------------------------------
+    // « Marquer corrigé » (migration 129, error_fixes).
+    //
+    // The log files keep every line they ever got, so a fixed error stayed on
+    // the screen as if it still happened. A group marked corrected leaves the
+    // open count while nothing new arrives; seen again after the mark, it is
+    // « Revenue après correction » and open again.
+    // -------------------------------------------------------------------------
+
+    /** The key a group is marked under: its signature's hash. */
+    public static function fixKey(string $signature): string
+    {
+        return md5($signature);
+    }
+
+    /** The key of the group one log entry belongs to. */
+    public static function entryKey(array $entry): string
+    {
+        return self::fixKey(self::signature($entry));
+    }
+
+    /** Every mark: key => fixed_at (UTC unix time). Empty when the table is not there yet. */
+    public static function fixes(PDO $db): array
+    {
+        try {
+            $out = [];
+            foreach ($db->query('SELECT signature_hash, fixed_at FROM error_fixes')->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $out[$r['signature_hash']] = (int) strtotime($r['fixed_at'] . ' UTC');
+            }
+            return $out;
+        } catch (Throwable $e) {
+            return [];   // migration 129 not applied yet: everything is open, as before
+        }
+    }
+
+    /** 'open' | 'fixed' | 'returned' for an aggregated group, given fixes(). */
+    public static function fixState(array $group, array $fixes): string
+    {
+        $key = self::fixKey((string) $group['signature']);
+        if (!isset($fixes[$key])) return 'open';
+        $last = self::parseTs((string) ($group['last_seen'] ?? ''));
+        return ($last && $last->getTimestamp() > $fixes[$key]) ? 'returned' : 'fixed';
+    }
+
+    /** Whether one log entry still counts as open (its group unmarked, or the entry after the mark). */
+    public static function entryOpen(array $entry, array $fixes): bool
+    {
+        $key = self::entryKey($entry);
+        if (!isset($fixes[$key])) return true;
+        $ts = self::parseTs((string) ($entry['ts'] ?? ''));
+        return $ts && $ts->getTimestamp() > $fixes[$key];
+    }
+
+    /**
+     * Mark groups corrected, now (UTC). $groups are aggregate() rows; marking a group again
+     * moves its mark to now (a group that came back and was fixed again).
+     */
+    public static function markFixed(PDO $db, array $groups, ?int $userId): int
+    {
+        $st = $db->prepare('INSERT INTO error_fixes (signature_hash, message, location, fixed_at, fixed_by)
+                            VALUES (?, ?, ?, UTC_TIMESTAMP(), ?)
+                            ON DUPLICATE KEY UPDATE message = VALUES(message), location = VALUES(location),
+                                                    fixed_at = UTC_TIMESTAMP(), fixed_by = VALUES(fixed_by)');
+        $n = 0;
+        foreach ($groups as $g) {
+            $loc = !empty($g['file']) ? basename((string) $g['file']) . (!empty($g['line']) ? ':' . $g['line'] : '') : null;
+            $st->execute([self::fixKey((string) $g['signature']), mb_substr(explode("\n", (string) $g['message'])[0] ?? '', 0, 500), $loc, $userId]);
+            $n++;
+        }
+        return $n;
+    }
+
+    /** Take marks off (« Rouvrir »). */
+    public static function reopen(PDO $db, array $keys): int
+    {
+        $keys = array_values(array_filter($keys, fn ($k) => is_string($k) && preg_match('/^[a-f0-9]{32}$/', $k)));
+        if (!$keys) return 0;
+        $st = $db->prepare('DELETE FROM error_fixes WHERE signature_hash IN (' . implode(',', array_fill(0, count($keys), '?')) . ')');
+        $st->execute($keys);
+        return $st->rowCount();
+    }
+
     /** Parse the DD-Mon-YYYY HH:MM:SS format PHP writes to error_log. */
     public static function parseTs(string $raw): ?DateTimeImmutable
     {

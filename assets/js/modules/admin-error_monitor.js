@@ -217,6 +217,53 @@
         });
     }
 
+    // -------------------------------------------------------------------------
+    // « Marquer corrigé » / « Rouvrir » (migration 129). The page holds one hidden
+    // POST form (CSRF field, back link); a button fills in the group keys and
+    // sends it. The server re-checks each key against the groups it can see.
+    // -------------------------------------------------------------------------
+    var fixForm = document.getElementById('err-fix-form');
+    function sendFix(action, keys) {
+        if (!fixForm || !keys.length) return;
+        fixForm.querySelector('input[name="do"]').value = action;
+        fixForm.querySelectorAll('input[name="k[]"]').forEach(function (el) { el.remove(); });
+        keys.forEach(function (k) {
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'k[]';
+            input.value = k;
+            fixForm.appendChild(input);
+        });
+        fixForm.submit();
+    }
+
+    list.addEventListener('click', function (e) {
+        var btn = e.target.closest('.err-fix-btn');
+        if (!btn) return;
+        // Inside <summary>: without this the click would also open or close the group.
+        e.preventDefault();
+        e.stopPropagation();
+        var item = btn.closest('.err-item');
+        if (item && item.dataset.key) {
+            btn.disabled = true;
+            sendFix(btn.dataset.do === 'reopen' ? 'reopen' : 'fix', [item.dataset.key]);
+        }
+    });
+
+    var multiFix = document.getElementById('err-multi-fix');
+    if (multiFix) {
+        multiFix.addEventListener('click', function () {
+            var keys = [];
+            list.querySelectorAll('.err-check:checked').forEach(function (cb) {
+                var item = cb.closest('.err-item');
+                if (item && item.dataset.key) keys.push(item.dataset.key);
+            });
+            if (!keys.length) return;
+            multiFix.disabled = true;
+            sendFix('fix', keys);
+        });
+    }
+
     // Initial state — usually zero, but a browser back/forward can restore
     // ticked checkboxes and we want the toolbar to match reality on load.
     refresh();
