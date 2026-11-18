@@ -1525,13 +1525,15 @@ final class JournalPoster
 
         $total = 0.0;
         foreach ($rows as $r) {
-            if ($r['status'] !== 'paid') {
-                // Only 'paid' payslips (accrued via generate_month) can be
-                // settled. A 'draft' or 'validated' one hasn't had its
-                // accrual JE posted yet — settling would credit a 422 that
-                // has no matching debit.
+            if ($r['status'] !== 'validated') {
+                // Only a 'validated' payslip (accrued by generate_month, not yet
+                // paid) can be settled. A 'draft' one (never calculated, or
+                // cancelled) has no accrual: settling it would debit a 422 that
+                // was never credited. A 'paid' one is paid already.
+                // Before 18/11/2026 the accrual itself set 'paid', so a payslip
+                // read « Payé » the day it was calculated (VIDEO_QA_FINDINGS 10.1).
                 throw new RuntimeException(
-                    "JournalPoster::postPayrollSettlement — payslip #{$r['id']} is not in 'paid' (accrued) status."
+                    "JournalPoster::postPayrollSettlement — payslip #{$r['id']} is not validated and unpaid."
                 );
             }
             if (!empty($r['payment_je_id'])) {
@@ -1580,13 +1582,76 @@ final class JournalPoster
         //    passes a very long list.
         $update = $db->prepare("
             UPDATE hr_payslips
-               SET payment_je_id       = ?,
+               SET status              = 'paid',
+                   payment_je_id       = ?,
                    treasury_account_id = ?,
-                   paid_at             = NOW()
+                   paid_at             = ?
              WHERE id IN ({$placeholders})
         ");
-        $update->execute(array_merge([$je_id, $treasury_account_id], $ids));
+        $update->execute(array_merge([$je_id, $treasury_account_id, $payment_date . ' ' . date('H:i:s')], $ids));
 
+        return $je_id;
+    }
+
+    /**
+     * Book one payslip's accrual (the month's salary cost and what is owed for it).
+     *
+     *   Debit  661   Rémunérations directes           gross (base + indemnités + primes − absences)
+     *   Debit  664   Charges sociales patronales      CNPS part patronale
+     *   Debit  6412  Charges fiscales sur salaires    CFC part patronale + FNE (1 %)
+     *   Credit 433   CNPS                             CNPS salarié + patronal
+     *   Credit 432   État, impôts sur salaires        IRPP, CAC, CFC (both parts), CRTV, TDL, FNE: the DIPE
+     *   Credit 421   Personnel, avances               advances and debts deducted
+     *   Credit 422   Personnel, rémunérations dues    net to pay
+     *
+     * Moved here from payroll_controller::generate_month (18/11/2026, VIDEO_QA_FINDINGS
+     * 10.1 and 10.4). The entry now carries its source (source_type 'payslip', the
+     * payslip id), so « Annuler la paie » reverses exactly it with reverseSource();
+     * the FNE, which the DIPE always declared, is now accrued; and the CFC part
+     * patronale moves from 664 (social charges) to 6412, the chart's own account for
+     * « CFC part patronale, FNE ». 432 therefore holds the whole DIPE of the month.
+     * When 6412 is not mapped the two employer taxes fall back on 664, as before.
+     *
+     * @param int    $payslip_id hr_payslips.id
+     * @param array  $r          Payroll::compute() result
+     * @param string $date       YYYY-MM-01 of the period
+     * @param string $desc       e.g. « Paie 11/2026 · Bertin CHADEU »
+     * @return int               journal_entries.id
+     */
+    public static function postPayslipAccrual(int $payslip_id, array $r, string $date, string $desc): int
+    {
+        $db      = Database::getInstance()->getConnection();
+        $user_id = (int) ($_SESSION['user_id'] ?? 0);
+
+        $acc = [];
+        foreach (['661', '664', '6412', '433', '432', '421', '422'] as $n) $acc[$n] = self::coaByOhada($db, $n);
+        foreach (['661', '664', '433', '432', '422'] as $n) {
+            if (!$acc[$n]) throw new RuntimeException("Compte OHADA {$n} non mappé : configurez le plan comptable.");
+        }
+        $taxAcc = $acc['6412'] ?: $acc['664'];
+
+        $gross       = self::roundFcfa((float) $r['gross_salary']);
+        $cnps_er     = self::roundFcfa((float) $r['cnps_employer']);
+        $taxes_er    = self::roundFcfa((float) ($r['cfc_employer'] ?? 0) + (float) ($r['fne_employer'] ?? 0));
+        $cnps_total  = self::roundFcfa((float) $r['cnps_employee'] + $cnps_er);
+        $dipe        = self::roundFcfa((float) $r['irpp'] + (float) $r['cac'] + (float) $r['cfc_employee']
+                                     + (float) $r['crtv'] + (float) $r['tdl'] + $taxes_er);
+        $withheld    = self::roundFcfa((float) $r['advances_deducted'] + (float) $r['driver_debt_deducted']
+                                     + (float) ($r['other_deductions'] ?? 0));
+        $net         = self::roundFcfa((float) $r['net']);
+        if ($withheld > 0 && !$acc['421']) throw new RuntimeException("Compte OHADA 421 non mappé : configurez le plan comptable.");
+
+        [$y, $m] = array_map('intval', explode('-', $date));
+        $je_id = self::createDraftJe($db, sprintf('PAIE-%04d-%02d-%d', $y, $m, $payslip_id), 'OD', $date, $desc, $user_id,
+                                     'payslip', $payslip_id);
+        self::addLine($db, $je_id, $acc['661'], $gross, 0.0);
+        self::addLine($db, $je_id, $acc['664'], $cnps_er, 0.0);
+        self::addLine($db, $je_id, $taxAcc, $taxes_er, 0.0);
+        self::addLine($db, $je_id, $acc['433'], 0.0, $cnps_total);
+        self::addLine($db, $je_id, $acc['432'], 0.0, $dipe);
+        if ($withheld > 0) self::addLine($db, $je_id, $acc['421'], 0.0, $withheld);
+        self::addLine($db, $je_id, $acc['422'], 0.0, $net);
+        self::post($db, $je_id, $user_id);
         return $je_id;
     }
 

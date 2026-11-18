@@ -116,7 +116,7 @@ $cases = [
     'bertin' => payslip(
         ['base_salary' => 100000, 'gross_salary' => 110000, 'taxable_base' => 32099,
          'cnps_employee' => 4620, 'cnps_employer' => 17820, 'irpp' => 3210, 'cac' => 321, 'cfc' => 1100,
-         'crtv' => 1950, 'tdl' => 3000, 'net_pay' => 95799],
+         'crtv' => 1950, 'tdl' => 3000, 'net_pay' => 95799, 'paid_at' => '2026-11-30 10:00:00'],
         [],
         ['housing_allowance' => 0, 'transport_allowance' => 10000, 'allowances_total' => 10000, 'cfc_employer' => 1650]
     ),
@@ -166,8 +166,18 @@ echo "\n─── content ───\n";
 [, $bpdf, $b] = render($cases['bertin']);
 $bt = preg_replace('/\s+/u', ' ', pdf_text($bpdf));
 check('Bertin: period in words', str_contains($b, 'Novembre 2026') && str_contains($b, 'du 01/11/2026 au 30/11/2026'));
-check('Bertin: French labels (Marié(e), Virement bancaire, Payé)', str_contains($b, 'Marié(e)') && str_contains($b, 'Virement bancaire') && str_contains($b, '>Payé<'));
-check('Bertin: transport allowance named, housing at 0 not printed', str_contains($b, 'Indemnité de transport') && !str_contains($b, 'Indemnité de logement'));
+check('Bertin: French labels (Virement bancaire, Payé le …)', str_contains($b, 'Virement bancaire') && str_contains($b, '>Payé le 30/11/2026<'));
+// 18/11/2026 (VIDEO_QA_FINDINGS 10.1, the Salaires video): no family line (Cameroon's IRPP has no family
+// quotient, so it changes nothing), and « Payé » only once the payment is recorded.
+check('no marital status or dependents on the payslip', !str_contains($b, 'Marié(e)') && !str_contains($b, 'à charge') && !str_contains($b, '>Situation<'));
+[, , $wv] = render($cases['worst']);
+check('a calculated, unpaid payslip reads « À payer »', str_contains($wv, '>À payer<') && !str_contains($wv, '>Payé'));
+$fne = payslip(['base_salary' => 150000, 'gross_salary' => 150000, 'cnps_employee' => 6300, 'cnps_employer' => 24300,
+                'irpp' => 5892, 'cac' => 589, 'cfc' => 1500, 'crtv' => 1950, 'tdl' => 3000, 'net_pay' => 130769, 'status' => 'validated'],
+               [], ['cfc_employer' => 2250, 'fne_employer' => 1500]);
+[, , $fh] = render($fne);
+check('FNE (1 %) listed with the employer charges and in their total (24 300 + 2 250 + 1 500 = 28 050)',
+      str_contains($fh, 'Emploi (1 %)') && (bool) preg_match('/28\D{1,12}050/u', $fh));check('Bertin: transport allowance named, housing at 0 not printed', str_contains($b, 'Indemnité de transport') && !str_contains($b, 'Indemnité de logement'));
 check('Bertin: primes at 0 not printed; acomptes and dettes at 0 not printed', !str_contains($b, '>Primes<') && !str_contains($b, 'Acomptes') && !str_contains($b, 'Dettes chauffeur'));
 check('Bertin: statutory lines always printed', str_contains($b, 'IRPP') && str_contains($b, 'CRTV') && str_contains($b, 'TDL'));
 check('Bertin: total retenues = brut − net (110 000 − 95 799 = 14 201)', str_contains($bt, '− 14 201'));

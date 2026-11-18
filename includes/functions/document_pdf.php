@@ -1935,16 +1935,22 @@ function lpc_render_payslip_pdf_html(array $doc, array $lh, string $lhLogo, stri
     // ---- employer charges (information) -----------------------------------------
     $cnpsEr = (float) ($r['cnps_employer'] ?? 0);
     $cfcEr  = (float) ($bd['cfc_employer'] ?? 0);
+    // FNE (1 %), booked by the payroll since 18/11/2026; earlier payslips carry none.
+    $fneEr  = (float) ($bd['fne_employer'] ?? ($r['fne_employer'] ?? 0));
     $charges = [['CNPS — part patronale (16,2 %)', $cnpsEr]];
     if ($cfcEr > 0) $charges[] = ['CFC — part patronale (1,5 %)', $cfcEr];
-    $totalCharges = $cnpsEr + $cfcEr;
+    if ($fneEr > 0) $charges[] = ["FNE — Fonds National de l'Emploi (1 %)", $fneEr];
+    $totalCharges = $cnpsEr + $cfcEr + $fneEr;
 
     // ---- labels --------------------------------------------------------------------
-    $marital = ['single' => 'Célibataire', 'married' => 'Marié(e)', 'divorced' => 'Divorcé(e)', 'widowed' => 'Veuf / veuve'];
     $method  = ['bank' => 'Virement bancaire', 'caisse' => 'Espèces (caisse)'];
-    $status  = ['paid' => 'Payé', 'validated' => 'Validé', 'draft' => 'Brouillon'];
-    $dep     = (int) ($emp['dependents'] ?? 0);
-    $situation = ($marital[$emp['marital'] ?? ''] ?? '') . ' · ' . $dep . ' pers. à charge';
+    // « Payé » only once « Marquer Payées » recorded the payment, with its date; a
+    // calculated payslip is « À payer » (VIDEO_QA_FINDINGS 10.1: before 18/11/2026
+    // it read « Payé » the day it was calculated).
+    $paidOn  = !empty($r['paid_at']) ? date('d/m/Y', strtotime((string) $r['paid_at'])) : '';
+    $status  = ['paid' => $paidOn !== '' ? "Payé le {$paidOn}" : 'Payé', 'validated' => 'À payer', 'draft' => 'Annulé'];
+    // Marital status and dependents are not printed: Cameroon's IRPP has no family
+    // quotient, so they change nothing on the payslip (they stay on the HR record).
     $employerCnps = trim((string) (CompanyProfile::get()['cnps_employer_number'] ?? ''));
 
     // Employee details two to a row (label, value, label, value); Poste gets a row of its own as it is the
@@ -1955,7 +1961,7 @@ function lpc_render_payslip_pdf_html(array $doc, array $lh, string $lhLogo, stri
         [
             ['Matricule' => (string) ($emp['code'] ?? ''), 'Embauche' => $hire],
             ['Poste' => (string) ($emp['job_title'] ?? '')],
-            ['N° CNPS' => trim((string) ($emp['cnps'] ?? '')), 'Situation' => ltrim($situation, ' ·')],
+            ['N° CNPS' => trim((string) ($emp['cnps'] ?? ''))],
         ]
     )));
     $payRows = array_filter([

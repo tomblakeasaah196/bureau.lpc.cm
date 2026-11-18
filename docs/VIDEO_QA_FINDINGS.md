@@ -166,17 +166,15 @@ Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026):
 6. [V] « Retour de Tournée »: wrong join for the expected cash, fake 350 000 F « simulation » data on
    error, validating does not mark invoices paid (`:48-101, 289`). A driver screen: likely goes with the
    driver removal.
+7. [V] Any payment may take a treasury account below zero: on the copy, paying an advance from « Caisse
+   Principale » (0 F) left it at −30 000, and « Marquer Payées » for a month from « CCA Bank » (0 F) at
+   −460 944. No screen warns. Partly the missing opening balances (9.2); decide whether a payment beyond
+   the balance is refused or only warned (found by the Salaires session, 18/11/2026).
 
 ## 10 · Gestion du Personnel (salaires)
 
-1. [V] Payroll cannot be undone: no reversal, entries carry no source link; the payslip says `paid` when
-   it is only booked.
-2. [V] Approving an advance does not check it is still pending; advances approved but not yet paid out
-   are still deducted from salary (`payroll_controller.php:888`).
-3. [V] The Comptable lacks `hr.payroll.approve_advance` on live (DG and CF only).
-4. [V] FNE (1 %) is not computed in payroll, but the DIPE in Déclarations Fiscales adds it [I].
-5. [V] Salaries are edited in Données de Base → Employés & RH, not here (`payroll_controller.php:616-620`):
-   the video must say so.
+All five rows done by the Salaires session (18/11/2026, PR of `claude/video-10-salaires`): see
+docs/TRAINING_VIDEOS.md §7.
 
 ## 11 · Comptabilité 1 (Plan Comptable, Bilan d'Ouverture, Écritures, Grand Livre)
 
@@ -204,7 +202,9 @@ Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026):
    (the real column is `coa_account_id`); the error is swallowed (`:227-233`) and the declaration turns
    « paid » with no entry, no treasury movement, no balance change.
 2. [V] Even fixed they would hit the wrong accounts: TVA paid from 4432 while sales TVA is in 4431; DIPE
-   to 447 and CNPS to 431 while payroll books 432 and 433 (`:210-219` vs `payroll_controller.php:868-869`).
+   to 447 and CNPS to 431 while payroll books 432 and 433 (`:210-219` vs `JournalPoster::postPayslipAccrual`).
+   Since 18/11/2026 (Salaires) 432's monthly credit equals the DIPE to the franc, FNE included (copy, Nov.
+   2026: 76 727 both), and 433's equals the CNPS declaration: paying the DIPE should debit 432 and the CNPS 433.
 3. [V] TVA overstated: the deductible part reads `supplier_invoices` (missing on live: always 0); the
    carry-over column is missing; TSR always 0.
 4. [V] Déclarations Fiscales is gated only on `accounting.invoices.view` (the `sales` role can approve and
@@ -244,3 +244,5 @@ Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026):
 | 10 | Should a purchase order be approved (DG or CF) before it goes to the supplier? | Decided 18/11: no approval before an order goes to the supplier. |
 | 11 | A supplier delivers only part of an order and will not deliver the rest: how should the remainder be closed? | Decided 18/11: the supplier brings the rest later; the order stays open until fully received. |
 | 12 | LPC's vehicles: the delivery truck's plate, make, insurance and roadworthiness dates, and who drives it (an employee in Gestion du Personnel; no login needed)? Live has no vehicle yet. | The Flotte video uses an example truck on the copy (LT 742 KL, Toyota Dyna) driven by the Responsable des Opérations. Enter the real one in Flotte & Maintenance. |
+| 13 | **Live payroll of November 2026** was calculated on 03/11 with Daniel Massomba at 50 000 F and JBS Praxis Support (the IT partner's account) at 50 000 F; their records now say 150 000 F and 0. Should November be undone and recalculated on live (« Annuler la Paie », then « Calculer & Valider Paie »)? And were October's and November's salaries already paid outside the app (none is marked paid)? | The video undoes and recalculates November on the copy and pays it by bank. On live nothing is changed: the owner or the CF decides. If October was paid, « Marquer Payées » for October records it (bank, at the real date). |
+| 14 | October and November 2026 were booked before the FNE (1 %) was: the DIPE declares 5 300 F (Oct.) and 6 300 F (Nov.) that 432 never received. | Recalculating November books it. For October, the Comptable passes one OD (Dr 6412 / Cr 432, 5 300 F) if October is kept as is. |

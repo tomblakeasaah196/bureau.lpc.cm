@@ -39,6 +39,10 @@ final class Payroll
         'cnps_ceiling'        => 750000.0,
         'cfc_employee_rate'   => 0.010,
         'cfc_employer_rate'   => 0.015,
+        // FNE (Fonds National de l'Emploi): 1 % of gross, employer only, paid to the
+        // tax office with the DIPE. Booked from 18/11/2026 (VIDEO_QA_FINDINGS 10.4):
+        // the DIPE always declared it, the payroll entry never accrued it.
+        'fne_rate'            => 0.010,
         'cac_rate'            => 0.100,
         'frais_pro_rate'      => 0.300,
         'abattement_annuel'   => 500000.0,
@@ -139,6 +143,11 @@ final class Payroll
         $cfc_employee = self::roundFcfa($gross * (float) $rates['cfc_employee_rate']);
         $cfc_employer = self::roundFcfa($gross * (float) $rates['cfc_employer_rate']);
 
+        // -- 5b. FNE (Fonds National de l'Emploi): 1 % du brut, part patronale --
+        // Like the CFC part patronale, an employer tax on salaries declared on the
+        // DIPE: never taken from the net.
+        $fne_employer = self::roundFcfa($gross * (float) ($rates['fne_rate'] ?? 0.0));
+
         // -- 6. CRTV (Redevance Audio-Visuelle) — barème brut -----------------
         $crtv = self::roundFcfa(self::lookupBracket($gross, $crtv_brackets));
 
@@ -171,10 +180,11 @@ final class Payroll
             ['label' => 'Salaire de base',          'account' => '661', 'debit' => self::roundFcfa($base + $bonuses - $absence_amount), 'credit' => 0.0],
             ['label' => 'Indemnités (logement/transport)', 'account' => '662', 'debit' => self::roundFcfa($housing + $transport), 'credit' => 0.0],
             ['label' => 'Charges patronales CNPS',  'account' => '664', 'debit' => $cnps_employer, 'credit' => 0.0],
-            ['label' => 'Charges patronales CFC',   'account' => '664', 'debit' => $cfc_employer, 'credit' => 0.0],
+            ['label' => 'CFC part patronale',       'account' => '6412', 'debit' => $cfc_employer, 'credit' => 0.0],
+            ['label' => 'FNE part patronale',       'account' => '6412', 'debit' => $fne_employer, 'credit' => 0.0],
 
             ['label' => 'CNPS à payer (salarié+patronal)', 'account' => '433', 'debit' => 0.0, 'credit' => $cnps_employee + $cnps_employer],
-            ['label' => 'IRPP + CAC + CFC + CRTV + TDL',   'account' => '432', 'debit' => 0.0, 'credit' => $irpp + $cac + $cfc_employee + $crtv + $tdl + $cfc_employer],
+            ['label' => 'DIPE: IRPP, CAC, CFC, CRTV, TDL, FNE', 'account' => '432', 'debit' => 0.0, 'credit' => $irpp + $cac + $cfc_employee + $crtv + $tdl + $cfc_employer + $fne_employer],
             ['label' => 'Avances / dettes déduites',       'account' => '421', 'debit' => 0.0, 'credit' => $advances_deducted + $driver_debt_deducted + $other_deductions],
             ['label' => 'Net à payer',                     'account' => '422', 'debit' => 0.0, 'credit' => $net_salary],
         ];
@@ -200,6 +210,7 @@ final class Payroll
             'cac'                   => $cac,
             'cfc_employee'          => $cfc_employee,
             'cfc_employer'          => $cfc_employer,
+            'fne_employer'          => $fne_employer,
             'crtv'                  => $crtv,
             'tdl'                   => $tdl,
             'advances_deducted'     => $advances_deducted,
