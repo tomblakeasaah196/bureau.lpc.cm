@@ -36,7 +36,7 @@
                 tbl_desc: "Désignation", tbl_qty: "Qté", tbl_up: "P.U. (FCFA)", tbl_total: "Montant (FCFA)",
                 tot_sub: "Total Hors Taxe (HT)", tot_excise: "Droit d'accises", tot_grand: "NET À PAYER (TTC)",
                 tot_precompte: "Précompte sur achats", tot_air: "AIR — Acompte d'Impôt sur le Revenu",
-                tot_net_transfer: "Net à virer au fournisseur",
+                tot_net_transfer: "Net à virer après retenue",
                 tot_lines: "Total des lignes", tot_discount: "Remise sur commande", tot_paid: "Déjà Réglé", tot_credited: "Avoirs", tot_balance: "Reste à Payer",
                 legal_text: "Arrêtée la présente facture à la somme de :"
             }
