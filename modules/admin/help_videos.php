@@ -174,7 +174,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                         <th class="px-4 py-3 font-extrabold"><?= $en ? 'Video' : 'Vidéo' ?></th>
                         <th class="px-4 py-3 font-extrabold"><?= $en ? 'Series' : 'Série' ?></th>
                         <th class="px-4 py-3 font-extrabold"><?= $en ? 'Content' : 'Contenu' ?></th>
-                        <th class="px-4 py-3 font-extrabold"><?= $en ? 'Visible to' : 'Visible par' ?></th>
+                        <th class="px-4 py-3 font-extrabold"><?= $en ? 'Seen by who opens' : 'Vue par qui ouvre' ?></th>
                         <th class="px-4 py-3 font-extrabold text-right"><?= $en ? 'Size' : 'Taille' ?></th>
                         <th class="px-4 py-3 font-extrabold text-right"><?= $en ? 'Views' : 'Vues' ?></th>
                         <th class="px-4 py-3 font-extrabold"><?= $en ? 'State' : 'État' ?></th>
@@ -187,7 +187,9 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                     $gated = array_filter($gates);
                 ?>
                     <tr class="border-t border-lpc-border hover:bg-gray-50/60 align-top" data-id="<?= (int) $v['id'] ?>">
-                        <td class="px-4 py-3">
+                        <?php /* The cell is as wide as its poster and title: a long title (« Proposition
+                                 commerciale ») ran into the « Série » column (found filming the admin videos). */ ?>
+                        <td class="px-4 py-3" style="min-width: 22rem">
                             <div class="flex gap-3">
                                 <?php if ($v['poster_url'] !== ''): ?>
                                     <img class="lpc-vadm-thumb" src="<?= htmlspecialchars($v['poster_url']) ?>" alt="" loading="lazy">
@@ -197,7 +199,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                                 <div style="min-width: 12rem">
                                     <span class="font-bold text-gray-900"><?= htmlspecialchars($v['title']) ?></span>
                                     <span class="block text-[11px] text-gray-400 font-mono"><?= htmlspecialchars($v['slug']) ?></span>
-                                    <span class="block text-[11px] text-gray-400"><?= $en ? 'Updated' : 'Mise à jour' ?> <?= htmlspecialchars(substr($v['updated_at'], 0, 16)) ?></span>
+                                    <span class="block text-[11px] text-gray-400"><?= $en ? 'Updated' : 'Mise à jour le' ?> <?= htmlspecialchars(date($en ? 'Y-m-d H:i' : 'd/m/Y H:i', strtotime((string) $v['updated_at']) ?: time())) ?></span>
                                 </div>
                             </div>
                         </td>
@@ -216,9 +218,9 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                             <?php else: ?>
                                 <?php foreach ($gated as $path => $perms):
                                     $label = $en ? ($pages[$path]['label_en'] ?? $path) : ($pages[$path]['label_fr'] ?? $path); ?>
-                                    <span class="block text-xs text-gray-700"><?= htmlspecialchars($label) ?>
-                                        <?php foreach ($perms as $p): ?><span class="lpc-help-badge lpc-help-badge--perm ml-1"><?= htmlspecialchars($p) ?></span><?php endforeach; ?>
-                                    </span>
+                                    <?php /* Whoever may open this page; the permission code moved to the tooltip: the
+                                             badges made the list wider than the page (« Supprimer » cut off). */ ?>
+                                    <span class="block text-xs text-gray-700" title="<?= htmlspecialchars(implode(', ', $perms)) ?>">« <?= htmlspecialchars($label) ?> »</span>
                                 <?php endforeach; ?>
                                 <?php if (!$gated): ?>
                                     <span class="lpc-vadm-warn"><?= $en

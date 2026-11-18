@@ -168,7 +168,10 @@
             const m = /^([a-z_.]+)=(.*)$/.exec(text);
             if (m) {
                 const key = m[1] === 'role.name' ? 'role_name' : m[1];
-                return [{ field: key === 'role_name' ? 'Nom du rôle' : auditField(key), before: '', after: m[2] === 'NULL' ? 'aucune' : m[2] }];
+                const LANDINGS = { 'dashboard.md.view': 'Direction Générale', 'dashboard.finance.view': 'Finance',
+                    'dashboard.ops.view': 'Opérations', 'dashboard.sales.view': 'Ventes', 'dashboard.driver.view': 'Chauffeur' };
+                const val = m[2] === 'NULL' ? 'aucune' : (LANDINGS[m[2]] || m[2]);
+                return [{ field: key === 'role_name' ? 'Nom du rôle' : auditField(key), before: '', after: val }];
             }
             return [{ text: text }];
         }
@@ -184,7 +187,7 @@
                 ? `<tr><td class="py-2 pr-4 font-bold text-gray-800 align-top">${esc(c.field)}</td><td class="py-2 pr-4 text-gray-500 align-top">${esc(c.before || '')}</td><td class="py-2 text-gray-900 align-top">${esc(c.after)}</td></tr>`
                 : `<tr><td colspan="3" class="py-2 text-gray-700">${esc(c.text)}</td></tr>`).join('')
             : '<tr><td colspan="3" class="py-2 text-gray-400">Aucun détail enregistré pour cette action.</td></tr>';
-        const body = `<p class="text-sm text-gray-600 mb-3">${esc(auditActionLabel(row.action))} · ${esc(auditTableLabel(row.table_name))} n° ${esc(row.record_id)}<br>par <b>${esc(who)}</b>, le ${esc(fmtDateTime(row.created_at))}</p>
+        const body = `<p class="text-sm text-gray-600 mb-3">${esc(auditActionLabel(row.action))} · ${esc(auditTableLabel(row.table_name))}${Number(row.record_id) > 0 ? ' n° ' + esc(row.record_id) : ''}<br>par <b>${esc(who)}</b>, le ${esc(fmtDateTime(row.created_at))}</p>
             <table class="w-full text-sm text-left"><thead><tr class="text-[10px] uppercase tracking-widest text-gray-400"><th class="pb-2">Champ</th><th class="pb-2">Avant</th><th class="pb-2">Après</th></tr></thead><tbody class="divide-y divide-gray-100">${rows}</tbody></table>`;
         if (window.LPC && LPC.modal && LPC.modal.custom) {
             await LPC.modal.custom({ title: 'Détail de la modification', bodyHtml: body, buttons: [{ label: 'Fermer', value: true, primary: true }] });
@@ -282,7 +285,7 @@
                                 : 'bg-blue-100 text-blue-700';
                     return `<span class="px-2 py-1 ${color} rounded text-[10px] font-black uppercase tracking-widest">${esc(auditActionLabel(v))}</span>`;
                 }},
-                { key: 'table_name', label: 'Élément', render: (v, row) => `<span class="text-sm font-bold text-gray-800">${esc(auditTableLabel(v))}</span> <span class="text-xs text-gray-400">n° ${esc(row.record_id)}</span>` },
+                { key: 'table_name', label: 'Élément', render: (v, row) => `<span class="text-sm font-bold text-gray-800">${esc(auditTableLabel(v))}</span>${Number(row.record_id) > 0 ? ` <span class="text-xs text-gray-400">n° ${esc(row.record_id)}</span>` : ''}` },
                 { key: 'new_value',  label: 'Ce qui a changé', render: (v, row) => {
                     const ch = auditChanges(row);
                     if (!ch.length) return '<span class="text-gray-400 text-xs">Aucun détail enregistré</span>';
@@ -995,7 +998,11 @@
     //    API; that page now redirects here.
     // -------------------------------------------------------------------------
 
-    async function renderMatrixTab() {
+    // `keepId`: the role to show after a save or a creation. Without it the
+    // screen fell back to the first role (Comptable), so a home page chosen
+    // right after saving a new role's permissions went to the Comptable
+    // (found rehearsing the admin videos, 18/11/2026).
+    async function renderMatrixTab(keepId) {
         const panel = $('panel-matrix');
         show(panel, true);
         panel.innerHTML = '<div class="py-16 text-center text-gray-400 animate-pulse font-bold text-sm">Chargement des rôles...</div>';
@@ -1010,7 +1017,9 @@
 
         matrixState = {
             roles: roles,
-            activeRoleId: roles.length ? roles[0].id : null,
+            activeRoleId: (keepId && roles.some(r => String(r.id) === String(keepId)))
+                ? roles.find(r => String(r.id) === String(keepId)).id
+                : (roles.length ? roles[0].id : null),
             dirty: false
         };
 
@@ -1270,7 +1279,7 @@
             await apiPost(`${RBAC_API}?action=set_role_permissions`, fd);
             matrixState.dirty = false;
             toast('Permissions mises à jour. Les utilisateurs concernés verront le changement à leur prochaine connexion.');
-            await renderMatrixTab();
+            await renderMatrixTab(matrixState.activeRoleId);
         } catch (err) {
             toast(`Échec : ${err.message}`, 'error');
             if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-floppy-disk mr-2"></i>Enregistrer les permissions'; }
@@ -1310,9 +1319,9 @@
         fd.append('label', label.trim());
 
         try {
-            await apiPost(`${RBAC_API}?action=create_role`, fd);
+            const res = await apiPost(`${RBAC_API}?action=create_role`, fd);
             toast(`Rôle « ${label.trim()} » créé. Il n'a encore aucune permission : cochez celles qu'il lui faut.`);
-            await renderMatrixTab();
+            await renderMatrixTab(res && res.data && res.data.id);
         } catch (err) {
             toast(`Échec : ${err.message}`, 'error');
         }

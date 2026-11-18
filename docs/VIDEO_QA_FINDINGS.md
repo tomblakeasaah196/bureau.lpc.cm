@@ -241,8 +241,8 @@ marked fixed). What was fixed is in docs/TRAINING_VIDEOS.md §7. Left:
    JBS Praxis Support are both « Administrateur ». Owner question 23.
 6. [V] The other Journal d'Erreurs articles (KPI, santé du logging, niveaux, filtres, groupe, copier, cacher) and
    the English bodies of the rewritten admin articles still speak of files, regex and migrations.
-7. [V] Centre d'Aide (vidéos): « Mise à jour 2026-11-18 12:44 » (ISO date) and a command line for the filming PC
-   under the upload box. Small; not changed.
+7. [V] Centre d'Aide (vidéos): a command line for the filming PC under the upload box. Small; not changed (the ISO
+   date and the list's width were fixed, runbook §7).
 8. Not real (copy only): live's AI keys are encrypted with live's key, so the copy logs « Crypto::decrypt » when a
    page reads them, and the copy has no uploaded logos (uploads are not in the export). The filming clears the
    copy's AI keys and draws the logos from `assets/img/full_logo.svg` on the copy.
