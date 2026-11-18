@@ -25,9 +25,10 @@ Rbac::requirePermission('accounting.budgets.view');
  *   · action=get_transfer_prep
  *
  * What survives, in order:
- *   1. getActualsByAccountAndMonth() — unchanged. Same journal-fed aggregator
- *      Finance and Dépenses both use. Never rebuild this; anything that
- *      double-counts here corrupts both modules.
+ *   1. The actuals: the posted entries of the Grand Livre, classes 6 and 7
+ *      (includes/functions/budget_buckets.php, shared with the dashboards).
+ *      Before 18/11/2026 they were added up from fuel logs, repair logs,
+ *      invoices and expense requests (VIDEO_QA_FINDINGS 12.3).
  *   2. tab=overview          — three KPI cards + eight bucket cards + chart.
  *   3. tab=targets           — the eight rows + their pending values.
  *   4. tab=alerts            — the same eight rows, sorted by variance.
@@ -57,191 +58,17 @@ function sendResponse($status, $message, $data = null) {
     exit;
 }
 
-/**
- * The same aggregator as before, unchanged. Kept verbatim so no franc moves
- * between the MD view and the ledger / Dépenses module. If this ever needs
- * changing, change it in ONE place — search callers before you do.
+/*
+ * The budget lines, their targets and the ledger's actuals live in
+ * includes/functions/budget_buckets.php, shared with the dashboards: a franc
+ * shown here is the franc the Grand Livre holds (VIDEO_QA_FINDINGS 12.3).
+ * These wrappers keep the names this file has always used.
  */
-function getActualsByAccountAndMonth($pdo, $year) {
-    $actuals = [];
-    for ($m = 1; $m <= 12; $m++) $actuals[$m] = [];
+require_once __DIR__ . '/../../includes/functions/budget_buckets.php';
 
-    // 1. Account 605: Carburant (From Fleet)
-    $stmt = $pdo->prepare("SELECT MONTH(date) as m, SUM(total_cost) as total FROM fuel_logs WHERE YEAR(date) = ? GROUP BY MONTH(date)");
-    $stmt->execute([$year]);
-    while ($row = $stmt->fetch()) $actuals[$row['m']]['605'] = (float)$row['total'];
-
-    // 2. Account 615: Maintenance (From Fleet)
-    $stmt = $pdo->prepare("SELECT MONTH(service_date) as m, SUM(total_cost) as total FROM vehicle_maintenance WHERE YEAR(service_date) = ? GROUP BY MONTH(service_date)");
-    $stmt->execute([$year]);
-    while ($row = $stmt->fetch()) $actuals[$row['m']]['615'] = (float)$row['total'];
-
-    // 3. Account 701: Ventes (From Invoices - Accrual basis)
-    $stmt = $pdo->prepare("SELECT MONTH(date) as m, SUM(subtotal) as total FROM invoices WHERE YEAR(date) = ? GROUP BY MONTH(date)");
-    $stmt->execute([$year]);
-    while ($row = $stmt->fetch()) $actuals[$row['m']]['701'] = (float)$row['total'];
-
-    // 4. Expenses module — guarded by information_schema so early installs
-    //    without migration 053 see the same numbers they did before.
-    $has = (int)$pdo->query("
-        SELECT COUNT(*) FROM information_schema.tables
-         WHERE table_schema = DATABASE() AND table_name = 'expenses'
-    ")->fetchColumn();
-
-    if ($has > 0) {
-        $stmt = $pdo->prepare("
-            SELECT MONTH(e.expense_date) AS m,
-                   oa.account_number      AS acc,
-                   SUM(e.amount)          AS total
-              FROM expenses e
-              JOIN expense_categories ec ON ec.id = e.category_id
-              JOIN chart_of_accounts coa ON coa.id = ec.coa_account_id
-              JOIN ohada_accounts    oa  ON oa.id  = coa.ohada_account_id
-             WHERE YEAR(e.expense_date) = ?
-             GROUP BY MONTH(e.expense_date), oa.account_number
-        ");
-        $stmt->execute([$year]);
-        while ($row = $stmt->fetch()) {
-            $m   = (int)$row['m'];
-            $acc = (string)$row['acc'];
-            $actuals[$m][$acc] = (float)($actuals[$m][$acc] ?? 0) + (float)$row['total'];
-        }
-    }
-
-    return $actuals;
-}
-
-/**
- * Load the 8 buckets with their mapped OHADA account numbers.
- * Rows unmapped in budget_bucket_accounts are collected into 'other_opex' at
- * rollup time by rollupActualsByBucket() — that fallback is what lets Finance
- * add a new OHADA account without breaking the MD view.
- *
- *   [ bucket_id => [
- *        'key'          => 'payroll',
- *        'label_fr'     => 'Salaires & charges',
- *        'label_en'     => 'Payroll',
- *        'is_revenue'   => 0|1,
- *        'is_emergency' => 0|1,
- *        'icon'         => 'fa-…', 'color' => '…', 'sort' => 20,
- *        'accounts'     => ['6411','6412', …]   // ohada.account_number
- *   ], … ]
- */
-function loadBuckets(PDO $pdo): array {
-    $rows = $pdo->query("
-        SELECT b.id, b.bucket_key, b.label_fr, b.label_en, b.is_revenue,
-               b.is_emergency, b.icon, b.color, b.sort_order,
-               o.account_number
-          FROM budget_buckets b
-     LEFT JOIN budget_bucket_accounts bba ON bba.bucket_id = b.id
-     LEFT JOIN ohada_accounts o           ON o.id = bba.ohada_account_id
-      ORDER BY b.sort_order ASC, b.id ASC
-    ")->fetchAll();
-
-    $out = [];
-    foreach ($rows as $r) {
-        $bid = (int)$r['id'];
-        if (!isset($out[$bid])) {
-            $out[$bid] = [
-                'id'           => $bid,
-                'key'          => $r['bucket_key'],
-                'label_fr'     => $r['label_fr'],
-                'label_en'     => $r['label_en'],
-                'is_revenue'   => (int)$r['is_revenue'],
-                'is_emergency' => (int)$r['is_emergency'],
-                'icon'         => $r['icon'],
-                'color'        => $r['color'],
-                'sort'         => (int)$r['sort_order'],
-                'accounts'     => [],
-            ];
-        }
-        if ($r['account_number'] !== null) {
-            $out[$bid]['accounts'][] = (string)$r['account_number'];
-        }
-    }
-    return $out;
-}
-
-/**
- * Roll up the per-month, per-account actuals into per-month, per-bucket
- * totals. Any account_number that is not mapped by budget_bucket_accounts
- * lands in 'other_opex' as a fallback — never dropped silently.
- *
- * Returns:
- *   [ bucket_id => [
- *       'monthly'   => [1..12 => float],
- *       'ytd'       => float,
- *   ] ]
- */
-function rollupActualsByBucket(array $buckets, array $actuals): array {
-    $accToBucket = [];
-    $otherOpexId = null;
-    foreach ($buckets as $bid => $b) {
-        if ($b['key'] === 'other_opex') $otherOpexId = $bid;
-        foreach ($b['accounts'] as $acc) {
-            $accToBucket[$acc] = $bid;
-        }
-    }
-
-    $out = [];
-    foreach ($buckets as $bid => $b) {
-        $out[$bid] = ['monthly' => array_fill(1, 12, 0.0), 'ytd' => 0.0];
-    }
-
-    for ($m = 1; $m <= 12; $m++) {
-        foreach (($actuals[$m] ?? []) as $acc => $val) {
-            $bid = $accToBucket[$acc] ?? null;
-            // Revenue accounts (7xxx) that were not explicitly mapped must
-            // NOT fall into other_opex — that would show revenue as an
-            // expense. Drop them silently instead: they are already reported
-            // via the top-line KPI, and the MD does not need to see every
-            // stray 7xxx sub-account.
-            if ($bid === null) {
-                $isRev = strlen($acc) > 0 && $acc[0] === '7';
-                if ($isRev) continue;
-                $bid = $otherOpexId;
-                if ($bid === null) continue;
-            }
-            $out[$bid]['monthly'][$m] += (float)$val;
-            $out[$bid]['ytd']         += (float)$val;
-        }
-    }
-    return $out;
-}
-
-/**
- * Load bucket targets for a fiscal year. Returns [ bucket_id => row | null ].
- * A null value means "no target set for this year". The controller callers
- * distinguish null from zero — a target of zero and an absent target must
- * not look identical (README §5.8 rule Finance learned the hard way with
- * the old performance_targets tab).
- */
-function loadBucketTargets(PDO $pdo, int $year, array $buckets): array {
-    $out = [];
-    foreach ($buckets as $bid => $_) $out[$bid] = null;
-
-    $stmt = $pdo->prepare("
-        SELECT bucket_id, annual_amount,
-               m01, m02, m03, m04, m05, m06, m07, m08, m09, m10, m11, m12,
-               updated_at
-          FROM budget_bucket_targets
-         WHERE fiscal_year = ?
-    ");
-    $stmt->execute([$year]);
-    foreach ($stmt->fetchAll() as $r) {
-        $out[(int)$r['bucket_id']] = [
-            'annual'  => (float)$r['annual_amount'],
-            'monthly' => [
-                1  => (float)$r['m01'], 2 => (float)$r['m02'], 3 => (float)$r['m03'],
-                4  => (float)$r['m04'], 5 => (float)$r['m05'], 6 => (float)$r['m06'],
-                7  => (float)$r['m07'], 8 => (float)$r['m08'], 9 => (float)$r['m09'],
-                10 => (float)$r['m10'], 11=> (float)$r['m11'], 12=> (float)$r['m12'],
-            ],
-            'updated_at' => $r['updated_at'],
-        ];
-    }
-    return $out;
-}
+function loadBuckets(PDO $pdo): array { return lpc_budget_buckets($pdo); }
+function loadBucketTargets(PDO $pdo, int $year, array $buckets): array { return lpc_budget_targets($pdo, $year, $buckets); }
+function rollupActualsByBucket(array $buckets, array $actuals): array { return lpc_budget_rollup($buckets, $actuals); }
 
 /**
  * Three-state pro-rata classification (answer #6 in the MD scoping call).
@@ -284,7 +111,7 @@ if ($method === 'GET') {
 
     try {
         $buckets   = loadBuckets($pdo);
-        $actuals   = getActualsByAccountAndMonth($pdo, $year);
+        $actuals   = lpc_budget_ledger_actuals($pdo, $year);
         $rollup    = rollupActualsByBucket($buckets, $actuals);
         $targets   = loadBucketTargets($pdo, $year, $buckets);
 
@@ -463,6 +290,9 @@ if ($method === 'GET') {
 // [POST] WRITE OPERATIONS
 // ==========================================
 else if ($method === 'POST') {
+    // Every write carries the page's token (the app's fetch adds it): a target or a
+    // transfer decision could be forged from another site before 18/11/2026.
+    Csrf::requireValid();
     $payload = json_decode(file_get_contents('php://input'), true);
     if (!$payload || !isset($payload['action'])) sendResponse('error', 'Payload invalide.');
 

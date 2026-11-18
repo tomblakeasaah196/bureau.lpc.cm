@@ -272,20 +272,7 @@ if (!function_exists('fetch_executive_summary')) {
             error_log('executive_summary overdue: ' . $e->getMessage());
         }
         try {
-            // Budgets > 90% consumed for the current year.
-            $stmt = $db->prepare("
-                SELECT COUNT(*) FROM (
-                    SELECT bl.id
-                      FROM budget_lines bl
-                      JOIN budgets b ON b.id = bl.budget_id
-                     WHERE b.fiscal_year = ?
-                       AND bl.annual_amount > 0
-                ) t
-            ");
-            // Simplification: derive consumed % by joining actuals through the
-            // budget_controller helper would double-code the aggregation; use a
-            // cheap approximation from the OHADA account balance if available.
-            $stmt->execute([$y]);
+            // Charge lines of Budgets & Performance at 90 % or more of their annual target.
             $alerts['budgets_over_90pct'] = (int) _lpc_count_budgets_over_pct($db, $y, 0.90);
         } catch (Throwable $e) {
             error_log('executive_summary budgets: ' . $e->getMessage());
@@ -368,39 +355,19 @@ if (!function_exists('fetch_executive_summary')) {
     }
 
     /**
-     * Approximate count of budget lines consumed above a threshold of their
-     * annual cap. Uses actuals aggregated from the same source as
-     * budget_controller::getActualsByAccountAndMonth.
+     * How many charge lines of Budgets & Performance have used $threshold or more
+     * of their annual target, the actuals read from the ledger
+     * (includes/functions/budget_buckets.php). It read `budget_lines`, which
+     * nothing has written since migration 091, against fuel and repair logs
+     * (VIDEO_QA_FINDINGS 12.3).
      */
     function _lpc_count_budgets_over_pct(PDO $db, int $year, float $threshold): int {
         try {
-            // Reuse budget_controller helper if it has been included, otherwise
-            // inline a compact version so this helper stays self-contained.
-            $actuals_by_acc = [];
-            $q = $db->prepare("SELECT MONTH(date) m, SUM(total_cost) t FROM fuel_logs WHERE YEAR(date)=? GROUP BY MONTH(date)");
-            $q->execute([$year]);
-            foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) $actuals_by_acc['605'] = ($actuals_by_acc['605'] ?? 0) + (float)$r['t'];
-
-            $q = $db->prepare("SELECT MONTH(service_date) m, SUM(total_cost) t FROM vehicle_maintenance WHERE YEAR(service_date)=? GROUP BY MONTH(service_date)");
-            $q->execute([$year]);
-            foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) $actuals_by_acc['615'] = ($actuals_by_acc['615'] ?? 0) + (float)$r['t'];
-
-            $q = $db->prepare("
-                SELECT o.account_number, bl.annual_amount
-                  FROM budget_lines bl
-                  JOIN budgets b       ON b.id = bl.budget_id
-                  JOIN ohada_accounts o ON o.id = bl.ohada_account_id
-                 WHERE b.fiscal_year = ? AND o.type = 'expense'
-                   AND bl.annual_amount > 0
-            ");
-            $q->execute([$year]);
+            require_once __DIR__ . '/budget_buckets.php';
             $over = 0;
-            foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) {
-                $actual = $actuals_by_acc[$r['account_number']] ?? 0.0;
-                if ((float)$r['annual_amount'] > 0
-                    && ($actual / (float)$r['annual_amount']) >= $threshold) {
-                    $over++;
-                }
+            foreach (lpc_budget_summary($db, $year)['lines'] as $l) {
+                if ($l['is_revenue'] || $l['planned'] === null || (float) $l['planned'] <= 0) continue;
+                if (((float) $l['actual'] / (float) $l['planned']) >= $threshold) $over++;
             }
             return $over;
         } catch (Throwable $e) {

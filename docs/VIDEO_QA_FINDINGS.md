@@ -73,8 +73,6 @@ fixed from the code.
 Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026): 6.1 to 6.7 (docs/TRAINING_VIDEOS.md
 §7; 6.6 per the owner's answer 6: fleet costs become expense requests in Gestion des Dépenses). Left:
 
-8. [V] Capitalising a vehicle (Immobilisations « À Capitaliser (Flotte) ») posts no acquisition entry: the same as
-   12.1, for the Comptabilité 2 session. Seen on the copy: the truck LT 742 KL waits in the queue.
 10. [V] A visite technique has no type of its own: « Régler » on its alert files it as « Vidange / Révision » (the
    only type that renews the date), so its expense reads « Vidange / Révision LT 742 KL · Centre de visite
    technique ». Small: a « Visite technique » type renewing `technical_visit_expiry`, on the « Visite technique »
@@ -180,12 +178,21 @@ Left:
 
 ## 12 · Comptabilité 2 (Immobilisations, Budgets & Performance)
 
-1. [V] Capitalising an asset posts no acquisition entry (`fixed_assets_controller.php:254-359`).
-2. [V] Running depreciation twice in a month fails (unique reference); the closing « depreciation » phase
-   books another 12 months without checking the monthly runs: depreciation counted twice.
-3. [V] Budget actuals come from fuel logs, maintenance, invoices and expenses, not from the ledger
-   (`budget_controller.php:65-111`); the MD revenue target and « Écart budgétaire global » read
-   `budgets` / `budget_lines`, which nothing writes to.
+Reproduced on copy B and fixed by the « Comptabilité 2 » video session (18/11/2026): 12.1 to 12.3, and 6.8 with
+12.1 (docs/TRAINING_VIDEOS.md §7). Left, found on the way:
+
+4. [V] Gestion des Dépenses' per-category budget (`expenses_controller.php` « dashboard » and the request form's
+   « budget du mois ») still reads `budget_lines`, which nothing writes: it shows no budget. A budget line spans
+   several categories, so it cannot simply take a line's target: decide whether Dépenses shows the budget line's
+   month (« Carburant & transport : 75 000 / 100 000 ») or nothing.
+5. [V] The Vue Ventes targets (`sales_dashboard_controller.php`, `performance_targets`) have had no screen to set
+   them since migration 091: « Objectif non défini » for ever. For Tableaux de bord (14): a revenue target per
+   month could come from the « Chiffre d'affaires » line.
+6. [V] Nothing pays a 4812 « Fournisseurs d'immobilisations » balance from the app: an asset bought on credit is
+   settled by an OD in Écritures (Dr 4812 / Cr 5x) and the treasury movement by hand. A « Payer » on the register
+   row, like « Payer Fournisseur » in Achats, would close the loop.
+7. [V] Closing: « Extourner » on a depreciation adjustment reverses its entry on 01/01 N+1 but leaves the months
+   logged as depreciated (`YearEndClosing::reverseAdjustment`). For Comptabilité 3.
 
 ## 13 · Comptabilité 3 (Déclarations Fiscales, États Financiers, Clôture)
 
@@ -288,3 +295,5 @@ marked fixed). What was fixed is in docs/TRAINING_VIDEOS.md §7. Left:
 | 25 | A loan's one-off fee and its interest: which accounts? | Default: the fee is kept out of the money paid over; LPC borrows: 631 Frais bancaires; LPC lends: 771. Interest LPC pays: 671 « Intérêts des emprunts » (all lenders); interest it earns: 771 « Intérêts de prêts et créances diverses » (771 read « Gains de change », which SYSCOHADA numbers 776: renamed, 776 added). Interest adds to what is owed, on the loan date's day each month. |
 | 26 | The parents' own rows « 521 Banques », « 571 Caisse » and « 552 Monnaie électronique » had no entry once each account had its sub-account. | Deleted with the other unused rows (no treasury posting can reach a parent any more); 411 and 701 got their own row instead, being where invoices still post (8.1). |
 | 27 | **Purchase TVA** (open point under answer 9). Supplier orders are TTC and reception books the whole TTC to 601 and 31x; the ristourne already sends its 19,25 % TVA to 4452 « TVA récupérable ». Under SYSCOHADA and the CGI, input TVA is deductible only on purchases used for operations **subject to TVA** (taxed at 19,25 %, or at 0 % with the right to deduct, like exports). If LPC's water is **outside or exempt from TVA** (the owner thinks there is no TVA on water), the purchase TVA is a cost: 601 and 31x at TTC are right, and the ristourne's 19,25 % should go to 6019 too, not 4452. If LPC **charges TVA** on its sales (Préférences say « assujetti TVA », 19,25 %), reception should split it: Dr 601 HT + Dr 4452 TVA / Cr 401 TTC, stock 31x at HT, and LPC deducts it each month. Which is LPC's position (ask the tax adviser: exempt, 0 % with deduction, or 19,25 %)? | Nothing changed: reception keeps 601 and 31x at TTC (right if water is not taxed). On the answer, a session changes reception, the ristourne's TVA line and the CUMP together, and decides whether past receptions are restated. |
+| 28 | **Budgets: a ninth line, « Coût des marchandises vendues ».** Budget actuals now come from the ledger (12.3). Goods purchased (601), their stock variation (6031) and the rebates obtained (6019) are LPC's largest charge and fitted none of the MD's eight lines: in « Autres charges » they would swamp it. Keep a line of their own? | Default: yes, line « Coût des marchandises vendues » (migration 148): purchases net of stock and rebates, i.e. the cost of what was sold. With perpetual stock it reads near 0 until bottles leave (copy B: -7 446 F, the ristourne). Remove it by deleting the line's row if the owner prefers eight. |
+| 29 | **Capitalising: « Déjà au bilan »** posts nothing (for an asset bought before the app, already in the Bilan d'Ouverture or an earlier entry). Misused, an asset would sit in the register without its cost in class 2. | Default: offered, with the sentence « Aucune écriture : l'acquisition est déjà au bilan » before saving; the register row says « déjà au bilan ». The real truck on live: the CF chooses when he capitalises it. |

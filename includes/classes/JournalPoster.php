@@ -706,6 +706,37 @@ final class JournalPoster
     }
 
     /**
+     * The acquisition of a fixed asset, posted when it is capitalised in
+     * Immobilisations (VIDEO_QA_FINDINGS 12.1; capitalising used to post nothing,
+     * so the register held the truck and class 2 of the balance sheet did not).
+     *
+     *   Debit  the asset's own 2x account                cost
+     *   Credit 4812 / 4811 « Fournisseurs d'immobilisations » (bought on credit)
+     *       or the treasury account's own 5x               (paid at once; the caller
+     *                                                       moves the money)
+     *
+     * SOURCE LINK: 'fixed_asset', source_id = fixed_assets.id. $credit_coa is a
+     * chart_of_accounts id the caller resolved (coaByOhada('4812') or
+     * coaFromTreasury). Returns the entry id.
+     */
+    public static function postAssetAcquisition(int $asset_id, int $asset_coa, int $credit_coa, float $amount, string $date, string $desc): int
+    {
+        $db = Database::getInstance()->getConnection();
+        $user_id = (int) ($_SESSION['user_id'] ?? 0);
+
+        $amount = self::roundFcfa($amount);
+        if ($amount <= 0) throw new RuntimeException("JournalPoster::postAssetAcquisition — non-positive amount.");
+        if ($asset_coa <= 0 || $credit_coa <= 0) throw new RuntimeException("Compte d'acquisition manquant.");
+        $day = preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) ? $date : date('Y-m-d');
+
+        $je_id = self::createDraftJe($db, 'IMM-' . $asset_id, 'OD', $day, mb_substr($desc, 0, 255), $user_id, 'fixed_asset', $asset_id);
+        self::addLine($db, $je_id, $asset_coa,  $amount, 0.0);
+        self::addLine($db, $je_id, $credit_coa, 0.0,     $amount);
+        self::post($db, $je_id, $user_id);
+        return $je_id;
+    }
+
+    /**
      * Post the JE for a treasury expense (petite caisse).
      *   Debit expense COA (typically 6xx)
      *   Credit source treasury COA (typically 5xx)

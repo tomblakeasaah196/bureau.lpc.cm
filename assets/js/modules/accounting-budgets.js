@@ -369,7 +369,7 @@
 
         monthsModalBucketId = bucketId;
         document.getElementById('modal-months-title').innerText =
-            `${t('Répartition mensuelle','Monthly split')} — ${st.label}`;
+            `${t('Répartition mensuelle','Monthly split')} · ${st.label}`;
         document.getElementById('modal-months-annual').innerText = fmtFull(st.annual);
 
         // Seed the 12 inputs. If no custom monthly exists yet, prefill with
@@ -522,7 +522,7 @@
                     <i class="fas fa-exchange-alt text-amber-600 text-xl mt-1" aria-hidden="true"></i>
                     <div class="flex-1">
                         <p class="text-sm font-black text-amber-900">
-                            ${t('Demande de transfert','Transfer request')} — ${fmtFull(r.amount)} FCFA
+                            ${t('Demande de transfert','Transfer request')} · ${fmtFull(r.amount)} FCFA
                         </p>
                         <p class="text-xs text-amber-800 mt-1">
                             <strong>${esc(fromLbl)}</strong> → <strong>${esc(toLbl)}</strong>
@@ -598,7 +598,7 @@
         const wrap = document.createElement('div');
         wrap.style.cssText = 'position:fixed;left:-10000px;top:0;width:900px;background:white;font-family:Inter,Arial,sans-serif;color:#111;padding:32px;';
         wrap.innerHTML = `
-            <h1 style="font-size:22px;font-weight:900;margin:0 0 4px 0">${t('Budget & Performance','Budget & Performance')} — ${year}</h1>
+            <h1 style="font-size:22px;font-weight:900;margin:0 0 4px 0">${t('Budget & Performance','Budget & Performance')} · ${year}</h1>
             <p style="font-size:11px;color:#6b7280;margin:0 0 20px 0">${t('Résumé Direction Générale','Managing Director Summary')} · ${new Date().toLocaleDateString(flags.lang === 'en' ? 'en-US' : 'fr-FR')}</p>
 
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px">
@@ -607,12 +607,12 @@
                 ${kpiBlock(t('Fonds d\'imprévus','Emergency'),   data.kpis.emergency_available, null,        '#0f172a')}
             </div>
 
-            <h2 style="font-size:14px;font-weight:900;margin:0 0 8px 0">${t('Les 8 lignes','The 8 lines')}</h2>
+            <h2 style="font-size:14px;font-weight:900;margin:0 0 8px 0">${t('Les lignes du budget','The budget lines')}</h2>
             <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px">
                 <thead>
                     <tr style="background:#f8fafc;text-align:left;color:#6b7280;font-size:10px;text-transform:uppercase">
                         <th style="padding:6px 8px">${t('Ligne','Line')}</th>
-                        <th style="padding:6px 8px;text-align:right">${t('Réalisé YTD','Actual YTD')}</th>
+                        <th style="padding:6px 8px;text-align:right">${t('Réalisé (Grand Livre)','Actual (ledger)')}</th>
                         <th style="padding:6px 8px;text-align:right">${t('Objectif','Target')}</th>
                         <th style="padding:6px 8px;text-align:center">${t('Statut','Status')}</th>
                     </tr>
@@ -632,13 +632,13 @@
                 <h2 style="font-size:14px;font-weight:900;margin:0 0 8px 0;color:#b91c1c">${t('Top alertes','Top alerts')}</h2>
                 <ul style="margin:0 0 12px 0;padding-left:18px;font-size:12px;line-height:1.6">
                     ${alerts.slice(0, 5).map(a => `
-                        <li><strong>${esc(flags.lang === 'en' ? a.label_en : a.label_fr)}</strong> — ${fmtFull(a.ytd_actual)} / ${fmtFull(a.annual)} FCFA
+                        <li><strong>${esc(flags.lang === 'en' ? a.label_en : a.label_fr)}</strong> : ${fmtFull(a.ytd_actual)} / ${fmtFull(a.annual)} FCFA
                         (${Math.round((a.ytd_actual / (a.annual || 1)) * 100)}%)</li>
                     `).join('')}
                 </ul>
-            ` : `<p style="font-size:12px;color:#059669;font-weight:700">${t('Aucune alerte — toutes les lignes sont dans les clous.','No alerts — every line is on track.')}</p>`}
+            ` : `<p style="font-size:12px;color:#059669;font-weight:700">${t('Aucune alerte : toutes les lignes sont dans les clous.','No alerts: every line is on track.')}</p>`}
 
-            <p style="font-size:10px;color:#9ca3af;margin-top:24px">Bureau LPC ERP — ${t('généré automatiquement','auto-generated')}</p>
+            <p style="font-size:10px;color:#9ca3af;margin-top:24px">Bureau LPC ERP · ${t('généré automatiquement','auto-generated')}</p>
         `;
         document.body.appendChild(wrap);
 

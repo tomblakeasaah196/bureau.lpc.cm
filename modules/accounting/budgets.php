@@ -65,7 +65,7 @@ $year = (int)($_GET['year'] ?? date('Y'));
 
     <?php
     $pageTitle    = lpc_nav_label('acc_budgets');
-    $pageSubtitle = __t('ui.x.budget_performance_reporting_ifrs_ohada');
+    $pageSubtitle = "Objectifs annuels face au Grand Livre";
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     ?>
@@ -192,6 +192,13 @@ $year = (int)($_GET['year'] ?? date('Y'));
                     </div>
                 </div>
 
+                <?php // What « Réalisé » reads, said on the screen (VIDEO_QA_FINDINGS 12.3). ?>
+                <p class="text-xs font-bold text-gray-500 -mt-2 shrink-0" id="budget-source-note"
+                   data-i18n-fr="Réalisé : les écritures passées au Grand Livre cette année (charges, classe 6 ; chiffre d'affaires, classe 70), à leur date. Une demande de dépense non payée n'y est pas encore."
+                   data-i18n-en="Actual: the entries posted to the general ledger this year (charges, class 6; revenue, class 70), at their date. An unpaid expense request is not in it yet.">
+                    Réalisé : les écritures passées au Grand Livre cette année (charges, classe 6 ; chiffre d'affaires, classe 70), à leur date. Une demande de dépense non payée n'y est pas encore.
+                </p>
+
                 <?php // Pending transfer-request cards — only shown to the MD.
                       // Finance sees these on their own page (or in the Alerts
                       // tab as informational). ?>
@@ -202,8 +209,8 @@ $year = (int)($_GET['year'] ?? date('Y'));
                     <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm lg:col-span-2 flex flex-col">
                         <h3 class="font-black text-gray-800 text-sm uppercase tracking-widest mb-4">
                             <i class="fas fa-layer-group mr-2 text-finance-highlight" aria-hidden="true"></i>
-                            <span data-i18n-fr="Les 8 lignes du budget"
-                                  data-i18n-en="The 8 budget lines">Les 8 lignes du budget</span>
+                            <span data-i18n-fr="Les lignes du budget"
+                                  data-i18n-en="The budget lines">Les lignes du budget</span>
                         </h3>
                         <div id="overview-bucket-cards"
                              class="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 overflow-y-auto pr-1"></div>
@@ -264,8 +271,8 @@ $year = (int)($_GET['year'] ?? date('Y'));
                                               data-i18n-en="Annual target (FCFA)">Objectif annuel (FCFA)</span>
                                     </th>
                                     <th scope="col" class="py-4 px-6 text-right border-r border-gray-200">
-                                        <span data-i18n-fr="Réalisé YTD"
-                                              data-i18n-en="Actual YTD">Réalisé YTD</span>
+                                        <span data-i18n-fr="Réalisé de l&#039;année"
+                                              data-i18n-en="Actual this year">Réalisé de l&#039;année</span>
                                     </th>
                                     <th scope="col" class="py-4 px-6 text-center">
                                         <span data-i18n-fr="Statut" data-i18n-en="Status">Statut</span>
@@ -289,9 +296,9 @@ $year = (int)($_GET['year'] ?? date('Y'));
                     </div>
                     <?php else: ?>
                     <div class="bg-gray-50 px-6 py-3 border-t border-gray-200 text-xs text-gray-500 shrink-0"
-                         data-i18n-fr="Lecture seule — vous n'avez pas la permission de modifier les objectifs."
-                         data-i18n-en="Read-only — you do not have permission to edit targets.">
-                        Lecture seule — vous n'avez pas la permission de modifier les objectifs.
+                         data-i18n-fr="Lecture seule : vous n'avez pas la permission de modifier les objectifs."
+                         data-i18n-en="Read-only: you do not have permission to edit targets.">
+                        Lecture seule : vous n'avez pas la permission de modifier les objectifs.
                     </div>
                     <?php endif; ?>
                 </div>
@@ -333,7 +340,7 @@ $year = (int)($_GET['year'] ?? date('Y'));
          inputs, live sum against the annual target, one save.
          ================================================================ -->
     <?php if ($canEditTargets): ?>
-    <div id="modal-months" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
+    <div id="modal-months" class="hidden fixed inset-0 z-[9000] flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col border border-lpc-dark">
             <div class="bg-lpc-dark px-6 py-5 flex justify-between items-center text-white shrink-0">
                 <h3 class="font-black text-lg tracking-wide flex items-center gap-3">

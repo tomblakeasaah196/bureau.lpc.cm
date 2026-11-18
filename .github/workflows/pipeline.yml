@@ -83,6 +83,8 @@ jobs:
         run: php scripts/tests/treasury_expenses.test.php
       - name: Treasury sub-accounts, the chart, Emprunts & Financements (decisions 12 to 15)
         run: php scripts/tests/loans_chart.test.php
+      - name: Immobilisations and Budgets (acquisition posted, depreciation never doubled, actuals from the ledger)
+        run: php scripts/tests/fixed_assets_budgets.test.php
       - name: Administration (settings reads and writes, sessions that end, the audit trail, roles)
         run: php scripts/tests/admin_settings.test.php
       - name: Comptabilité 1 (drafts waiting, reversals counted once, Écritures, Grand Livre, Bilan d'Ouverture)

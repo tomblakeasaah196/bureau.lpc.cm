@@ -26,7 +26,7 @@
 let currentTab = 'queue';
 let registerFilter = 'active';   // 'all' | 'active' | 'depreciated' | 'disposed'
 let globalData = {
-    accounts: { lpc: [], buckets: { assets:[], accumulated:[], charge:[], cash:[], plus_value:[], moins_value:[] }, defaults: {} },
+    accounts: { lpc: [], buckets: { assets:[], accumulated:[], charge:[], cash:[], plus_value:[], moins_value:[] }, defaults: {}, treasury: [] },
     queue: [],
     assets: []
 };
@@ -84,6 +84,7 @@ async function fetchTabData(tab) {
             if (aRes.status === 'success') absorbAccounts(aRes.data);
             renderQueue();
             populateAccountDropdowns();
+            populateTreasuryDropdown();
         } else if (tab === 'register') {
             const rRes = await fetch(`/api/v1/fixed_assets_controller.php?action=list_register&status=${encodeURIComponent(registerFilter)}`).then(r => r.json());
             if (rRes.status === 'success') globalData.assets = rRes.data.assets || [];
@@ -102,6 +103,33 @@ function absorbAccounts(data) {
     globalData.accounts.lpc      = data.lpc      || [];
     globalData.accounts.buckets  = data.buckets  || { assets:[], accumulated:[], charge:[], cash:[], plus_value:[], moins_value:[] };
     globalData.accounts.defaults = data.defaults || {};
+    globalData.accounts.treasury = data.treasury || [];
+}
+
+// The treasury accounts an acquisition can be paid from, with their balance.
+function populateTreasuryDropdown() {
+    const sel = document.getElementById('cap_treasury');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">-- Compte de trésorerie --</option>';
+    (globalData.accounts.treasury || []).forEach(t => {
+        sel.innerHTML += LPC.html`<option value="${t.id}">${t.name} (solde ${fmt(t.balance)} F)</option>`;
+    });
+}
+
+// What capitalising will post, said before « Enregistrer l'Actif » (VIDEO_QA_FINDINGS 12.1).
+function onFundingChange() {
+    const f = document.getElementById('cap_funding').value;
+    document.getElementById('cap_supplier_div').classList.toggle('hidden', f !== 'supplier');
+    document.getElementById('cap_treasury_div').classList.toggle('hidden', f !== 'treasury');
+    document.getElementById('cap_treasury').required = (f === 'treasury');
+    const assetSel = document.getElementById('cap_acc_asset');
+    const opt = assetSel && assetSel.selectedIndex > 0 ? assetSel.options[assetSel.selectedIndex].text : '';
+    const asset = (opt.match(/^[(d+)]/) || [])[1] || '2x';
+    const credit = asset.startsWith('21') ? '4811' : '4812';
+    const hint = document.getElementById('cap_entry_hint');
+    if (f === 'existing') hint.textContent = "Aucune écriture : l'acquisition est déjà au bilan (Bilan d'Ouverture ou écriture antérieure). L'actif entre au registre et s'amortit.";
+    else if (f === 'treasury') hint.textContent = `Écriture passée : débit ${asset}, crédit le compte de trésorerie choisi, du coût d'acquisition. L'argent sort du compte.`;
+    else hint.textContent = `Écriture passée : débit ${asset}, crédit ${credit} « Fournisseurs d'immobilisations », du coût d'acquisition. Le paiement au fournisseur viendra le solder.`;
 }
 
 function populateCashAccountDropdown() {
@@ -157,10 +185,15 @@ function renderAssets() {
         let statusHtml = '';
         if(a.status === 'disposed') statusHtml = `<br><span class="text-[9px] bg-rose-100 text-rose-800 px-1.5 py-0.5 rounded font-black uppercase tracking-widest mt-1 inline-block">Sorti</span>`;
         else if(vnc <= 0) statusHtml = `<br><span class="text-[9px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-black uppercase tracking-widest mt-1 inline-block">Totalement Amorti</span>`;
+        const acq = a.acquisition_reference
+            ? `Compte ${a.asset_code || ''} · écriture ${a.acquisition_reference}${a.funding_treasury_name ? ' · payé par ' + a.funding_treasury_name : (a.supplier_name ? ' · ' + a.supplier_name : '')}`
+            : (a.acquisition_funding === 'existing' ? `Compte ${a.asset_code || ''} · déjà au bilan` : `Compte ${a.asset_code || ''} · acquisition non comptabilisée`);
+        const months = Number(a.months_depreciated || 0);
+        const sub = `${acq} · ${months} mois amorti${months > 1 ? 's' : ''}`;
 
         tbody.innerHTML += LPC.html`
             <tr class="${rowClass}">
-                <td class="py-3 px-6"><span class="text-xs font-black">${a.name}</span>${statusHtml}</td>
+                <td class="py-3 px-6"><span class="text-xs font-black">${a.name}</span>${LPC.raw(statusHtml)}<br><span class="text-[10px] text-gray-500 font-bold">${sub}</span></td>
                 <td class="py-3 px-6 text-center text-xs font-bold">${a.acquisition_date}</td>
                 <td class="py-3 px-6 text-right font-black">${fmt(a.acquisition_cost)}</td>
                 <td class="py-3 px-6 text-right text-asset-highlight font-bold">-${fmt(a.accumulated_depr)}</td>
@@ -225,11 +258,13 @@ function openCapitalizeModal(vehId, plate, model) {
     document.getElementById('cap_vehicle_id').value = vehId;
     document.getElementById('cap_name').value = `Véhicule ${plate} ${model}`.trim();
     document.getElementById('cap_monthly_display').innerText = '0 F';
+    resetCapitalizeDefaults();
     // A camion / véhicule automobile — pre-select 2451 / 28451 / 6813 when
     // present in the buckets, but let the user override.
     autoSelectAccount('cap_acc_asset', '2451');
     autoSelectAccount('cap_acc_depr',  '28451');
     autoSelectAccount('cap_acc_exp',   '6813');
+    onFundingChange();
     openModal('modal-capitalize');
 }
 
@@ -237,7 +272,17 @@ function openManualAssetModal() {
     document.getElementById('form-capitalize').reset();
     document.getElementById('cap_vehicle_id').value = '';
     document.getElementById('cap_monthly_display').innerText = '0 F';
+    resetCapitalizeDefaults();
+    onFundingChange();
     openModal('modal-capitalize');
+}
+
+// form.reset() empties the date fields and the treasury list's choice: put the defaults back.
+function resetCapitalizeDefaults() {
+    document.getElementById('cap_date').valueAsDate = new Date();
+    document.getElementById('cap_service_start').valueAsDate = new Date();
+    document.getElementById('cap_funding').value = 'supplier';
+    populateTreasuryDropdown();
 }
 
 function autoSelectAccount(selectId, ohadaCode) {
@@ -292,6 +337,9 @@ async function submitCapitalization() {
         asset_account_id:   document.getElementById('cap_acc_asset').value,
         depr_account_id:    document.getElementById('cap_acc_depr').value,
         expense_account_id: document.getElementById('cap_acc_exp').value,
+        acquisition_funding: document.getElementById('cap_funding').value,
+        treasury_account_id: document.getElementById('cap_treasury').value || null,
+        supplier_name: document.getElementById('cap_supplier').value,
     };
 
     const btn = document.getElementById('btn-submit-cap');
@@ -301,8 +349,8 @@ async function submitCapitalization() {
         const result = await jsonPost(payload);
         if(result.status === 'success') {
             closeModal('modal-capitalize');
-            LPC.modal.alert(result.message || "Immobilisation capitalisée.");
-            fetchTabData('queue');
+            await LPC.modal.alert(result.message || "Immobilisation capitalisée.");
+            fetchTabData(currentTab);
         } else {
             LPC.modal.alert(result.message || 'Erreur');
         }
@@ -409,16 +457,16 @@ async function previewDotations() {
         if (res.status !== 'success') { box.innerHTML = res.message || 'Erreur'; return; }
         const d = res.data;
         if (d.is_closed) {
-            box.innerHTML = `<div class="p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 font-bold text-xs">Exercice ${y} clôturé — impossible de poster une dotation.</div>`;
+            box.innerHTML = LPC.html`<div class="p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 font-bold text-xs">${d.blocked || ('Exercice ' + y + ' clôturé : impossible de passer une dotation.')}</div>`;
             return;
         }
         if (!d.lines.length) {
-            box.innerHTML = `<div class="p-4 bg-gray-50 border border-gray-200 rounded-xl text-gray-500 font-bold text-xs">Aucune dotation à générer pour ${d.period}. ${d.already_done} actif(s) déjà traité(s).</div>`;
+            box.innerHTML = `<div class="p-4 bg-gray-50 border border-gray-200 rounded-xl text-gray-500 font-bold text-xs">Aucune dotation à passer pour ${d.period} : ${d.already_done} actif(s) déjà amorti(s) ce mois.</div>`;
             return;
         }
         let html = `<div class="p-4 bg-white border border-gray-200 rounded-xl">
             <div class="flex justify-between mb-3">
-              <div class="font-black text-gray-800 text-sm uppercase tracking-widest">Aperçu — ${d.period}</div>
+              <div class="font-black text-gray-800 text-sm uppercase tracking-widest">Aperçu · ${d.period}</div>
               <div class="text-[10px] text-gray-500 font-bold">${d.count} actif(s) · ${d.already_done} déjà passé(s)</div>
             </div>
             <div class="overflow-auto max-h-60 border border-gray-100 rounded"><table class="min-w-full text-xs">
@@ -430,13 +478,13 @@ async function previewDotations() {
                 </tr></thead><tbody class="divide-y divide-gray-100">`;
         d.lines.forEach(l => {
             html += `<tr><td class="py-2 px-3 font-bold">${LPC.escapeHtml(l.name)}</td>
-                <td class="py-2 px-3 text-center uppercase text-[10px] font-black">${l.method}</td>
+                <td class="py-2 px-3 text-center uppercase text-[10px] font-black">${l.method === 'declining' ? 'Dégressif' : 'Linéaire'}</td>
                 <td class="py-2 px-3 text-center">${l.proration_days}j</td>
                 <td class="py-2 px-3 text-right font-black">${fmt(l.amount)} F</td></tr>`;
         });
         html += `</tbody></table></div>
             <div class="mt-3 flex justify-between items-center">
-              <span class="text-[11px] font-bold text-gray-500">Total débit 68x = crédit 28x</span>
+              <span class="text-[11px] font-bold text-gray-500">Total : débit 68 = crédit 28</span>
               <span class="font-black text-asset-dark">${fmt(d.total_debit)} F</span>
             </div>
           </div>`;
@@ -448,12 +496,12 @@ async function runDotations() {
     const monthStr = document.getElementById('dotation_month').value;
     if(!monthStr) return LPC.modal.alert("Veuillez choisir un mois.");
     const [y, m] = monthStr.split('-').map(Number);
-    if(!(await LPC.modal.confirm(`Générer les dotations aux amortissements pour ${monthStr} ?`))) return;
+    if(!(await LPC.modal.confirm(`Passer au Grand Livre les dotations aux amortissements de ${String(m).padStart(2, '0')}/${y} ?`))) return;
 
     try {
         const result = await jsonPost({ action: 'run_monthly_dotations', year: y, month: m });
-        LPC.modal.alert(result.message || (result.status === 'success' ? 'OK' : 'Erreur'));
-        fetchTabData('register');
+        await LPC.modal.alert(result.message || (result.status === 'success' ? 'Dotations passées.' : 'Erreur'));
+        if (result.status === 'success') previewDotations();
     } catch(e) { LPC.modal.alert("Erreur serveur"); }
 }
 
