@@ -12,7 +12,7 @@
  *   · the Plan Comptable deletes only what nothing uses, never a parent's own row;
  *   · loans: one gate; only the DG approves; nothing posts before; interest and
  *     the repayment split are run for real (pure functions);
- *   · migration 144: lines move only inside one OHADA parent, each deletion is
+ *   · migration 145: lines move only inside one OHADA parent, each deletion is
  *     re-checked, the Smart Logistics loan waits for the DG.
  *
  * CI has no MySQL for this app: the controllers are checked by reading them;
@@ -31,7 +31,7 @@ $ac   = $read('api/v1/accounting_controller.php');
 $coa  = $read('includes/classes/ChartOfAccounts.php');
 $lc   = $read('api/v1/loans_controller.php');
 $ln   = $read('includes/classes/Loans.php');
-$mig  = $read('migrations/144_treasury_ledgers_chart_cleanup_loans.sql');
+$mig  = $read('migrations/145_treasury_ledgers_chart_cleanup_loans.sql');
 $page = $read('modules/accounting/cashflow.php');
 $wipe = $read('includes/classes/DataWipe.php');
 
@@ -117,7 +117,7 @@ check('the 1st month after 20/08 is 20/09', Loans::monthAfter('2026-08-20', 1) =
 check('a month after 31/01 is 28/02', Loans::monthAfter('2026-01-31', 1) === '2026-02-28');
 check('twelve months after 15/09/2026 is 15/09/2027', Loans::monthAfter('2026-09-15', 12) === '2027-09-15');
 
-echo "\nMigration 144\n";
+echo "\nMigration 145\n";
 check('a posted line changes account only within one OHADA parent, while @lpc_line_move = 1',
       str_contains($mig, '@lpc_line_move = 1') && str_contains($mig, 'b.ohada_account_id = a.ohada_account_id'));
 check('every moved line is logged', str_contains($mig, 'INSERT INTO journal_line_moves'));

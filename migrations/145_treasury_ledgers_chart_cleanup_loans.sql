@@ -1,5 +1,5 @@
 -- =============================================================================
--- 144_treasury_ledgers_chart_cleanup_loans.sql
+-- 145_treasury_ledgers_chart_cleanup_loans.sql
 -- -----------------------------------------------------------------------------
 -- Trésorerie & Banque, the Plan Comptable and « Emprunts & Financements »: the
 -- owner's decisions 12 to 15 (18/11/2026, after reviewing live with the
@@ -153,7 +153,7 @@ BEGIN
 
     -- On a posted entry, ONLY `lettrage` may change. Any amount/account/
     -- journal_entry_id edit is a rewriting of history and stays forbidden.
-    -- One exception (migration 144, the owner's decision 12): while
+    -- One exception (migration 145, the owner's decision 12): while
     -- @lpc_line_move = 1, a line may change to another sub-account of the SAME
     -- OHADA parent (552 → 5521): no balance of the OHADA chart changes, and
     -- journal_line_moves records it.
@@ -201,8 +201,8 @@ CREATE TABLE IF NOT EXISTS journal_line_moves (
 -- -----------------------------------------------------------------------------
 -- 4. Each treasury account its own sub-account (5211, 5521, 5711…)
 -- -----------------------------------------------------------------------------
-DROP TEMPORARY TABLE IF EXISTS m144_ledgers;
-CREATE TEMPORARY TABLE m144_ledgers (
+DROP TEMPORARY TABLE IF EXISTS m145_ledgers;
+CREATE TEMPORARY TABLE m145_ledgers (
     treasury_id INT PRIMARY KEY,
     ohada_id    INT NOT NULL,
     code        VARCHAR(20) NOT NULL,
@@ -210,7 +210,7 @@ CREATE TEMPORARY TABLE m144_ledgers (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- The parent + 1, 2, 3… after the one-digit codes already taken under it.
-INSERT INTO m144_ledgers (treasury_id, ohada_id, code, name)
+INSERT INTO m145_ledgers (treasury_id, ohada_id, code, name)
 SELECT x.id, o.id,
        CONCAT(o.account_number, x.rn + (SELECT COUNT(*) FROM chart_of_accounts c
                                           WHERE c.code REGEXP CONCAT('^', o.account_number, '[1-9]$'))),
@@ -223,24 +223,24 @@ SELECT x.id, o.id,
 
 INSERT INTO chart_of_accounts (ohada_account_id, code, name, type, is_active, tft_category)
 SELECT m.ohada_id, m.code, m.name, 'asset', 1, 'cash'
-  FROM m144_ledgers m
+  FROM m145_ledgers m
  WHERE NOT EXISTS (SELECT 1 FROM chart_of_accounts c WHERE c.code = m.code);
 
 UPDATE treasury_accounts t
-  JOIN m144_ledgers m ON m.treasury_id = t.id
+  JOIN m145_ledgers m ON m.treasury_id = t.id
   JOIN chart_of_accounts c ON c.code = m.code
    SET t.coa_account_id = c.id;
 
 -- -----------------------------------------------------------------------------
 -- 5. Their past lines move to them (one account of the type: no doubt where)
 -- -----------------------------------------------------------------------------
-DROP TEMPORARY TABLE IF EXISTS m144_moves;
-CREATE TEMPORARY TABLE m144_moves (
+DROP TEMPORARY TABLE IF EXISTS m145_moves;
+CREATE TEMPORARY TABLE m145_moves (
     line_id INT PRIMARY KEY,
     to_id   INT NOT NULL
 ) ENGINE=InnoDB;
 
-INSERT INTO m144_moves (line_id, to_id)
+INSERT INTO m145_moves (line_id, to_id)
 SELECT l.id, t.coa_account_id
   FROM treasury_accounts t
   JOIN chart_of_accounts own ON own.id = t.coa_account_id
@@ -254,18 +254,18 @@ SELECT l.id, t.coa_account_id
 
 INSERT INTO journal_line_moves (journal_line_id, journal_entry_id, from_account_id, from_code, to_account_id, to_code, debit, credit, reason)
 SELECT l.id, l.journal_entry_id, l.account_id, src.code, m.to_id, dst.code, l.debit, l.credit,
-       'Migration 144 : chaque compte de trésorerie a son sous-compte (décision 12 du 18/11/2026)'
-  FROM m144_moves m
+       'Migration 145 : chaque compte de trésorerie a son sous-compte (décision 12 du 18/11/2026)'
+  FROM m145_moves m
   JOIN journal_lines l       ON l.id = m.line_id
   JOIN chart_of_accounts src ON src.id = l.account_id
   JOIN chart_of_accounts dst ON dst.id = m.to_id;
 
 SET @lpc_line_move = 1;
-UPDATE journal_lines l JOIN m144_moves m ON m.line_id = l.id SET l.account_id = m.to_id;
+UPDATE journal_lines l JOIN m145_moves m ON m.line_id = l.id SET l.account_id = m.to_id;
 SET @lpc_line_move = NULL;
 
-DROP TEMPORARY TABLE IF EXISTS m144_moves;
-DROP TEMPORARY TABLE IF EXISTS m144_ledgers;
+DROP TEMPORARY TABLE IF EXISTS m145_moves;
+DROP TEMPORARY TABLE IF EXISTS m145_ledgers;
 
 -- -----------------------------------------------------------------------------
 -- 6. Unused sub-accounts go (each re-checked: no line, nothing pointing at it)

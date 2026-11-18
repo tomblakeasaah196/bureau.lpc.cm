@@ -2133,7 +2133,7 @@ final class JournalPoster
      * type's parent (« Caisse Principale Siège », the shared 552…), which is
      * how the ledgers stopped matching the accounts. Trésorerie & Banque
      * creates the sub-account with the account (TreasuryAccount::ensureLedger);
-     * migration 144 created the missing ones and moved their past lines.
+     * migration 145 created the missing ones and moved their past lines.
      */
     public static function coaFromTreasury(PDO $db, int $treasury_id): int
     {

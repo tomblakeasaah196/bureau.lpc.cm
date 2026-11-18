@@ -7,7 +7,7 @@
  *
  * LPC borrows from its directors, a related company (Smart Logistics, owned by
  * LPC's MD), banks, tontines and cooperatives, and lends too. Lean on purpose:
- * three tables (loan_counterparties, loans, loan_movements, migration 144).
+ * three tables (loan_counterparties, loans, loan_movements, migration 145).
  *
  * THE RULES
  *   · The CF, the Comptable and the DG record (accounting.loans.record); the DG
@@ -558,11 +558,11 @@ final class Loans
         return $l;
     }
 
-    /** The parent's own chart row (631, 671, 771: migration 144). */
+    /** The parent's own chart row (631, 671, 771: migration 145). */
     private static function own(PDO $db, string $number): int
     {
         $id = JournalPoster::coaByOhada($db, $number);
-        if (!$id) throw new RuntimeException("Le compte {$number} manque au plan comptable (migration 144).");
+        if (!$id) throw new RuntimeException("Le compte {$number} manque au plan comptable (migration 145).");
         return $id;
     }
 
