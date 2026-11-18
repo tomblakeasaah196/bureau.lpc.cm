@@ -72,6 +72,9 @@ foreach ($rewrites as $re => $to) {
 }
 
 $run = function (string $file, string $script, array $query = []) use ($root) {
+    // Courrier and its Praxis AI never reach a real server from the copy (scripts/video/mail-fake.php).
+    require_once __DIR__ . '/mail-fake.php';
+    video_mail_install();
     foreach ($query as $k => $v) {
         $_GET[$k] = $v;
         $_REQUEST[$k] = $v;

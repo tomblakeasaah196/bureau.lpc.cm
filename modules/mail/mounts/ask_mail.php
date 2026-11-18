@@ -51,9 +51,12 @@ $__many = count(\LPC\Mail\MailAccess::accountIds($__uid)) > 1;
             <div class="mai-examples" data-mai-ask-examples>
                 <p>Posez votre question avec vos mots, par exemple :</p>
                 <ul>
-                    <li><button type="button" class="mai-example" data-mai-example>Marc a-t-il renvoyé la facture de septembre ?</button></li>
+                    <?php /* Examples a person at LPC would ask. They used to name the test data's people
+                             (« Marc », « le client de Bonamoussadi »), who exist nowhere in LPC's mail
+                             (found while filming the training videos). */ ?>
+                    <li><button type="button" class="mai-example" data-mai-example>Quelles factures fournisseurs attendent un paiement ?</button></li>
                     <li><button type="button" class="mai-example" data-mai-example>Quelles commandes ont été confirmées cette semaine ?</button></li>
-                    <li><button type="button" class="mai-example" data-mai-example>Quel jour le client de Bonamoussadi veut-il être livré ?</button></li>
+                    <li><button type="button" class="mai-example" data-mai-example>Quel client attend une réponse de notre part ?</button></li>
                 </ul>
             </div>
             <p class="mai-asked" data-mai-asked hidden></p>
