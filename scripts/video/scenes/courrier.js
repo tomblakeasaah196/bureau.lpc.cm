@@ -53,7 +53,8 @@ const AI = [
   {
     match: ["Question : Quelles factures fournisseurs attendent un paiement"],
     delay: 2.4,
-    reply: "Une facture fournisseur attend un paiement : celle de SOURCE DU PAYS, n° SDP-2611-0412, pour la commande PO-2611-00004, de 18 500 FCFA, payable à 30 jours [2].\nLuc demande aussi de rassembler les factures fournisseurs reçues ce mois pour la clôture de novembre, d'ici vendredi [1].",
+    // {{ref:…}} cites the message the app really numbered (mail-fake.php), whatever order the search gives.
+    reply: "Une facture fournisseur attend un paiement : celle de SOURCE DU PAYS, n° SDP-2611-0412, pour la commande PO-2611-00004, de 18 500 FCFA, payable à 30 jours {{ref:SDP-2611-0412 pour la commande}}.\nLuc demande aussi de rassembler les factures fournisseurs reçues ce mois pour la clôture de novembre, d'ici vendredi {{ref:De : Luc NANA}}.",
   },
 ];
 
@@ -169,7 +170,7 @@ module.exports = {
     {
       name: "Répondre et écrire",
       shots: [{
-        kind: "desktop", as: "daniel", start: MAIL,
+        kind: "desktop", snapshot: true, as: "daniel", start: MAIL,
         lines: [
           { say: "Luc, le contrôleur financier, demande les pièces de la clôture de novembre. Daniel lui répond.",
             do: async (s) => { await s.click(thread(s, "Clôture de novembre")); await s.wait(0.8); await s.click(tool(s, "Répondre")); } },
@@ -222,7 +223,7 @@ module.exports = {
     {
       name: "Une boîte partagée",
       shots: [{
-        kind: "desktop", as: "timothee", start: BOXES,
+        kind: "desktop", snapshot: true, as: "timothee", start: BOXES,
         lines: [
           "Les boîtes partagées sont les adresses d'équipe. Timothée, administrateur, ajoute celle de la facturation.",
           { say: "Il appuie sur « Ajouter une boîte partagée », et saisit l'adresse, le nom affiché, puis le mot de passe de la boîte.",
@@ -264,7 +265,7 @@ module.exports = {
     {
       name: "Travailler à plusieurs",
       shots: [{
-        kind: "desktop", as: "daniel", start: MAIL,
+        kind: "desktop", snapshot: true, as: "daniel", start: MAIL,
         lines: [
           { say: "Dans le Courrier de Daniel, la boîte INVOICING-LPC s'ajoute sous la sienne.",
             do: (s) => s.click(box(s, "INVOICING-LPC")) },
@@ -292,7 +293,7 @@ module.exports = {
     {
       name: "Praxis AI",
       shots: [{
-        kind: "desktop", as: "daniel", start: MAIL,
+        kind: "desktop", snapshot: true, as: "daniel", start: MAIL,
         setup: async (s) => { await s.click(box(s, "INVOICING-LPC")); await s.click(thread(s, "Relevé de compte au 15 novembre")); await s.wait(0.8); },
         lines: [
           "Praxis AI aide, sur demande seulement. Il n'envoie jamais rien, et ne lit jamais les pièces jointes.",
@@ -306,10 +307,10 @@ module.exports = {
               await s.wait(0.6);
               await s.type(s.page.getByLabel("Que doit dire le message ?"), "S'excuser du retard : le relevé part aujourd'hui avec le détail des bonbonnes consignées.", { delay: 22 });
             } },
-          { say: "« Écrire le brouillon ».",
-            do: async (s) => { await s.click("Écrire le brouillon"); await s.wait(3.5); } },
-          { say: "Le brouillon arrive dans le message. Il part au nom de la boîte, INVOICING-LPC, avec la signature de Daniel. Daniel le relit.",
-            do: (s) => h.soft(s, composer(s).getByText(/Nous vous prions de nous excuser/).first()), hold: 1 },
+          { say: "« Écrire le brouillon ». Le brouillon proposé s'affiche, pour qu'il le relise.",
+            do: async (s) => { await s.click("Écrire le brouillon"); await h.text(s, "Brouillon proposé").waitFor({ timeout: 15000 }).catch(() => null); await h.soft(s, h.text(s, /Nous vous prions de nous excuser/, false)); }, hold: 1 },
+          { say: "« Utiliser ce brouillon » le met dans le message. Il part au nom de la boîte, INVOICING-LPC, avec la signature de Daniel.",
+            do: (s) => s.click("Utiliser ce brouillon") },
           { say: "Il envoie, puis marque la conversation « Traitée ». Si NOFIA SA répond, elle se rouvrira d'elle-même.",
             do: async (s) => {
               await s.click(composer(s).getByRole("button", { name: "Envoyer", exact: true }));

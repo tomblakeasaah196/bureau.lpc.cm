@@ -32,6 +32,8 @@ const { execFileSync } = require("node:child_process");
  */
 const SAID = [
   [/\bbureau\.lpc\.cm\b/gi, "bureau point L P C point C M"],
+  [/\bINVOICING-LPC\b/g, "Invoicing L P C"],
+  [/\binvoicing@lpc\.cm\b/g, "invoicing arobase L P C point C M"],
   [/\bLPC\b/g, "L P C"],
   [/\bERP\b/g, "E R P"],
   [/\bJBS\b/g, "J B S"],
@@ -163,6 +165,7 @@ async function main() {
       port: ground.PORT,
       password: ground.PASSWORD,
       emailOf: (key) => cast.emailOf(key),
+      ground,
       only: only ? new Set(only.slice(7).split(",")) : null,
     });
   }

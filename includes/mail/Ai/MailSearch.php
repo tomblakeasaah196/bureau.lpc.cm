@@ -114,8 +114,21 @@ final class MailSearch
         $words = preg_split('/[^\p{L}\p{N}@._-]+/u', mb_strtolower($question), -1, PREG_SPLIT_NO_EMPTY) ?: [];
         $words = array_map(fn ($w) => trim($w, '._-'), $words);
         $words = array_filter($words, fn ($w) => mb_strlen($w) >= 2 && !in_array($w, self::FILLER, true));
+        $words = array_slice(array_values(array_unique($words)), 0, 8);
 
-        return array_slice(array_values(array_unique($words)), 0, 8);
+        // A French plural also looks for its singular: neither FULLTEXT nor LIKE '%factures%' finds « facture »,
+        // so « Quelles factures fournisseurs… » missed the very invoice it asked about (found while filming the
+        // training videos). Only words of five letters or more: « avis », « pas » and the like stay as typed.
+        $singulars = [];
+        foreach ($words as $w) {
+            if (mb_strlen($w) >= 5 && preg_match('/[^s]s$/u', $w)) {
+                $singulars[] = mb_substr($w, 0, -1);
+            } elseif (mb_strlen($w) >= 5 && str_ends_with($w, 'aux')) {
+                $singulars[] = mb_substr($w, 0, -3) . 'al';
+            }
+        }
+
+        return array_values(array_unique(array_merge($words, $singulars)));
     }
 
     private static function hits(array $row, array $terms): int

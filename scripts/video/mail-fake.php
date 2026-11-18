@@ -94,6 +94,20 @@ function video_mail_install(): void
                         usleep((int) ($r['delay'] * 1e6));
                     }
                     $text = isset($r['json']) ? json_encode($r['json'], JSON_UNESCAPED_UNICODE) : (string) ($r['reply'] ?? '');
+                    // {{ref:words}} becomes [n], n being the number the app gave the message holding those words
+                    // ("[3] De : …"), so a written answer cites what the search really returned. A reference to a
+                    // message the app did not send is an error in the scene, never a citation to something else.
+                    $prompt = (string) ($request['body']['contents'][0]['parts'][0]['text'] ?? '');
+                    $text = preg_replace_callback('/\{\{ref:([^}]+)\}\}/u', function ($m) use ($prompt, $replies) {
+                        foreach (preg_split('/\n(?=\[\d+\] )/u', $prompt) as $block) {
+                            if (preg_match('/^\[(\d+)\] /u', $block, $n) && mb_stripos($block, $m[1]) !== false) {
+                                return '[' . $n[1] . ']';
+                            }
+                        }
+                        file_put_contents($replies . '.unmatched.jsonl', json_encode(['at' => date('c'), 'missing_ref' => $m[1]], JSON_UNESCAPED_UNICODE) . "\n", FILE_APPEND);
+                        return '';
+                    }, $text);
+                    file_put_contents($replies . '.log.jsonl', json_encode(['at' => date('c'), 'match' => $r['match'], 'request' => $request['body'] ?? null, 'answer' => $text], JSON_UNESCAPED_UNICODE) . "\n", FILE_APPEND);
                     return ['status' => 200, 'body' => json_encode(['candidates' => [['content' => ['parts' => [['text' => $text]]], 'finishReason' => 'STOP']]], JSON_UNESCAPED_UNICODE)];
                 }
             }
