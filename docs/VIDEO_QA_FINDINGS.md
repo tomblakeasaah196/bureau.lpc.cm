@@ -107,6 +107,11 @@ Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026):
    ('fleet_fuel' | 'fleet_maintenance'), `source_id`, `vehicle_id`; `fuel_logs.expense_id`,
    `vehicle_maintenance.expense_id` (migration 133).
 
+10. [V] A visite technique has no type of its own: « Régler » on its alert files it as « Vidange / Révision » (the
+   only type that renews the date), so its expense reads « Vidange / Révision LT 742 KL · Centre de visite
+   technique ». Small: a « Visite technique » type renewing `technical_visit_expiry`, on the « Visite technique »
+   category (6225).
+
 ## 7 · Gestion des Vides (CRE = Certificat de Restitution d'Emballages)
 
 1. [V] **The 80 % rule is free text** in `proposals.empties_policy`; no empties code reads it. The ledger
