@@ -23,6 +23,13 @@
 
         const fmt = (num) => LPC.fmt.int(Math.round(Number(num) || 0));
 
+        /** A role as people say it (Paramètres and Données de Base use the same names). */
+        const ROLE_LABELS = {
+            admin: 'Administrateur', directeur_general: 'Directeur Général', controleur_financier: 'Contrôleur Financier',
+            accountant: 'Comptable', operations: 'Opérations', sales: 'Commercial', driver: 'Chauffeur',
+        };
+        const roleLabel = (name) => ROLE_LABELS[String(name || '').toLowerCase()] || (name || '');
+
         // Deep-link support: /modules/hr/payroll_finance.php#payroll
         const PAYROLL_VALID_TABS = ['advances', 'contracts', 'payroll'];
 
@@ -234,7 +241,7 @@
                 tbody.innerHTML += LPC.html`
                     <tr class="hover:bg-gray-50 border-b border-gray-100">
                         <td class="py-3 px-6 text-sm font-black text-gray-800">${activeBadge}${c.employee_name}</td>
-                        <td class="py-3 px-6 text-xs text-gray-500 uppercase">${c.role_name}</td>
+                        <td class="py-3 px-6 text-xs text-gray-500 uppercase">${roleLabel(c.role_name)}</td>
                         <td class="py-3 px-6 text-right text-sm font-black text-gray-900">${fmt(c.base_salary)}</td>
                         <td class="py-3 px-6 text-right text-xs font-bold text-gray-400">${fmt(totalAllow)}</td>
                         <td class="py-3 px-6 text-center text-xs font-mono text-gray-500">${c.cnps_number || '-'}</td>
@@ -306,7 +313,7 @@
         }
 
         // ================= TAB 3: PAYROLL FACTORY ================= //
-        async function loadPayrollGrid() {
+        async function loadPayrollGrid(opts = {}) {
             const period = document.getElementById('payroll_period').value; // YYYY-MM
             if(!period) return LPC.modal.alert("Veuillez choisir une période.");
 
@@ -333,7 +340,7 @@
                     } else {
                         btn.disabled = true;
                         btn.className = "bg-gray-300 text-gray-500 px-8 py-3 rounded-xl font-black text-sm transition-all shadow-md cursor-not-allowed flex items-center gap-2 whitespace-nowrap shrink-0";
-                        if(globalData.payroll_grid.length > 0) LPC.modal.alert(globalData.payroll_grid.some(g => g.payslip_status === 'validated')
+                        if(globalData.payroll_grid.length > 0 && !opts.quiet) LPC.modal.alert(globalData.payroll_grid.some(g => g.payslip_status === 'validated')
                             ? "La paie de ce mois est calculée. Elle reste à payer : « Marquer Payées » quand les salaires sont versés."
                             : "La paie de ce mois est calculée et payée.");
                     }
@@ -497,14 +504,14 @@
 
             try {
                 const result = await jsonPost({ action: 'generate_month', period, employees });
-                LPC.modal.alert(result.message || (result.status === 'success' ? 'Paie calculée.' : 'Erreur'));
+                await LPC.modal.alert(result.message || (result.status === 'success' ? 'Paie calculée.' : 'Erreur'));
                 // Always restore the button label — loadPayrollGrid() only resets
                 // className + disabled, not innerHTML. Without this, the button
                 // keeps its "Traitement..." spinner even after a successful post.
                 btn.innerHTML = originalText;
                 btn.disabled = false;
                 if(result.status === 'success') {
-                    loadPayrollGrid();
+                    loadPayrollGrid({ quiet: true });
                 }
             } catch(e) {
                 LPC.modal.alert("Erreur serveur lors du traitement.");
@@ -524,8 +531,8 @@
             if (reason === null || !String(reason).trim()) return;
             try {
                 const r = await jsonPost({ action: 'cancel_month', period, reason: String(reason).trim() });
-                LPC.modal.alert(r.message || (r.status === 'success' ? 'Paie annulée.' : 'Annulation impossible.'));
-                if (r.status === 'success') loadPayrollGrid();
+                await LPC.modal.alert(r.message || (r.status === 'success' ? 'Paie annulée.' : 'Annulation impossible.'));
+                if (r.status === 'success') loadPayrollGrid({ quiet: true });
             } catch (e) { LPC.modal.alert("Erreur réseau."); }
         }
         window.cancelPayroll = cancelPayroll;
@@ -591,7 +598,7 @@
 
             // Header
             document.getElementById('pdet_name').textContent   = id.employee_name;
-            document.getElementById('pdet_role').textContent   = id.role_name || '';
+            document.getElementById('pdet_role').textContent   = roleLabel(id.role_name);
             document.getElementById('pdet_period').textContent = d.period;
             document.getElementById('pdet_source').textContent = cur.source === 'payslip'
                 ? (cur.status === 'paid' ? 'bulletin payé' : 'bulletin calculé, à payer')
@@ -921,7 +928,7 @@
                            onchange="onMpCheck('${groupKey}', ${p.id}, ${Number(p.net_pay)}, this.checked)">
                     <div class="flex-1 min-w-0">
                         <p class="font-bold text-gray-900 truncate">${p.employee_name}</p>
-                        <p class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">${p.role_name || ''}</p>
+                        <p class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">${roleLabel(p.role_name)}</p>
                     </div>
                     <p class="font-black text-gray-900">${fmt(p.net_pay)} F</p>
                 </label>`).join('');
@@ -1044,13 +1051,13 @@
             });
 
             if (result.status === 'success') {
-                LPC.modal.alert(result.message || 'Règlement enregistré.');
+                await LPC.modal.alert(result.message || 'Règlement enregistré.');
                 // Refresh the modal contents — the settled rows now vanish
                 // from the unsettled list; keep the modal open so the buyer
                 // can tackle the other group without re-entering the period.
                 await openMarkPaidModal();
                 // Also refresh the payroll grid so status pills update.
-                if (typeof loadPayrollGrid === 'function') loadPayrollGrid();
+                if (typeof loadPayrollGrid === 'function') loadPayrollGrid({ quiet: true });
             } else {
                 LPC.modal.alert('Erreur: ' + (result.message || 'règlement impossible.'));
             }

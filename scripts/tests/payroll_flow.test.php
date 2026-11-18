@@ -114,6 +114,9 @@ check('a row with no salary is locked and does not keep the month open',
       str_contains($grid, "'no_salary'") && str_contains($js, "some(g => !g.is_paid && !g.no_salary)"));
 $page = file_get_contents($root . '/modules/hr/payroll_finance.php');
 check('the page\'s windows sit above the shell (z-index 9000)', substr_count($page, 'style="z-index: 9000;"') === 5);
+check('after an action the grid reloads quietly (no notice over the action\'s message)',
+      substr_count($js, 'loadPayrollGrid({ quiet: true })') === 3 && str_contains($js, '&& !opts.quiet) LPC.modal.alert('));
+check('roles are named as Paramètres names them', str_contains($js, "controleur_financier: 'Contrôleur Financier'") && !str_contains($js, '${p.role_name ||'));
 
 echo "\nThe payslip and the DIPE\n";
 check('the payslip says « À payer » until paid, then « Payé le »', str_contains($pdf, "'validated' => 'À payer'") && str_contains($pdf, '"Payé le {$paidOn}"'));
