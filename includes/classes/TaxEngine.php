@@ -87,6 +87,11 @@ final class TaxEngine
             'niu'                    => class_exists('CompanyProfile') ? CompanyProfile::field('niu', '—') : '—',
         ], $row);
 
+        // « LPC assujetti à la TVA » is the preference itself (decision 19,
+        // migration 156): the mirrored company_tax_settings.tva_liable kept the
+        // old 1 until the next save of Paramètres.
+        if (class_exists('Prefs')) $s['tva_liable'] = Prefs::bool('tax_tva_liable', false) ? 1 : 0;
+
         // Layered preferences that are not (yet) mirrored to company_tax_settings.
         $s['fne_rate']         = class_exists('Prefs') ? Prefs::rate('tax_fne_rate', 1.0)      : 0.01;
         $s['at_rate']          = self::atRateForGroup((string) ($s['cnps_group'] ?? 'A'));

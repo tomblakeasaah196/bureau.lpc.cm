@@ -175,11 +175,9 @@ the line). Live: on 17/11 no declaration was marked paid, and live data is test 
 6. [V] The Vue Dirigeant's ratios (`executive_summary_data.php`) do not follow the Compte de Résultat: copy A,
    November 2026, EBE 34 287 F (7,7 %) while the SIG reads −1 324 733 F (personnel charges left out). For
    Tableaux de bord (14).
-7. [V] « LPC assujetti à la TVA »: the declarations read `TaxEngine::settings()['tva_liable']`, i.e. the preference
-   `tax_tva_liable` (Paramètres → Fiscal, « Assujetti à la TVA ») mirrored into `company_tax_settings.tva_liable`. It
-   still defaults to on (« 1 », migration 034); the TVA switch session (track C, owner answer 19) turns it off by
-   default or makes its own switch drive that value. Until then a copy declares the ristourne's 1 433 F on 4452 as
-   a TVA credit to carry.
+7. Done with the go-live session's switch (migration 156, track C): « LPC assujetti à la TVA » (`tax_tva_liable`,
+   off by default) is what the declarations read; off, the TVA block says there is nothing to declare. On, the
+   deductible part is what receptions booked to 4452 (not the ristourne's line).
 8. [V] Opening receivables at go-live (was 11.6): a client's or supplier's balance keyed in Bilan d'Ouverture reaches
    its 411 / 401 sub-account but no invoice or order exists to collect or pay it. A year closed in the app is fine
    (the À-nouveaux carry each sub-account and old invoices stay open). For the go-live, see owner table 34.

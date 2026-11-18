@@ -83,6 +83,7 @@ check("CNPS and commune can be stored (migration 157 kind enum)", str_contains($
 echo "\n13.3 · TVA, carry-over, AIR\n";
 $tva = substr($te, (int) strpos($te, 'public static function computeTva'), 3500);
 check('the TVA reads the switch « assujetti »', str_contains($tva, "self::settings()['tva_liable']"));
+check('the switch is the preference itself', str_contains($te, "\$s['tva_liable'] = Prefs::bool('tax_tva_liable', false)"));
 check('the TVA reads 4431 and 4452 from the ledger', str_contains($tva, "ledgerMonthNet(\$db, '4431'") && str_contains($tva, "ledgerMonthNet(\$db, '4452'"));
 check('no supplier_invoices for the TVA', !str_contains($tva, 'supplier_invoices'));
 check('the carry-over column exists and is saved',

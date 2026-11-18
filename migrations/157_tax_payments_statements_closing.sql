@@ -99,3 +99,10 @@ SELECT l.id, m.prefix, m.op
         SELECT 'RES_HAO',  '85', '-' UNION ALL SELECT 'RES_HAO',  '86', '-' UNION ALL
         SELECT 'RES_HAO',  '87', '-' UNION ALL SELECT 'RES_HAO',  '88', '-') m
   JOIN financial_report_lines l ON l.code = m.line;
+
+-- 6. The TVA switch's mirror ----------------------------------------------------
+-- company_tax_settings.tva_liable follows « LPC assujetti à la TVA » (migration
+-- 156 set the preference off; the mirror is only rewritten when Paramètres saves).
+UPDATE company_tax_settings cts
+  JOIN app_preferences ap ON ap.pref_key = 'tax_tva_liable'
+   SET cts.tva_liable = IF(LOWER(ap.pref_value) IN ('1', 'true', 'yes', 'on'), 1, 0);
