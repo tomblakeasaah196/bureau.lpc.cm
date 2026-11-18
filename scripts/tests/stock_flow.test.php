@@ -83,7 +83,7 @@ check('an inventory gap posts at CUMP', str_contains($audit, "JournalPoster::pos
 check('refused bottles come back into 31x at the cost they left at',
       str_contains($sse, "'delivery_refusal', \$blId, \$refusedValues")
       && str_contains($sse, "movement_type = 'out_delivery' AND reference_id = ? AND product_id = ?"));
-check('a client signature books under the BL operator (no session)', str_contains($sse, "\$loggedBy\n        );"));
+check('a client signature books under the BL operator (no session)', (bool) preg_match('/\$loggedBy\R\s*\);/', $sse));
 
 echo "\nEvery movement's cost and document (3.4, 3.5)\n";
 check('migration adds unit_cost, reference_type and note', str_contains($mig, "column_name = 'unit_cost'")
