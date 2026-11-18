@@ -16,6 +16,7 @@ its choreography together.
 | Introduction, partie 2 : Chacun son espace (each role's home and menu) | `intro-2-chacun-son-espace.js` | Made 18/11/2026, 4:44, 7 chapters, -16.1 LUFS, 12.7 MB; sent in the chat; to publish in the live Centre d'Aide once deployed (§5) |
 | Modules, partie 1 : Données de Base (products, client and supplier tariffs, suppliers and their 401, employees; what view-only roles see) | `donnees-de-base.js` | Made 18/11/2026, 6:33, 9 chapters, -16.0 LUFS, 15.8 MB; sent in the chat; files in `bureau_video/publish/donnees-de-base/`; to publish (§5) |
 | Modules, partie 2 : Gestion des Achats (order at the tariff, price check, remise or ristourne, two receptions, ristourne earned, payment, order detail, cancellation, the Grand Livre) | `gestion-des-achats.js` | Made 18/11/2026, 5:40, 11 chapters, -16.1 LUFS, 14.5 MB (refilmed the same day with the owner's ristourne rule; the first cut was replaced); sent in the chat; files in `bureau_video/publish/gestion-des-achats/`; to publish (§5) |
+| Modules, partie 3 : Stock & Emballages et Fiche de Stock (the KPIs and the table, an avarie, the Historique, a sealed inventory and its certificate, the Fiche in bottles and francs, 311 and 6031 in the Grand Livre) | `stock-et-emballages.js` | Made 18/11/2026 (track A), 6:04, 8 chapters, -16.1 LUFS, 16.3 MB; sent in the chat; files in `bureau_video/publish/stock-et-emballages/`; to publish (§5) |
 | Modules, partie 6 : Flotte (the truck, its daily assignment, fuel, a breakdown, the repair, the visite technique and a vidange, Finance validating the fuel expense) | `flotte.js` | Made 18/11/2026 (track B), 4:39, 10 chapters, -16.1 LUFS, 12.3 MB; sent in the chat; files in `bureau_video/publish/flotte/`; to publish (§5) |
 
 ---
@@ -460,5 +461,16 @@ the help search, the help AI's answers and each page's « ? »), and sent in the
       the fuel request from MTN MOBILE MONEY, the repair, visite technique and vidange stay « à valider ». 4:39 rather
       than 6: every step is in, nothing was padded. The copy is left as snapshot `after-06-flotte`; the hand-over for
       Trésorerie & Dépenses (the per-period comparison) is in the sessions' shared notes and register §6.9.
+- [x] Modules, partie 3 · Stock & Emballages et Fiche de Stock (18/11/2026, track A on copy A): QA (crawler as the four
+      roles on Stock, Fiche and the certificate; then by hand, scripted: an avarie, a sealed inventory with a gap, a
+      reception, a BL refusal in a rolled-back transaction, checking 311 against stock × CUMP after each), PR #58 (§3 of
+      VIDEO_QA_FINDINGS 3.1 to 3.5: avaries, inventory gaps and refusals in 31x, rights, the full count sheet, a real
+      Fiche de Stock with each movement's cost, Historique labels; the CUMP reset to cost; OPUR 10L at 850 / 1 100 F per
+      the owner's answer 7; migrations 134 and 135, `stock_flow.test.php`), merged and deployed; live serves the new
+      scripts and the stock API refuses anonymous calls (migration 134 on live data not checked: needs a sign-in). The
+      Responsable des Opérations declares 3 OPUR 20L pierced at unloading (6 040 F) and seals INV-20261118-001 with 2
+      missing (4 027 F); the Directeur Général reads 311 and 6031 in the Grand Livre. Two shots were refilmed with three
+      added lines to reach 6:04. 3.6 (« Stock Tampon ») is left to Proposition commerciale. The copy is left as snapshot
+      `after-03-stock` (255 OPUR 20L, CUMP 2 013,46 F, 311 at 513 433 F).
 - [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
       Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.
