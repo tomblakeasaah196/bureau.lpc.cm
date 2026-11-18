@@ -28,7 +28,7 @@
 const API = '/api/v1/tax_controller.php';
 
 const KIND_META = {
-    tva:       { label: 'TVA',      chip: 'kind-tva',     destination: 'dgi',     full: 'TVA — 19,25 %' },
+    tva:       { label: 'TVA',      chip: 'kind-tva',     destination: 'dgi',     full: 'TVA — Taxe sur la valeur ajoutée' },
     air:       { label: 'AIR',      chip: 'kind-air',     destination: 'dgi',     full: 'AIR — Acompte d\'IS (2,2 %)' },
     irpp_dipe: { label: 'DIPE',     chip: 'kind-dipe',    destination: 'dgi',     full: 'DIPE — IRPP + CAC + CFC + CRTV + TDL + FNE' },
     cnps:      { label: 'CNPS',     chip: 'kind-cnps',    destination: 'cnps',    full: 'CNPS — PVID + PF + AT' },

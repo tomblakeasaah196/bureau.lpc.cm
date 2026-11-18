@@ -26,6 +26,7 @@ its choreography together.
 | Modules, partie 10 : Salaires (an advance requested, approved and paid out; November undone, calculated again and paid; the detail, the payslip, the entries). Real pay: library audience = the payroll roles | `salaires.js` | Made 18/11/2026 (track C), 6:55, 12 chapters, -16.1 LUFS, 19.2 MB; sent in the chat; files in `bureau_video/publish/salaires/`; to publish (§5), with no `audience` (see §8) |
 | Modules, partie 11 : Comptabilité 1 (the Plan Comptable and a sub-account added and renamed; what the modules post by themselves in « Journal des Écritures »: a purchase, the salary transfer, a loan the DG approves; the 471 on Bilan d'Ouverture; a bank-fee entry saved as a draft and validated by the Contrôleur Financier; the balance, the tiers, lettrage) | `comptabilite-1.js` | Made 18/11/2026 (track C), 7:05, 10 chapters, -16.0 LUFS, 20.5 MB; sent in the chat; files in `bureau_video/publish/comptabilite-1/`; to publish (§5), audience the finance roles (the four pages' permissions) |
 | Modules, partie 12 : Comptabilité 2 (the delivery truck capitalised on credit, an office printer paid from MTN, November's depreciation run once, both in the Grand Livre; example budget targets against the ledger, down to the alert) | `comptabilite-2.js` | Made 18/11/2026 (track B), 6:56, 10 chapters, -16.1 LUFS, 17.9 MB; sent in the chat; files in `bureau_video/publish/comptabilite-2/`; to publish (§5) |
+| Modules, partie 13 : Comptabilité 3 (the échéances and PROMETAL's AIR attestation; November's declarations: the AIR covered by the attestation, the TVA not due (LPC not liable), the DIPE and the CNPS from the payroll; the Contrôleur Financier approves and locks; the Comptable pays the DIPE and the CNPS from CCA Bank and settles the AIR; 432 in the Grand Livre; the Bilan that balances and its drill-down, the SIG cascade, the TFT reconciled; the closing assistant with the year left open) | `comptabilite-3.js` | Made 18/11/2026 (track A), 8:22, 11 chapters, -16.0 LUFS, 22.7 MB; sent in the chat; files in `bureau_video/publish/comptabilite-3/`; to publish (§5) |
 | Administration, partie 1 : Identité & Paramètres (Identité de l'Entreprise, the Préférences, a preference changed and put back, the Journal d'audit and its « Détail », the Sessions) | `admin-identite-parametres.js` | Made 18/11/2026 (track C), 3:49, 7 chapters, -16.1 LUFS, 12.6 MB; sent in the chat; files in `bureau_video/publish/admin-1/`; to publish (§5), audience the admin roles (Paramètres pages only) |
 | Administration, partie 2 : Utilisateurs, Rôles & Permissions (the five accounts, « Provisionner » and « Inviter par email », edit and lock, the roles and their home page, a « Responsable Commercial » role created, granted and deleted) | `admin-utilisateurs-roles.js` | Made 18/11/2026 (track C), 3:59, 8 chapters, -15.9 LUFS, 11.3 MB; sent in the chat; files in `bureau_video/publish/admin-2/`; to publish (§5), audience the admin roles |
 | Administration, partie 3 : Centre d'Aide & Journal d'Erreurs (an article written and kept as a draft, the Salaires video uploaded, an error group copied and marked fixed) | `admin-aide-erreurs.js` | Made 18/11/2026 (track C), 3:05, 6 chapters, -16.1 LUFS, 9.1 MB; sent in the chat; files in `bureau_video/publish/admin-3/`; to publish (§5), audience the admin roles |
@@ -761,5 +762,20 @@ the help search, the help AI's answers and each page's « ? »), and sent in the
       reception with the switch on and off, the DG's pages, the payroll grid, a 2FA sign-in with a wrong then the right
       code. **For the owner on live:** tick « LPC assujetti à la TVA » only once the tax adviser confirms LPC charges
       TVA; tick the 2FA once emails are configured (MAIL_FROM); Timothée signs out and in again.
+- [x] Modules, partie 13 · Comptabilité 3 (18/11/2026, track A on copy A from `after-08-facturation`): QA (crawler as
+      the Comptable, the CF, the DG and Operations on both pages, then by hand through the API and the page: the month's
+      declarations, approval, payment, the statements, and a test closing of 2026 with its À-nouveaux and the 2027
+      statements, then restored), PR #93 (VIDEO_QA_FINDINGS §13: 13.1 to 13.5, 8.14, 8.16, 11.5, 12.7, and what the QA
+      found: the Bilan that sent every account to « Anomalies », the TFT, the CNPS that could not be approved, the empty
+      payment dialog; migrations 157 and 158, `tax_closing.test.php`, five scenarios in `syscohada_postings.test.py`),
+      merged and released (main green, live serves the new scripts, the tax and statements APIs refuse anonymous calls).
+      It reads track C's « LPC assujetti à la TVA » (`tax_tva_liable`) itself, and migration 157 syncs its mirror. The
+      video follows the Comptable (Daniel Massomba on screen) and the Contrôleur Financier (Luc Nana): November 2026, AIR
+      9 810 F covered by PROMETAL's attestation, DIPE 63 546 F (Dr 432 57 246 + Dr 6412 6 300, the FNE the old payslips
+      never accrued), CNPS 128 520 F (Dr 433), both from CCA Bank (436 090 → 244 024 F); the Bilan 1 076 021 F on each
+      side (résultat −1 331 033 F); the TFT reconciled at 948 024 F; the closing assistant's checks all green and the
+      result phase's message, the year left open. Owner table 33 (CNPS accident du travail: payroll group C, Paramètres
+      group A) and 34 (opening receivables at go-live) added with defaults. Left for Tableaux de bord: 13.6 (the Vue
+      Dirigeant's ratios). The copy is left as snapshot `after-13-comptabilite-3` (no Gestion des Vides data on it).
 - [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
       Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.
