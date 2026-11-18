@@ -287,7 +287,7 @@ async function film(plan, out, opts) {
   const browser = await browserFor(opts.origin, opts.port);
   try {
     for (const shot of plan.shots) {
-      if (shot.kind === "card" || (opts.only && !opts.only.has(shot.id))) continue;
+      if (shot.kind === "card" || shot.kind === "map" || (opts.only && !opts.only.has(shot.id))) continue;
       // `snapshot: true`: the copy as it stands before this shot, saved by a full run and put back before a
       // retake (--only), so a shot that writes always starts from the same ground (runbook §4.1).
       if (shot.snapshot && opts.ground) {

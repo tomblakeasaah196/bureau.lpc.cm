@@ -89,7 +89,7 @@ function printScript(plan) {
       chapter = shot.chapter;
       console.warn(`\n## ${chapter} · ${shot.chapterName}`);
     }
-    const where = shot.kind === "card" ? `${shot.card} card` : `${shot.kind}${shot.as ? `, as ${shot.as}` : ", signed out"}${shot.start ? `, ${shot.start}` : ""}`;
+    const where = shot.kind === "card" ? `${shot.card} card` : shot.kind === "map" ? `journey map${shot.role ? `, ${shot.role}` : ""}` : `${shot.kind}${shot.as ? `, as ${shot.as}` : ", signed out"}${shot.start ? `, ${shot.start}` : ""}`;
     console.warn(`\n[${shot.id} · ${where}]`);
     for (const l of shot.lines) {
       words += l.speech.split(/\s+/).length;
