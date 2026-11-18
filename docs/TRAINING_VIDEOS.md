@@ -55,6 +55,28 @@ Everything below is on the owner's PC already (17/11/2026). A new machine needs 
    - fix what breaks on the video's branch, list it in §7, and only then write the script and film.
    The crawler proved itself on 18/11/2026: with the old `Paginator.php` put back it reports the
    « Récupération d'emballages » detail (HTTP 500, « Erreur de chargement », the PHP fatal).
+8. **Two tracks at once, filming in turns** (the owner, 18/11/2026). The module videos run as two
+   sessions side by side:
+   - **Track A, the money chain**, in order, each starting from the one before's snapshot: Stock &
+     Emballages, Proposition commerciale, Ventes & Commandes, Gestion des Vides, Facturation & AR,
+     Comptabilité 1, Comptabilité 3, Tableaux de bord, then the story video. Copy A: `VIDEO_HOME`
+     `C:/Users/Tom-Blake/bureau_video`, MySQL 3317, server 8140, the main checkout.
+   - **Track B, the modules the chain does not need**: Flotte, Trésorerie & Dépenses, Salaires,
+     Comptabilité 2 (Immobilisations, Budgets), the admin series. Copy B: `VIDEO_HOME`
+     `C:/Users/Tom-Blake/bureau_video_b`, MySQL **3318**, server **8141**, its own git worktree. Every
+     command of a track B session runs with `VIDEO_HOME=C:/Users/Tom-Blake/bureau_video_b
+     VIDEO_DB_PORT=3318 VIDEO_PORT=8141` (`ground.js` reads them; its guard refuses any other port).
+     Track B delivers to the same `C:/Users/Tom-Blake/bureau_video/publish/`.
+   - **Filming takes turns.** `make.js` takes the machine's filming turn before `film` and `assemble`
+     (a lock file, `~/.lpc-video-filming.lock`) and waits while the other track holds it: filming and
+     encoding are what overheated the owner's laptop. QA, fixes and narration run freely.
+   - **Migrations.** Both tracks may write one: before merging, take the next number free on
+     `origin/main` (rename the file if the other track merged first), and pull before every new branch.
+   - **Shared files** (`JournalPoster.php`, this runbook, `docs/VIDEO_QA_FINDINGS.md`): pull `main` and
+     rebase before opening a PR; keep your edits to your module's rows.
+   - Start the copy's services detached (`Start-Process -WindowStyle Hidden` in PowerShell), not as a
+     session's background shell: those die when the session's process restarts, and a refilm went
+     down with them on 18/11/2026.
 
 ## 2 · The pattern (decided with the owner, 17/11/2026; do not change without a new decision)
 
