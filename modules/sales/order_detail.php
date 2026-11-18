@@ -181,7 +181,7 @@ $so_id = (int) ($_GET['id'] ?? 0);
                             <thead class="bg-amber-50 border-b border-amber-100 text-[10px] uppercase text-amber-700 font-black tracking-widest">
                                 <tr>
                                     <th class="py-3 px-6">Produit livré</th>
-                                    <th class="py-3 px-4 text-center">Bouteilles livrées</th>
+                                    <th class="py-3 px-4 text-center">Bouteilles</th>
                                     <th class="py-3 px-4">Emballage vide</th>
                                     <th class="py-3 px-4 text-center">Minimum à récupérer (<span id="so-empties-pct">100 %</span>)</th>
                                 </tr>

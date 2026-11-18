@@ -729,7 +729,7 @@ async function onOrderClientChange() {
             if (hint) {
                 hint.textContent = negotiated > 0
                     ? `${negotiated} prix négocié(s) pour ce client.`
-                    : 'Aucun prix négocié — tarif catalogue.';
+                    : 'Aucun prix négocié : tarif catalogue.';
             }
         }
     } catch (e) { /* fall back to catalogue prices already in the picker */ }

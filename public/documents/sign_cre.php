@@ -139,7 +139,7 @@ if (empty($token)) {
 <main id="main" role="main" class="w-full">
 
 
-    <div class="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden relative">
+    <div class="w-full max-w-md mx-auto bg-white rounded-3xl shadow-xl overflow-hidden relative">
 
         <div class="bg-lpc-dark px-6 py-8 text-center">
             <div class="flex justify-center mb-4">

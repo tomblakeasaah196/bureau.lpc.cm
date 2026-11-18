@@ -96,7 +96,7 @@ if (empty($token)) {
 <main id="main" role="main" class="w-full">
 
 
-    <div class="w-full max-w-lg bg-white rounded-3xl shadow-xl overflow-hidden relative">
+    <div class="w-full max-w-lg mx-auto bg-white rounded-3xl shadow-xl overflow-hidden relative">
         <div class="bg-blue-600 px-6 py-6 text-center">
             <div class="flex justify-center mb-3">
                 <img src="/assets/img/full_logo.svg" alt="LPC Logo" class="h-16 w-auto brightness-0 invert" onerror="this.outerHTML='<h1 class=\\'text-3xl font-black text-white\\'>LPC</h1>'">
