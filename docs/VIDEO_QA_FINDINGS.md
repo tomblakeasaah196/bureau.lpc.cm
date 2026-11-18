@@ -194,6 +194,83 @@ Grants below are from migrations; live may differ (check `role_permissions` on t
    `_tax_attestation_letter.php:56`) selects `users.full_name/name/username`, none of which exist [V]:
    likely an error.
 
+## 9 · Trésorerie & Banque, Gestion des Dépenses
+
+1. [V] Treasury actions (transfers, expenses, reconciliation, opening balances) check only
+   `accounting.cashflow.view`; the treasury, tax, closing, journal, budget and opening-balance APIs have
+   no CSRF check.
+2. [V] An account's opening balance (« Solde Initial Ouverture ») posts no journal entry
+   (`treasury_controller.php:157-160`): with MTN MOBILE MONEY's missing COA link (§7 of the runbook), the
+   ledger cash and the treasury screen disagree.
+3. [V] Recycling cash shows as money going out: `in_recycling_sale` is missing from the « in » types
+   (`treasury_controller.php:88`).
+4. [V] Expenses have no approval: a « Payé » save posts the entry with only `expenses.create`, so Ops can
+   book paid expenses without `mark_paid`.
+5. [V] Rapprochement: « Demande de correction » → « Soumettre à l'Admin » creates a request no endpoint
+   ever approves (`:411-416`).
+6. [V] « Retour de Tournée »: wrong join for the expected cash, fake 350 000 F « simulation » data on
+   error, validating does not mark invoices paid (`:48-101, 289`). A driver screen: likely goes with the
+   driver removal.
+
+## 10 · Gestion du Personnel (salaires)
+
+1. [V] Payroll cannot be undone: no reversal, entries carry no source link; the payslip says `paid` when
+   it is only booked.
+2. [V] Approving an advance does not check it is still pending; advances approved but not yet paid out
+   are still deducted from salary (`payroll_controller.php:888`).
+3. [V] The Comptable lacks `hr.payroll.approve_advance` on live (DG and CF only).
+4. [V] FNE (1 %) is not computed in payroll, but the DIPE in Déclarations Fiscales adds it [I].
+5. [V] Salaries are edited in Données de Base → Employés & RH, not here (`payroll_controller.php:616-620`):
+   the video must say so.
+
+## 11 · Comptabilité 1 (Plan Comptable, Bilan d'Ouverture, Écritures, Grand Livre)
+
+1. [V] Every automatic entry posts at once (no draft): the « File d'Attente (Brouillards) » holds manual
+   drafts only. « Validations en attente » and the closing check « Aucune écriture en attente
+   d'approbation » look for status `pending`, which does not exist (draft, posted, reversed):
+   always 0 (`YearEndClosing.php:139`).
+2. [V] `postSalesCreditNote` has no caller: no credit-note entries.
+3. See 3.1 (stock accounting, 601 vs 31x/6031), 8.1 (invoice on the first 411), 8.2 (AIR twice), 4.6
+   (second 411 on conversion): the ledger checks belong here if their module sessions did not fix them.
+
+## 12 · Comptabilité 2 (Immobilisations, Budgets & Performance)
+
+1. [V] Capitalising an asset posts no acquisition entry (`fixed_assets_controller.php:254-359`).
+2. [V] Running depreciation twice in a month fails (unique reference); the closing « depreciation » phase
+   books another 12 months without checking the monthly runs: depreciation counted twice.
+3. [V] Budget actuals come from fuel logs, maintenance, invoices and expenses, not from the ledger
+   (`budget_controller.php:65-111`); the MD revenue target and « Écart budgétaire global » read
+   `budgets` / `budget_lines`, which nothing writes to.
+
+## 13 · Comptabilité 3 (Déclarations Fiscales, États Financiers, Clôture)
+
+1. [V] **Tax payments never reach the ledger**: `tax_controller.php:794, 797, 803` query
+   `chart_of_accounts.ohada_prefix`, `.ohada_account_number` and `treasury_accounts.chart_of_account_id`
+   (the real column is `coa_account_id`); the error is swallowed (`:227-233`) and the declaration turns
+   « paid » with no entry, no treasury movement, no balance change.
+2. [V] Even fixed they would hit the wrong accounts: TVA paid from 4432 while sales TVA is in 4431; DIPE
+   to 447 and CNPS to 431 while payroll books 432 and 433 (`:210-219` vs `payroll_controller.php:868-869`).
+3. [V] TVA overstated: the deductible part reads `supplier_invoices` (missing on live: always 0); the
+   carry-over column is missing; TSR always 0.
+4. [V] Déclarations Fiscales is gated only on `accounting.invoices.view` (the `sales` role can approve and
+   pay declarations); no CSRF.
+5. [V] Closing: « Assistant Clôture » and « Clôturer l'Exercice » show only when the role name is exactly
+   `admin`; the old closing likely doubles opening balances [I]; profit incorporation ignores class 8;
+   the year picker is hardcoded to 2026 and 2025. The Comptable holds `closing.run` / `reopen` on live,
+   which migration 088 gave to admin only.
+
+## 14 · Tableaux de bord & Rapports Consolidés
+
+1. [V] Empties KPIs (MD « Récupération d'emballages », Ops « Retour d'emballages ») read
+   `cash_reconciliations`, which nothing inserts into: always 0 %. Should read `client_empties_ledger`
+   (and, once 7.1 lands, compare to each client's agreed minimum).
+2. [V] Ops delivery KPIs filter delivery status `delivered` / `invoiced`, which do not exist (draft,
+   dispatched, driver_confirmed, completed, cancelled): always 0.
+3. [V] Cash KPIs leave out Mobile Money (552); AR KPIs count partly paid invoices at their full amount.
+4. [V] « Alertes stock » flags any product under 100 units, not its « Seuil Min. ».
+5. [V] Vue Ventes reads orders created by the signed-in user: with Ops entering orders and no Sales login,
+   the DG sees 0 (the sales role will see only their own).
+
 ---
 
 ## For the owner (decisions, with the default a session uses meanwhile)
@@ -203,3 +280,6 @@ Grants below are from migrations; live may differ (check `role_permissions` on t
 | 1 | Who places supplier orders: Ops, the CF, or both? Today Ops and the Comptable can, the CF cannot. | Ops orders and receives; the CF pays. |
 | 2 | Should Ops close deliveries (`sales.deliveries.close`)? | Yes: the owner said Ops does the orders; granted by migration, listed in the PR. |
 | 3 | Stock accounting: perpetual (31x at reception) or periodic (601 then variation at closing)? | Perpetual, as the BL's 6031/31x entry already assumes. |
+| 4 | Which taxes does PROMETAL withhold: AIR only, or TVA too? The app only handles AIR. | AIR only, at the rate set on the client. |
+| 5 | Should the Comptable approve advances and pay suppliers (`approve_advance`, `procurement.approve`), and keep `closing.run` / `reopen`? | Unchanged; the videos show the CF approving and paying. |
+| 6 | Fleet costs (fuel, repairs): post them to the ledger from Flotte, or keep typing them in Dépenses? | Post from Flotte to the same expense accounts, linked to the vehicle. |
