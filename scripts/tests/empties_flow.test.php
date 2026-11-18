@@ -86,6 +86,10 @@ check('the grid shows the stock', str_contains($js, "' en stock</p>'"));
 echo "\nPermissions, not role names (7.6, 7.7)\n";
 check("no role names in the empties controller", !str_contains($cc, "\$_SESSION['user_role']") && !str_contains($cc, "r.name IN ('admin', 'finance')"));
 check('notices by permission', str_contains($cc, 'lpc_notify_permission($pdo, $perms,'));
+$m154 = glob($root . '/migrations/*_empties_finance_works.sql');
+$m154 = $m154 ? src($m154[0]) : '';
+check('the CF and the Comptable work in the page (owner answer 23, migration 154)', str_contains($m154, "'operations.empties.create_cre', 'signatures.cre.internal.sign'")
+      && str_contains($m154, "r.name IN ('controleur_financier', 'accountant')"));
 check('the CF reads the page and the revenue (migration 150)', str_contains($mig, "p.name IN ('operations.empties.view', 'operations.recycling.view')")
       && str_contains($mig, "r.name = 'controleur_financier'"));
 check('the treasury picker loads only for who sells', str_contains($js, 'if (canSellRecycler) loadTreasuryAccountsForRecycling();'));
