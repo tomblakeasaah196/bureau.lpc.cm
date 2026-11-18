@@ -23,6 +23,7 @@ its choreography together.
 | Modules, partie 9 : Trésorerie & Dépenses (the accounts and their own sub-accounts, the Grand Livre's 5521, a transfer to the cash box, a fuel advance, Operations' request and fill-up, Finance validating and paying, the Carburant comparison and « Rattacher », a reconciliation, a recurring expense, Emprunts & Financements: Smart Logistics' loan approved by the DG and a repayment) | `tresorerie-depenses.js` | Remade 18/11/2026 (track B, the owner's decisions 12 and 15), 8:43, 11 chapters, 26.3 MB, **replaces the first cut** (6:05); sent in the chat; files in `bureau_video/publish/tresorerie-depenses/`; to publish (§5) |
 | Modules, partie 10 : Salaires (an advance requested, approved and paid out; November undone, calculated again and paid; the detail, the payslip, the entries). Real pay: library audience = the payroll roles | `salaires.js` | Made 18/11/2026 (track C), 6:55, 12 chapters, -16.1 LUFS, 19.2 MB; sent in the chat; files in `bureau_video/publish/salaires/`; to publish (§5), with no `audience` (see §8) |
 | Modules, partie 11 : Comptabilité 1 (the Plan Comptable and a sub-account added and renamed; what the modules post by themselves in « Journal des Écritures »: a purchase, the salary transfer, a loan the DG approves; the 471 on Bilan d'Ouverture; a bank-fee entry saved as a draft and validated by the Contrôleur Financier; the balance, the tiers, lettrage) | `comptabilite-1.js` | Made 18/11/2026 (track C), 7:05, 10 chapters, -16.0 LUFS, 20.5 MB; sent in the chat; files in `bureau_video/publish/comptabilite-1/`; to publish (§5), audience the finance roles (the four pages' permissions) |
+| Modules, partie 12 : Comptabilité 2 (the delivery truck capitalised on credit, an office printer paid from MTN, November's depreciation run once, both in the Grand Livre; example budget targets against the ledger, down to the alert) | `comptabilite-2.js` | Made 18/11/2026 (track B), 6:56, 10 chapters, -16.1 LUFS, 17.9 MB; sent in the chat; files in `bureau_video/publish/comptabilite-2/`; to publish (§5) |
 | Administration, partie 1 : Identité & Paramètres (Identité de l'Entreprise, the Préférences, a preference changed and put back, the Journal d'audit and its « Détail », the Sessions) | `admin-identite-parametres.js` | Made 18/11/2026 (track C), 3:49, 7 chapters, -16.1 LUFS, 12.6 MB; sent in the chat; files in `bureau_video/publish/admin-1/`; to publish (§5), audience the admin roles (Paramètres pages only) |
 | Administration, partie 2 : Utilisateurs, Rôles & Permissions (the five accounts, « Provisionner » and « Inviter par email », edit and lock, the roles and their home page, a « Responsable Commercial » role created, granted and deleted) | `admin-utilisateurs-roles.js` | Made 18/11/2026 (track C), 3:59, 8 chapters, -15.9 LUFS, 11.3 MB; sent in the chat; files in `bureau_video/publish/admin-2/`; to publish (§5), audience the admin roles |
 | Administration, partie 3 : Centre d'Aide & Journal d'Erreurs (an article written and kept as a draft, the Salaires video uploaded, an error group copied and marked fixed) | `admin-aide-erreurs.js` | Made 18/11/2026 (track C), 3:05, 6 chapters, -16.1 LUFS, 9.1 MB; sent in the chat; files in `bureau_video/publish/admin-3/`; to publish (§5), audience the admin roles |
@@ -668,5 +669,20 @@ the help search, the help AI's answers and each page's « ? »), and sent in the
       example; the journal is filmed filtered (AC, then by reference) because the whole month lists each person's
       payslip entry; 11.2 is Facturation's (8.11); owner question 27 (purchase TVA). The copy is left as snapshot
       `after-11-comptabilite-1`.
+- [x] Modules, partie 12 · Comptabilité 2 (18/11/2026, track B on copy B, the last of track B): QA (the crawler as the CF, the
+      Comptable and the DG on Immobilisations and Budgets & Performance: a PHP warning on every budget load; then by hand,
+      scripted: LT 742 KL capitalised (nothing posted), November run twice, a second asset (« Duplicate entry DOT-2026-11 »),
+      budget actuals against the ledger (payroll 0 against 1 365 320 F), the closing phase in a rolled-back transaction),
+      PR #81 (12.1 the acquisition posted, Dr 2x / Cr 4812 or the paying account; 12.2 one run a month per asset, DOT-…-2 for
+      a later asset, no future month, the closing completing only missing months and its entries posted; 12.3 actuals from
+      the ledger, buckets mapped to the accounts the app posts to, « Coût des marchandises vendues », budget writes with
+      CSRF, the MD target and « Écart budgétaire global » on the real targets; migrations 148 and 149,
+      `fixed_assets_budgets.test.php`), then #83 (the scene and five rehearsal fixes). Both merged and deployed; live serves
+      the new scripts and both APIs refuse anonymous calls (migration 148 on live data not checked: needs a sign-in). The
+      video follows the Contrôleur Financier (Luc Nana) and the Comptable (Daniel Massomba). Decisions: the truck's
+      18 500 000 F, the printer (185 000 F from MTN) and the 2026 targets are examples the narration names as such; the
+      maintenance target is set tight (100 000 F) to show an alert; owner questions 28 (the ninth budget line) and 29
+      (« Déjà au bilan »). Left: VIDEO_QA_FINDINGS 12.4 to 12.7. Track C took migration 147 the same day: mine were
+      renumbered 148/149 before merging. The copy is left as snapshot `after-12-comptabilite-2`. Track B ends here.
 - [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
       Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.

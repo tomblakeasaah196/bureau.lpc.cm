@@ -234,7 +234,7 @@ module.exports = {
             do: async (s) => { await pickLike(s, "#gl_account_select", /\[28451\]/); await h.soft(s, s.page.locator("#tbody-gl tr").filter({ hasText: "DOT-2026-11" }).first(), 6000); } },
           { say: "Le compte 5521 de MTN porte la sortie de l'imprimante, comme la carte du compte.",
             speech: "Le compte cinquante-cinq vingt et un de M T N porte la sortie de l'imprimante, comme la carte du compte.",
-            do: async (s) => { await pickLike(s, "#gl_account_select", /[5521]/); await h.soft(s, s.page.locator("#tbody-gl tr").filter({ hasText: "Imprimante" }).first(), 6000); } },
+            do: async (s) => { await pickLike(s, "#gl_account_select", /^\[5521\]/); await h.soft(s, s.page.locator("#tbody-gl tr").filter({ hasText: "Imprimante" }).first(), 6000); } },
           "Ces écritures ne se saisissent jamais à la main : elles partent des Immobilisations, et le registre reste juste.",
           "À la clôture de l'exercice, seuls les mois jamais passés sont complétés. L'amortissement n'est jamais compté deux fois.",
         ],
