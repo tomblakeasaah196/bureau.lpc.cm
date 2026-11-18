@@ -225,7 +225,7 @@ then by hand: a setting changed and put back, a role created, granted and delete
 owner was signed in, a session closed, an article draft published and deleted, a video uploaded, an error group
 marked fixed). What was fixed is in docs/TRAINING_VIDEOS.md §7. Left:
 
-1. [V] Préférences hid 19 settings no screen reads (migration 140, values kept): payment terms, quote validity,
+1. [V] Préférences hid 19 settings no screen reads (migration 141, values kept): payment terms, quote validity,
    currency, late penalty, quote terms, date and number formats, the purchase-order and credit-note prefixes
    (orders are numbered PO-…; there are no credit notes), the three alerts, negative stock, password expiry,
    2FA for admins, audit retention (the purge keeps years, not 365 days). Any the owner wants is wired, then shown
