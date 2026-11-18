@@ -822,7 +822,7 @@ function renderProductRows(rows) {
             <td class="py-4 px-6">${LPC.raw(accountChip(variants[0]))}</td>
             <td class="py-4 px-6">${LPC.raw(statusCell(anyActive ? 1 : 0))}</td>
             <td class="py-4 px-6 text-right whitespace-nowrap">
-                <span class="text-[10px] text-gray-400">Modifier une variante ci-contre</span>
+                <span class="text-[10px] text-gray-400">${canEdit() ? 'Modifier' : 'Consulter'} une variante ci-contre</span>
             </td>
         </tr>`;
     });

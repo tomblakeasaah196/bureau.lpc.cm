@@ -93,6 +93,9 @@ The « Eau » category is set to sell in packs, so the OPUR form shows « Unité
    in the HTML before the list loads (`clients.php:276-303`).
 8. [V] An invalid AIR rate is swallowed as « Erreur serveur » (`create_client.php:68, 123-130`); « Devis »
    and « Nouveau Client » show to roles that are then refused.
+9. [V] The shared product picker (quotes, orders, Données de Base tariffs) shows the linked empty's price as
+   « + consigne 200 FCFA » (`lpc-product-picker.js`): LPC sells the bottle with no deposit, and that price is
+   what a recycler pays for the empty (seen filming Données de Base, 18/11/2026).
 
 ## 5 · Ventes & Commandes
 

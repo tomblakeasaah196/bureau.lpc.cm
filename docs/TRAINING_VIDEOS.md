@@ -14,6 +14,7 @@ its choreography together.
 | Introduction, partie 1 : Premiers pas (the app, signing in, the shell, signing out) | `intro-1-premiers-pas.js` | Made 17/11/2026, 6:57, 10 chapters, -16.0 LUFS, 18.8 MB; sent in the chat; to publish in the live Centre d'Aide once this branch is deployed (§5) |
 | Courrier (your mailbox, shared mailboxes, Praxis AI) | `courrier.js` (+ `courrier.seed.php`) | Made 18/11/2026, 6:28, 10 chapters, -16.0 LUFS, 18.0 MB; sent in the chat; to publish (§5) |
 | Introduction, partie 2 : Chacun son espace (each role's home and menu) | `intro-2-chacun-son-espace.js` | Made 18/11/2026, 4:44, 7 chapters, -16.1 LUFS, 12.7 MB; sent in the chat; to publish in the live Centre d'Aide once deployed (§5) |
+| Modules, partie 1 : Données de Base (products, client and supplier tariffs, suppliers and their 401, employees; what view-only roles see) | `donnees-de-base.js` | Made 18/11/2026, 6:33, 9 chapters, -16.0 LUFS, 15.8 MB; sent in the chat; files in `bureau_video/publish/donnees-de-base/`; to publish (§5) |
 
 ---
 
@@ -336,6 +337,7 @@ Each is fixed on the video's branch, in the screen's own code, and listed here.
 | 18/11/2026 | Données de Base, screen words | Table names on screen (`client_prices`, `products.base_price`), « Vue référentiel », roles by technical name, « Prix de consigne » for an empty LPC resells to recyclers, dashes, « OK » | Fixed: plain words; roles as Paramètres says them; the empty's price is « Prix de revente »; toggles confirm and report the server's answer |
 | 18/11/2026 | Help, Données de Base articles | Five tabs, « réservée aux Administrateurs », an employee form with email and password, deposits on empties, the fallback step | Fixed: migration 130 rewrites the 14 articles (FR, and EN where one exists) and their assistant chunks |
 | 18/11/2026 | `qa.js` on any page with « Aide » | A help article that says « erreur » in its prose was reported as an error on screen | Fixed: in the help drawer only the title is read |
+| 18/11/2026 | Données de Base, empties family row | For the Comptable it said « Modifier une variante ci-contre » | Fixed: « Consulter une variante ci-contre » for view-only roles |
 
 ## 8 · Where the work stands
 
@@ -361,5 +363,14 @@ the help search, the help AI's answers and each page's « ? »), and sent in the
       signature; Timothée adds invoicing@lpc.cm and gives Daniel « Lecture et envoi » and Luc « Gestionnaire »; Daniel
       assigns himself NOFIA SA's conversation, notes it, has Praxis AI summarise it and draft the reply, sends it from
       INVOICING-LPC, marks it Traitée, and asks his mail which supplier invoices await payment. Two bugs fixed.
+- [x] Modules, partie 1 · Données de Base (18/11/2026, the first module session of the overnight series): QA on the
+      copy (crawler as the four roles that open the page, then every tab by hand, scripted), PR #51 (§1 of
+      VIDEO_QA_FINDINGS, all six rows fixed, help migration 130, `master_data_access.test.php`), merged and deployed;
+      live serves the new script (the CF's own view on live not checked: no live sign-in from a session). The
+      video follows the Contrôleur Financier (Luc on screen) through every tab and the Comptable's view-only
+      screen (Daniel). Decisions: the employee shown is JBS Praxis Support's record (a colleague's pay and family
+      details never go on camera); HOREB SARL is saved unchanged to show its 401002 in the confirmation; no
+      supplier or tariff is created on camera (none agreed in real life). The copy is left as snapshot
+      `after-01-donnees-de-base` for Gestion des Achats.
 - [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
       Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.
