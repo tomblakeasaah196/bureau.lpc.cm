@@ -297,6 +297,9 @@ top of this file.
     `getByLabel(...).filter({ visible: true })`.
 20. **Écrire avec l'IA shows its draft for review**: « Utiliser ce brouillon » puts it in the message.
 21. **The voice service drops connections at times** (« getaddrinfo failed »): rerun narrate; it resumes.
+22. **The live export has no stored routines** (phpMyAdmin « Quick »): the triggers come, `post_journal_entry`
+    does not, and nothing can post an entry. `ground.load()` and `restore()` now recreate it from migration 004;
+    a copy loaded before 18/11/2026 needs `node -e 'require("./scripts/video/ground").routines()'` once.
 
 ## 7 · Bugs found while filming
 
@@ -338,6 +341,13 @@ Each is fixed on the video's branch, in the screen's own code, and listed here.
 | 18/11/2026 | Help, Données de Base articles | Five tabs, « réservée aux Administrateurs », an employee form with email and password, deposits on empties, the fallback step | Fixed: migration 130 rewrites the 14 articles (FR, and EN where one exists) and their assistant chunks |
 | 18/11/2026 | `qa.js` on any page with « Aide » | A help article that says « erreur » in its prose was reported as an error on screen | Fixed: in the help drawer only the title is read |
 | 18/11/2026 | Données de Base, empties family row | For the Comptable it said « Modifier une variante ci-contre » | Fixed: « Consulter une variante ci-contre » for view-only roles |
+| 18/11/2026 | Gestion des Achats, reception (VIDEO_QA_FINDINGS 2.2) | The Responsable des Opérations, who is told to receive, got 403: `receive_po` checked `.approve` only; « Recevoir », « Valider l'Entrée », « Annuler Commande » showed to everyone | Fixed: reception accepts `inventory.stock.receive` or `.approve`; the buttons are gated; both purchase controllers check CSRF on POST; `procurement_flow.test.php` |
+| 18/11/2026 | Stock accounting at reception (3.1) | Reception booked Dr 601 / Cr 401 only; nothing ever debited 31x, so each delivery's Dr 6031 / Cr 31x drove stock into credit and counted the bottles' cost twice | Fixed, perpetual inventory (owner default #3): each reception also books Dr 31x / Cr 6031 at cost (`JournalPoster::postStockEntry`), reversed on cancellation; migration 131 books it for earlier receptions (live 17/11: 338 500 F into 311) |
+| 18/11/2026 | Gestion des Achats, payment (2.6, 2.7) | An order could be saved « Payé » with no money moving (live: PO-2611-00005, 455 000 F, not received); its first reception, even partial, paid the whole total; « Payer Fournisseur » paid partial receptions in full; a remise taking the order to 0 broke its reception | Fixed: an order is always saved unpaid; it is paid only through « Payer Fournisseur », once fully received (the list offers only those); never at reception; a remise cannot zero an order; migration 131 sets « Payé » orders with no payment entry back to unpaid; « Dettes Fournisseurs » counts what was received and not paid |
+| 18/11/2026 | Gestion des Achats, remise (2.4) | Every typed « Remise » was booked as ristourne used (Dr 401 / Cr 4098); a remise on HOREB SARL (no ladder) failed | Fixed: for a supplier with a ladder it is « Ristourne utilisée » (as before); otherwise « Remise accordée par le fournisseur », booked net at reception in proportion; `remise_type` on the order (migration 131) |
+| 18/11/2026 | Ristourne earned (2.5) | The base was divided by 1,1925 and 19,25 % TVA plus 2 % précompte withheld, debited to 4452 / 4473, on purchases booked without TVA: 50 × 1 850 earned 1 832 instead of 2 775 | Fixed: rate × amount received as booked, Dr 4098 / Cr 6019, nothing withheld; the tax settings block is gone from Ristournes; past accruals left as they are (« For the owner » #9) |
+| 18/11/2026 | Gestion des Achats, screens (2.8, 2.10) | « Enregistrer & Valider Stock » touched no stock; cancelling sent no reason; no reception column; the pay list printed « RECEIVED »; windows sat under the sidebar handle | Fixed: « Enregistrer la commande »; a reason is required; « Réception » and real « Paiement » columns; « Reçue en totalité »; purchase and stock windows above the shell |
+| 18/11/2026 | The copy: posting any entry | « Erreur serveur » on reception: the live export carries no stored routines, so `post_journal_entry` was missing on the copy (no entry could post since the copy began) | Fixed in the tooling: `ground.routines()` recreates it from migration 004 after every load and restore (§6.22) |
 
 ## 8 · Where the work stands
 

@@ -145,6 +145,22 @@ function load(file, { quiet = false } = {}) {
   } finally {
     fs.closeSync(input);
   }
+  routines();
+}
+
+/**
+ * The stored procedure every journal entry posts through (post_journal_entry, migration 004). The live
+ * export (phpMyAdmin « Quick ») carries the triggers but no routines, so on a copy loaded from it no
+ * entry could post: a reception answered « Erreur serveur » (found filming Gestion des Achats,
+ * 18/11/2026). Recreated from the migration's own text after every load and restore.
+ */
+function routines() {
+  const d = guard();
+  const src = fs.readFileSync(path.join(ROOT, "migrations", "004_double_entry_trigger.sql"), "utf8");
+  const block = /DROP PROCEDURE IF EXISTS post_journal_entry \/\/[\s\S]*?END\/\//.exec(src);
+  if (!block) throw new Error("post_journal_entry not found in migration 004.");
+  execFileSync(exe("mysql"), [...auth(d), "--default-character-set=utf8mb4", d.name],
+    { input: `DELIMITER //\n${block[0]}\nDELIMITER ;\n`, stdio: ["pipe", "ignore", "inherit"] });
 }
 
 /** Apply the repository's pending migrations to the copy (the copy runs this branch's code). */
@@ -213,4 +229,4 @@ async function mailTo(to, { subject } = {}) {
   return { to, subject: full.Subject, html: full.HTML || text, at: full.Date };
 }
 
-module.exports = { ROOT, HOME, ENV_FILE, ORIGIN, PORT, DB_PORT, PASSWORD, PHP, env, db, guard, sql, quote, ready, snapshot, restore, load, migrate, serve, mailTo, mail, mailAsync, aiReplies, MAIL_STATE, AI_REPLIES };
+module.exports = { ROOT, HOME, ENV_FILE, ORIGIN, PORT, DB_PORT, PASSWORD, PHP, env, db, guard, sql, quote, ready, snapshot, restore, load, routines, migrate, serve, mailTo, mail, mailAsync, aiReplies, MAIL_STATE, AI_REPLIES };

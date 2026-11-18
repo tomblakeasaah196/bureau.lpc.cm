@@ -33,6 +33,11 @@ if (empty($action)) {
     exit;
 }
 
+// Every write here is a POST from fetch(), which carries the CSRF header
+// (lpc-rbac.js). A POST without a valid token is refused (VIDEO_QA_FINDINGS
+// 2, 18/11/2026: neither purchase controller checked it).
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') Csrf::requireValid();
+
 // ==========================================
 // HELPER: NOTIFICATION ENGINE
 // ==========================================
@@ -45,7 +50,7 @@ function notifyAdminFinance($db, $title, $message, $relatedUrl = null, $type = '
         SELECT u.id
         FROM users u
         JOIN roles r ON u.role_id = r.id
-        WHERE r.name IN ('admin', 'finance', 'accountant', 'Admin', 'Accountant') AND u.status = 'active'
+        WHERE r.name IN ('admin', 'directeur_general', 'controleur_financier', 'accountant') AND u.status = 'active'
     ");
     $target_users = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
@@ -399,7 +404,11 @@ try {
         case 'receive_po':
             // Receiving goods writes stock, recomputes CUMP and posts to the
             // general ledger. Viewing stock is not authority to do any of that.
-            Rbac::requirePermission('inventory.procurement.approve');
+            // The Responsable des Opérations receives (inventory.stock.receive,
+            // the permission that names the job and the one notified when an
+            // order is placed); the DG and the CF keep it through .approve
+            // (VIDEO_QA_FINDINGS 2.2, 18/11/2026: Ops used to get a 403).
+            Rbac::requireAnyPermission(['inventory.stock.receive', 'inventory.procurement.approve']);
 
             $db->beginTransaction();
 
@@ -417,7 +426,7 @@ try {
             require_once __DIR__ . '/../../includes/functions/procurement.php';
             $po_has_pay_cols = lpc_po_has_payment_columns($db);
             $po_cols = "reference, supplier_id, subtotal, date, status, payment_status, total_amount"
-                     . ($po_has_pay_cols ? ", treasury_account_id, payment_je_id" : ", NULL AS treasury_account_id, NULL AS payment_je_id");
+                     . (lpc_po_has_remise_columns($db) ? ", remise_type, remise_amount" : ", 'none' AS remise_type, 0 AS remise_amount");
 
             $stmtPO = $db->prepare("SELECT {$po_cols} FROM purchase_orders WHERE id = ? FOR UPDATE");
             $stmtPO->execute([$po_id]);
@@ -469,6 +478,24 @@ try {
             // the rate that happens to be configured today.
             // ---------------------------------------------------------------
             $vat_ctx = lpc_po_vat_context($db, $po_id);
+
+            // A remise the supplier grants on this order (remise_type
+            // 'discount', a supplier with no ristourne ladder) lowers what
+            // every bottle costs LPC: the purchase, the stock and the CUMP are
+            // booked net, in proportion, reception by reception, so a partial
+            // reception carries its share and the last one completes it. A
+            // ristourne used ('ristourne') is not a lower price: the goods are
+            // booked at the order price and the ristourne settles part of the
+            // debt (postRebateUsage at save). VIDEO_QA_FINDINGS 2.4.
+            $net_factor = 1.0;
+            if (($po['remise_type'] ?? 'none') === 'discount' && (float) $po['remise_amount'] > 0) {
+                $gross_items = 0.0;
+                foreach ($db->query("SELECT quantity, unit_price FROM purchase_order_items WHERE purchase_order_id = " . (int) $po_id)->fetchAll(PDO::FETCH_ASSOC) as $li) {
+                    $gross_items += (float) $li['quantity'] * (float) $li['unit_price'];
+                }
+                if ($gross_items > 0) $net_factor = max(0.0, 1 - (float) $po['remise_amount'] / $gross_items);
+            }
+            $stock_values = [];   // product_id => value moved into stock this reception
 
             $stmtMove = $db->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, reference_id, logged_by) VALUES (?, 'in_supplier', ?, ?, ?)");
             $stmtGetProd = $db->prepare("SELECT name, cump, COALESCE((SELECT SUM(CASE WHEN movement_type LIKE 'in_%' THEN quantity ELSE -quantity END) FROM inventory_movements WHERE product_id = ?), 0) as current_qty FROM products WHERE id = ? FOR UPDATE");
@@ -550,7 +577,7 @@ try {
                 //    and COGS on every subsequent sale. lpc_po_unit_cost returns
                 //    the TTC price unchanged when the VAT is not deductible,
                 //    because then it genuinely IS part of the cost.
-                $unit_cost = lpc_po_unit_cost($unit_price, $vat_ctx);
+                $unit_cost = lpc_po_unit_cost($unit_price, $vat_ctx) * $net_factor;
                 if ($qty_before <= 0) {
                     $new_cump = $unit_cost;
                 } else {
@@ -562,7 +589,8 @@ try {
 
                 // Kept TTC: it is what the supplier will invoice and what 401
                 // must be credited with. The split happens once, below.
-                $received_value += $received_qty * $unit_price;
+                $received_value += $received_qty * $unit_price * $net_factor;
+                $stock_values[$pid] = ($stock_values[$pid] ?? 0) + $received_qty * $unit_cost;
 
                 // Accumulate this reception's TTC value by category; the
                 // actual rebate math happens once per category below, after
@@ -570,7 +598,7 @@ try {
                 // per line.
                 $cat_id = $po_product_category[$pid] ?? null;
                 if ($cat_id !== null) {
-                    $category_ttc_this_reception[$cat_id] = ($category_ttc_this_reception[$cat_id] ?? 0) + ($received_qty * $unit_price);
+                    $category_ttc_this_reception[$cat_id] = ($category_ttc_this_reception[$cat_id] ?? 0) + ($received_qty * $unit_price * $net_factor);
                 }
 
                 // Build Summary
@@ -606,33 +634,19 @@ try {
                 $tier_rate      = (float) $cat_row['tier_rate'];
                 if ($tier_rate <= 0) continue; // no ladder configured for this (supplier, category)
 
-                $vat_rate       = (float) $cat_row['vat_rate_applied'];
-                $precompte_rate = (float) $cat_row['precompte_rate_applied'];
-
-                $ht_this_reception   = $ttc_this_reception / (1 + $vat_rate);
-
-                // ROUNDING ORDER MATTERS HERE.
-                //
-                // This used to be one expression:
-                //     net = round(gross × (1 − vat_rate − precompte_rate))
-                // which produced the net and threw the two withheld components
-                // away — they were never computed, never stored and never
-                // posted, so the tax the supplier keeps back on our behalf
-                // existed nowhere in the books.
-                //
-                // Each component is now rounded to the whole franc (FCFA has no
-                // subunit) and the net is taken as the REMAINDER rather than
-                // being rounded independently. That is what guarantees
-                //     net + VAT + précompte == gross
-                // exactly, with no residual franc. Rounding all three
-                // separately can drift by up to 1 FCFA, and a drifting
-                // three-line entry is refused by post_journal_entry's SIGNAL
-                // 45000 — which would roll back the entire goods reception over
-                // a rounding artefact.
-                $gross_rebate       = round($ht_this_reception * $tier_rate, 0, PHP_ROUND_HALF_UP);
-                $vat_withheld       = round($gross_rebate * $vat_rate,       0, PHP_ROUND_HALF_UP);
-                $precompte_withheld = round($gross_rebate * $precompte_rate, 0, PHP_ROUND_HALF_UP);
-                $net_rebate         = $gross_rebate - $vat_withheld - $precompte_withheld;
+                // The ristourne is the tier rate times the purchases received as
+                // they are booked. LPC's purchases are booked without TVA
+                // (migration 124: no TVA is recovered on them), so there is no
+                // TVA to take out of the base and none to give back on the
+                // ristourne, and no précompte applies to a supplier's rebate.
+                // The old formula divided by 1,1925, then withheld 19,25 % and
+                // 2 % of that, and debited 4452 / 4473 on purchases that never
+                // carried TVA (VIDEO_QA_FINDINGS 2.5, 18/11/2026; the owner
+                // confirms in the register, « For the owner »).
+                $gross_rebate       = round($ttc_this_reception * $tier_rate, 0, PHP_ROUND_HALF_UP);
+                $vat_withheld       = 0.0;
+                $precompte_withheld = 0.0;
+                $net_rebate         = $gross_rebate;
 
                 if ($net_rebate > 0) {
                     $total_rebate_earned += $net_rebate;
@@ -700,6 +714,9 @@ try {
                 $po['reference'],
                 $received_vat
             );
+
+            // Perpetual inventory: the same value enters 31x (VIDEO_QA_FINDINGS 3.1).
+            JournalPoster::postStockEntry($po_id, $stock_values, date('Y-m-d'), $po['reference']);
 
             // ==========================================
             // 6. RISTOURNE ACCRUAL — one ledger row + one journal entry PER
@@ -781,18 +798,10 @@ try {
             //   · payment_je_id already set — payment already posted.
             //   · migration 093 not applied — columns don't exist, so the
             //     select above coerced them to NULL and this branch is skipped.
-            if ($po_has_pay_cols
-                && $po['payment_status'] === 'paid'
-                && !empty($po['treasury_account_id'])
-                && empty($po['payment_je_id'])) {
-                JournalPoster::postSupplierPayment(
-                    $po_id,
-                    (int) $po['treasury_account_id'],
-                    (float) $po['total_amount'],
-                    date('Y-m-d'),
-                    "Règlement à la réception"
-                );
-            }
+            // No payment here any more. An order used to be saved « Payé » and
+            // the first reception, even a partial one, paid its whole total;
+            // money now moves only through « Payer Fournisseur », once the
+            // order is fully received (VIDEO_QA_FINDINGS 2.6 and 2.7).
 
             $operator_name = $_SESSION['user_name'];
             notifyAdminFinance($db, "Réception Marchandises", "$operator_name a réceptionné le BC : " . $po['reference'],

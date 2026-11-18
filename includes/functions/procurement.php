@@ -183,6 +183,24 @@ function lpc_po_has_payment_columns(PDO $db): bool
 }
 
 /**
+ * True once migration 131 is applied: purchase_orders records which kind of
+ * remise the order carries ('none', 'ristourne' used, or a 'discount' the
+ * supplier grants) and its amount, apart from the line reductions.
+ */
+function lpc_po_has_remise_columns(PDO $db): bool
+{
+    static $has = null;
+    if ($has !== null) return $has;
+
+    return $has = ((int) $db->query("
+        SELECT COUNT(*) FROM information_schema.columns
+         WHERE table_schema = DATABASE()
+           AND table_name   = 'purchase_orders'
+           AND column_name IN ('remise_type','remise_amount')
+    ")->fetchColumn() === 2);
+}
+
+/**
  * The unit cost a received item should carry into stock, from its TTC price.
  *
  * Recoverable VAT is not a cost — it is a receivable against the State, and

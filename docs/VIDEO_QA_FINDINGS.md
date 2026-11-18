@@ -30,37 +30,21 @@ The « Eau » category is set to sell in packs, so the OPUR form shows « Unité
 
 ## 2 · Gestion des Achats
 
-1. [V] There is no approval step: PO statuses are pending / partial / received / cancelled. The
-   `inventory.procurement.approve` permission gates reception, payment and cancellation instead.
-2. [V] **Ops cannot receive goods**: `receive_po` (`inventory_controller.php:402`) checks
-   `inventory.procurement.approve` (DG, CF). Ops holds `inventory.stock.receive`, which no API checks,
-   and is the one notified to receive (`procurement_controller.php:1213`). « Recevoir » and « Annuler
-   Commande » show to everyone and answer 403. Fix: reception accepts `inventory.stock.receive`.
-3. [V] CF holds `.approve` but not `.create_po`: the CF can pay and receive but not order. Ops and Cpt
-   can order. (Who orders is the owner's call: see « For the owner ».)
-4. [V] Every typed « Remise » is booked as spending the supplier's ristourne (Dr 401x / Cr 4098,
-   `procurement_controller.php:945, 1163-1188`); HOREB has no ladder, so any remise on HOREB fails
-   « Ce fournisseur ne dispose pas d'un compte ristourne ». The KPI hint says otherwise.
-5. [V] The ristourne still takes TVA out of the base (TTC / 1.1925) and withholds VAT although purchases
-   are booked without TVA (`:1152`, `inventory_controller.php:612`). Accounting rule to confirm.
-6. [V] A PO marked « Payé » shows Payé before any money moves; on a partial reception the full amount is
-   paid at the first delivery (contradicts `inventory_controller.php:771-773`); a remise taking the
-   total to 0 makes `postSupplierPayment` throw and the reception fail.
-7. [V] Partial reception, then « Payer Fournisseur », pays the full total: 401 goes debit.
-8. [V] « Enregistrer & Valider Stock » does not touch stock (reception does).
-9. [V] No supplier invoice step: the PO is the payable. `supplier_invoices` is referenced by TaxEngine
-   but the table does not exist on live.
-10. [V] Cancelling sends no reason; the list has no reception-status column; `postSupplierPayment`'s
-    docblock (`JournalPoster.php:1016-1019`) is stale.
+Reproduced on the copy and fixed by the « Gestion des Achats » video session (18/11/2026): 2.2, 2.4, 2.5,
+2.6, 2.7, 2.8, 2.10 and 3.1 (docs/TRAINING_VIDEOS.md §7). Left:
+
+1. [V] There is no approval step: PO statuses are pending / partial / received / cancelled; `.approve` gates
+   payment and cancellation. Whether an order needs approval before it goes out is the owner's call (#10).
+3. [V] The CF holds `.approve` but not `.create_po` (owner #1: Ops orders, the CF pays; unchanged).
+9. [V] No supplier invoice step: the order is the payable. `supplier_invoices` is referenced by TaxEngine
+   but no migration creates it (see 13.3).
+11. [V] A partially received order can only be paid once the rest arrives: there is no way to close the
+   remainder of an order the supplier will not complete (cancel cancels it all). Owner #11.
 
 ## 3 · Stock & Emballages, Fiche de Stock
 
-1. [I] **Stock accounting mixes two methods.** Reception posts Dr 601 / Cr 401x and never 31x; each BL
-   posts Dr 6031 / Cr 31x at CUMP (`JournalPoster.php:515-577`). 31x goes credit and the cost of goods
-   is counted twice (601 and 6031). SYSCOHADA perpetual inventory wants, at reception, also
-   Dr 31x / Cr 6031 (or reception straight to 31x). Avaries, inventory adjustments and refused bottles
-   post nothing. **The biggest accounting finding: fix with the Comptabilité 1 session if not here, and
-   check the live books' 31x / 601 / 6031 before and after.**
+1. Fixed with Gestion des Achats (perpetual inventory at reception). Still open: avaries, inventory
+   adjustments and refused bottles post nothing to 31x (`inventory_controller.php`, `signature_side_effects.php`).
 2. [V] `inventory.stock.damage` and `.audit` are never enforced: anyone with `inventory.stock.view` can
    declare an avarie or seal an inventory.
 3. [V] Inventaire shows only the first 25 products (unpaginated read, page 25) and the server trusts the
@@ -276,3 +260,6 @@ Grants below are from migrations; live may differ (check `role_permissions` on t
 | 6 | Fleet costs (fuel, repairs): post them to the ledger from Flotte, or keep typing them in Dépenses? | Post from Flotte to the same expense accounts, linked to the vehicle. |
 | 7 | OPUR 10L's « Coût de référence » reads 100 F while it sells at 1 000 F and no supplier has a 10L tariff: what does LPC pay for a 10L? (Données de Base → Produits, now editable by the DG and the CF.) | Left as it is on live; the video does not show it. |
 | 8 | The never-applied « prix de repli » (a floor for products with no default price) was removed from the screen rather than wired into sales. Want it wired? | Removed: every product has a default price, and a product without one is flagged in amber. |
+| 9 | The ristourne is now rate × purchases received as booked (no TVA, no précompte withheld), because purchases are booked without TVA. Source du Pays: is its 3 % paid on the price LPC pays, with nothing withheld? Past accruals on live were booked the old way: PO-2611-00003 1 832 in 4098 (+448 in 4452, +47 in 4473) instead of 2 775; PO-2611-00004 366 (+90, +9) instead of 555. | New rule from 18/11/2026; past entries left as booked (a correction of 943 + 189 F to 4098 / 6019 and of the 4452 / 4473 debits is the accountant's to post if confirmed). |
+| 10 | Should a purchase order be approved (DG or CF) before it goes to the supplier? | No approval step: Ops orders, the CF pays. |
+| 11 | A supplier delivers only part of an order and will not deliver the rest: how should the remainder be closed? | Not possible yet: the order waits; pay after the last reception. |
