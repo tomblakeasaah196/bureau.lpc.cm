@@ -104,7 +104,7 @@ module.exports = {
             do: (s) => s.click(s.page.locator("#tab-contracts")) },
           { say: "Un salaire ne se change pas ici, mais dans Données de Base, Employés & RH. « Voir la fiche » y mène.",
             do: (s) => h.soft(s, s.page.locator("#tbody-contracts").getByRole("link", { name: /Voir la fiche/ }).first()) },
-          "Les chauffeurs de LPC n'y sont pas encore : ils seront ajoutés quand leur fiche sera créée.",
+          "Les chauffeurs de LPC n'y sont pas encore : ils seront ajoutés plus tard.",
         ],
       }],
     },
