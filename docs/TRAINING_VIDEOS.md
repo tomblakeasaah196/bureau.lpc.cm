@@ -69,6 +69,10 @@ Everything below is on the owner's PC already (17/11/2026). A new machine needs 
      command of a track B session runs with `VIDEO_HOME=C:/Users/Tom-Blake/bureau_video_b
      VIDEO_DB_PORT=3318 VIDEO_PORT=8141` (`ground.js` reads them; its guard refuses any other port).
      Track B delivers to the same `C:/Users/Tom-Blake/bureau_video/publish/`.
+   - **Track C** (added by the owner, 18/11/2026, three sessions at once): Salaires, then the admin
+     series, taken from track B's list. Copy C: `VIDEO_HOME` `C:/Users/Tom-Blake/bureau_video_c`, MySQL
+     **3319**, server **8142**, its own git worktree; every command carries `VIDEO_HOME=C:/Users/Tom-Blake/bureau_video_c
+     VIDEO_DB_PORT=3319 VIDEO_PORT=8142`. Three sessions share the PC's 5-agent cap: no subagents.
    - **Filming takes turns.** `make.js` takes the machine's filming turn before `film` and `assemble`
      (a lock file, `~/.lpc-video-filming.lock`) and waits while the other track holds it: filming and
      encoding are what overheated the owner's laptop. QA, fixes and narration run freely.
@@ -411,6 +415,7 @@ Each is fixed on the video's branch, in the screen's own code, and listed here.
 | 18/11/2026 | Gestion du Personnel, a calculated month's grid (rehearsal) | It showed dashes for every withholding and the net, and today's contract instead of the payslip: November's slips (a 50 000 F prime on base 0 for two people) read as 150 000 F and 0 | Fixed: a calculated row shows its payslip's own figures (base, indemnités, prime, brut, retenues, net, mode) |
 | 18/11/2026 | Gestion du Personnel, a row with no salary (rehearsal) | The support account's 0 F row kept a calculated month « open »: « Calculer & Valider Paie » stayed on and no notice said the month was done | Fixed: such a row is locked and marked « Sans salaire » |
 | 18/11/2026 | Gestion du Personnel, layout (rehearsal) | The sidebar handle sat on the detail window's title; the three footer buttons broke onto two lines; the advances list printed 2026-11-18 | Fixed: the page's windows at z-index 9000 (as Achats, PR #53); buttons on one line; 18/11/2026 |
+| 18/11/2026 | Gestion du Personnel, notices and roles (first take) | After « Calculer & Valider Paie » and « Marquer Payées » two notices stacked: the grid's « calculée, reste à payer » covered the result; the payment window, the detail window and the contracts list printed roles as OPERATIONS, ACCOUNTANT, CONTROLEUR_FINANCIER | Fixed: the result is read first, then the grid reloads without its notice; roles named as in Paramètres |
 
 ## 8 · Where the work stands
 
