@@ -94,6 +94,9 @@ if (!function_exists('lpc_nav_build_base_sections')) {
                     'href'       => $base['href'] . ($entry['suffix'] ?? ''),
                     'icon'       => $base['icon'],
                     'permission' => $base['permission'],
+                    // Pages reached from this one that are not in the menu
+                    // (Centre d'Aide (vidéos) from the articles): they light it.
+                    'also'       => $base['also'] ?? [],
                 ];
             }
 

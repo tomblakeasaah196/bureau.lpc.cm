@@ -366,6 +366,9 @@ details > summary::-webkit-details-marker{display:none}
 
 
 <?php
+// The top bar was blank on this page (found while filming the admin videos).
+$pageTitle    = lpc_nav_label('admin_errors');
+$pageSubtitle = $lang === 'en' ? 'Administration · server errors' : 'Administration · erreurs du serveur';
 require __DIR__ . '/../../includes/components/sidebar.php';
 require __DIR__ . '/../../includes/components/topbar.php';
 ?>

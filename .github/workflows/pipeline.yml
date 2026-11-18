@@ -79,6 +79,8 @@ jobs:
         run: php scripts/tests/payroll_flow.test.php
       - name: Trésorerie & Dépenses (one gate, who pays, opening balances, the fuel check)
         run: php scripts/tests/treasury_expenses.test.php
+      - name: Administration (settings reads and writes, sessions that end, the audit trail, roles)
+        run: php scripts/tests/admin_settings.test.php
 
   mail:
     # Courrier (docs/MAIL.md §9): every scripts/tests/mail/*.test.php, each blocking. PR 1's three: the engine

@@ -19,9 +19,24 @@
 
     var form, status;
 
+    // The list view has no form, so no hidden field: its « Publié / Brouillon »
+    // and « Supprimer » sent an empty token, got 419 and silently did nothing
+    // (found while filming the admin videos, 18/11/2026). The page's own token
+    // (lpc-rbac) is always there.
     function csrf() {
         var el = document.querySelector('input[name="_csrf"]');
-        return el ? el.value : '';
+        if (el && el.value) return el.value;
+        var c = window.LPC && window.LPC.rbac && window.LPC.rbac.csrf;
+        return (c && c.token) || '';
+    }
+
+    function fail(res) {
+        var msg = (res && res.j && res.j.message) || (isEn() ? 'The change was not saved.' : "La modification n'a pas été enregistrée.");
+        if (window.LPC && window.LPC.modal && window.LPC.modal.alert) {
+            window.LPC.modal.alert(msg, { title: isEn() ? 'Not saved' : 'Non enregistré', level: 'error' });
+        } else {
+            window.alert(msg);
+        }
     }
 
     function isEn() {
@@ -46,7 +61,8 @@
             headers: { 'X-CSRF-Token': csrf(), 'Accept': 'application/json' },
             body: body
         }).then(function (r) {
-            return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+            return r.json().then(function (j) { return { ok: r.ok, j: j }; },
+                                 function () { return { ok: false, j: { status: 'error' } }; });
         });
     }
 
@@ -57,8 +73,8 @@
             if (t) {
                 e.preventDefault();
                 post('toggle', { id: t.getAttribute('data-help-toggle') }).then(function (res) {
-                    if (!res.ok || res.j.status !== 'success') { return; }
-                    var on = res.j.is_published === 1;
+                    if (!res.ok || res.j.status !== 'success') { fail(res); return; }
+                    var on = Number(res.j.is_published) === 1;
                     t.className = 'lpc-help-badge ' + (on ? 'lpc-help-badge--on' : 'lpc-help-badge--off');
                     t.textContent = on ? (isEn() ? 'Published' : 'Publié')
                                        : (isEn() ? 'Draft' : 'Brouillon');
@@ -72,11 +88,16 @@
                 var msg = isEn()
                     ? 'Delete this article? Its French and English text go with it.'
                     : 'Supprimer cet article ? Ses textes français et anglais seront supprimés avec lui.';
-                if (!window.confirm(msg)) return;
-                post('delete', { id: d.getAttribute('data-help-delete') }).then(function (res) {
-                    if (!res.ok || res.j.status !== 'success') return;
-                    var row = d.closest('tr');
-                    if (row) row.remove();
+                var ask = (window.LPC && window.LPC.modal && window.LPC.modal.confirm)
+                    ? window.LPC.modal.confirm(msg, { danger: true, confirmLabel: isEn() ? 'Delete' : 'Supprimer' })
+                    : Promise.resolve(window.confirm(msg));
+                ask.then(function (yes) {
+                    if (!yes) return;
+                    post('delete', { id: d.getAttribute('data-help-delete') }).then(function (res) {
+                        if (!res.ok || res.j.status !== 'success') { fail(res); return; }
+                        var row = d.closest('tr');
+                        if (row) row.remove();
+                    });
                 });
             }
         });

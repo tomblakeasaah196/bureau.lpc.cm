@@ -64,10 +64,131 @@
         en: { admin: 'Administrator', accountant: 'Accountant', operations: 'Operations', sales: 'Sales',
               driver: 'Driver', directeur_general: 'Managing Director', controleur_financier: 'Financial Controller' },
     };
-    function roleLabel(name) {
+    /**
+     * A permission group as a person reads it: the matrix printed the code's
+     * module names in English (ACCOUNTING, ADMIN…), found while filming the
+     * admin videos (18/11/2026).
+     */
+    const MODULE_LABELS = {
+        dashboard: 'Tableaux de bord', analytics: 'Analyses', crm: 'Clients & devis', sales: 'Ventes & livraisons',
+        accounting: 'Comptabilité & finance', hr: 'Personnel & paie', inventory: 'Stock & achats',
+        operations: 'Opérations', fleet: 'Flotte', admin: 'Administration', help: "Centre d'aide",
+        signatures: 'Signatures électroniques', mail: 'Courrier',
+    };
+    function moduleLabel(mod) { return BOOT.lang === 'en' ? mod : (MODULE_LABELS[mod] || mod); }
+
+    // Roles the server never deletes (rbac_controller delete_role): no button.
+    const BASE_ROLES = ['admin', 'accountant', 'operations', 'sales', 'driver'];
+    const ROLE_DISPLAY = {};   // technical name -> the name typed at creation (roles.description)
+    function roleLabel(name, display) {
         const key = String(name || '').toLowerCase();
         const known = (ROLE_LABELS[BOOT.lang === 'en' ? 'en' : 'fr'] || {})[key];
-        return known || String(name || '').replace(/_/g, ' ');
+        return known || display || ROLE_DISPLAY[key] || String(name || '').replace(/_/g, ' ');
+    }
+    function rememberRoles(list) {
+        (list || []).forEach(r => { if (r && r.name && r.label) ROLE_DISPLAY[String(r.name).toLowerCase()] = r.label; });
+        return list;
+    }
+
+    // -------------------------------------------------------------------------
+    // Audit trail in plain words. The tab printed « UPDATE · users (ID: 10) »
+    // and nothing of what changed (found while filming the admin videos,
+    // 18/11/2026); the server now sends the change itself and field labels.
+    // -------------------------------------------------------------------------
+    const AUDIT = { labels: {}, roles: {} };
+    const AUDIT_TABLES = {
+        users: 'Compte utilisateur', roles: 'Rôle', role_permissions: "Permissions d'un rôle",
+        company_profile: "Identité de l'entreprise", app_preferences: 'Préférences',
+        journal_entries: 'Écriture comptable', chart_of_accounts: 'Compte du plan comptable',
+        employee_profiles: 'Profil personnel', mail_accounts: 'Boîte mail', user_sessions: 'Session',
+        ai_settings: 'Assistant IA', ai_role_limits: 'Assistant IA, limites par rôle',
+        clients: 'Client', employees: 'Employé', invoices: 'Facture', expenses: 'Dépense',
+    };
+    const AUDIT_ACTIONS = {
+        INSERT: 'Création', CREATE: 'Création', UPDATE: 'Modification', DELETE: 'Suppression',
+        'Preferences updated': 'Préférences', 'Avatar updated': 'Photo changée', 'Avatar removed': 'Photo retirée',
+        'Profile identity updated': 'Profil modifié',
+    };
+    function auditKind(a) {
+        const v = String(a || '').toUpperCase();
+        if (v === 'DELETE' || /removed/i.test(String(a || ''))) return 'delete';
+        if (v === 'INSERT' || v === 'CREATE') return 'create';
+        return 'update';
+    }
+    function auditActionLabel(a) { return AUDIT_ACTIONS[a] || AUDIT_ACTIONS[String(a || '').toUpperCase()] || a; }
+    function auditTableLabel(t) { return AUDIT_TABLES[t] || String(t || '').replace(/_/g, ' '); }
+    function auditField(k) { return AUDIT.labels[k] || k; }
+    function auditValue(k, v) {
+        if (v === null || v === undefined || v === '') return 'vide';
+        if (k === 'role_id' && AUDIT.roles[v]) return roleLabel(AUDIT.roles[v]);
+        if (k === 'status') return ({ active: 'Actif', inactive: 'Verrouillé', draft: 'Brouillon', posted: 'Validée' })[v] || String(v);
+        if (typeof v === 'object') return JSON.stringify(v);
+        return String(v);
+    }
+    function parseJson(s) {
+        if (!s || typeof s !== 'string' || !/^[\[{]/.test(s.trim())) return null;
+        try { return JSON.parse(s); } catch (e) { return null; }
+    }
+    /** [{field, before, after}] or [{text}] for one audit row. */
+    function auditChanges(row) {
+        const out = [];
+        const before = parseJson(row.old_json), after = parseJson(row.new_json);
+        if (before || after) {
+            const keys = Array.from(new Set(Object.keys(before || {}).concat(Object.keys(after || {}))));
+            keys.forEach(k => {
+                const b = before ? before[k] : undefined, a = after ? after[k] : undefined;
+                if (JSON.stringify(b) !== JSON.stringify(a) || !before || !after) {
+                    out.push({ field: auditField(k), before: before ? auditValue(k, b) : '', after: after ? auditValue(k, a) : 'supprimé' });
+                }
+            });
+            if (out.length) return out;
+            if (before && after) return [{ text: 'Enregistré sans changement visible' }];
+        }
+        const nv = parseJson(row.new_value);
+        if (nv && !Array.isArray(nv)) {
+            Object.keys(nv).forEach(k => {
+                const c = nv[k];
+                if (c && typeof c === 'object' && ('de' in c || 'à' in c)) {
+                    out.push({ field: auditField(k), before: auditValue(k, c.de), after: auditValue(k, c['à']) });
+                } else {
+                    out.push({ field: auditField(k), before: '', after: auditValue(k, c) });
+                }
+            });
+            return out;
+        }
+        let text = row.new_value || row.old_value;
+        if (text) {
+            // The app's older notes, in English, said in French.
+            text = String(text)
+                .replace(/^Role created: /, 'Rôle créé : ').replace(/^User updated: /, 'Compte modifié : ')
+                .replace(/^Created User: /, 'Compte créé : ').replace(/^User deleted: /, 'Compte supprimé : ')
+                .replace(/^COA created: /, 'Compte créé au plan comptable : ').replace(/^JE created: /, 'Écriture créée : ')
+                .replace(/^Changed status to: active/, 'Accès rouvert').replace(/^Changed status to: inactive/, 'Accès verrouillé')
+                .replace(/^Forced Session Kill$/, 'Session fermée par un administrateur');
+            const m = /^([a-z_.]+)=(.*)$/.exec(text);
+            if (m) {
+                const key = m[1] === 'role.name' ? 'role_name' : m[1];
+                return [{ field: key === 'role_name' ? 'Nom du rôle' : auditField(key), before: '', after: m[2] === 'NULL' ? 'aucune' : m[2] }];
+            }
+            return [{ text: text }];
+        }
+        return out;
+    }
+    async function openAuditDetail(id) {
+        const row = (moduleData || []).find(r => String(r.id) === String(id));
+        if (!row) return;
+        const ch = auditChanges(row);
+        const who = `${row.first_name || 'Système'} ${row.last_name || ''}`.trim();
+        const rows = ch.length
+            ? ch.map(c => c.field
+                ? `<tr><td class="py-2 pr-4 font-bold text-gray-800 align-top">${esc(c.field)}</td><td class="py-2 pr-4 text-gray-500 align-top">${esc(c.before || '')}</td><td class="py-2 text-gray-900 align-top">${esc(c.after)}</td></tr>`
+                : `<tr><td colspan="3" class="py-2 text-gray-700">${esc(c.text)}</td></tr>`).join('')
+            : '<tr><td colspan="3" class="py-2 text-gray-400">Aucun détail enregistré pour cette action.</td></tr>';
+        const body = `<p class="text-sm text-gray-600 mb-3">${esc(auditActionLabel(row.action))} · ${esc(auditTableLabel(row.table_name))} n° ${esc(row.record_id)}<br>par <b>${esc(who)}</b>, le ${esc(fmtDateTime(row.created_at))}</p>
+            <table class="w-full text-sm text-left"><thead><tr class="text-[10px] uppercase tracking-widest text-gray-400"><th class="pb-2">Champ</th><th class="pb-2">Avant</th><th class="pb-2">Après</th></tr></thead><tbody class="divide-y divide-gray-100">${rows}</tbody></table>`;
+        if (window.LPC && LPC.modal && LPC.modal.custom) {
+            await LPC.modal.custom({ title: 'Détail de la modification', bodyHtml: body, buttons: [{ label: 'Fermer', value: true, primary: true }] });
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -100,10 +221,10 @@
                     `<a href="/modules/admin/master_data.php" title="Ouvrir la fiche employé" class="font-bold text-gray-500 hover:text-lpc-dark hover:underline">${esc(v || '—')}</a>` },
                 { key: 'email',         label: 'Connexion', render: v => `<span class="text-gray-700">${esc(v || '—')}</span>` },
                 { key: 'first_name',    label: 'Identité', render: (v, row) => `<span class="font-black text-gray-900">${esc(v || '')} ${esc(row.last_name || '')}</span>` },
-                { key: 'role_name',     label: 'Rôle',     render: v => `<span class="px-2 py-1 bg-gray-100 text-gray-700 rounded text-[10px] uppercase font-bold tracking-wider border border-gray-200" title="${esc(v || '')}">${esc(v ? roleLabel(v) : 'NON ASSIGNÉ')}</span>` },
+                { key: 'role_name',     label: 'Rôle',     render: (v, row) => `<span class="px-2 py-1 bg-gray-100 text-gray-700 rounded text-[10px] uppercase font-bold tracking-wider border border-gray-200" title="${esc(v || '')}">${esc(v ? roleLabel(v, row.role_label) : 'NON ASSIGNÉ')}</span>` },
                 { key: 'status',        label: 'Accès',    render: v => v === 'active'
                     ? '<span class="text-green-500 text-xs font-bold"><i class="fas fa-check-circle mr-1"></i>Actif</span>'
-                    : '<span class="text-red-500 text-xs font-bold"><i class="fas fa-lock mr-1"></i>Bloqué</span>' }
+                    : '<span class="text-red-500 text-xs font-bold"><i class="fas fa-lock mr-1"></i>Verrouillé</span>' }
             ]
         },
 
@@ -113,9 +234,9 @@
             api: 'sessions',
             showActionBtn: false,
             kpis: [
-                { id: 'kpi1', label: 'Connectés (Actuels)',   icon: 'fa-signal',           color: 'text-emerald-500', bg: 'bg-emerald-50' },
-                { id: 'kpi2', label: 'Échecs Mdp (24h)',      icon: 'fa-fingerprint',      color: 'text-amber-500',   bg: 'bg-amber-50' },
-                { id: 'kpi3', label: 'Tentatives Intrusions', icon: 'fa-skull-crossbones', color: 'text-red-600',     bg: 'bg-red-50' }
+                { id: 'kpi1', label: 'Connectés maintenant',   icon: 'fa-signal',           color: 'text-emerald-500', bg: 'bg-emerald-50' },
+                { id: 'kpi2', label: 'Mots de passe erronés (24 h)',      icon: 'fa-fingerprint',      color: 'text-amber-500',   bg: 'bg-amber-50' },
+                { id: 'kpi3', label: 'Connexions refusées (24 h)', icon: 'fa-user-shield', color: 'text-red-600',     bg: 'bg-red-50' }
             ],
             columns: [
                 { key: 'created_at',       label: 'Horodatage',         render: v => `<span class="text-xs font-bold text-gray-600">${fmtDateTime(v)}</span>` },
@@ -125,23 +246,25 @@
                     const dict = {
                         'success':         '<span class="text-green-500 font-bold"><i class="fas fa-check mr-1"></i>Succès</span>',
                         'failed_password': '<span class="text-amber-500 font-bold"><i class="fas fa-times mr-1"></i>Mot de passe erroné</span>',
-                        'user_not_found':  '<span class="text-red-500 font-bold"><i class="fas fa-user-ninja mr-1"></i>Inconnu (Intrusion)</span>',
-                        'account_locked':  '<span class="text-red-600 font-bold"><i class="fas fa-ban mr-1"></i>Compte Bloqué</span>'
+                        'user_not_found':  '<span class="text-red-500 font-bold"><i class="fas fa-user-slash mr-1"></i>Compte inconnu</span>',
+                        'account_locked':  '<span class="text-red-600 font-bold"><i class="fas fa-ban mr-1"></i>Compte verrouillé</span>'
                     };
                     return dict[v] || esc(v);
                 }},
                 { key: 'logout_time', label: 'État Session', render: (v, row) => {
                     if (row.login_status !== 'success') return '-';
-                    return v
-                        ? `<span class="text-gray-400 text-xs font-medium">Déconnecté à ${fmtTime(v)}</span>`
-                        : '<span class="text-emerald-500 text-xs font-bold"><i class="fas fa-circle text-[8px] mr-1"></i>En Ligne</span>';
+                    if (v) return `<span class="text-gray-400 text-xs font-medium">Fermée le ${fmtDateTime(v)}</span>`;
+                    // Open but unused beyond the idle limit: it ends at its next click.
+                    return Number(row.is_live) === 1
+                        ? '<span class="text-emerald-500 text-xs font-bold"><i class="fas fa-circle text-[8px] mr-1"></i>En ligne</span>'
+                        : `<span class="text-gray-400 text-xs font-medium">Inactive depuis le ${fmtDateTime(row.last_activity)}</span>`;
                 }}
             ]
         },
 
         audits: {
             shape: 'table',
-            title: "Logs d'Audit",
+            title: "Journal d'audit",
             api: 'audits',
             showActionBtn: false,
             kpis: [
@@ -153,12 +276,21 @@
                 { key: 'created_at', label: 'Horodatage',  render: v => `<span class="text-xs font-bold text-gray-500">${fmtDateTime(v)}</span>` },
                 { key: 'first_name', label: 'Utilisateur', render: (v, row) => `<span class="font-bold text-gray-900">${esc(v || 'Système')} ${esc(row.last_name || '')}</span>` },
                 { key: 'action',     label: 'Action', render: v => {
-                    const color = v === 'DELETE' ? 'bg-red-100 text-red-700'
-                                : v === 'UPDATE' ? 'bg-amber-100 text-amber-700'
+                    const kind = auditKind(v);
+                    const color = kind === 'delete' ? 'bg-red-100 text-red-700'
+                                : kind === 'update' ? 'bg-amber-100 text-amber-700'
                                 : 'bg-blue-100 text-blue-700';
-                    return `<span class="px-2 py-1 ${color} rounded text-[10px] font-black uppercase tracking-widest">${esc(v)}</span>`;
+                    return `<span class="px-2 py-1 ${color} rounded text-[10px] font-black uppercase tracking-widest">${esc(auditActionLabel(v))}</span>`;
                 }},
-                { key: 'table_name', label: 'Table Impactée', render: (v, row) => `<span class="text-sm font-medium text-gray-600">${esc(v)} (ID: ${esc(row.record_id)})</span>` }
+                { key: 'table_name', label: 'Élément', render: (v, row) => `<span class="text-sm font-bold text-gray-800">${esc(auditTableLabel(v))}</span> <span class="text-xs text-gray-400">n° ${esc(row.record_id)}</span>` },
+                { key: 'new_value',  label: 'Ce qui a changé', render: (v, row) => {
+                    const ch = auditChanges(row);
+                    if (!ch.length) return '<span class="text-gray-400 text-xs">Aucun détail enregistré</span>';
+                    const first = ch.slice(0, 2).map(c => c.field
+                        ? `<b>${esc(c.field)}</b> : ${c.before ? esc(c.before) + ' → ' : ''}${esc(c.after)}`
+                        : esc(c.text)).join(' · ');
+                    return `<span class="text-xs text-gray-600">${first}${ch.length > 2 ? ` <span class="text-gray-400">(+${ch.length - 2})</span>` : ''}</span>`;
+                }}
             ]
         },
 
@@ -393,6 +525,8 @@
         try {
             const data = await apiGet(`${API}?tab=${encodeURIComponent(config.api)}`);
             moduleData = data.table || [];
+            if (data.field_labels) AUDIT.labels = data.field_labels;
+            if (data.role_names)   AUDIT.roles  = data.role_names;
 
             if (data.kpis) {
                 config.kpis.forEach(k => {
@@ -430,8 +564,10 @@
                     <button type="button" onclick="LPCSettings.toggleUserStatus(${row.id}, '${esc(row.status)}')" class="${isLocked ? 'text-red-500 hover:text-red-700' : 'text-green-500 hover:text-green-700'} p-2 transition-colors" title="${isLocked ? 'Déverrouiller le compte' : 'Verrouiller le compte'}" aria-label="${isLocked ? 'Déverrouiller le compte' : 'Verrouiller le compte'}">
                         <i class="fas ${isLocked ? 'fa-lock' : 'fa-unlock'}"></i>
                     </button>`;
-            } else if (currentTab === 'sessions' && row.login_status === 'success' && !row.logout_time && CAN.editUsers) {
-                actions = `<button type="button" onclick="LPCSettings.killSession(${row.id})" title="Forcer la déconnexion immédiate" class="bg-red-50 text-red-600 text-[10px] font-bold uppercase px-3 py-1.5 rounded-lg hover:bg-red-600 hover:text-white transition-colors border border-red-200 shadow-sm"><i class="fas fa-power-off mr-1"></i> Kill Session</button>`;
+            } else if (currentTab === 'audits') {
+                actions = `<button type="button" onclick="LPCSettings.openAuditDetail(${Number(row.id)})" class="text-lpc-dark text-xs font-bold hover:underline">Détail</button>`;
+            } else if (currentTab === 'sessions' && Number(row.is_live) === 1 && CAN.editUsers) {
+                actions = `<button type="button" onclick="LPCSettings.killSession(${row.id})" title="Fermer cette session : la personne devra se reconnecter" class="bg-red-50 text-red-600 text-[10px] font-bold uppercase px-3 py-1.5 rounded-lg hover:bg-red-600 hover:text-white transition-colors border border-red-200 shadow-sm"><i class="fas fa-power-off mr-1"></i> Déconnecter</button>`;
             }
 
             return tr + `<td class="py-4 px-6 border-b border-gray-50 text-right whitespace-nowrap">${actions}</td></tr>`;
@@ -866,7 +1002,7 @@
 
         let roles;
         try {
-            roles = await apiGet(`${RBAC_API}?action=list_roles`);
+            roles = rememberRoles(await apiGet(`${RBAC_API}?action=list_roles`));
         } catch (err) {
             renderError(`Impossible de charger les rôles : ${err.message}`);
             return;
@@ -1004,7 +1140,7 @@
                             </p>
                         </div>
                     </div>
-                    ${(canEdit && CAN.deleteRoles) ? `
+                    ${(canEdit && CAN.deleteRoles && !BASE_ROLES.includes(data.role.name)) ? `
                         <button type="button" onclick="LPCSettings.deleteRole(${data.role.id}, '${esc(data.role.name)}')"
                                 class="text-xs font-bold text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg hover:bg-red-100">
                             <i class="fas fa-trash-alt mr-1"></i> Supprimer
@@ -1015,7 +1151,7 @@
                         <i class="fas fa-house text-gray-300"></i> Page d'accueil par défaut
                     </label>
                     <select id="role-landing-select" ${canEdit ? '' : 'disabled'}
-                            onchange="LPCSettings.setRoleLanding(${data.role.id}, this.value)"
+                            data-autosave onchange="LPCSettings.setRoleLanding(${data.role.id}, this.value)"
                             class="text-xs font-bold border border-gray-200 rounded-lg px-2 py-1.5 bg-white disabled:bg-gray-100 disabled:text-gray-400">
                         <option value="">— aucune (détection automatique) —</option>
                         ${landingOptsHtml}
@@ -1031,7 +1167,7 @@
                 <div class="border-b border-gray-100 last:border-0">
                     <div class="flex items-center justify-between px-6 py-3 bg-gray-50/60">
                         <div class="font-black text-[11px] uppercase tracking-widest text-gray-500">
-                            <i class="fas fa-folder mr-2 text-gray-300"></i>${esc(mod)}
+                            <i class="fas fa-folder mr-2 text-gray-300"></i>${esc(moduleLabel(mod))}
                             <span class="ml-2 font-bold text-gray-400" data-mod-count="${esc(mod)}">(${grantedInMod}/${perms.length})</span>
                         </div>
                         ${canEdit ? `
@@ -1045,8 +1181,8 @@
                             <input type="checkbox" class="mt-0.5" data-perm-id="${p.id}" data-perm-mod="${esc(mod)}"
                                    ${p.granted ? 'checked' : ''} ${canEdit ? '' : 'disabled'}>
                             <span class="min-w-0">
-                                <span class="block text-sm font-bold text-gray-800 font-mono">${esc(p.name)}</span>
-                                ${p.description ? `<span class="block text-xs text-gray-400">${esc(p.description)}</span>` : ''}
+                                <span class="block text-sm font-bold text-gray-800">${esc(p.description || p.name)}</span>
+                                <span class="block text-[11px] text-gray-400 font-mono">${esc(p.name)}</span>
                             </span>
                         </label>`).join('')}
                 </div>`;
@@ -1161,19 +1297,21 @@
     }
 
     async function createRole() {
-        const name = await promptAsync('Nom du nouveau rôle (minuscules, sans espace — ex. « superviseur ») :', {
+        // The name as people will read it (« Responsable Commercial »); the
+        // server derives the technical name from it.
+        const label = await promptAsync('Nom du nouveau rôle, tel qu\'il s\'affichera (par exemple « Responsable Commercial ») :', {
             title: 'Nouveau rôle',
-            placeholder: 'superviseur'
+            placeholder: 'Responsable Commercial'
         });
-        if (!name) return;
+        if (!label || !label.trim()) return;
 
         const fd = new FormData();
         fd.append('action', 'create_role');
-        fd.append('name', name.trim().toLowerCase());
+        fd.append('label', label.trim());
 
         try {
             await apiPost(`${RBAC_API}?action=create_role`, fd);
-            toast(`Rôle « ${name} » créé. Aucune permission ne lui est accordée par défaut.`);
+            toast(`Rôle « ${label.trim()} » créé. Il n'a encore aucune permission : cochez celles qu'il lui faut.`);
             await renderMatrixTab();
         } catch (err) {
             toast(`Échec : ${err.message}`, 'error');
@@ -1181,7 +1319,7 @@
     }
 
     async function deleteRole(id, name) {
-        const ok = await confirmAsync(`Supprimer le rôle « ${name} » ? Les utilisateurs qui le portent perdront tous leurs accès.`);
+        const ok = await confirmAsync(`Supprimer le rôle « ${roleLabel(name)} » ? Ses permissions sont supprimées avec lui.`);
         if (!ok) return;
 
         const fd = new FormData();
@@ -1212,7 +1350,7 @@
 
     async function loadRoles() {
         if (!rolesCache) {
-            try { rolesCache = await apiGet(`${RBAC_API}?action=list_roles`); }
+            try { rolesCache = rememberRoles(await apiGet(`${RBAC_API}?action=list_roles`)); }
             catch (e) { rolesCache = []; }
         }
         return rolesCache;
@@ -1276,7 +1414,7 @@
         // roles created via the RBAC tab therefore appear here without a
         // parallel edit — the source of truth is the same.
         if (!rolesCache) {
-            try { rolesCache = await apiGet(`${RBAC_API}?action=list_roles`); }
+            try { rolesCache = rememberRoles(await apiGet(`${RBAC_API}?action=list_roles`)); }
             catch (e) { rolesCache = []; }
         }
 
@@ -1315,7 +1453,7 @@
                 <div>
                     <label class="lpc-field-label">Rôle Système *</label>
                     <select name="role_id" required class="lpc-input font-bold">${roleOpts}</select>
-                    <p class="lpc-field-help">Les permissions de chaque rôle se règlent dans l'onglet Rôles (RBAC).</p>
+                    <p class="lpc-field-help">Les permissions de chaque rôle se règlent dans l'onglet Rôles.</p>
                 </div>
                 <div>
                     <label class="lpc-field-label">Mot de passe (laisser vide pour conserver)</label>
@@ -1336,7 +1474,14 @@
             const res = await apiGet(`${API}?action=list_unlinked_employees`);
             candidates = (res && res.employees) || [];
         } catch (e) {
-            candidates = [];
+            // A failed request is not « no one to provision »: say what happened.
+            form.innerHTML = `
+                <div class="md:col-span-2 p-4 rounded-xl bg-red-50 border border-red-100 text-sm text-red-800">
+                    <p class="font-bold mb-2">La liste des employés n'a pas pu être chargée.</p>
+                    <p>${esc(e.message || 'Erreur inconnue')}. Actualisez la page, puis réessayez.</p>
+                </div>`;
+            $('actionModal').classList.remove('hidden');
+            return;
         }
 
         if (!candidates.length) {
@@ -1383,7 +1528,7 @@
             <div>
                 <label class="lpc-field-label">Rôle Système *</label>
                 <select name="role_id" required class="lpc-input font-bold">${roleOpts}</select>
-                <p class="lpc-field-help">Les permissions de chaque rôle se règlent dans l'onglet Rôles (RBAC).</p>
+                <p class="lpc-field-help">Les permissions de chaque rôle se règlent dans l'onglet Rôles.</p>
             </div>
             <div>
                 <label class="lpc-field-label">Mot de passe initial *</label>
@@ -1439,7 +1584,7 @@
     }
 
     async function killSession(sessionId) {
-        const ok = await confirmAsync('Voulez-vous vraiment forcer la déconnexion de cet utilisateur immédiatement ?');
+        const ok = await confirmAsync('Fermer cette session ? La personne devra se reconnecter à son prochain clic.');
         if (!ok) return;
 
         const fd = new FormData();
@@ -1476,7 +1621,8 @@
         saveRolePermissions: saveRolePermissions,
         createRole: createRole,
         deleteRole: deleteRole,
-        setRoleLanding: setRoleLanding
+        setRoleLanding: setRoleLanding,
+        openAuditDetail: openAuditDetail
     };
 
     // Guard against losing edits to a browser navigation.

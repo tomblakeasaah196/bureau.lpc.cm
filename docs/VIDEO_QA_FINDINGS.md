@@ -218,6 +218,35 @@ Rows 1 to 5 done by the Salaires session (18/11/2026, PR #59): see docs/TRAINING
 5. [V] Vue Ventes reads orders created by the signed-in user: with Ops entering orders and no Sales login,
    the DG sees 0 (the sales role will see only their own).
 
+## 15 · Administration (Paramètres, Utilisateurs, Rôles, Centre d'Aide, Journal d'Erreurs)
+
+The admin series' QA (track C, 18/11/2026: the crawler as JBS Praxis Support and the DG on every admin page,
+then by hand: a setting changed and put back, a role created, granted and deleted, an account locked while its
+owner was signed in, a session closed, an article draft published and deleted, a video uploaded, an error group
+marked fixed). What was fixed is in docs/TRAINING_VIDEOS.md §7. Left:
+
+1. [V] Préférences hid 19 settings no screen reads (migration 137, values kept): payment terms, quote validity,
+   currency, late penalty, quote terms, date and number formats, the purchase-order and credit-note prefixes
+   (orders are numbered PO-…; there are no credit notes), the three alerts, negative stock, password expiry,
+   2FA for admins, audit retention (the purge keeps years, not 365 days). Any the owner wants is wired, then shown
+   again (`is_active = 1`). Owner question 21.
+2. [V] Data on live, Identité de l'Entreprise: the footer « Mentions légales » reads RCCM « CM-DLA-03-2026-**8**-01777 »
+   where the RCCM field reads « …-**B**-01777 »; « Numéro employeur CNPS » and « Code activité (APE) » are empty,
+   and « Centre des impôts » too (« CIME Littoral II » is only the field's example). Owner question 22.
+3. [V] A role's new permissions reach a person at their next sign-in (permissions are kept with the session).
+   The help says so; closing their session (Sessions → Déconnecter) applies it at once.
+4. [V] The Journal d'Erreurs labels the app's own error lines « Info » (e.g. a database refusal): only PHP's own
+   warnings and fatals get a level. Not changed.
+5. [V] A role « Directeur Général » (`directeur_general`, 133 permissions) exists and nobody holds it: the DG and
+   JBS Praxis Support are both « Administrateur ». Owner question 23.
+6. [V] The other Journal d'Erreurs articles (KPI, santé du logging, niveaux, filtres, groupe, copier, cacher) and
+   the English bodies of the rewritten admin articles still speak of files, regex and migrations.
+7. [V] Centre d'Aide (vidéos): « Mise à jour 2026-11-18 12:44 » (ISO date) and a command line for the filming PC
+   under the upload box. Small; not changed.
+8. Not real (copy only): live's AI keys are encrypted with live's key, so the copy logs « Crypto::decrypt » when a
+   page reads them, and the copy has no uploaded logos (uploads are not in the export). The filming clears the
+   copy's AI keys and draws the logos from `assets/img/full_logo.svg` on the copy.
+
 ---
 
 ## For the owner (decisions, with the default a session uses meanwhile)
@@ -244,3 +273,6 @@ Rows 1 to 5 done by the Salaires session (18/11/2026, PR #59): see docs/TRAINING
 | 18 | SMART LOGISTICS and BOULANGERIE SAKER signed devis before this change (Net 30, 1 pour 1). | Migration 137 carries their terms onto them (Net 30, 100 %), not their prices: orders may have moved the prices since. |
 | 19 | **Where did MTN MOBILE MONEY's 1 000 000 F come from?** It was entered on 03/11/2026 as the account's opening balance and posted nothing. Migration 139 posts it (Dr 552 / Cr 471 « Compte d'attente », dated 03/11) so the ledger matches the screen; 471 now waits to be cleared to its real origin: share capital (101), an associate's current account (4561, the DG's money?), a loan, another bank. | 1 000 000 F stays in 471 until the owner says; the Comptable then passes one OD (Dr 471 / Cr the right account). The MTN account's COA link was not changed: it posts to 552 by its type already. |
 | 20 | **CCA Bank and Caisse Principale - Maison read 0 F** on live although LPC surely has money in them. What were their balances on the day the app started, and on what date? (9.7 waits on this: payments beyond the balance cannot be refused while the balances are not real.) | Nothing entered. Once known, the CF enters each as a correction (or the DG through Bilan d'Ouverture if the year allows), and Gestion du Personnel starts refusing payments beyond the balance like the other modules. |
+| 21 | Paramètres → Préférences showed 19 settings that change nothing (finding 15.1). They are hidden, their values kept. Which should work (for example the default payment terms, 2FA for admins, password expiry)? | Hidden until wired; the admin video does not show them. |
+| 22 | Identité de l'Entreprise on live: the footer's RCCM ends « 8-01777 » and the field « B-01777 »; CNPS employer number, APE code and tax office are empty. Which RCCM is right, and what are the others? | Nothing changed on live; the video shows the page as it is and does not read those fields out. |
+| 23 | The « Directeur Général » role (`directeur_general`) has nobody; the DG signs in as « Administrateur », like JBS Praxis Support. Keep one role for both, or give the DG his own role (and delete the unused one)? | Unchanged; the video says both hold « Administrateur ». |

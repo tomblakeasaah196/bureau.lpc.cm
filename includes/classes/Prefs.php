@@ -96,6 +96,10 @@ final class Prefs
         'display'    => ['fr' => 'Localisation & affichage',   'en' => 'Locale & display',    'icon' => 'fa-globe'],
         'security'   => ['fr' => 'Politique de sécurité',      'en' => 'Security policy',     'icon' => 'fa-shield-halved'],
         'operations' => ['fr' => 'Opérations & alertes',       'en' => 'Operations & alerts', 'icon' => 'fa-bell'],
+        // Two groups the screen printed as « Accounting » and « Tax » (found while
+        // filming the admin videos, 18/11/2026).
+        'tax'        => ['fr' => 'Charges sociales & taxes',   'en' => 'Payroll charges & taxes', 'icon' => 'fa-building-columns'],
+        'accounting' => ['fr' => 'Comptes par défaut',         'en' => 'Default accounts',    'icon' => 'fa-book'],
         'general'    => ['fr' => 'Général',                    'en' => 'General',             'icon' => 'fa-sliders'],
     ];
 
@@ -327,11 +331,25 @@ final class Prefs
                 ];
             }
 
+            $kind    = $r['kind'];
+            $options = $r['options_json'] ? json_decode($r['options_json'], true) : null;
+            // An account preference stores the account's id: the screen printed
+            // that id (« 137 ») where the reader needs « 812 · VCE… ». Offer the
+            // accounts of the right class by number and name; the id is still
+            // what is saved.
+            if (str_ends_with($key, '_account_id')) {
+                $accounts = self::accountOptions($key, $r['pref_value']);
+                if ($accounts) {
+                    $kind    = 'select';
+                    $options = $accounts;
+                }
+            }
+
             $out[$g]['items'][] = [
                 'key'       => $key,
                 'value'     => $r['pref_value'],
-                'kind'      => $r['kind'],
-                'options'   => $r['options_json'] ? json_decode($r['options_json'], true) : null,
+                'kind'      => $kind,
+                'options'   => $options,
                 'label'     => $lang === 'en' && $r['label_en'] ? $r['label_en'] : $r['label_fr'],
                 'help'      => $r['help_fr'],
                 'unit'      => $r['unit'],
@@ -351,6 +369,43 @@ final class Prefs
             }
         }
         return array_merge($sorted, array_values($out));
+    }
+
+    /** Which accounts each account preference may point at (OHADA class prefix). */
+    private const ACCOUNT_PREF_CLASSES = [
+        'accounting_moins_value_account_id' => '81',
+        'accounting_plus_value_account_id'  => '82',
+        'accounting_vat_output_account_id'  => '443',
+    ];
+
+    /**
+     * The chart-of-accounts choices for one account preference, as
+     * [{value: id, label: "812 · VCE d'immobilisations corporelles"}]. The
+     * account currently chosen is always offered, whatever its class.
+     *
+     * @return list<array{value:string,label:string}>
+     */
+    private static function accountOptions(string $key, $current): array
+    {
+        try {
+            $db     = Database::getInstance()->getConnection();
+            $prefix = self::ACCOUNT_PREF_CLASSES[$key] ?? '';
+            $stmt   = $db->prepare(
+                "SELECT id, code, name FROM chart_of_accounts
+                  WHERE deleted_at IS NULL AND (is_active = 1 OR id = ?)
+                    AND (code LIKE ? OR id = ?)
+               ORDER BY code"
+            );
+            $stmt->execute([(int) $current, $prefix . '%', (int) $current]);
+            $out = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $a) {
+                $out[] = ['value' => (string) $a['id'], 'label' => $a['code'] . ' · ' . $a['name']];
+            }
+            return $out;
+        } catch (Throwable $e) {
+            error_log('Prefs::accountOptions: ' . $e->getMessage());
+            return [];
+        }
     }
 
     // -------------------------------------------------------------------------

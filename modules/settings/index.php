@@ -54,11 +54,11 @@ if (!isset($canTabs[$initialTab]) || !$canTabs[$initialTab]) {
 
 $tabDefs = [
     'users'       => ['icon' => 'fa-user-shield',     'fr' => 'Utilisateurs',   'en' => 'Users'],
-    'roles'       => ['icon' => 'fa-key',             'fr' => 'Rôles (RBAC)',   'en' => 'Roles (RBAC)'],
+    'roles'       => ['icon' => 'fa-key',             'fr' => 'Rôles',          'en' => 'Roles'],
     'company'     => ['icon' => 'fa-building',        'fr' => 'Entreprise',     'en' => 'Company'],
     'preferences' => ['icon' => 'fa-sliders',         'fr' => 'Préférences',    'en' => 'Preferences'],
     'sessions'    => ['icon' => 'fa-satellite-dish',  'fr' => 'Sessions',       'en' => 'Sessions'],
-    'audits'      => ['icon' => 'fa-clipboard-list',  'fr' => "Logs d'Audit",   'en' => 'Audit Logs'],
+    'audits'      => ['icon' => 'fa-clipboard-list',  'fr' => "Journal d'audit", 'en' => 'Audit trail'],
 ];
 ?>
 <!DOCTYPE html>
@@ -141,7 +141,8 @@ $tabDefs = [
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 
     <?php
-    $pageTitle    = lpc_nav_label('admin_settings');
+    // The menu has three entries into this page; the title says the one used.
+    $pageTitle    = lpc_nav_label(['company' => 'admin_company', 'roles' => 'admin_roles'][$initialTab] ?? 'admin_settings');
     $pageSubtitle = __t('ui.x.identite_securite_preferences_audits');
     require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';

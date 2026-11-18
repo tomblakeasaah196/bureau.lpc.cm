@@ -91,6 +91,109 @@ function lpc_insert_login(PDO $db, array $emp, string $email, int $role, string 
     return (int) $db->lastInsertId();
 }
 
+/**
+ * The company sheet's sections and fields, as the Entreprise tab draws them.
+ * A function so the audit trail can name a changed field by its label.
+ */
+function lpc_company_layout(): array
+{
+    return [
+        [
+            'key'   => 'identity',
+            'label' => 'Identité légale',
+            'icon'  => 'fa-building-columns',
+            'help'  => "Ces informations sont imprimées sur chaque facture, devis et bon de livraison. Elles doivent correspondre exactement au registre du commerce.",
+            'fields' => [
+                ['name' => 'legal_name',          'label' => 'Raison sociale (nom enregistré)', 'type' => 'text',   'required' => true, 'col' => 2, 'placeholder' => 'La Petite Cour'],
+                ['name' => 'trade_name',          'label' => 'Nom commercial',                  'type' => 'text',   'col' => 1, 'help' => 'Si différent de la raison sociale.'],
+                ['name' => 'legal_form',          'label' => 'Forme juridique',                 'type' => 'select', 'col' => 1, 'options' => CompanyProfile::LEGAL_FORMS],
+                ['name' => 'rccm_number',         'label' => 'Numéro RCCM',                     'type' => 'text',   'col' => 1, 'placeholder' => 'RC/DLA/2019/A/A/687'],
+                ['name' => 'niu',                 'label' => "NIU (Identifiant fiscal)",        'type' => 'text',   'col' => 1, 'placeholder' => 'M123456789012A', 'help' => "14 caractères, délivré par la DGI."],
+                ['name' => 'trade_register_city', 'label' => "Greffe d'immatriculation",        'type' => 'text',   'col' => 1, 'placeholder' => 'Douala'],
+                ['name' => 'incorporation_date',  'label' => 'Date de création',                'type' => 'date',   'col' => 1],
+                ['name' => 'share_capital',       'label' => 'Capital social (FCFA)',           'type' => 'number', 'col' => 1, 'help' => 'Mention obligatoire sur les documents des SARL, SA et SAS.'],
+            ],
+        ],
+        [
+            'key'   => 'fiscal',
+            'label' => 'Régime fiscal & social',
+            'icon'  => 'fa-scale-balanced',
+            'help'  => "Le régime fiscal pilote les taux appliqués par le moteur de calcul (AIR 2,2 % au réel, 5,5 % au simplifié). Les taux eux-mêmes se règlent dans l'onglet Préférences.",
+            'fields' => [
+                ['name' => 'fiscal_regime',        'label' => 'Régime fiscal',          'type' => 'select', 'col' => 1, 'options' => CompanyProfile::FISCAL_REGIMES],
+                ['name' => 'tax_office',           'label' => 'Centre des impôts',      'type' => 'text',   'col' => 1, 'placeholder' => 'CIME Littoral II'],
+                ['name' => 'cnps_employer_number', 'label' => 'Numéro employeur CNPS',  'type' => 'text',   'col' => 1],
+                ['name' => 'activity_sector',      'label' => "Secteur d'activité",     'type' => 'text',   'col' => 1, 'placeholder' => 'Distribution agroalimentaire'],
+                ['name' => 'activity_code',        'label' => 'Code activité (APE)',    'type' => 'text',   'col' => 1],
+            ],
+        ],
+        [
+            'key'   => 'address',
+            'label' => 'Adresse officielle',
+            'icon'  => 'fa-location-dot',
+            'fields' => [
+                ['name' => 'address_line1', 'label' => 'Adresse (ligne 1)', 'type' => 'text', 'col' => 2, 'placeholder' => 'Rue, quartier'],
+                ['name' => 'address_line2', 'label' => 'Adresse (ligne 2)', 'type' => 'text', 'col' => 2],
+                ['name' => 'po_box',        'label' => 'Boîte postale',     'type' => 'text', 'col' => 1, 'placeholder' => 'B.P. 5120'],
+                ['name' => 'city',          'label' => 'Ville',             'type' => 'text', 'col' => 1],
+                ['name' => 'region',        'label' => 'Région',            'type' => 'text', 'col' => 1],
+                ['name' => 'country',       'label' => 'Pays',              'type' => 'text', 'col' => 1],
+            ],
+        ],
+        [
+            'key'   => 'contact',
+            'label' => 'Coordonnées',
+            'icon'  => 'fa-address-book',
+            'fields' => [
+                ['name' => 'phone_primary',   'label' => 'Téléphone principal',  'type' => 'tel',   'col' => 1, 'placeholder' => '+237 696 291 800'],
+                ['name' => 'phone_secondary', 'label' => 'Téléphone secondaire', 'type' => 'tel',   'col' => 1],
+                ['name' => 'whatsapp',        'label' => 'WhatsApp',             'type' => 'tel',   'col' => 1],
+                ['name' => 'website',         'label' => 'Site web',             'type' => 'text',  'col' => 1, 'placeholder' => 'www.lpc.cm'],
+                ['name' => 'email_general',   'label' => 'Email général',        'type' => 'email', 'col' => 1],
+                ['name' => 'email_billing',   'label' => 'Email facturation',    'type' => 'email', 'col' => 1, 'help' => 'Affiché sur les factures pour les questions de paiement.'],
+            ],
+        ],
+        [
+            'key'   => 'banking',
+            'label' => 'Coordonnées bancaires',
+            'icon'  => 'fa-building-columns',
+            'help'  => "Reproduites dans le bloc de règlement des factures. Laissez vide pour masquer ce bloc.",
+            'fields' => [
+                ['name' => 'bank_name',           'label' => 'Banque',            'type' => 'text', 'col' => 1],
+                ['name' => 'bank_account_rib',    'label' => 'RIB / N° de compte','type' => 'text', 'col' => 1],
+                ['name' => 'bank_iban',           'label' => 'IBAN',              'type' => 'text', 'col' => 1],
+                ['name' => 'bank_swift',          'label' => 'Code SWIFT / BIC',  'type' => 'text', 'col' => 1],
+                ['name' => 'mobile_money_number', 'label' => 'Mobile Money',      'type' => 'text', 'col' => 2, 'help' => 'Numéro marchand Orange Money / MTN MoMo.'],
+            ],
+        ],
+        [
+            'key'   => 'brand',
+            'label' => "Marque & identité de l'application",
+            'icon'  => 'fa-palette',
+            'help'  => "Le nom et le logo ci-dessous pilotent la barre latérale de l'ERP, l'écran de connexion et l'en-tête de tous les PDF.",
+            'fields' => [
+                ['name' => 'erp_display_name',    'label' => "Nom affiché de l'ERP", 'type' => 'text',  'col' => 1, 'help' => 'Visible dans la barre latérale et le titre du navigateur.'],
+                ['name' => 'erp_tagline',         'label' => 'Sous-titre',           'type' => 'text',  'col' => 1],
+                ['name' => 'brand_color_primary', 'label' => 'Couleur principale',   'type' => 'color', 'col' => 1],
+                ['name' => 'brand_color_accent',  'label' => "Couleur d'accent",     'type' => 'color', 'col' => 1],
+                ['name' => 'logo_main_path',      'label' => 'Logo principal',       'type' => 'logo',  'col' => 1, 'slot' => 'main',     'help' => 'Documents, page de connexion.'],
+                ['name' => 'logo_mark_path',      'label' => 'Logo compact',         'type' => 'logo',  'col' => 1, 'slot' => 'mark',     'help' => 'Barre latérale réduite, favicon.'],
+                ['name' => 'logo_document_path',  'label' => 'Logo pour impression', 'type' => 'logo',  'col' => 2, 'slot' => 'document', 'help' => 'Optionnel. À défaut, le logo principal est utilisé.'],
+            ],
+        ],
+        [
+            'key'   => 'footer',
+            'label' => 'Pied de page des documents',
+            'icon'  => 'fa-file-signature',
+            'help'  => "Ligne de mentions légales imprimée en bas de chaque PDF. Laissez vide pour la générer automatiquement à partir des champs ci-dessus.",
+            'fields' => [
+                ['name' => 'document_footer_fr', 'label' => 'Mentions légales (FR)', 'type' => 'textarea', 'col' => 2],
+                ['name' => 'document_footer_en', 'label' => 'Mentions légales (EN)', 'type' => 'textarea', 'col' => 2],
+            ],
+        ],
+    ];
+}
+
 /** JSON error + exit. */
 function lpc_fail(string $msg, int $code = 400): void
 {
@@ -113,7 +216,16 @@ if (!Rbac::hasPermission($needed) && !Rbac::hasPermission('admin.settings.edit')
 // --- Gate: writes need a valid CSRF token ------------------------------------
 // Csrf::requireValid() pulls the token from the X-CSRF-Token header, the POST
 // body or a JSON body, and emits its own 419 JSON payload on failure.
-if ($action !== 'read') {
+// The reads are GETs and carry no token (lpc-rbac.js adds it to writes only):
+// `list_unlinked_employees` used to be held to the write rule, answered 419, and
+// « Provisionner un compte » said « Aucun employé disponible » for ever (found
+// while filming the admin videos, 18/11/2026). Every other action writes, so it
+// must be a POST with a valid token.
+$LPC_READ_ACTIONS = ['read', 'list_unlinked_employees'];
+if (!in_array($action, $LPC_READ_ACTIONS, true)) {
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        lpc_fail('Méthode non autorisée.', 405);
+    }
     Csrf::requireValid();
 }
 
@@ -423,39 +535,58 @@ EMAIL;
              ORDER BY e.last_name, e.first_name
         ")->fetchAll(PDO::FETCH_ASSOC);
 
-        echo json_encode(['status' => 'success', 'employees' => $rows], JSON_UNESCAPED_UNICODE);
+        // `data` is what the page's apiGet() reads; `employees` stays for any
+        // older caller.
+        echo json_encode(['status' => 'success', 'data' => ['employees' => $rows], 'employees' => $rows], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
     if ($action === 'toggle_user') {
-        $id = (int)$_POST['id'];
-        $status = $_POST['status']; // 'active' or 'inactive'
-        
+        $id     = (int) ($_POST['id'] ?? 0);
+        $status = (string) ($_POST['status'] ?? '');
+        if ($id <= 0 || !in_array($status, ['active', 'inactive'], true)) {
+            lpc_fail('Demande invalide.');
+        }
+        if ($id === (int) $admin_id && $status !== 'active') {
+            lpc_fail('Vous ne pouvez pas verrouiller votre propre compte.');
+        }
+
         $stmt = $db->prepare("UPDATE users SET status = ? WHERE id = ?");
         $stmt->execute([$status, $id]);
-        
-        // Log Audit
-        $db->prepare("
-            INSERT INTO audit_logs (user_id, action, table_name, record_id, new_value)
-            VALUES (?, 'UPDATE', 'users', ?, ?)
-        ")->execute([$admin_id, $id, 'Changed status to: ' . $status]);
-        
+
+        // « L'utilisateur sera immédiatement affecté », the window says: a locked
+        // account's open sessions and remembered devices end now (bootstrap.php
+        // reads the closed session at the next click).
+        if ($status !== 'active') {
+            $db->prepare("UPDATE user_sessions SET logout_time = NOW() WHERE user_id = ? AND logout_time IS NULL")
+               ->execute([$id]);
+            try {
+                require_once __DIR__ . '/../../includes/functions/sign_in.php';
+                lpc_device_revoke_all($db, $id);
+            } catch (Throwable $e) { error_log('settings: revoke devices on lock: ' . $e->getMessage()); }
+        }
+
+        // The users trigger records the change (status before and after).
         echo json_encode(['status' => 'success']); exit;
     }
 
     if ($action === 'kill_session') {
-        $id = (int)$_POST['id']; // This is the ID from user_sessions table
-        
-        // Mark session as logged out NOW
-        $stmt = $db->prepare("UPDATE user_sessions SET logout_time = NOW() WHERE id = ?");
-        $stmt->execute([$id]);
-        
-        // Log Audit
+        $id = (int) ($_POST['id'] ?? 0); // user_sessions.id
+        $row = $db->prepare("SELECT user_id, login_identifier FROM user_sessions WHERE id = ? AND logout_time IS NULL");
+        $row->execute([$id]);
+        $sess = $row->fetch(PDO::FETCH_ASSOC);
+        if (!$sess) {
+            lpc_fail('Cette session est déjà fermée.');
+        }
+
+        // Closed now; bootstrap.php signs that browser out at its next click.
+        $db->prepare("UPDATE user_sessions SET logout_time = NOW() WHERE id = ?")->execute([$id]);
+
         $db->prepare("
             INSERT INTO audit_logs (user_id, action, table_name, record_id, new_value)
-            VALUES (?, 'UPDATE', 'user_sessions', ?, 'Forced Session Kill')
-        ")->execute([$admin_id, $id]);
-        
+            VALUES (?, 'UPDATE', 'user_sessions', ?, ?)
+        ")->execute([$admin_id, $id, 'Session fermée par un administrateur : ' . $sess['login_identifier']]);
+
         echo json_encode(['status' => 'success']); exit;
     }
 
@@ -683,7 +814,7 @@ EMAIL;
             }
             $body .= " ORDER BY u.created_at DESC";
             $page = Paginator::paginate($db, $body, $params,
-                "u.id, u.employee_id, u.email, u.status, r.name AS role_name,
+                "u.id, u.employee_id, u.email, u.status, r.name AS role_name, r.description AS role_label,
                  e.employee_code, e.first_name, e.last_name",
                 null, null, "settings.read.users");
             $responseData['table']      = $page['data'];
@@ -712,6 +843,11 @@ EMAIL;
         // TAB 2: ACTIVE SESSIONS & SECURITY
         // ==========================================
         case 'sessions':
+            // A session is live while it is open and was used within the idle
+            // limit (Préférences → Déconnexion automatique). The old count took
+            // every row of the last 12 hours with no sign-out: closed browsers
+            // never sign out, so it read 66 « connectés » for 5 accounts.
+            $lpc_idle_min = max(1, Prefs::int('sec_session_timeout_min', 30));
             // Sprint 5: paginated. The old LIMIT 100 was a soft cap; now we page.
             $body   = " FROM user_sessions ";
             $params = [];
@@ -723,7 +859,9 @@ EMAIL;
             }
             $body .= " ORDER BY created_at DESC";
             $page = Paginator::paginate($db, $body, $params,
-                "id, created_at, login_identifier, ip_address, login_status, logout_time",
+                "id, created_at, login_identifier, ip_address, login_status, logout_time, last_activity,
+                 (login_status = 'success' AND logout_time IS NULL
+                  AND last_activity >= NOW() - INTERVAL " . $lpc_idle_min . " MINUTE) AS is_live",
                 null, null, "settings.read.sessions");
             $responseData['table']      = $page['data'];
             $responseData['pagination'] = [
@@ -737,9 +875,11 @@ EMAIL;
 
             // Fetch KPIs
             // KPI 1: Currently online (successful login, hasn't logged out, active in last 12 hours)
+            // KPI 1: people connected now (distinct accounts with a live session)
             $kpi1 = $db->query("
-                SELECT COUNT(*) FROM user_sessions 
-                WHERE login_status = 'success' AND logout_time IS NULL AND created_at >= NOW() - INTERVAL 12 HOUR
+                SELECT COUNT(DISTINCT user_id) FROM user_sessions
+                WHERE login_status = 'success' AND logout_time IS NULL
+                  AND last_activity >= NOW() - INTERVAL " . $lpc_idle_min . " MINUTE
             ")->fetchColumn();
             
             // KPI 2: Failed passwords in the last 24 hours
@@ -781,15 +921,41 @@ EMAIL;
             if ($lpc_q !== '') {
                 [$body, $params] = Paginator::addWhere(
                     $body, $params, $lpc_q,
-                    ['a.action', 'a.table_name', 'e.first_name', 'e.last_name']
+                    ['a.action', 'a.table_name', 'a.new_value', 'e.first_name', 'e.last_name']
                 );
             }
-            $body .= " ORDER BY a.created_at DESC";
+            $body .= " ORDER BY a.created_at DESC, a.id DESC";
+            // What changed travels with the row, so « Détail » can show it
+            // (the tab used to list only table names and ids).
             $page = Paginator::paginate($db, $body, $params,
                 "a.id, a.created_at, a.action, a.table_name, a.record_id,
+                 LEFT(a.old_value, 4000) AS old_value, LEFT(a.new_value, 4000) AS new_value,
+                 LEFT(a.old_json, 4000) AS old_json, LEFT(a.new_json, 4000) AS new_json,
                  e.first_name, e.last_name",
                 null, null, "settings.read.audits");
             $responseData['table']      = $page['data'];
+
+            // Field names as the screens print them: preferences by their label,
+            // the company sheet by its form's labels, a few common columns.
+            $labels = [
+                'role_id' => 'Rôle', 'status' => 'Accès', 'email' => 'Email de connexion',
+                'employee_code' => 'Matricule', 'reference' => 'Référence', 'date' => 'Date',
+                'journal_code' => 'Journal', 'code' => 'Numéro de compte', 'name' => 'Intitulé',
+                'type' => 'Type', 'ohada_account_id' => 'Compte OHADA', 'theme' => 'Thème',
+                'display_name' => 'Nom affiché', 'default_landing_permission' => "Page d'accueil",
+                'perm_count' => 'Nombre de permissions', 'perm_added' => 'Permissions ajoutées',
+                'perm_removed' => 'Permissions retirées',
+            ];
+            foreach (lpc_company_layout() as $section) {
+                foreach ($section['fields'] as $f) { $labels[$f['name']] = $f['label']; }
+            }
+            try {
+                foreach ($db->query("SELECT pref_key, label_fr FROM app_preferences")->fetchAll(PDO::FETCH_KEY_PAIR) as $k => $l) {
+                    $labels[$k] = $l;
+                }
+            } catch (Throwable $e) { /* preferences table missing: keys stay as they are */ }
+            $responseData['field_labels'] = $labels;
+            $responseData['role_names']   = $db->query("SELECT id, name FROM roles")->fetchAll(PDO::FETCH_KEY_PAIR);
             $responseData['pagination'] = [
                 'page'        => $page['page'],
                 'per_page'    => $page['per_page'],
@@ -801,7 +967,7 @@ EMAIL;
 
             // Fetch KPIs (Rolling 24-hour metrics)
             $kpi1 = $db->query("SELECT COUNT(*) FROM audit_logs WHERE created_at >= NOW() - INTERVAL 24 HOUR")->fetchColumn();
-            $kpi2 = $db->query("SELECT COUNT(*) FROM audit_logs WHERE action = 'UPDATE' AND created_at >= NOW() - INTERVAL 24 HOUR")->fetchColumn();
+            $kpi2 = $db->query("SELECT COUNT(*) FROM audit_logs WHERE action NOT IN ('DELETE','INSERT','CREATE') AND created_at >= NOW() - INTERVAL 24 HOUR")->fetchColumn();
             $kpi3 = $db->query("SELECT COUNT(*) FROM audit_logs WHERE action = 'DELETE' AND created_at >= NOW() - INTERVAL 24 HOUR")->fetchColumn();
 
             $responseData['kpis'] = [
@@ -825,101 +991,7 @@ EMAIL;
             // Never ship the internal audit columns to the browser.
             unset($profile['created_at'], $profile['updated_at'], $profile['updated_by']);
 
-            $layout = [
-                [
-                    'key'   => 'identity',
-                    'label' => 'Identité légale',
-                    'icon'  => 'fa-building-columns',
-                    'help'  => "Ces informations sont imprimées sur chaque facture, devis et bon de livraison. Elles doivent correspondre exactement au registre du commerce.",
-                    'fields' => [
-                        ['name' => 'legal_name',          'label' => 'Raison sociale (nom enregistré)', 'type' => 'text',   'required' => true, 'col' => 2, 'placeholder' => 'La Petite Cour'],
-                        ['name' => 'trade_name',          'label' => 'Nom commercial',                  'type' => 'text',   'col' => 1, 'help' => 'Si différent de la raison sociale.'],
-                        ['name' => 'legal_form',          'label' => 'Forme juridique',                 'type' => 'select', 'col' => 1, 'options' => CompanyProfile::LEGAL_FORMS],
-                        ['name' => 'rccm_number',         'label' => 'Numéro RCCM',                     'type' => 'text',   'col' => 1, 'placeholder' => 'RC/DLA/2019/A/A/687'],
-                        ['name' => 'niu',                 'label' => "NIU (Identifiant fiscal)",        'type' => 'text',   'col' => 1, 'placeholder' => 'M123456789012A', 'help' => "14 caractères, délivré par la DGI."],
-                        ['name' => 'trade_register_city', 'label' => "Greffe d'immatriculation",        'type' => 'text',   'col' => 1, 'placeholder' => 'Douala'],
-                        ['name' => 'incorporation_date',  'label' => 'Date de création',                'type' => 'date',   'col' => 1],
-                        ['name' => 'share_capital',       'label' => 'Capital social (FCFA)',           'type' => 'number', 'col' => 1, 'help' => 'Mention obligatoire sur les documents des SARL, SA et SAS.'],
-                    ],
-                ],
-                [
-                    'key'   => 'fiscal',
-                    'label' => 'Régime fiscal & social',
-                    'icon'  => 'fa-scale-balanced',
-                    'help'  => "Le régime fiscal pilote les taux appliqués par le moteur de calcul (AIR 2,2 % au réel, 5,5 % au simplifié). Les taux eux-mêmes se règlent dans l'onglet Préférences.",
-                    'fields' => [
-                        ['name' => 'fiscal_regime',        'label' => 'Régime fiscal',          'type' => 'select', 'col' => 1, 'options' => CompanyProfile::FISCAL_REGIMES],
-                        ['name' => 'tax_office',           'label' => 'Centre des impôts',      'type' => 'text',   'col' => 1, 'placeholder' => 'CIME Littoral II'],
-                        ['name' => 'cnps_employer_number', 'label' => 'Numéro employeur CNPS',  'type' => 'text',   'col' => 1],
-                        ['name' => 'activity_sector',      'label' => "Secteur d'activité",     'type' => 'text',   'col' => 1, 'placeholder' => 'Distribution agroalimentaire'],
-                        ['name' => 'activity_code',        'label' => 'Code activité (APE)',    'type' => 'text',   'col' => 1],
-                    ],
-                ],
-                [
-                    'key'   => 'address',
-                    'label' => 'Adresse officielle',
-                    'icon'  => 'fa-location-dot',
-                    'fields' => [
-                        ['name' => 'address_line1', 'label' => 'Adresse (ligne 1)', 'type' => 'text', 'col' => 2, 'placeholder' => 'Rue, quartier'],
-                        ['name' => 'address_line2', 'label' => 'Adresse (ligne 2)', 'type' => 'text', 'col' => 2],
-                        ['name' => 'po_box',        'label' => 'Boîte postale',     'type' => 'text', 'col' => 1, 'placeholder' => 'B.P. 5120'],
-                        ['name' => 'city',          'label' => 'Ville',             'type' => 'text', 'col' => 1],
-                        ['name' => 'region',        'label' => 'Région',            'type' => 'text', 'col' => 1],
-                        ['name' => 'country',       'label' => 'Pays',              'type' => 'text', 'col' => 1],
-                    ],
-                ],
-                [
-                    'key'   => 'contact',
-                    'label' => 'Coordonnées',
-                    'icon'  => 'fa-address-book',
-                    'fields' => [
-                        ['name' => 'phone_primary',   'label' => 'Téléphone principal',  'type' => 'tel',   'col' => 1, 'placeholder' => '+237 696 291 800'],
-                        ['name' => 'phone_secondary', 'label' => 'Téléphone secondaire', 'type' => 'tel',   'col' => 1],
-                        ['name' => 'whatsapp',        'label' => 'WhatsApp',             'type' => 'tel',   'col' => 1],
-                        ['name' => 'website',         'label' => 'Site web',             'type' => 'text',  'col' => 1, 'placeholder' => 'www.lpc.cm'],
-                        ['name' => 'email_general',   'label' => 'Email général',        'type' => 'email', 'col' => 1],
-                        ['name' => 'email_billing',   'label' => 'Email facturation',    'type' => 'email', 'col' => 1, 'help' => 'Affiché sur les factures pour les questions de paiement.'],
-                    ],
-                ],
-                [
-                    'key'   => 'banking',
-                    'label' => 'Coordonnées bancaires',
-                    'icon'  => 'fa-building-columns',
-                    'help'  => "Reproduites dans le bloc de règlement des factures. Laissez vide pour masquer ce bloc.",
-                    'fields' => [
-                        ['name' => 'bank_name',           'label' => 'Banque',            'type' => 'text', 'col' => 1],
-                        ['name' => 'bank_account_rib',    'label' => 'RIB / N° de compte','type' => 'text', 'col' => 1],
-                        ['name' => 'bank_iban',           'label' => 'IBAN',              'type' => 'text', 'col' => 1],
-                        ['name' => 'bank_swift',          'label' => 'Code SWIFT / BIC',  'type' => 'text', 'col' => 1],
-                        ['name' => 'mobile_money_number', 'label' => 'Mobile Money',      'type' => 'text', 'col' => 2, 'help' => 'Numéro marchand Orange Money / MTN MoMo.'],
-                    ],
-                ],
-                [
-                    'key'   => 'brand',
-                    'label' => "Marque & identité de l'application",
-                    'icon'  => 'fa-palette',
-                    'help'  => "Le nom et le logo ci-dessous pilotent la barre latérale de l'ERP, l'écran de connexion et l'en-tête de tous les PDF.",
-                    'fields' => [
-                        ['name' => 'erp_display_name',    'label' => "Nom affiché de l'ERP", 'type' => 'text',  'col' => 1, 'help' => 'Visible dans la barre latérale et le titre du navigateur.'],
-                        ['name' => 'erp_tagline',         'label' => 'Sous-titre',           'type' => 'text',  'col' => 1],
-                        ['name' => 'brand_color_primary', 'label' => 'Couleur principale',   'type' => 'color', 'col' => 1],
-                        ['name' => 'brand_color_accent',  'label' => "Couleur d'accent",     'type' => 'color', 'col' => 1],
-                        ['name' => 'logo_main_path',      'label' => 'Logo principal',       'type' => 'logo',  'col' => 1, 'slot' => 'main',     'help' => 'Documents, page de connexion.'],
-                        ['name' => 'logo_mark_path',      'label' => 'Logo compact',         'type' => 'logo',  'col' => 1, 'slot' => 'mark',     'help' => 'Barre latérale réduite, favicon.'],
-                        ['name' => 'logo_document_path',  'label' => 'Logo pour impression', 'type' => 'logo',  'col' => 2, 'slot' => 'document', 'help' => 'Optionnel. À défaut, le logo principal est utilisé.'],
-                    ],
-                ],
-                [
-                    'key'   => 'footer',
-                    'label' => 'Pied de page des documents',
-                    'icon'  => 'fa-file-signature',
-                    'help'  => "Ligne de mentions légales imprimée en bas de chaque PDF. Laissez vide pour la générer automatiquement à partir des champs ci-dessus.",
-                    'fields' => [
-                        ['name' => 'document_footer_fr', 'label' => 'Mentions légales (FR)', 'type' => 'textarea', 'col' => 2],
-                        ['name' => 'document_footer_en', 'label' => 'Mentions légales (EN)', 'type' => 'textarea', 'col' => 2],
-                    ],
-                ],
-            ];
+            $layout = lpc_company_layout();
 
             $responseData['profile']   = $profile;
             $responseData['layout']    = $layout;

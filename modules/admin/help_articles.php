@@ -125,11 +125,10 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
             <table class="w-full text-sm">
                 <thead>
                     <tr class="bg-gray-50 text-left text-[11px] uppercase tracking-wider text-gray-500">
-                        <th class="px-4 py-3 font-extrabold"><?= $en ? 'Title' : 'Titre' ?></th>
+                        <th class="px-4 py-3 font-extrabold w-2/5"><?= $en ? 'Title' : 'Titre' ?></th>
                         <th class="px-4 py-3 font-extrabold"><?= $en ? 'Category' : 'Catégorie' ?></th>
                         <th class="px-4 py-3 font-extrabold"><?= $en ? 'Gated by' : 'Permission' ?></th>
                         <th class="px-4 py-3 font-extrabold">FR / EN</th>
-                        <th class="px-4 py-3 font-extrabold"><?= $en ? 'Page' : 'Page' ?></th>
                         <th class="px-4 py-3 font-extrabold text-right"><?= $en ? 'Views' : 'Vues' ?></th>
                         <th class="px-4 py-3 font-extrabold"><?= $en ? 'State' : 'État' ?></th>
                         <th class="px-4 py-3"></th>
@@ -144,6 +143,9 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                                 <span class="lpc-help-badge lpc-help-badge--off ml-1">FAQ</span>
                             <?php endif; ?>
                             <span class="block text-[11px] text-gray-400 font-mono"><?= htmlspecialchars($a['slug']) ?></span>
+                            <?php if (!empty($a['page_path'])): ?>
+                                <span class="block text-[11px] text-gray-500 font-mono"><?= $en ? 'Page: ' : 'Page : ' ?><?= htmlspecialchars((string) $a['page_path']) ?></span>
+                            <?php endif; ?>
                         </td>
                         <td class="px-4 py-3 text-gray-600"><?= htmlspecialchars((string) $a['category_title']) ?></td>
                         <td class="px-4 py-3">
@@ -157,7 +159,6 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                             <span class="lpc-help-badge <?= $a['title_fr'] ? 'lpc-help-badge--on' : 'lpc-help-badge--off' ?>">FR</span>
                             <span class="lpc-help-badge <?= $a['title_en'] ? 'lpc-help-badge--on' : 'lpc-help-badge--off' ?>">EN</span>
                         </td>
-                        <td class="px-4 py-3 text-[11px] text-gray-500 font-mono"><?= htmlspecialchars((string) $a['page_path']) ?></td>
                         <td class="px-4 py-3 text-right tabular-nums text-gray-500"><?= (int) $a['view_count'] ?></td>
                         <td class="px-4 py-3">
                             <button type="button" class="lpc-help-badge <?= $a['is_published'] ? 'lpc-help-badge--on' : 'lpc-help-badge--off' ?>"
