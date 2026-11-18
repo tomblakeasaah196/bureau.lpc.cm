@@ -134,6 +134,8 @@ check('disposals are 81 / 82, not 67 / 77', str_contains($tft, "\$M(['81', '82']
 echo "\n11.5 · journals\n";
 check('a cash box posts in CA, a bank in BQ', str_contains($jp, "=== 'caisse' ? 'CA' : 'BQ'"));
 check('treasury postings use it', substr_count($jp, 'self::journalForTreasury($db, $treasury_account_id)') >= 7);
+$acc = $read('api/v1/accounting_controller.php');
+check('the Journal names tax payments and À-nouveaux', str_contains($acc, "'tax_declaration'        => 'Déclarations Fiscales · paiement'") && str_contains($acc, "'year_opening'"));
 
 echo "\n" . ($fail ? "$fail check(s) FAILED\n" : "All checks passed.\n");
 exit($fail ? 1 : 0);
