@@ -334,7 +334,7 @@ if (($_GET['pdf'] ?? '') === '1') {
                                         <span class="text-xs font-black text-gray-700" id="dyn_air_amount">...</span>
                                     </div>
                                     <div class="flex justify-between items-center bg-gray-900 text-white px-3 py-2 rounded-lg">
-                                        <span class="text-[10px] font-black uppercase tracking-widest" data-i18n="tot_net_transfer">Net à virer au fournisseur</span>
+                                        <span class="text-[10px] font-black uppercase tracking-widest" data-i18n="tot_net_transfer">Net à virer après retenue</span>
                                         <span class="text-sm font-black" id="dyn_net_payable">...</span>
                                     </div>
                                 </div>
