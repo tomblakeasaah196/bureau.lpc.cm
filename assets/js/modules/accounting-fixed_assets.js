@@ -157,7 +157,7 @@ function renderQueue() {
         tbody.innerHTML += LPC.html`
             <tr class="hover:bg-gray-50 border-b border-gray-100 transition-colors">
                 <td class="py-4 px-6 font-black text-gray-900">${v.plate_number}</td>
-                <td class="py-4 px-6 text-xs text-gray-600 font-bold uppercase">${v.type} - ${v.make_model || 'N/A'}</td>
+                <td class="py-4 px-6 text-xs text-gray-600 font-bold uppercase">${({ truck: 'Camion', tricycle: 'Tricycle', bike: 'Moto' })[v.type] || v.type} · ${v.make_model || ''}</td>
                 <td class="py-4 px-6 text-center text-xs text-gray-500">${fmt(v.current_odometer)} Km</td>
                 <td class="py-4 px-6 text-right">
                     <button onclick="openCapitalizeModal(${v.id}, '${v.plate_number}', '${v.make_model || ''}')" class="bg-asset-highlight hover:bg-asset-dark text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase shadow-md transition-all">
