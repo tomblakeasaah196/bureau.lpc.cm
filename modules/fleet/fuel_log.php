@@ -5,6 +5,13 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 // so it called an undefined function and stopped before drawing anything (Journal d'Erreurs, 17/11/2026).
 require_once __DIR__ . '/../../includes/functions/help.php';
 Rbac::requirePermission('fleet.fuel.log');
+// LPC has no driver accounts: whoever runs the fleet from the office (the
+// Responsable des Opérations) logs fuel on Flotte & Maintenance; the menu item
+// opens it on the fuel window. This phone page stays for a driver login.
+if (Rbac::hasPermission('fleet.vehicles.view')) {
+    header('Location: /modules/fleet/vehicles.php?do=fuel');
+    exit;
+}
 $lang = lpc_i18n_current_lang();
 ?>
 <!DOCTYPE html>

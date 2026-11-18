@@ -75,9 +75,11 @@ $can_recur    = Rbac::hasPermission('accounting.expenses.recurring.manage');
         .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px -12px rgba(0,0,0,.15); }
 
         /* Modal shell reused across "new expense", "category editor", "recurring" */
-        .lpc-modal { display: none; position: fixed; inset: 0; z-index: 50; background: rgba(15,23,42,.75); backdrop-filter: blur(4px); padding: 1rem; }
-        .lpc-modal.open { display: flex; align-items: center; justify-content: center; }
-        .lpc-modal-card { background: #fff; border-radius: 1.25rem; box-shadow: 0 25px 50px -12px rgba(0,0,0,.35); width: 100%; overflow: hidden; display: flex; flex-direction: column; max-height: 90vh; }
+        /* exp-, not lpc-: the app-wide .lpc-modal (src/input.css, a white 560px card for LPC.modal) loads
+           after this block and turned these full-screen overlays into a white panel on the left. */
+        .exp-modal { display: none; position: fixed; inset: 0; z-index: 9000; background: rgba(15,23,42,.75); backdrop-filter: blur(4px); padding: 1rem; }
+        .exp-modal.open { display: flex; align-items: center; justify-content: center; }
+        .exp-modal-card { background: #fff; border-radius: 1.25rem; box-shadow: 0 25px 50px -12px rgba(0,0,0,.35); width: 100%; overflow: hidden; display: flex; flex-direction: column; max-height: 90vh; }
 
         .empty-state { padding: 4rem 2rem; text-align: center; color: #64748b; }
         .empty-state i { font-size: 3rem; color: #cbd5e1; margin-bottom: 1rem; }
@@ -374,8 +376,8 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 <!-- ============================================================================
      MODAL — New / Edit Expense
 ============================================================================ -->
-<div id="modal-expense" class="lpc-modal">
-    <div class="lpc-modal-card max-w-2xl">
+<div id="modal-expense" class="exp-modal">
+    <div class="exp-modal-card max-w-2xl">
         <div class="bg-lpc-dark px-8 py-5 flex justify-between items-center text-white shrink-0">
             <h3 class="font-black text-lg tracking-wide flex items-center gap-3">
                 <i class="fas fa-receipt"></i> <span id="exp_modal_title">Nouvelle Dépense</span>
@@ -460,8 +462,8 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
      MODAL — Category Editor
 ============================================================================ -->
 <?php if ($can_cat): ?>
-<div id="modal-category" class="lpc-modal">
-    <div class="lpc-modal-card max-w-lg">
+<div id="modal-category" class="exp-modal">
+    <div class="exp-modal-card max-w-lg">
         <div class="bg-teal-600 px-8 py-5 flex justify-between items-center text-white shrink-0">
             <h3 class="font-black text-lg tracking-wide flex items-center gap-3">
                 <i class="fas fa-tag"></i> <span id="cat_modal_title">Nouvelle catégorie</span>
@@ -512,8 +514,8 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
      MODAL — Recurring Template
 ============================================================================ -->
 <?php if ($can_recur): ?>
-<div id="modal-recurring" class="lpc-modal">
-    <div class="lpc-modal-card max-w-xl">
+<div id="modal-recurring" class="exp-modal">
+    <div class="exp-modal-card max-w-xl">
         <div class="bg-indigo-600 px-8 py-5 flex justify-between items-center text-white shrink-0">
             <h3 class="font-black text-lg tracking-wide flex items-center gap-3">
                 <i class="fas fa-sync-alt"></i> <span id="rec_modal_title">Nouveau modèle récurrent</span>
@@ -572,8 +574,8 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
      MODAL — Mark Paid
 ============================================================================ -->
 <?php if ($can_pay): ?>
-<div id="modal-pay" class="lpc-modal">
-    <div class="lpc-modal-card max-w-md">
+<div id="modal-pay" class="exp-modal">
+    <div class="exp-modal-card max-w-md">
         <div class="bg-emerald-600 px-8 py-5 flex justify-between items-center text-white shrink-0">
             <h3 class="font-black text-lg flex items-center gap-3"><i class="fas fa-check-circle"></i> Marquer payée</h3>
             <button onclick="closeModal('modal-pay')" class="text-white/70 hover:text-white text-xl"><i class="fas fa-times"></i></button>
@@ -614,8 +616,8 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
      row once it carries a journal_entry_id, but a receipt that turns up after
      the payment was booked still has to be attachable to it.
 ============================================================================ -->
-<div id="modal-attachments" class="lpc-modal">
-    <div class="lpc-modal-card max-w-lg">
+<div id="modal-attachments" class="exp-modal">
+    <div class="exp-modal-card max-w-lg">
         <div class="bg-slate-700 px-8 py-5 flex justify-between items-center text-white shrink-0">
             <h3 class="font-black text-lg tracking-wide flex items-center gap-3">
                 <i class="fas fa-paperclip"></i> Pièces jointes

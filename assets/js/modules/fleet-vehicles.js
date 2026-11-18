@@ -14,6 +14,25 @@
         let charts = {};
         let driversList = []; // Cached for assignment dropdown
 
+        /** What this person may do here (vehicles.php prints it; the API checks again). */
+        const PERMS = (() => {
+            const el = document.getElementById('fleet-perms');
+            const d = el ? el.dataset : {};
+            return { create: d.create === '1', edit: d.edit === '1', assign: d.assign === '1',
+                     maint: d.maint === '1', fuel: d.fuel === '1', breakdown: d.breakdown === '1' };
+        })();
+
+        const TYPE_LABELS = { truck: 'Camion', tricycle: 'Tricycle', bike: 'Moto' };
+        const ASSIGN_STATUS = { scheduled: 'Prévue', in_progress: 'En cours', completed: 'Terminée' };
+
+        /** The expense a fleet cost created in Gestion des Dépenses, as a pill. */
+        function expensePill(ref, status) {
+            if (!ref) return LPC.raw('<span class="text-gray-300 text-xs">-</span>');
+            const paid = status === 'paid';
+            const cls = paid ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200';
+            return LPC.raw(LPC.html`<span class="inline-flex flex-col items-center gap-0.5 px-2.5 py-1 rounded border ${cls}"><span class="text-[10px] font-black whitespace-nowrap">${ref}</span><span class="text-[9px] uppercase font-black tracking-wider">${paid ? 'Payée' : 'À valider'}</span></span>`);
+        }
+
         /**
          * Toast notifications — delegated to LPC.toast (assets/js/lpc-toast.js).
          * The copy that used to live here waited on an `animationend` from CSS
@@ -51,9 +70,14 @@
 
         window.onload = () => {
             document.getElementById('assign_date').valueAsDate = new Date(); // Default to today
-            fetchDriversList(); // Pre-cache operations/driver users
+            // The menu's « Relevé Carburant » and « Déclarer une Panne » land here (?do=...).
+            const todo = new URLSearchParams(window.location.search).get('do');
             const hash = (window.location.hash || '').replace('#', '');
-            switchTab(VEHICLES_VALID_TABS.includes(hash) ? hash : 'dashboard');
+            const start = todo === 'fuel' ? 'carburant' : (todo === 'breakdown' ? 'flotte' : hash);
+            switchTab(VEHICLES_VALID_TABS.includes(start) ? start : 'dashboard').then(() => {
+                if (todo === 'fuel' && PERMS.fuel) openFuelModal();
+                if (todo === 'breakdown' && PERMS.breakdown) openBreakdownModal();
+            });
             document.getElementById('maint_type').addEventListener('change', function() {
         const expiryDiv = document.getElementById('expiry_update_div');
         if (['insurance', 'routine'].includes(this.value)) {
@@ -214,17 +238,18 @@
                 else badge = `<span class="status-badge-retired px-2.5 py-1 rounded text-[9px] uppercase font-black tracking-wider"><i class="fas fa-archive mr-1"></i>Retiré</span>`;
 
                 const typeIcon = v.type === 'truck' ? 'fa-truck' : (v.type === 'tricycle' ? 'fa-motorcycle' : 'fa-bicycle');
+                const rowActions = [];
+                if (PERMS.breakdown && v.status === 'active') rowActions.push(`<button onclick="openBreakdownModal(${v.id})" title="Déclarer une panne" aria-label="Déclarer une panne" class="text-red-600 hover:text-red-800 bg-red-50 p-2.5 rounded-xl transition-colors"><i class="fas fa-tools"></i></button>`);
+                if (PERMS.edit) rowActions.push(`<button onclick="editVehicle(${v.id})" title="Modifier" aria-label="Modifier" class="text-gray-500 hover:text-gray-900 bg-gray-100 p-2.5 rounded-xl transition-colors"><i class="fas fa-pen"></i></button>`);
 
                 tbody.innerHTML += LPC.html`
                     <tr class="hover:bg-gray-50/50 transition-colors">
                         <td class="py-4 px-6 font-black text-gray-900 uppercase">${v.plate_number}</td>
                         <td class="py-4 px-6 font-bold text-gray-700 text-xs">${v.make_model || '-'}</td>
-                        <td class="py-4 px-6 text-gray-500 text-xs font-bold uppercase tracking-wider"><i class="fas ${typeIcon} mr-1"></i> ${v.type}</td>
+                        <td class="py-4 px-6 text-gray-500 text-xs font-bold uppercase tracking-wider"><i class="fas ${typeIcon} mr-1"></i> ${TYPE_LABELS[v.type] || v.type}</td>
                         <td class="py-4 px-6 text-right font-black text-blue-700">${fmt(v.current_odometer)} Km</td>
                         <td class="py-4 px-6 text-center">${LPC.raw(badge)}</td>
-                        <td class="py-4 px-6 text-right">
-                            <button onclick="editVehicle(${v.id})" class="text-gray-500 hover:text-gray-900 bg-gray-100 p-2.5 rounded-xl transition-colors"><i class="fas fa-pen"></i></button>
-                        </td>
+                        <td class="py-4 px-6 text-right whitespace-nowrap space-x-1">${LPC.raw(rowActions.join('') || '<span class="text-gray-300 text-xs">-</span>')}</td>
                     </tr>`;
             });
         }
@@ -234,7 +259,7 @@
             tbody.innerHTML = '';
             
             if(assignments.length === 0) {
-                tbody.innerHTML = LPC.html`<tr><td colspan="5" class="py-8 text-center text-gray-400 font-bold italic">Aucune affectation ce jour.</td></tr>`;
+                tbody.innerHTML = LPC.html`<tr><td colspan="5" class="py-8 text-center text-gray-400 font-bold italic">Aucune affectation enregistrée.</td></tr>`;
                 return;
             }
 
@@ -245,7 +270,7 @@
                         <td class="py-4 px-6 font-black text-gray-900">${vehicleCell(a)}</td>
                         <td class="py-4 px-6 font-bold text-gray-700 text-xs"><i class="fas fa-user-tie text-blue-400 mr-1"></i> ${a.driver_name}</td>
                         <td class="py-4 px-6 text-right font-black text-gray-600">${fmt(a.odometer_start)}</td>
-                        <td class="py-4 px-6 text-center"><span class="bg-blue-50 text-blue-600 px-2.5 py-1 rounded text-[9px] uppercase font-black tracking-wider border border-blue-200">${a.status}</span></td>
+                        <td class="py-4 px-6 text-center"><span class="bg-blue-50 text-blue-600 px-2.5 py-1 rounded text-[9px] uppercase font-black tracking-wider border border-blue-200">${ASSIGN_STATUS[a.status] || a.status}</span></td>
                     </tr>`;
             });
         }
@@ -256,7 +281,7 @@
     
         // Safety Check: If data or history is missing, stop the crash
         if (!data || !data.history) {
-            tbody.innerHTML = LPC.html`<tr><td colspan="6" class="py-8 text-center text-gray-400 font-bold italic">Erreur de chargement des données.</td></tr>`;
+            tbody.innerHTML = LPC.html`<tr><td colspan="7" class="py-8 text-center text-gray-400 font-bold italic">Erreur de chargement des données.</td></tr>`;
             return;
         }
     
@@ -265,7 +290,7 @@
             data.alerts.forEach(a => {
                 // Check if it's a Date or a Km alert to format it correctly
                 let displayValue = '';
-                let alertLabel = 'À RÉNOUVELER';
+                let alertLabel = 'À RENOUVELER';
                 
                 if (a.type === 'Entretien Odomètre') {
                     displayValue = `Critique: ${a.date_or_km}`;
@@ -281,8 +306,9 @@
                         <td class="py-4 px-6 font-bold text-red-700 text-[10px] uppercase tracking-widest">${a.type}</td>
                         <td class="py-4 px-6 text-xs text-red-500 font-medium">${displayValue}</td>
                         <td class="py-4 px-6 text-right font-black">-</td>
-                        <td class="py-4 px-6 text-right">
-                            <button onclick="resolveAlert(${a.id}, '${a.type}')" class="bg-red-600 text-white px-3 py-1 rounded text-[9px] font-black uppercase shadow-sm hover:bg-red-700">Régler</button>
+                        <td class="py-4 px-6 text-right font-black">-</td>
+                        <td class="py-4 px-6 text-center">
+                            ${PERMS.maint ? LPC.raw(LPC.html`<button onclick="resolveAlert(${a.id}, '${a.type}')" class="bg-red-600 text-white px-3 py-1 rounded text-[9px] font-black uppercase shadow-sm hover:bg-red-700">Régler</button>`) : '-'}
                         </td>
                     </tr>`;
             });
@@ -290,7 +316,7 @@
     
         // 2. Render HISTORY (The old list)
         if (data.history.length === 0 && (!data.alerts || data.alerts.length === 0)) {
-            tbody.innerHTML = LPC.html`<tr><td colspan="6" class="py-8 text-center text-gray-400 font-bold italic">Aucun historique disponible.</td></tr>`;
+            tbody.innerHTML = LPC.html`<tr><td colspan="7" class="py-8 text-center text-gray-400 font-bold italic">Aucun historique disponible.</td></tr>`;
             return;
         }
     
@@ -299,10 +325,11 @@
                 <tr class="hover:bg-gray-50/50 transition-colors">
                     <td class="py-4 px-6 font-bold text-gray-500 text-xs">${new Date(l.service_date).toLocaleDateString('fr-FR')}</td>
                     <td class="py-4 px-6 font-black text-gray-900">${vehicleCell(l)}</td>
-                    <td class="py-4 px-6 font-bold text-gray-700 text-xs uppercase tracking-wider">${l.service_type}</td>
-                    <td class="py-4 px-6 font-medium text-gray-500 text-xs truncate max-w-[200px]">${l.description || '-'}</td>
+                    <td class="py-4 px-6 font-bold text-xs uppercase tracking-wider ${l.service_type === 'breakdown' ? 'text-red-600' : 'text-gray-700'}">${l.service_label || l.service_type}</td>
+                    <td class="py-4 px-6 font-medium text-gray-500 text-xs max-w-[260px]">${l.garage_name ? LPC.raw(LPC.html`<span class="font-bold text-gray-700">${l.garage_name}</span><br>`) : ''}${l.description || '-'}</td>
                     <td class="py-4 px-6 text-right font-black text-gray-600">${l.odometer_at_service ? fmt(l.odometer_at_service) : '-'}</td>
                     <td class="py-4 px-6 text-right font-black text-blue-600">${fmt(l.total_cost)} F</td>
+                    <td class="py-4 px-6 text-center">${expensePill(l.expense_reference, l.expense_status)}</td>
                 </tr>`;
         });
     }
@@ -312,7 +339,7 @@
             const tbody = document.getElementById('table-body-fuel');
             tbody.innerHTML = '';
             if(logs.length === 0) {
-                tbody.innerHTML = LPC.html`<tr><td colspan="6" class="py-8 text-center text-gray-400 font-bold italic">Aucune saisie de carburant.</td></tr>`;
+                tbody.innerHTML = LPC.html`<tr><td colspan="7" class="py-8 text-center text-gray-400 font-bold italic">Aucune saisie de carburant.</td></tr>`;
                 return;
             }
             logs.forEach(l => {
@@ -320,10 +347,11 @@
                     <tr class="hover:bg-gray-50/50 transition-colors">
                         <td class="py-4 px-6 font-bold text-gray-500 text-xs">${new Date(l.date).toLocaleDateString('fr-FR')}</td>
                         <td class="py-4 px-6 font-black text-gray-900">${vehicleCell(l)}</td>
-                        <td class="py-4 px-6 text-right font-black text-amber-600">${l.liters} L</td>
-                        <td class="py-4 px-6 text-right font-black text-gray-900">${fmt(l.total_cost)} F <br><span class="text-[9px] text-gray-400 font-normal">@ ${fmt(l.cost_per_liter)} F/L</span></td>
+                        <td class="py-4 px-6 text-right font-black text-amber-600">${Number(l.liters).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} L</td>
+                        <td class="py-4 px-6 text-right font-black text-gray-900">${fmt(l.total_cost)} F <br><span class="text-[9px] text-gray-400 font-normal">${fmt(l.cost_per_liter)} F/L${l.gas_station ? ' · ' + l.gas_station : ''}</span></td>
                         <td class="py-4 px-6 text-right font-black text-gray-600">${fmt(l.odometer_reading)}</td>
                         <td class="py-4 px-6 text-center text-xs font-bold text-gray-500">${l.logged_by_name}</td>
+                        <td class="py-4 px-6 text-center">${expensePill(l.expense_reference, l.expense_status)}</td>
                     </tr>`;
             });
         }
@@ -388,7 +416,7 @@
                 technical_visit_expiry: document.getElementById('veh_tech_visit').value
             };
 
-            await sendPostPayload(payload, 'modal-vehicle', "Véhicule sauvegardé.");
+            await sendPostPayload(payload, 'modal-vehicle');
         }
 
         // --- Assign ---
@@ -419,6 +447,9 @@
         async function openAssignModal() {
     // 1. Reset form and show basic modal UI
     document.getElementById('form-assign').reset();
+    // reset() empties the date (its default is blank) and the date is required:
+    // the window could never be saved without retyping it. Today, as on load.
+    document.getElementById('assign_date').valueAsDate = new Date();
     const selVeh = document.getElementById('assign_vehicle_id');
     const selDriver = document.getElementById('assign_driver_id');
     
@@ -450,9 +481,9 @@
             });
 
             // 4. Populate Drivers
-            selDriver.innerHTML = '<option value="">-- Choisir un chauffeur --</option>';
+            selDriver.innerHTML = '<option value="">-- Choisir dans le personnel --</option>';
             driversList.forEach(d => {
-                selDriver.innerHTML += LPC.html`<option value="${d.id}">${d.first_name} ${d.last_name}</option>`;
+                selDriver.innerHTML += LPC.html`<option value="${d.id}">${d.first_name} ${d.last_name}${d.job_title ? ' (' + d.job_title + ')' : ''}</option>`;
             });
         } else {
             showToast("Erreur lors de la mise à jour des données.", "error");
@@ -470,11 +501,11 @@
             const payload = {
                 action: 'create_assignment',
                 vehicle_id: document.getElementById('assign_vehicle_id').value,
-                driver_id: document.getElementById('assign_driver_id').value,
+                employee_id: document.getElementById('assign_driver_id').value,
                 assignment_date: document.getElementById('assign_date').value,
                 odometer_start: document.getElementById('assign_odo_start').value
             };
-            await sendPostPayload(payload, 'modal-assign', "Affectation enregistrée.");
+            await sendPostPayload(payload, 'modal-assign');
         }
 
         // --- Fuel ---
@@ -509,18 +540,29 @@ async function openFuelModal() {
     openModal('modal-fuel');
 }
 
+/** The fuel type follows the vehicle chosen (it can still be changed). */
+function fuelVehicleChanged() {
+    const id = document.getElementById('fuel_vehicle_id').value;
+    const v = ((globalData.flotte && globalData.flotte.vehicles) || []).find(x => String(x.id) === String(id));
+    if (v && v.fuel_type) document.getElementById('fuel_type').value = v.fuel_type;
+}
+
         async function submitFuel() {
             if(!document.getElementById('form-fuel').checkValidity()) return document.getElementById('form-fuel').reportValidity();
             toggleBtn('btn-submit-fuel', true);
 
-            const payload = {
-                action: 'log_fuel',
-                vehicle_id: document.getElementById('fuel_vehicle_id').value,
-                liters: document.getElementById('fuel_liters').value,
-                cost_per_liter: document.getElementById('fuel_price').value,
-                odometer_reading: document.getElementById('fuel_odometer').value
-            };
-            await sendPostPayload(payload, 'modal-fuel', "Carburant enregistré.");
+            // Multipart, so the ticket travels with the entry.
+            const fd = new FormData();
+            fd.append('action', 'log_fuel');
+            fd.append('vehicle_id', document.getElementById('fuel_vehicle_id').value);
+            fd.append('fuel_type', document.getElementById('fuel_type').value);
+            fd.append('gas_station', document.getElementById('fuel_station').value.trim());
+            fd.append('liters', document.getElementById('fuel_liters').value);
+            fd.append('cost_per_liter', document.getElementById('fuel_price').value);
+            fd.append('odometer_reading', document.getElementById('fuel_odometer').value);
+            const ticket = document.getElementById('fuel_receipt').files[0];
+            if (ticket) fd.append('receipt_image', ticket, ticket.name);
+            await sendPostPayload(fd, 'modal-fuel');
         }
 
             async function openMaintenanceModal() {
@@ -539,13 +581,14 @@ async function openFuelModal() {
             service_type: document.getElementById('maint_type').value,
             total_cost: document.getElementById('maint_cost').value,
             description: document.getElementById('maint_desc').value,
+            garage_name: document.getElementById('maint_garage').value.trim(),
             odometer_at_service: document.getElementById('maint_odo').value,
             next_service_odometer: document.getElementById('maint_next_odo').value,
             // ADD THIS LINE:
             new_expiry_date: document.getElementById('maint_new_expiry').value 
         };
     
-        await sendPostPayload(payload, 'modal-maint', "Intervention sauvegardée.");
+        await sendPostPayload(payload, 'modal-maint');
     }
         
             async function resolveAlert(vehicleId, alertType) {
@@ -564,6 +607,31 @@ async function openFuelModal() {
                 openModal('modal-maint');
             }
 
+        // --- Breakdown ---
+        async function openBreakdownModal(vehicleId = null) {
+            document.getElementById('form-breakdown').reset();
+            const sel = document.getElementById('brk_vehicle_id');
+            sel.innerHTML = '<option value="">Chargement en cours...</option>';
+            openModal('modal-breakdown');
+            await fetchTabData('flotte');
+            sel.innerHTML = '<option value="">-- Choisir un véhicule --</option>';
+            ((globalData.flotte && globalData.flotte.vehicles) || []).filter(v => v.status === 'active').forEach(v => {
+                sel.innerHTML += LPC.html`<option value="${v.id}">${vehicleLabel(v)} (Km : ${fmt(v.current_odometer)})</option>`;
+            });
+            if (vehicleId) sel.value = String(vehicleId);
+        }
+
+        async function submitBreakdown() {
+            if (!document.getElementById('form-breakdown').checkValidity()) return document.getElementById('form-breakdown').reportValidity();
+            toggleBtn('btn-submit-brk', true);
+            await sendPostPayload({
+                action: 'report_breakdown',
+                vehicle_id: document.getElementById('brk_vehicle_id').value,
+                odometer_at_service: document.getElementById('brk_odo').value,
+                description: document.getElementById('brk_desc').value.trim(),
+            }, 'modal-breakdown');
+        }
+
         /** ================= UTILITIES ================= */
 
         function toggleBtn(btnId, isSpinning) {
@@ -575,16 +643,18 @@ async function openFuelModal() {
             else { txt.classList.remove('hidden'); spin.classList.add('hidden'); }
         }
 
-        async function sendPostPayload(payload, modalId, successMsg) {
+        async function sendPostPayload(payload, modalId) {
             try {
-                const response = await fetch('/api/v1/fleet_controller.php', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
-                });
+                const isForm = payload instanceof FormData;
+                const response = await fetch('/api/v1/fleet_controller.php', isForm
+                    ? { method: 'POST', body: payload }
+                    : { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
                 const result = await response.json();
                 
                 if (result.status === 'success') {
                     closeModal(modalId);
-                    showToast(successMsg);
+                    // The server's sentence says what happened (the expense reference, a vehicle back in service).
+                    showToast(result.message);
                     fetchTabData(currentTab); // Auto refresh current view
                 } else {
                     showToast(result.message, "error");

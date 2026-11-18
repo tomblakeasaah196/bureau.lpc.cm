@@ -3,6 +3,13 @@
  * api/v1/fleet_controller.php
  * CONTROLLER: Flotte et Maintenance (Fleet API)
  * Bootstrap loads env, DB, hardened session, CSRF, Rbac.
+ *
+ * Who does what (18/11/2026, docs/VIDEO_QA_FINDINGS.md §6): LPC has no driver
+ * accounts; the Responsable des Opérations runs the fleet. Every fleet cost
+ * (fuel, repair, servicing, insurance, fine) creates an UNPAID expense in
+ * Gestion des Dépenses, linked to the vehicle and back to the fleet record:
+ * a request Finance validates and pays there (the owner's answer 6). Nothing is
+ * posted to the ledger from here; the payment in Dépenses is, once.
  */
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/functions/notify.php';
@@ -11,7 +18,7 @@ header('X-Content-Type-Options: nosniff');
 
 Rbac::requireAuth();
 
-$user_id = $_SESSION['user_id'];
+$user_id = (int) $_SESSION['user_id'];
 
 try {
     $pdo = Database::getInstance()->getConnection();
@@ -21,7 +28,6 @@ try {
     exit;
 }
 
-// Helper Function: Return JSON
 function sendResponse($status, $message, $data = null) {
     $response = ['status' => $status, 'message' => $message];
     if ($data !== null) $response['data'] = $data;
@@ -29,140 +35,225 @@ function sendResponse($status, $message, $data = null) {
     exit;
 }
 
-// Request Handling
-$method = $_SERVER['REQUEST_METHOD'];
-$action = $_GET['action'] ?? null;
+// -----------------------------------------------------------------------------
+// One gate, before anything runs. The action is read from where the handler
+// will read it: the query string for a GET, the body (JSON, or multipart form)
+// for a write. A write with no action, or a known action on the wrong method,
+// is refused here. It used to be read from the JSON body only, so a multipart
+// POST arrived with a null action, skipped the permission and CSRF checks, and
+// was then executed from $_POST (VIDEO_QA_FINDINGS 6.7).
+// -----------------------------------------------------------------------------
+$method  = $_SERVER['REQUEST_METHOD'];
+$isWrite = ($method !== 'GET');
+$payload = null;
 
-// For POST/PUT/DELETE actions we may need to peek at the payload's action.
-if (!$action && in_array($method, ['POST','PUT','PATCH','DELETE'], true)) {
-    $rawInput = file_get_contents('php://input');
-    $payloadPreview = json_decode($rawInput, true);
-    if (is_array($payloadPreview)) $action = $payloadPreview['action'] ?? null;
+if ($isWrite) {
+    $raw = file_get_contents('php://input');
+    $json = $raw !== '' ? json_decode($raw, true) : null;
+    $payload = is_array($json) ? $json : (!empty($_POST) ? $_POST : null);
+    $action = is_array($payload) ? ($payload['action'] ?? null) : null;
+} else {
+    $action = $_GET['action'] ?? 'read';
 }
 
-// -----------------------------------------------------------------------------
-// Sprint-2: per-action RBAC. Fleet is used by two very different roles
-// (drivers logging fuel/breakdowns, ops managing the whole fleet).
-// -----------------------------------------------------------------------------
-$ACTION_PERMS = [
-    // Driver-mobile side
-    'get_my_vehicle'   => 'fleet.fuel.log',
-    'log_fuel'         => 'fleet.fuel.log',
-    // Fleet dashboards & CRUD (ops/admin)
-    'get_drivers'      => 'fleet.vehicles.assign',
-    'read'             => 'fleet.vehicles.view',
-    'create'           => 'fleet.vehicles.create',
-    'update'           => 'fleet.vehicles.edit',
-    'create_assignment'=> 'fleet.vehicles.assign',
-    'log_maintenance'  => 'fleet.vehicles.maintenance',
-    'report_breakdown' => 'fleet.breakdown.report',
+const FLEET_READ_ACTIONS = [
+    'get_my_vehicle' => 'fleet.fuel.log',
+    'get_drivers'    => 'fleet.vehicles.assign',
+    'read'           => 'fleet.vehicles.view',
 ];
-if ($action !== null) {
-    if (!isset($ACTION_PERMS[$action])) {
-        http_response_code(400);
-        echo json_encode(['status' => 'error', 'message' => 'Action inconnue.']);
-        exit;
+const FLEET_WRITE_ACTIONS = [
+    'create'            => 'fleet.vehicles.create',
+    'update'            => 'fleet.vehicles.edit',
+    'create_assignment' => 'fleet.vehicles.assign',
+    'log_fuel'          => 'fleet.fuel.log',
+    'log_maintenance'   => 'fleet.vehicles.maintenance',
+    'report_breakdown'  => 'fleet.breakdown.report',
+];
+
+$allowed = $isWrite ? FLEET_WRITE_ACTIONS : FLEET_READ_ACTIONS;
+if (!is_string($action) || !isset($allowed[$action])) {
+    http_response_code(400);
+    echo json_encode(['status' => 'error', 'message' => 'Action inconnue.']);
+    exit;
+}
+Rbac::requirePermission($allowed[$action]);
+if ($isWrite) {
+    if ($method !== 'POST') {
+        http_response_code(405);
+        sendResponse('error', 'Méthode HTTP non autorisée.');
     }
-    Rbac::requirePermission($ACTION_PERMS[$action]);
-    if (in_array($method, ['POST','PUT','PATCH','DELETE'], true)) Csrf::requireValid();
+    Csrf::requireValid();
+}
+
+/** French labels the screens print (the database keeps the codes). */
+const FLEET_SERVICE_LABELS = [
+    'routine'   => 'Vidange / Révision',
+    'repair'    => 'Réparation',
+    'insurance' => 'Assurance / Vignette',
+    'fine'      => 'Amende',
+    'other'     => 'Autre',
+    'breakdown' => 'Panne signalée',
+];
+
+/** The expense category each kind of fleet cost goes to (by slug). */
+const FLEET_EXPENSE_CATEGORY = [
+    'fuel'      => 'logistique',          // Carburant & Transport, 6022
+    'routine'   => 'entretien_vehicule',  // Entretien & Réparation véhicules, 6225
+    'repair'    => 'entretien_vehicule',
+    'breakdown' => 'entretien_vehicule',  // towing paid on the spot
+    'insurance' => 'assurance_vehicule',  // 6252
+    'fine'      => 'autre',
+    'other'     => 'autre',
+];
+
+/**
+ * Create the expense request for a fleet cost: unpaid, no treasury account yet
+ * (Finance picks it when paying), linked to the vehicle and to the fleet record.
+ * Runs inside the caller's transaction. Returns ['id' => …, 'reference' => …].
+ */
+function fleet_expense_request(PDO $pdo, string $kind, int $vehicleId, string $title, string $description,
+                               float $amount, string $sourceType, int $sourceId, int $userId): array
+{
+    $slug = FLEET_EXPENSE_CATEGORY[$kind] ?? 'autre';
+    $cat = $pdo->prepare("SELECT id FROM expense_categories WHERE slug = ? AND is_active = 1 LIMIT 1");
+    $cat->execute([$slug]);
+    $categoryId = (int) $cat->fetchColumn();
+    if ($categoryId <= 0) {
+        $cat->execute(['autre']);
+        $categoryId = (int) $cat->fetchColumn();
+    }
+    if ($categoryId <= 0) throw new RuntimeException("Catégorie de dépense introuvable pour la flotte.");
+
+    $ref = DocCounter::next($pdo, 'expense');
+    $pdo->prepare("INSERT INTO expenses
+            (reference, title, description, category_id, amount, expense_date, payment_status,
+             created_by, vehicle_id, source_type, source_id)
+         VALUES (?, ?, ?, ?, ?, CURRENT_DATE(), 'unpaid', ?, ?, ?, ?)")
+        ->execute([$ref, mb_substr($title, 0, 200), $description ?: null, $categoryId, $amount,
+                   $userId, $vehicleId, $sourceType, $sourceId]);
+    return ['id' => (int) $pdo->lastInsertId(), 'reference' => $ref];
+}
+
+/** Tell Finance a fleet request waits (after the commit). */
+function fleet_notify_request(PDO $pdo, string $reference, string $title, float $amount, int $userId): void
+{
+    lpc_notify_permission(
+        $pdo,
+        'accounting.expenses.mark_paid',
+        'Dépense Flotte à valider',
+        ($_SESSION['user_name'] ?? 'Les Opérations') . " demande la dépense $reference ($title) : "
+            . number_format($amount, 0, ',', ' ') . " FCFA. À valider et payer dans Gestion des Dépenses.",
+        '/modules/accounting/expenses.php',
+        'info',
+        [$userId]
+    );
+}
+
+/** The vehicle, or a refusal. */
+function fleet_vehicle(PDO $pdo, int $id, bool $lock = false): array
+{
+    $stmt = $pdo->prepare("SELECT * FROM vehicles WHERE id = ?" . ($lock ? " FOR UPDATE" : ""));
+    $stmt->execute([$id]);
+    $v = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$v) throw new RuntimeException("Véhicule introuvable.");
+    return $v;
 }
 
 // ==========================================
-// [GET] READ OPERATIONS (Data Fetching)
+// [GET] READ OPERATIONS
 // ==========================================
 if ($method === 'GET') {
-    
-    // Fetch the vehicle assigned to the logged-in driver TODAY
+
+    // The vehicle assigned today to the signed-in person (driver portal).
     if ($action === 'get_my_vehicle') {
         try {
             $stmt = $pdo->prepare("
-                SELECT v.id as vehicle_id, v.plate_number, v.make_model, v.current_odometer
+                SELECT v.id as vehicle_id, v.plate_number, v.make_model, v.current_odometer, v.fuel_type
                 FROM vehicle_assignments a
                 JOIN vehicles v ON a.vehicle_id = v.id
-                WHERE a.driver_id = ? AND a.assignment_date = CURRENT_DATE()
+                WHERE a.assignment_date = CURRENT_DATE()
+                  AND (a.driver_id = ? OR a.employee_id = (SELECT employee_id FROM users WHERE id = ?))
                 ORDER BY a.id DESC LIMIT 1
             ");
-            $stmt->execute([$user_id]);
+            $stmt->execute([$user_id, $user_id]);
             $assignment = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            if ($assignment) {
-                sendResponse('success', 'Véhicule trouvé', $assignment);
-            } else {
-                sendResponse('error', "Aucun véhicule ne vous a été assigné aujourd'hui par la logistique.");
-            }
-        } catch (Exception $e) { sendResponse('error', 'Erreur DB.'); }
+            if ($assignment) sendResponse('success', 'Véhicule trouvé', $assignment);
+            sendResponse('error', "Aucun véhicule ne vous a été assigné aujourd'hui par la logistique.");
+        } catch (Exception $e) {
+            error_log('fleet_controller get_my_vehicle: ' . $e->getMessage());
+            sendResponse('error', 'Erreur serveur. Veuillez réessayer.');
+        }
     }
-    
-    // 1. Fetch Drivers (For Assignment Dropdown)
+
+    // The people who can drive: the active staff (LPC has no driver accounts).
     if ($action === 'get_drivers') {
         try {
-            // Assuming 'operations' users or specific 'driver' roles handle driving
-            $stmt = $pdo->query("SELECT id, first_name, last_name FROM users WHERE role_id IN (SELECT id FROM roles WHERE name IN ('operations', 'driver')) AND status = 'active'");
-            sendResponse('success', 'Chauffeurs récupérés', $stmt->fetchAll());
+            $stmt = $pdo->query("
+                SELECT id, first_name, last_name, job_title
+                  FROM employees
+                 WHERE is_active = 1
+                   AND (termination_date IS NULL OR termination_date >= CURRENT_DATE())
+                 ORDER BY first_name, last_name
+            ");
+            sendResponse('success', 'Chauffeurs récupérés', $stmt->fetchAll(PDO::FETCH_ASSOC));
         } catch (PDOException $e) {
+            error_log('fleet_controller get_drivers: ' . $e->getMessage());
             sendResponse('error', 'Erreur récupération chauffeurs.');
         }
     }
 
-    // 2. Fetch Tab Data
     $tab = $_GET['tab'] ?? null;
     $response_data = [];
+
+    // The latest maintenance row that sets a next service, per vehicle.
+    $nextService = "m.id = (SELECT MAX(id) FROM vehicle_maintenance
+                             WHERE vehicle_id = v.id AND next_service_odometer IS NOT NULL)";
 
     try {
         switch ($tab) {
             case 'dashboard':
-                // KPIs
                 $kpi_active = $pdo->query("SELECT COUNT(*) FROM vehicles WHERE status = 'active'")->fetchColumn();
                 $kpi_repair = $pdo->query("SELECT COUNT(*) FROM vehicles WHERE status = 'repair'")->fetchColumn();
-                
                 $fuel_cost = $pdo->query("SELECT COALESCE(SUM(total_cost), 0) FROM fuel_logs WHERE MONTH(date) = MONTH(CURRENT_DATE()) AND YEAR(date) = YEAR(CURRENT_DATE())")->fetchColumn();
                 $maint_cost = $pdo->query("SELECT COALESCE(SUM(total_cost), 0) FROM vehicle_maintenance WHERE MONTH(service_date) = MONTH(CURRENT_DATE()) AND YEAR(service_date) = YEAR(CURRENT_DATE())")->fetchColumn();
 
-                // Alert Generation (Strategy 7B: Automated Notification)
                 $alerts = [];
-                // 1. Insurance Expiry (within 15 days)
                 $stmt = $pdo->query("SELECT plate_number, make_model, insurance_expiry FROM vehicles WHERE status != 'retired' AND insurance_expiry IS NOT NULL AND insurance_expiry <= DATE_ADD(CURRENT_DATE(), INTERVAL 15 DAY)");
-                while($row = $stmt->fetch()) {
+                while ($row = $stmt->fetch()) {
                     $alerts[] = ['plate_number' => $row['plate_number'], 'make_model' => $row['make_model'], 'message' => 'Assurance expire le ' . date('d/m/Y', strtotime($row['insurance_expiry']))];
                 }
-                // 2. Technical Visit Expiry (within 15 days)
                 $stmt = $pdo->query("SELECT plate_number, make_model, technical_visit_expiry FROM vehicles WHERE status != 'retired' AND technical_visit_expiry IS NOT NULL AND technical_visit_expiry <= DATE_ADD(CURRENT_DATE(), INTERVAL 15 DAY)");
-                while($row = $stmt->fetch()) {
+                while ($row = $stmt->fetch()) {
                     $alerts[] = ['plate_number' => $row['plate_number'], 'make_model' => $row['make_model'], 'message' => 'Visite technique expire le ' . date('d/m/Y', strtotime($row['technical_visit_expiry']))];
                 }
-                // 3. Odometer Maintenance Trigger (Strategy 2B)
                 $stmt = $pdo->query("
                     SELECT v.plate_number, v.make_model, m.next_service_odometer, v.current_odometer
                     FROM vehicles v
                     JOIN vehicle_maintenance m ON v.id = m.vehicle_id
-                    WHERE v.status != 'retired' AND m.next_service_odometer IS NOT NULL
-                    AND (m.next_service_odometer - v.current_odometer) <= 500
-                    AND m.id = (SELECT MAX(id) FROM vehicle_maintenance WHERE vehicle_id = v.id)
+                    WHERE v.status != 'retired' AND (m.next_service_odometer - v.current_odometer) <= 500
+                    AND $nextService
                 ");
-                while($row = $stmt->fetch()) {
-                    $alerts[] = ['plate_number' => $row['plate_number'], 'make_model' => $row['make_model'], 'message' => 'Entretien imminent (Prochain: '.$row['next_service_odometer'].' Km)'];
+                while ($row = $stmt->fetch()) {
+                    $alerts[] = ['plate_number' => $row['plate_number'], 'make_model' => $row['make_model'], 'message' => 'Entretien à prévoir (prochain : ' . number_format((int) $row['next_service_odometer'], 0, ',', ' ') . ' km)'];
                 }
 
-                // Chart Data (Last 6 Months)
+                $months = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
                 $chart = ['labels' => [], 'fuel' => [], 'maintenance' => []];
                 for ($i = 5; $i >= 0; $i--) {
-                    $month_label = date('M', strtotime("-$i months"));
-                    $chart['labels'][] = $month_label;
-                    
+                    $chart['labels'][] = $months[(int) date('n', strtotime(date('Y-m-01') . " -$i months")) - 1];
                     $stmtF = $pdo->prepare("SELECT COALESCE(SUM(total_cost), 0) FROM fuel_logs WHERE MONTH(date) = MONTH(CURRENT_DATE() - INTERVAL ? MONTH) AND YEAR(date) = YEAR(CURRENT_DATE() - INTERVAL ? MONTH)");
                     $stmtF->execute([$i, $i]);
-                    $chart['fuel'][] = (int)$stmtF->fetchColumn();
-
+                    $chart['fuel'][] = (int) $stmtF->fetchColumn();
                     $stmtM = $pdo->prepare("SELECT COALESCE(SUM(total_cost), 0) FROM vehicle_maintenance WHERE MONTH(service_date) = MONTH(CURRENT_DATE() - INTERVAL ? MONTH) AND YEAR(service_date) = YEAR(CURRENT_DATE() - INTERVAL ? MONTH)");
                     $stmtM->execute([$i, $i]);
-                    $chart['maintenance'][] = (int)$stmtM->fetchColumn();
+                    $chart['maintenance'][] = (int) $stmtM->fetchColumn();
                 }
 
                 $response_data = [
                     'kpis' => ['active_count' => $kpi_active, 'repair_count' => $kpi_repair, 'month_fuel_cost' => $fuel_cost, 'month_maint_cost' => $maint_cost],
                     'alerts' => $alerts,
                     'chart' => $chart,
-                    'badges' => ['alerts' => count($alerts)]
+                    'badges' => ['alerts' => count($alerts)],
                 ];
                 break;
 
@@ -173,11 +264,13 @@ if ($method === 'GET') {
 
             case 'affectations':
                 $stmt = $pdo->query("
-                    SELECT a.*, v.plate_number, v.make_model, CONCAT(u.first_name, ' ', u.last_name) AS driver_name
+                    SELECT a.*, v.plate_number, v.make_model,
+                           COALESCE(CONCAT(e.first_name, ' ', e.last_name), CONCAT(u.first_name, ' ', u.last_name)) AS driver_name
                     FROM vehicle_assignments a
                     JOIN vehicles v ON a.vehicle_id = v.id
-                    JOIN users u ON a.driver_id = u.id
-                    ORDER BY a.assignment_date DESC LIMIT 50
+                    LEFT JOIN employees e ON e.id = a.employee_id
+                    LEFT JOIN users u ON u.id = a.driver_id
+                    ORDER BY a.assignment_date DESC, a.id DESC LIMIT 50
                 ");
                 $response_data['assignments'] = $stmt->fetchAll();
                 break;
@@ -193,33 +286,34 @@ if ($method === 'GET') {
                     WHERE status != 'retired' AND technical_visit_expiry IS NOT NULL AND technical_visit_expiry <= DATE_ADD(CURRENT_DATE(), INTERVAL 15 DAY)
                     UNION ALL
                     SELECT v.id, v.plate_number, v.make_model, 'Entretien Odomètre' as type, CONCAT(m.next_service_odometer, ' Km') as date_or_km
-                    FROM vehicles v 
-                    JOIN vehicle_maintenance m ON v.id = m.vehicle_id 
-                    WHERE v.status != 'retired' AND m.next_service_odometer IS NOT NULL AND (m.next_service_odometer - v.current_odometer) <= 500
-                    AND m.id = (SELECT MAX(id) FROM vehicle_maintenance WHERE vehicle_id = v.id)
+                    FROM vehicles v
+                    JOIN vehicle_maintenance m ON v.id = m.vehicle_id
+                    WHERE v.status != 'retired' AND (m.next_service_odometer - v.current_odometer) <= 500
+                    AND $nextService
                 ")->fetchAll();
 
                 $history = $pdo->query("
-                    SELECT m.*, v.plate_number, v.make_model
+                    SELECT m.*, v.plate_number, v.make_model,
+                           ex.reference AS expense_reference, ex.payment_status AS expense_status
                     FROM vehicle_maintenance m
                     JOIN vehicles v ON m.vehicle_id = v.id
+                    LEFT JOIN expenses ex ON ex.id = m.expense_id
                     ORDER BY m.service_date DESC, m.id DESC LIMIT 100
                 ")->fetchAll();
+                foreach ($history as &$h) $h['service_label'] = FLEET_SERVICE_LABELS[$h['service_type']] ?? $h['service_type'];
+                unset($h);
 
-                // THE FIX: Assign it to $response_data['maintenance'] so it matches what JS expects,
-                // then break out and let the bottom of the script send it.
-                $response_data['maintenance'] = [
-                    'alerts' => $alerts, 
-                    'history' => $history
-                ];
+                $response_data['maintenance'] = ['alerts' => $alerts, 'history' => $history];
                 break;
 
             case 'carburant':
                 $stmt = $pdo->query("
-                    SELECT f.*, v.plate_number, v.make_model, CONCAT(u.first_name, ' ', u.last_name) AS logged_by_name
+                    SELECT f.*, v.plate_number, v.make_model, CONCAT(u.first_name, ' ', u.last_name) AS logged_by_name,
+                           ex.reference AS expense_reference, ex.payment_status AS expense_status
                     FROM fuel_logs f
                     JOIN vehicles v ON f.vehicle_id = v.id
                     JOIN users u ON f.logged_by = u.id
+                    LEFT JOIN expenses ex ON ex.id = f.expense_id
                     ORDER BY f.date DESC, f.id DESC LIMIT 100
                 ");
                 $response_data['fuel_logs'] = $stmt->fetchAll();
@@ -231,323 +325,278 @@ if ($method === 'GET') {
         sendResponse('success', 'Données chargées', $response_data);
 
     } catch (PDOException $e) {
-        sendResponse('error', 'Erreur base de données lors du chargement: ' . $e->getMessage());
+        error_log('fleet_controller read ' . $tab . ': ' . $e->getMessage());
+        sendResponse('error', 'Erreur serveur lors du chargement. Veuillez réessayer.');
     }
 }
 
 // ==========================================
-// [POST] WRITE OPERATIONS (Data Mutation)
+// [POST] WRITE OPERATIONS
 // ==========================================
-else if ($method === 'POST') {
-    $payload = json_decode(file_get_contents('php://input'), true);
-    
-    // PATCH: Support FormData (multipart) for Image Uploads
-    if (!$payload && isset($_POST['action'])) {
-        $payload = $_POST;
+$after = null;   // notification to send once committed
+
+try {
+    $pdo->beginTransaction();
+
+    // 1. CREATE / UPDATE VEHICLE
+    if ($action === 'create' || $action === 'update') {
+        $plate  = strtoupper(trim((string) ($payload['plate_number'] ?? '')));
+        $type   = (string) ($payload['type'] ?? '');
+        $make   = trim((string) ($payload['make_model'] ?? '')) ?: null;
+        $fuel   = (string) ($payload['fuel_type'] ?? 'diesel');
+        $status = (string) ($payload['status'] ?? 'active');
+        $odo    = (int) ($payload['current_odometer'] ?? 0);
+        $ins_exp  = ($payload['insurance_expiry'] ?? '') ?: null;
+        $tech_exp = ($payload['technical_visit_expiry'] ?? '') ?: null;
+
+        if ($plate === '') throw new RuntimeException("L'immatriculation est obligatoire.");
+        if (!in_array($type, ['truck', 'tricycle', 'bike'], true)) throw new RuntimeException('Type de véhicule invalide.');
+        if (!in_array($fuel, ['diesel', 'gasoline'], true)) throw new RuntimeException('Type de carburant invalide.');
+        if (!in_array($status, ['active', 'repair', 'retired'], true)) throw new RuntimeException('Statut invalide.');
+        if ($odo < 0) throw new RuntimeException("L'odomètre ne peut pas être négatif.");
+
+        $dup = $pdo->prepare("SELECT id FROM vehicles WHERE plate_number = ? AND id <> ?");
+        $dup->execute([$plate, (int) ($payload['id'] ?? 0)]);
+        if ($dup->fetchColumn()) throw new RuntimeException("Un véhicule porte déjà l'immatriculation $plate.");
+
+        if ($action === 'create') {
+            $pdo->prepare("INSERT INTO vehicles (plate_number, type, fuel_type, make_model, status, current_odometer, insurance_expiry, technical_visit_expiry, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                ->execute([$plate, $type, $fuel, $make, $status, $odo, $ins_exp, $tech_exp, $user_id]);
+            $msg = "Véhicule $plate ajouté au parc.";
+        } else {
+            $id = (int) ($payload['id'] ?? 0);
+            $old = fleet_vehicle($pdo, $id, true);
+            if ($odo < (int) $old['current_odometer']) {
+                throw new RuntimeException("Opération refusée : on ne peut pas reculer le kilométrage d'un véhicule (actuel : {$old['current_odometer']} km).");
+            }
+            $pdo->prepare("UPDATE vehicles SET plate_number=?, type=?, fuel_type=?, make_model=?, status=?, current_odometer=?, insurance_expiry=?, technical_visit_expiry=?, updated_by=? WHERE id=?")
+                ->execute([$plate, $type, $fuel, $make, $status, $odo, $ins_exp, $tech_exp, $user_id, $id]);
+            $msg = "Véhicule $plate mis à jour.";
+        }
+        $pdo->commit();
+        sendResponse('success', $msg);
     }
 
-    if (!$payload || !isset($payload['action'])) {
-        sendResponse('error', 'Payload invalide.');
+    // 2. DAILY ASSIGNMENT: a vehicle in service, an employee who drives it
+    if ($action === 'create_assignment') {
+        $v_id   = (int) ($payload['vehicle_id'] ?? 0);
+        $emp_id = (int) ($payload['employee_id'] ?? ($payload['driver_id'] ?? 0));
+        $date   = (string) ($payload['assignment_date'] ?? '');
+        $odo_raw = $payload['odometer_start'] ?? '';
+        $odo_start = (is_string($odo_raw) ? trim($odo_raw) : $odo_raw) === '' ? null : (int) $odo_raw;
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) throw new RuntimeException("Date d'affectation invalide.");
+        $emp = $pdo->prepare("SELECT id FROM employees WHERE id = ? AND is_active = 1");
+        $emp->execute([$emp_id]);
+        if (!$emp->fetchColumn()) throw new RuntimeException('Choisissez le chauffeur dans la liste du personnel.');
+
+        $veh = fleet_vehicle($pdo, $v_id, true);
+        if ($veh['status'] !== 'active') {
+            throw new RuntimeException("Affectation impossible : le véhicule {$veh['plate_number']} n'est pas en service.");
+        }
+        if ($odo_start === null) {
+            $odo_start = (int) $veh['current_odometer'];
+        } elseif ($odo_start < (int) $veh['current_odometer']) {
+            throw new RuntimeException("Km de départ ($odo_start) inférieur au dernier relevé du véhicule ({$veh['current_odometer']}).");
+        }
+
+        // The employee's login, when they have one (the driver portal reads it).
+        $u = $pdo->prepare("SELECT id FROM users WHERE employee_id = ? LIMIT 1");
+        $u->execute([$emp_id]);
+        $driverUser = $u->fetchColumn() ?: null;
+
+        $pdo->prepare("INSERT INTO vehicle_assignments (vehicle_id, driver_id, employee_id, assignment_date, odometer_start, updated_by) VALUES (?, ?, ?, ?, ?, ?)")
+            ->execute([$v_id, $driverUser, $emp_id, $date, $odo_start, $user_id]);
+        $pdo->prepare("UPDATE vehicles SET current_odometer = ? WHERE id = ?")->execute([$odo_start, $v_id]);
+
+        $pdo->commit();
+        sendResponse('success', 'Affectation enregistrée.');
     }
 
-    $action = $payload['action'];
+    // 3. FUEL: the log, and its expense request « Carburant & Transport »
+    if ($action === 'log_fuel') {
+        $v_id   = (int) ($payload['vehicle_id'] ?? 0);
+        $liters = (float) ($payload['liters'] ?? 0);
+        $price  = (float) ($payload['cost_per_liter'] ?? 0);
+        $odo_raw = $payload['odometer_reading'] ?? '';
+        $odo = (is_string($odo_raw) ? trim($odo_raw) : $odo_raw) === '' ? null : (int) $odo_raw;
+        $gas_station = mb_substr(trim((string) ($payload['gas_station'] ?? '')), 0, 100);
+        $fuel_type   = trim((string) ($payload['fuel_type'] ?? ''));
+        if ($liters <= 0) throw new RuntimeException('Le nombre de litres doit être supérieur à 0.');
+        if ($price <= 0)  throw new RuntimeException('Le prix au litre doit être supérieur à 0.');
+        $total = round($liters * $price);
 
-    try {
-        $pdo->beginTransaction();
+        $veh = fleet_vehicle($pdo, $v_id, true);
+        if ($veh['status'] === 'retired') throw new RuntimeException("Le véhicule {$veh['plate_number']} est retiré du parc.");
+        if (!in_array($fuel_type, ['diesel', 'gasoline'], true)) $fuel_type = (string) $veh['fuel_type'];
 
-        // 1. CREATE / UPDATE VEHICLE
-        if ($action === 'create' || $action === 'update') {
-            $plate = trim(strtoupper($payload['plate_number']));
-            $type = $payload['type'];
-            $make = $payload['make_model'] ?: null;
-            $fuel = $payload['fuel_type'];
-            $status = $payload['status'];
-            $odo = (int)$payload['current_odometer'];
-            $ins_exp = $payload['insurance_expiry'] ?: null;
-            $tech_exp = $payload['technical_visit_expiry'] ?: null;
-
-            if ($action === 'create') {
-                $stmt = $pdo->prepare("INSERT INTO vehicles (plate_number, type, fuel_type, make_model, status, current_odometer, insurance_expiry, technical_visit_expiry) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->execute([$plate, $type, $fuel, $make, $status, $odo, $ins_exp, $tech_exp]);
-                $msg = "Véhicule créé avec succès.";
-            } else {
-                $id = (int)$payload['id'];
-                
-                // Strategy 8B Safety Check on Edit: Cannot reduce Odometer manually if logs exist
-                $stmt = $pdo->prepare("SELECT current_odometer FROM vehicles WHERE id = ?");
-                $stmt->execute([$id]);
-                $old_odo = $stmt->fetchColumn();
-                if ($odo < $old_odo) {
-                    throw new Exception("Opération refusée: Vous ne pouvez pas reculer le kilométrage d'un véhicule (Actuel: $old_odo Km).");
-                }
-
-                $stmt = $pdo->prepare("UPDATE vehicles SET plate_number=?, type=?, fuel_type=?, make_model=?, status=?, current_odometer=?, insurance_expiry=?, technical_visit_expiry=? WHERE id=?");
-                $stmt->execute([$plate, $type, $fuel, $make, $status, $odo, $ins_exp, $tech_exp, $id]);
-                $msg = "Véhicule mis à jour.";
+        require_once __DIR__ . '/../../includes/classes/Uploads.php';
+        $receipt = null;
+        if (isset($_FILES['receipt_image']) && $_FILES['receipt_image']['error'] === UPLOAD_ERR_OK) {
+            try {
+                $receipt = Uploads::saveUploaded('receipt_image', 'receipts', [
+                    'allowed_mime' => ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
+                    'max_bytes'    => 5 * 1024 * 1024,
+                    'sanitize_img' => true,
+                ]);
+            } catch (Throwable $e) {
+                throw new RuntimeException('Ticket refusé : ' . $e->getMessage());
             }
-            $pdo->commit();
-            sendResponse('success', $msg);
         }
 
-        // 2. CREATE DAILY ASSIGNMENT (AFFECTATION)
-        if ($action === 'create_assignment') {
-            $v_id = (int)$payload['vehicle_id'];
-            $d_id = (int)$payload['driver_id'];
-            $date = $payload['assignment_date'];
-            // Km de départ is OPTIONAL — resolved to the vehicle's current reading
-            // when left blank (see below); odometer_start is NOT NULL in the schema.
-            $odo_raw = $payload['odometer_start'] ?? '';
-            $odo_start = (is_string($odo_raw) ? trim($odo_raw) : $odo_raw) === '' ? null : (int)$odo_raw;
-
-            // Strategy 3B: Strict Blocking
-            $stmt = $pdo->prepare("SELECT status, current_odometer FROM vehicles WHERE id = ? FOR UPDATE");
-            $stmt->execute([$v_id]);
-            $veh = $stmt->fetch();
-
-            if ($veh['status'] !== 'active') {
-                throw new Exception("Affectation impossible. Le véhicule est actuellement en statut: " . strtoupper($veh['status']));
+        // Odometer: never below the last reading; a big jump warns, a huge one is refused.
+        $current_odo = (int) $veh['current_odometer'];
+        $jump_warn = (int) env('FLEET_ODOMETER_JUMP_WARN', 800);
+        $jump_max  = (int) env('FLEET_ODOMETER_JUMP_MAX', 3000);
+        $odo_warning = null;
+        if ($odo === null) {
+            $odo = $current_odo;
+        } else {
+            if ($odo < $current_odo) {
+                throw new RuntimeException("Km saisi ($odo) inférieur au dernier relevé ($current_odo).");
             }
-
-            if ($odo_start === null) {
-                $odo_start = (int)$veh['current_odometer'];
+            $delta = $odo - $current_odo;
+            if ($delta > $jump_max) {
+                throw new RuntimeException("Km saisi ($odo) : $delta km depuis le dernier relevé ($current_odo). Vérifiez le compteur.");
             }
-            // Strategy 8B: Sequential Odometer Check
-            elseif ($odo_start < $veh['current_odometer']) {
-                throw new Exception("Incohérence Odomètre: Le km de départ saisi ($odo_start) est inférieur au dernier relevé connu du véhicule (".$veh['current_odometer'].").");
-            }
-
-            // Insert Assignment
-            $stmt = $pdo->prepare("INSERT INTO vehicle_assignments (vehicle_id, driver_id, assignment_date, odometer_start) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$v_id, $d_id, $date, $odo_start]);
-
-            // Sync Vehicle Odometer
-            $stmt = $pdo->prepare("UPDATE vehicles SET current_odometer = ? WHERE id = ?");
-            $stmt->execute([$odo_start, $v_id]);
-
-            $pdo->commit();
-            sendResponse('success', 'Affectation validée. Bon de route ouvert.');
+            if ($delta > $jump_warn) $odo_warning = "Écart inhabituel de $delta km depuis le dernier relevé.";
         }
 
-        // 3. LOG FUEL (CARBURANT) WITH IMAGE & +10KM RULE
-        if ($action === 'log_fuel') {
-            $v_id = (int)$payload['vehicle_id'];
-            $liters = (float)$payload['liters'];
-            $price = (float)$payload['cost_per_liter'];
-            // Odometer is OPTIONAL. Blank / missing means the operator didn't note
-            // the counter — we resolve it to the vehicle's last known reading below
-            // (fuel_logs.odometer_reading is NOT NULL, and a 0 would corrupt the
-            // consumption reports). Note the null, don't coerce it yet.
-            $odo_raw = $payload['odometer_reading'] ?? '';
-            $odo = (is_string($odo_raw) ? trim($odo_raw) : $odo_raw) === '' ? null : (int)$odo_raw;
-            $gas_station = trim($payload['gas_station'] ?? '');
-            $fuel_type = trim($payload['fuel_type'] ?? '');
-            $total = $liters * $price;
+        $pdo->prepare("INSERT INTO fuel_logs (vehicle_id, date, liters, fuel_type, cost_per_liter, total_cost, odometer_reading, gas_station, receipt_image, logged_by) VALUES (?, CURRENT_DATE(), ?, ?, ?, ?, ?, ?, ?, ?)")
+            ->execute([$v_id, $liters, $fuel_type, $price, $total, $odo, $gas_station ?: null, $receipt['path'] ?? null, $user_id]);
+        $fuelId = (int) $pdo->lastInsertId();
+        $pdo->prepare("UPDATE vehicles SET current_odometer = ? WHERE id = ?")->execute([$odo, $v_id]);
 
-            // Handle Receipt Image Upload — routed through Uploads::saveUploaded
-            // for MIME whitelist, size cap, safe filename, and image sanitization.
-            // Writes under /uploads/receipts/YYYY/MM/ (protected by uploads/.htaccess).
-            require_once __DIR__ . '/../../includes/classes/Uploads.php';
-            $receipt_path = null;
-            if (isset($_FILES['receipt_image']) && $_FILES['receipt_image']['error'] === UPLOAD_ERR_OK) {
-                try {
-                    $up = Uploads::saveUploaded('receipt_image', 'receipts', [
-                        'allowed_mime' => ['image/jpeg','image/png','image/webp','application/pdf'],
-                        'max_bytes'    => 5 * 1024 * 1024,   // 5 MiB
-                        'sanitize_img' => true,
-                    ]);
-                    $receipt_path = $up['path'];
-                } catch (Throwable $e) {
-                    throw new Exception('Reçu carburant refusé : ' . $e->getMessage());
-                }
-            }
+        $litersTxt = rtrim(rtrim(number_format($liters, 2, ',', ''), '0'), ',');
+        $title = "Carburant {$veh['plate_number']} · $litersTxt L" . ($gas_station !== '' ? " · $gas_station" : '');
+        $desc  = "Plein saisi dans Flotte par " . ($_SESSION['user_name'] ?? 'les Opérations')
+               . " : $litersTxt L × " . number_format($price, 0, ',', ' ') . " F, compteur " . number_format($odo, 0, ',', ' ') . " km.";
+        $exp = fleet_expense_request($pdo, 'fuel', $v_id, $title, $desc, $total, 'fleet_fuel', $fuelId, $user_id);
+        $pdo->prepare("UPDATE fuel_logs SET expense_id = ? WHERE id = ?")->execute([$exp['id'], $fuelId]);
 
-            // Odometer sanity check (Sprint 4 relaxation).
-            //
-            // Previously this blocked any delta > 10 km, which broke legitimate
-            // long-distance refuels. New model:
-            //   · Reject readings BELOW the current stored odometer (would rewind history).
-            //   · Warn if delta > FLEET_ODOMETER_JUMP_WARN km (config, default 800),
-            //     but ACCEPT the write — long-haul trips are legitimate.
-            //   · Hard-reject only if delta > FLEET_ODOMETER_JUMP_MAX km (default 3000),
-            //     which is beyond any single tank on any vehicle in the fleet — that's
-            //     almost certainly a data-entry mistake.
-            $stmt = $pdo->prepare("SELECT current_odometer FROM vehicles WHERE id = ? FOR UPDATE");
-            $stmt->execute([$v_id]);
-            $current_odo = (int) $stmt->fetchColumn();
-
-            $jump_warn = (int) env('FLEET_ODOMETER_JUMP_WARN', 800);
-            $jump_max  = (int) env('FLEET_ODOMETER_JUMP_MAX',  3000);
-
-            if ($odo === null) {
-                // No reading supplied: carry the vehicle's last known value forward.
-                // The refuel is still recorded in full (litres, cost, receipt); only
-                // the distance signal is missing for this row.
-                $odo = $current_odo;
-                $odo_warning = null;
-            } else {
-                if ($odo < $current_odo) {
-                    throw new Exception("Km saisi ($odo) inférieur au dernier relevé ($current_odo). Une nouvelle valeur doit être ≥ à la précédente.");
-                }
-                $delta = $odo - $current_odo;
-                if ($delta > $jump_max) {
-                    throw new Exception("Km saisi ($odo) : saut de $delta km depuis le dernier relevé ($current_odo). Au-delà de $jump_max km — vérifiez le compteur avant de valider.");
-                }
-                // A warning-level jump gets logged but doesn't block. Include it in
-                // the response so the driver's app can display a soft warning UI.
-                $odo_warning = ($delta > $jump_warn) ? "Écart inhabituel de $delta km depuis le dernier relevé." : null;
-            }
-
-            // Insert Fuel Log
-            $stmt = $pdo->prepare("INSERT INTO fuel_logs (vehicle_id, date, liters, fuel_type, cost_per_liter, total_cost, odometer_reading, gas_station, receipt_image, logged_by) VALUES (?, CURRENT_DATE(), ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$v_id, $liters, $fuel_type, $price, $total, $odo, $gas_station, $receipt_path, $user_id]);
-
-            // Sync Vehicle Odometer
-            $stmt = $pdo->prepare("UPDATE vehicles SET current_odometer = ? WHERE id = ?");
-            $stmt->execute([$odo, $v_id]);
-
-            $pdo->commit();
-            sendResponse(
-                'success',
-                $odo_warning ? "Plein enregistré. $odo_warning" : 'Plein de carburant et reçu enregistrés avec succès.',
-                ['odometer_warning' => $odo_warning]
-            );
+        if ($receipt) {
+            $pdo->prepare("INSERT INTO expense_attachments (expense_id, filename, stored_path, mime_type, size_bytes, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)")
+                ->execute([$exp['id'], basename((string) ($_FILES['receipt_image']['name'] ?? 'ticket')), $receipt['path'], $receipt['mime'], (int) $receipt['size'], $user_id]);
         }
 
-        // 4. LOG MAINTENANCE & EXPENSE (Upgraded with Auto-Renewal Logic)
-        //
-        // Sprint 9 fix: 'report_breakdown' is a real, separate permission
-        // ('fleet.breakdown.report', held by the 'driver' role — see
-        // migrations/001_rbac_seed.sql) that was declared in $ACTION_PERMS
-        // above but never actually handled. modules/fleet/report_breakdown.php
-        // — a DRIVER-facing page — has always posted action='log_maintenance'
-        // instead (see fleet-report_breakdown.js), which requires
-        // 'fleet.vehicles.maintenance' — a permission ONLY operations/admin
-        // hold, not driver. Every breakdown report a driver submitted was
-        // therefore rejected with a 403 before it ever reached this code.
-        //
-        // Fix: handle both actions here, but do NOT just grant drivers
-        // 'fleet.vehicles.maintenance' — that would also let them log routine
-        // maintenance and renew insurance/technical-visit dates, which is
-        // ops/admin territory. Instead, 'report_breakdown' is accepted at its
-        // own narrower permission and the server — not the client — forces
-        // service_type='repair' and drops the fields a breakdown report has
-        // no business touching (next_service_odometer, new_expiry_date),
-        // regardless of what the request body contains.
-        if ($action === 'log_maintenance' || $action === 'report_breakdown') {
-            $isBreakdownReport = ($action === 'report_breakdown');
-
-            $v_id = (int)$payload['vehicle_id'];
-            $type = $isBreakdownReport ? 'repair' : $payload['service_type'];
-            $cost = (float)$payload['total_cost'];
-            $desc = $payload['description'] ?: null;
-            $odo = $payload['odometer_at_service'] ? (int)$payload['odometer_at_service'] : null;
-            $next_odo = $isBreakdownReport ? null : ($payload['next_service_odometer'] ? (int)$payload['next_service_odometer'] : null);
-
-            // New: Dates for auto-renewal (passed from the frontend modal).
-            // Never applicable to a driver's breakdown report.
-            $new_expiry = $isBreakdownReport ? null : ($payload['new_expiry_date'] ?? null);
-
-            // A. Validate Odometer if provided
-            if ($odo !== null) {
-                $stmt = $pdo->prepare("SELECT current_odometer FROM vehicles WHERE id = ? FOR UPDATE");
-                $stmt->execute([$v_id]);
-                $current_odo = $stmt->fetchColumn();
-                
-                if ($odo < $current_odo) {
-                    throw new Exception("Incohérence Odomètre: Le km saisi ($odo) est inférieur au dernier relevé connu ($current_odo).");
-                }
-                
-                // Update vehicle odometer to current
-                $stmt = $pdo->prepare("UPDATE vehicles SET current_odometer = ? WHERE id = ?");
-                $stmt->execute([$odo, $v_id]);
-            }
-
-            // B. AUTO-RENEWAL LOGIC: Clear Alerts in Vehicle Master
-            if ($type === 'insurance' && $new_expiry) {
-                $stmt = $pdo->prepare("UPDATE vehicles SET insurance_expiry = ? WHERE id = ?");
-                $stmt->execute([$new_expiry, $v_id]);
-            } 
-            else if ($type === 'routine' && $new_expiry) {
-                // For routine maintenance, we often update the Technical Visit expiry
-                $stmt = $pdo->prepare("UPDATE vehicles SET technical_visit_expiry = ? WHERE id = ?");
-                $stmt->execute([$new_expiry, $v_id]);
-            }
-            
-            // C. AUTO-STATUS LOGIC: If it was in repair, mark it active now
-            $backInService = false;
-            if ($type === 'repair') {
-                $stmt = $pdo->prepare("UPDATE vehicles SET status = 'active' WHERE id = ? AND status = 'repair'");
-                $stmt->execute([$v_id]);
-                $backInService = $stmt->rowCount() > 0;
-            }
-
-            // D. Insert Maintenance Log (The History Record)
-            $stmt = $pdo->prepare("INSERT INTO vehicle_maintenance (vehicle_id, service_type, description, service_date, odometer_at_service, next_service_odometer, total_cost) VALUES (?, ?, ?, CURRENT_DATE(), ?, ?, ?)");
-            $stmt->execute([$v_id, $type, $desc, $odo, $next_odo, $cost]);
-
-            // E. CROSS-MODULE NOTIFICATION (Finance Alert)
-            // Sprint 9 fix: this used to query
-            // `role_id = (SELECT id FROM roles WHERE name = 'finance')` — 'finance'
-            // is not a real seeded role (migrations/001_rbac_seed.sql only seeds
-            // admin/accountant/operations/driver), so that subquery always
-            // returned NULL and $fin_users was always empty. This alert has
-            // never reached anyone. Fixed to target by permission instead of a
-            // hardcoded (and wrong) role name — see includes/functions/notify.php.
-            if (in_array($type, ['repair', 'routine']) && $cost >= 150000) {
-                $stmtVeh = $pdo->prepare("SELECT plate_number FROM vehicles WHERE id = ?");
-                $stmtVeh->execute([$v_id]);
-                $plate = $stmtVeh->fetchColumn();
-
-                $finance_msg = "Alerte Dépense Flotte : Facture d'intervention de " . number_format($cost, 0, ',', ' ') . " FCFA enregistrée pour le véhicule " . $plate . ". Motif: " . substr($desc, 0, 50);
-
-                lpc_notify_permission(
-                    $pdo,
-                    'accounting.expenses.view',
-                    'Dépense Logistique Importante',
-                    $finance_msg,
-                    '/modules/fleet/vehicles.php',
-                    'warning'
-                );
-            }
-
-            // F. OPS ALERT — a 'repair' entry is inherently unplanned, unlike
-            // 'routine'/'insurance', and is what a driver's breakdown report
-            // always is (action='report_breakdown', forced above). Ops needs
-            // to know regardless of cost, which the finance alert above is
-            // gated on. Two different audiences, two different concerns.
-            if ($type === 'repair') {
-                $stmtVeh2 = $pdo->prepare("SELECT plate_number FROM vehicles WHERE id = ?");
-                $stmtVeh2->execute([$v_id]);
-                $plate2 = (string) ($stmtVeh2->fetchColumn() ?: "#$v_id");
-
-                lpc_notify_permission(
-                    $pdo,
-                    'fleet.vehicles.maintenance',
-                    $backInService ? 'Véhicule remis en service' : 'Panne / réparation signalée',
-                    ($_SESSION['user_name'] ?? 'Un opérateur') . " a enregistré une réparation pour $plate2"
-                        . ($desc ? " : " . substr($desc, 0, 80) : '.')
-                        . ($backInService ? ' Le véhicule repasse actif.' : ''),
-                    '/modules/fleet/vehicles.php',
-                    $backInService ? 'info' : 'warning'
-                );
-            }
-
-            // ONE SINGLE COMMIT AND RESPONSE
-            $pdo->commit();
-            sendResponse('success', $isBreakdownReport
-                ? 'Panne signalée au bureau logistique.'
-                : 'Intervention technique enregistrée et alertes mises à jour.');
-
-        } // Closes if ($action === 'log_maintenance' || 'report_breakdown')
-
-    } catch (Exception $e) {
-        if (isset($pdo) && $pdo->inTransaction()) {
-            $pdo->rollBack();
-        }
-        sendResponse('error', $e->getMessage());
+        $pdo->commit();
+        fleet_notify_request($pdo, $exp['reference'], $title, $total, $user_id);
+        sendResponse('success',
+            "Plein enregistré. Demande de dépense {$exp['reference']} envoyée à la Finance." . ($odo_warning ? " $odo_warning" : ''),
+            ['odometer_warning' => $odo_warning, 'expense_reference' => $exp['reference']]);
     }
-} // Closes else if ($method === 'POST')
 
-else {
-    sendResponse('error', 'Méthode HTTP non autorisée.');
+    // 4. BREAKDOWN: the vehicle goes off the road
+    if ($action === 'report_breakdown') {
+        $v_id = (int) ($payload['vehicle_id'] ?? 0);
+        $desc = trim((string) ($payload['description'] ?? ''));
+        $cost = max(0.0, (float) ($payload['total_cost'] ?? 0));
+        $odo  = ($payload['odometer_at_service'] ?? '') !== '' && $payload['odometer_at_service'] !== null ? (int) $payload['odometer_at_service'] : null;
+        if ($desc === '') throw new RuntimeException('Décrivez le problème.');
+
+        $veh = fleet_vehicle($pdo, $v_id, true);
+        if ($veh['status'] === 'retired') throw new RuntimeException("Le véhicule {$veh['plate_number']} est retiré du parc.");
+        if ($odo !== null) {
+            if ($odo < (int) $veh['current_odometer']) {
+                throw new RuntimeException("Km saisi ($odo) inférieur au dernier relevé ({$veh['current_odometer']}).");
+            }
+            $pdo->prepare("UPDATE vehicles SET current_odometer = ? WHERE id = ?")->execute([$odo, $v_id]);
+        }
+        $pdo->prepare("UPDATE vehicles SET status = 'repair', updated_by = ? WHERE id = ?")->execute([$user_id, $v_id]);
+
+        $pdo->prepare("INSERT INTO vehicle_maintenance (vehicle_id, service_type, description, service_date, odometer_at_service, total_cost, updated_by) VALUES (?, 'breakdown', ?, CURRENT_DATE(), ?, ?, ?)")
+            ->execute([$v_id, $desc, $odo, $cost, $user_id]);
+        $mId = (int) $pdo->lastInsertId();
+
+        $exp = null;
+        if ($cost > 0) {
+            $title = "Dépannage {$veh['plate_number']}";
+            $exp = fleet_expense_request($pdo, 'breakdown', $v_id, $title, $desc, $cost, 'fleet_maintenance', $mId, $user_id);
+            $pdo->prepare("UPDATE vehicle_maintenance SET expense_id = ? WHERE id = ?")->execute([$exp['id'], $mId]);
+        }
+        $pdo->commit();
+
+        lpc_notify_permission(
+            $pdo,
+            'fleet.vehicles.maintenance',
+            'Panne signalée',
+            ($_SESSION['user_name'] ?? 'Un opérateur') . " a déclaré {$veh['plate_number']} en panne : " . mb_substr($desc, 0, 80),
+            '/modules/fleet/vehicles.php#maintenance',
+            'warning',
+            [$user_id]
+        );
+        if ($exp) fleet_notify_request($pdo, $exp['reference'], "Dépannage {$veh['plate_number']}", $cost, $user_id);
+        sendResponse('success', "{$veh['plate_number']} est déclaré en panne : il ne sera plus proposé aux affectations jusqu'à sa réparation.");
+    }
+
+    // 5. INTERVENTION: repair, servicing, insurance, fine, other
+    if ($action === 'log_maintenance') {
+        $v_id = (int) ($payload['vehicle_id'] ?? 0);
+        $type = (string) ($payload['service_type'] ?? '');
+        if (!in_array($type, ['routine', 'repair', 'insurance', 'fine', 'other'], true)) throw new RuntimeException("Type d'intervention invalide.");
+        $cost = (float) ($payload['total_cost'] ?? 0);
+        if ($cost < 0) throw new RuntimeException('Le coût ne peut pas être négatif.');
+        $desc = trim((string) ($payload['description'] ?? '')) ?: null;
+        $garage = mb_substr(trim((string) ($payload['garage_name'] ?? '')), 0, 100) ?: null;
+        $odo = !empty($payload['odometer_at_service']) ? (int) $payload['odometer_at_service'] : null;
+        $next_odo = !empty($payload['next_service_odometer']) ? (int) $payload['next_service_odometer'] : null;
+        $new_expiry = ($payload['new_expiry_date'] ?? '') ?: null;
+
+        $veh = fleet_vehicle($pdo, $v_id, true);
+        if ($odo !== null) {
+            if ($odo < (int) $veh['current_odometer']) {
+                throw new RuntimeException("Km saisi ($odo) inférieur au dernier relevé ({$veh['current_odometer']}).");
+            }
+            $pdo->prepare("UPDATE vehicles SET current_odometer = ? WHERE id = ?")->execute([$odo, $v_id]);
+        }
+
+        // A renewal moves the document's date, so its alert goes.
+        if ($type === 'insurance' && $new_expiry) {
+            $pdo->prepare("UPDATE vehicles SET insurance_expiry = ? WHERE id = ?")->execute([$new_expiry, $v_id]);
+        } elseif ($type === 'routine' && $new_expiry) {
+            $pdo->prepare("UPDATE vehicles SET technical_visit_expiry = ? WHERE id = ?")->execute([$new_expiry, $v_id]);
+        }
+
+        // A repair puts a vehicle that was off the road back in service.
+        $backInService = false;
+        if ($type === 'repair') {
+            $st = $pdo->prepare("UPDATE vehicles SET status = 'active' WHERE id = ? AND status = 'repair'");
+            $st->execute([$v_id]);
+            $backInService = $st->rowCount() > 0;
+        }
+
+        $pdo->prepare("INSERT INTO vehicle_maintenance (vehicle_id, service_type, description, service_date, odometer_at_service, next_service_odometer, total_cost, garage_name, updated_by) VALUES (?, ?, ?, CURRENT_DATE(), ?, ?, ?, ?, ?)")
+            ->execute([$v_id, $type, $desc, $odo, $next_odo, $cost, $garage, $user_id]);
+        $mId = (int) $pdo->lastInsertId();
+
+        $exp = null;
+        $title = FLEET_SERVICE_LABELS[$type] . " {$veh['plate_number']}" . ($garage ? " · $garage" : '');
+        if ($cost > 0) {
+            $exp = fleet_expense_request($pdo, $type, $v_id, $title, (string) $desc, $cost, 'fleet_maintenance', $mId, $user_id);
+            $pdo->prepare("UPDATE vehicle_maintenance SET expense_id = ? WHERE id = ?")->execute([$exp['id'], $mId]);
+        }
+        $pdo->commit();
+
+        if ($exp) fleet_notify_request($pdo, $exp['reference'], $title, $cost, $user_id);
+        if ($backInService) {
+            lpc_notify_permission($pdo, 'fleet.vehicles.maintenance', 'Véhicule remis en service',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " a enregistré la réparation de {$veh['plate_number']} : le véhicule repasse actif.",
+                '/modules/fleet/vehicles.php#flotte', 'info', [$user_id]);
+        }
+        sendResponse('success',
+            'Intervention enregistrée.'
+            . ($backInService ? " {$veh['plate_number']} repasse en service." : '')
+            . ($exp ? " Demande de dépense {$exp['reference']} envoyée à la Finance." : ''),
+            ['expense_reference' => $exp['reference'] ?? null]);
+    }
+
+    throw new RuntimeException('Action inconnue.');
+
+} catch (PDOException $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    error_log('fleet_controller ' . $action . ': ' . $e->getMessage());
+    sendResponse('error', 'Erreur serveur. Veuillez réessayer.');
+} catch (Exception $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    sendResponse('error', $e->getMessage());
 }

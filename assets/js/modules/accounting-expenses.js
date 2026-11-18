@@ -258,11 +258,15 @@
 
         const rows = d.rows.map(r => {
             const paid = r.payment_status === 'paid';
+            // A request from Flotte (fuel, repair, servicing) waits for Finance to validate it.
+            const fromFleet = (r.source_type || '').startsWith('fleet_');
             const statusPill = paid
                 ? `<span class="cat-pill bg-emerald-100 text-emerald-800"><i class="fas fa-check"></i> Payé</span>`
-                : `<span class="cat-pill bg-amber-100 text-amber-800"><i class="fas fa-clock"></i> En attente</span>`;
+                : (fromFleet
+                    ? `<span class="cat-pill bg-amber-100 text-amber-800 whitespace-nowrap"><i class="fas fa-hourglass-half"></i> À valider</span>`
+                    : `<span class="cat-pill bg-amber-100 text-amber-800"><i class="fas fa-clock"></i> En attente</span>`);
             const actions = [];
-            if (!paid && flags.can_pay)     actions.push(`<button onclick="openPayModal(${r.id}, ${r.amount})" title="Marquer payée" class="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg"><i class="fas fa-check-circle"></i></button>`);
+            if (!paid && flags.can_pay)     actions.push(`<button onclick="openPayModal(${r.id}, ${r.amount})" title="${fromFleet ? 'Valider et payer' : 'Marquer payée'}" aria-label="${fromFleet ? 'Valider et payer' : 'Marquer payée'}" class="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg"><i class="fas fa-check-circle"></i></button>`);
             if (!paid && flags.can_edit)    actions.push(`<button onclick="editExpense(${r.id})" title="Modifier" class="p-2 text-gray-600 hover:bg-gray-100 rounded-lg"><i class="fas fa-pen"></i></button>`);
             if (flags.can_delete)           actions.push(`<button onclick="deleteExpense(${r.id})" title="Supprimer" class="p-2 text-rose-600 hover:bg-rose-50 rounded-lg"><i class="fas fa-trash"></i></button>`);
             return `
@@ -271,6 +275,7 @@
                     <td class="py-3 px-4 text-gray-500 font-black text-xs">${escapeHtml(r.reference)}</td>
                     <td class="py-3 px-4 text-gray-900 font-bold">${escapeHtml(r.title)}
                         ${r.supplier_name ? `<div class="text-[11px] text-gray-500 font-medium mt-0.5"><i class="fas fa-user mr-1"></i>${escapeHtml(r.supplier_name)}</div>` : ''}
+                        ${r.vehicle_plate ? `<div class="text-[11px] text-gray-500 font-medium mt-0.5"><i class="fas fa-truck mr-1"></i>${fromFleet ? 'Demande Flotte · ' : ''}${escapeHtml(r.vehicle_plate)}</div>` : ''}
                     </td>
                     <td class="py-3 px-4">${catPill(r.category_name, r.category_color, r.category_icon)}</td>
                     <td class="py-3 px-4 text-xs font-bold text-gray-600">${r.treasury_name ? escapeHtml(r.treasury_name) : '<span class="text-gray-300">—</span>'}</td>
