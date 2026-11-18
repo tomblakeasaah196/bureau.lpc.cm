@@ -9,7 +9,7 @@
  *     prices become its tariff, Net 15 and the empties minimum go onto the
  *     client, a prospect becomes active, orders link to the devis, invoices
  *     date their due date from the terms, Gestion des Vides reads the minimum,
- *     the promised buffer raises the product's « Seuil Min. » (3.6);
+ *     the promised buffer does NOT raise the product's « Seuil Min. » (owner, #16);
  *   · Article 1 follows the chosen policy (4.2);
  *   · « Signé » means the client signed, in the list, the detail and the edit
  *     lock; « Je souhaite discuter » reads « À revoir » (4.4);
@@ -88,8 +88,8 @@ check('the signed prices become the tariff, logged as « proposal »',
 check('terms, minimum, devis and status go onto the client',
       str_contains($terms, 'payment_terms_days     = COALESCE(?, payment_terms_days)')
       && str_contains($terms, "status                 = IF(status = 'prospect', 'active', status)"));
-check('the promised buffer only ever raises « Seuil Min. »',
-      str_contains($terms, 'COALESCE(min_stock_level, 0) < ?'));
+check('a signed devis leaves « Seuil Min. » alone (owner, #16)',
+      !str_contains($terms, 'UPDATE products SET min_stock_level'));
 check('the migration adds the columns and the history source',
       str_contains($mig, "column_name = 'client_id'") && str_contains($mig, "column_name = 'payment_terms_days'")
       && str_contains($mig, "column_name = 'empties_return_min_pct'") && str_contains($mig, "column_name = 'terms_proposal_id'")
