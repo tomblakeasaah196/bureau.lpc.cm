@@ -51,6 +51,7 @@ $rewrites = [
     '#^password_reset\.php$#'   => '/public/auth/password_reset.php',
     '#^password_forgot\.php$#'  => '/public/auth/password_forgot.php',
     '#^device_setup\.php$#'     => '/public/auth/device_setup.php',
+    '#^verify_code\.php$#'      => '/public/auth/verify_code.php',
     '#^reset/([A-Fa-f0-9]{32,128})/?$#'      => '/public/auth/password_reset.php?token=$1',
     '#^invoice/([A-Fa-f0-9]{16,64})/?$#'     => '/public/documents/facture.php?token=$1',
     '#^delivery/([A-Fa-f0-9]{16,64})/?$#'    => '/public/documents/bon_livraison.php?token=$1',

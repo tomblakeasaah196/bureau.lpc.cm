@@ -93,7 +93,7 @@ try {
         SELECT u.id
           FROM users u
           JOIN roles r ON r.id = u.role_id
-         WHERE r.name IN ('admin', 'finance', 'accountant')
+         WHERE r.name IN ('admin', 'directeur_general', 'controleur_financier', 'accountant')
            AND u.status = 'active'
     ")->fetchAll(PDO::FETCH_COLUMN);
     if (empty($u)) {

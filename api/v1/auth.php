@@ -207,6 +207,15 @@ try {
     }
 
     // ----- SUCCESS ------------------------------------------------------
+    // Administrators may be asked an emailed code first (Paramètres →
+    // « Imposer la 2FA aux administrateurs », decision 24). The session opens
+    // in api/v1/auth_2fa.php once it is typed.
+    require_once __DIR__ . '/../../includes/functions/admin_2fa.php';
+    if (lpc_2fa_required($db, $user)) {
+        RateLimiter::clear('auth_acct', $__acctKey);
+        lpc_2fa_start($db, $user, $login, !empty($_POST['remember_device']));
+    }
+
     // The session itself (fixation defence, session-token row, identity,
     // RBAC) is opened by lpc_login_complete(), shared with the PIN and
     // passkey sign-ins of api/v1/device_auth.php so the three cannot drift.

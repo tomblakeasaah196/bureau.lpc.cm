@@ -426,7 +426,7 @@ $user_role = $_SESSION['user_role'];
                             <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.taux_de_tva')) ?> <span class="text-red-500">*</span></label>
                             <select id="gen_tva" onchange="calculateInvoicePreview()" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-gray-900 cursor-pointer appearance-none transition-all">
                                 <option value="0"><?= htmlspecialchars(__t('ui.x.0_exonere_ex_eau_minerale')) ?></option>
-                                <option value="19.25">19.25% - Standard Corporate</option>
+                                <option value="19.25">19,25 % (LPC assujetti à la TVA)</option>
                             </select>
                         </div>
                         <div>

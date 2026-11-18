@@ -245,6 +245,10 @@ try {
                 'default_account_id' => $default_id ?: ($accounts[0]['id'] ?? null),
                 'payment_terms_days' => $terms_days,
                 'air_rate'           => $air_rate ?? 0.0,
+                // Decision 19: LPC liable to TVA → the invoice proposes the rate.
+                'tva_liable'         => Prefs::bool('tax_tva_liable', false),
+                'default_terms_days' => max(0, Prefs::int('default_payment_terms_days', 30)),
+                'tva_rate'           => (float) Prefs::get('tax_tva_rate', '19.25'),
             ], JSON_UNESCAPED_UNICODE);
             break;
 
@@ -692,7 +696,9 @@ try {
                 $td = $db->prepare("SELECT payment_terms_days FROM clients WHERE id = ?");
                 $td->execute([$client_id]);
                 $days = $td->fetchColumn();
-                $days = ($days === false || $days === null) ? 30 : max(0, (int) $days);
+                // No terms on the client: Paramètres → « Délai de paiement par
+                // défaut » (decision 24), 30 days unless changed.
+                $days = ($days === false || $days === null) ? max(0, Prefs::int('default_payment_terms_days', 30)) : max(0, (int) $days);
                 $due_date = date('Y-m-d', strtotime($date . " +{$days} days"));
             } elseif (!$isDate($due_date)) {
                 throw new UserFacingException("Date d'échéance invalide.");

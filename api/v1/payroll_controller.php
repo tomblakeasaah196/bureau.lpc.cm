@@ -173,7 +173,7 @@ try {
               FROM employees e
               LEFT JOIN users u ON u.employee_id = e.id
               LEFT JOIN roles r ON r.id = u.role_id
-             WHERE e.is_active = 1
+             WHERE e.is_active = 1 AND e.in_payroll = 1   -- decision 18: JBS Praxis Support is never paid
              ORDER BY e.first_name ASC
         ")->fetchAll(PDO::FETCH_ASSOC);
         sendJson('success', '', ['contracts' => $rows]);
@@ -211,7 +211,7 @@ try {
               FROM employees e
               LEFT JOIN users u ON u.employee_id = e.id
               LEFT JOIN roles r ON r.id = u.role_id
-             WHERE e.is_active = 1
+             WHERE e.is_active = 1 AND e.in_payroll = 1   -- decision 18: JBS Praxis Support is never paid
              ORDER BY e.first_name ASC
         ")->fetchAll(PDO::FETCH_ASSOC);
 
@@ -650,7 +650,7 @@ try {
                    e.tax_regime, e.seniority_years, e.marital_status,
                    e.dependents_count, e.cnps_number, e.is_active
               FROM employees e
-             WHERE e.id = ? AND e.is_active = 1
+             WHERE e.id = ? AND e.is_active = 1 AND e.in_payroll = 1
              LIMIT 1
         ");
         $stmt->execute([$eid_p]);
@@ -876,7 +876,7 @@ try {
                        e.dependents_count, e.cnps_number, e.is_active,
                        CONCAT(e.first_name, ' ', e.last_name) AS employee_name
                   FROM employees e
-                 WHERE e.id = ? AND e.is_active = 1
+                 WHERE e.id = ? AND e.is_active = 1 AND e.in_payroll = 1
                  LIMIT 1
             ");
             $stmt->execute([$eid]);

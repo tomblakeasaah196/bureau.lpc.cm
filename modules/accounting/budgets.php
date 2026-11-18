@@ -16,7 +16,7 @@ $user_role  = $_SESSION['user_role'];
 
 // Approver flag drives the Reject/Approve buttons on transfer-request cards.
 $canApproveTransfers = Rbac::hasPermission('accounting.budgets.approve_transfer')
-                    || $user_role === 'admin';
+                    || in_array($user_role, ['admin', 'directeur_general'], true);
 $canRequestTransfers = Rbac::hasPermission('accounting.budgets.request_transfer')
                     || Rbac::hasPermission('accounting.budgets.transfer');
 $canEditTargets      = Rbac::hasPermission('accounting.budgets.create');

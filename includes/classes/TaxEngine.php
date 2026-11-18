@@ -233,7 +233,8 @@ final class TaxEngine
     /**
      * TVA formula:
      *   collectée      = SUM(invoices.tva_amount issued in period)
-     *   déductible     = SUM(supplier_invoices.tva_amount posted in period)
+     *   collectée      net of the period's credit notes (avoirs)
+     *   déductible     = 4452 booked by the period's receptions (LPC liable)
      *   crédit report  = prior period carry (if any)
      *   net_tva        = max(0, collectée - déductible - crédit report)
      */
@@ -244,12 +245,35 @@ final class TaxEngine
         $q = $db->prepare("SELECT COALESCE(SUM(tva_amount), 0) FROM invoices WHERE YEAR(date)=? AND MONTH(date)=?");
         $q->execute([$year, $month]);
         $collectee = self::round((float) $q->fetchColumn());
+        // Credit notes (avoirs) give TVA back (migration 152: payments 'avoir',
+        // amount TTC, credit_amount_ht HT).
+        if (self::columnExists($db, 'payments', 'credit_amount_ht')) {
+            $q = $db->prepare("SELECT COALESCE(SUM(amount - COALESCE(credit_amount_ht, amount)), 0) FROM payments
+                                WHERE payment_method = 'avoir' AND status = 'validated' AND YEAR(payment_date)=? AND MONTH(payment_date)=?");
+            $q->execute([$year, $month]);
+            $collectee = self::round(max(0.0, $collectee - (float) $q->fetchColumn()));
+        }
 
+        // Deductible TVA: what receptions booked to 4452 in the period (Dr 601
+        // HT + Dr 4452 / Cr 401 when LPC is liable, decision 19), net of their
+        // cancellations. supplier_invoices never existed (VIDEO_QA_FINDINGS 13.3).
         $deductible = 0.0;
+        $q = $db->prepare("
+            SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
+              FROM journal_lines jl
+              JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
+              JOIN chart_of_accounts c ON c.id = jl.account_id
+              JOIN ohada_accounts o ON o.id = c.ohada_account_id
+             WHERE o.account_number = '4452'
+               AND je.source_type IN ('purchase_order', 'purchase_order_reversal')
+               AND YEAR(je.date) = ? AND MONTH(je.date) = ?
+        ");
+        $q->execute([$year, $month]);
+        $deductible = self::round(max(0.0, (float) $q->fetchColumn()));
         if (self::tableExists($db, 'supplier_invoices') && self::columnExists($db, 'supplier_invoices', 'tva_amount')) {
             $q = $db->prepare("SELECT COALESCE(SUM(tva_amount), 0) FROM supplier_invoices WHERE YEAR(date)=? AND MONTH(date)=?");
             $q->execute([$year, $month]);
-            $deductible = self::round((float) $q->fetchColumn());
+            $deductible = self::round($deductible + (float) $q->fetchColumn());
         }
 
         // Prior-period credit reportable (from tax_declarations.carry_forward

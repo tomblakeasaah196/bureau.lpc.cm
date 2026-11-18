@@ -451,7 +451,7 @@ else if ($method === 'POST') {
         // -----------------------------------------------------------------
         if ($action === 'decide_transfer') {
             if (!Rbac::hasPermission('accounting.budgets.approve_transfer')
-                && $user_role !== 'admin') {
+                && !in_array($user_role, ['admin', 'directeur_general'], true)) {
                 throw new Exception("Permission insuffisante pour valider un transfert.");
             }
 

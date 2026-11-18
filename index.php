@@ -164,6 +164,12 @@ $t = static fn (string $fr, string $en): string => $lang == 'fr' ? $fr : $en;
                             echo $lang == 'fr'
                                 ? 'Votre session a expiré après une période d\'inactivité. Reconnectez-vous pour continuer.'
                                 : 'Your session ended after a period of inactivity. Sign in again to continue.';
+                        } elseif ($error === 'code_2fa') {
+                            // The emailed sign-in code (administrators, Paramètres → Sécurité)
+                            // expired or was mistyped too often: sign in again for a new one.
+                            echo $lang == 'fr'
+                                ? 'Le code de connexion a expiré ou a été mal saisi trop souvent. Reconnectez-vous pour en recevoir un nouveau.'
+                                : 'The sign-in code expired or was mistyped too often. Sign in again to get a new one.';
                         } elseif ($error === 'session_revoked') {
                             // bootstrap.php: an administrator closed this session or locked the
                             // account (Paramètres → Sessions, Utilisateurs), or the password changed.

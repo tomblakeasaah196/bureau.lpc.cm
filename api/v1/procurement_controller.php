@@ -809,7 +809,11 @@ try {
             // 1 850 F bottle went into stock at 1 850 / 1.1925 = 1 551.36 F and
             // 29 864 F of a 185 000 F order was booked as TVA récupérable.
             // Not a client choice any more: vat_recoverable is ignored if sent.
-            $vat_recoverable = 0;
+            // Decision 19 (18/11/2026): when LPC is liable to TVA (Paramètres →
+            // « LPC assujetti à la TVA »), the TTC price holds TVA LPC recovers:
+            // the order freezes the rate, reception books Dr 601 HT + Dr 4452 /
+            // Cr 401 TTC and the stock enters at HT. Off (default): unchanged.
+            $vat_recoverable = Prefs::bool('tax_tva_liable', false) ? 1 : 0;
 
             $clean_items = [];
             foreach ($items as $item) {
@@ -1037,10 +1041,15 @@ try {
             // problem migration 040 solved for invoices and
             // purchase_order_category_rebates.vat_rate_applied solved for the
             // ristourne base. Stored here, once, at the rate agreed.
-            // No TVA on purchases (see $vat_recoverable above): HT = the amount.
+            // No TVA on purchases unless LPC is liable (see $vat_recoverable).
             $po_vat_rate    = 0.0;
             $po_subtotal_ht = $subtotal;
             $po_vat_amount  = 0.0;
+            if ($vat_recoverable === 1 && (float) $tax_now['vat_rate'] > 0) {
+                $po_vat_rate    = (float) $tax_now['vat_rate'];
+                $po_subtotal_ht = round($subtotal / (1 + $po_vat_rate), 2);
+                $po_vat_amount  = round($subtotal - $po_subtotal_ht, 2);
+            }
 
             // Migration 093 · treasury_account_id captures the ACCOUNT this PO
             // is (or will be) paid from. Detected the same way vat_columns is,

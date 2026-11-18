@@ -6,7 +6,7 @@
  * colleagues. Add a person here, never in a scene. There is no Sales login yet: add it once LPC creates one.
  */
 const CAST = Object.freeze({
-  timothee: { name: "Timothée Massomba", post: "Directeur Général", role: "admin", email: "timothee.massomba@lpc.cm" },
+  timothee: { name: "Timothée Massomba", post: "Directeur Général", role: "directeur_general", email: "timothee.massomba@lpc.cm" },
   luc: { name: "Luc Nana", post: "Contrôleur Financier", role: "controleur_financier", email: "luc.nana@gmail.com" },
   daniel: { name: "Daniel Massomba", post: "Comptable", role: "accountant", email: "daniel.massomba@lpc.cm" },
   bertin: { name: "Bertin Chadeu", post: "Responsable des Opérations", role: "operations", email: "bertin.chadeu@gmail.com" },

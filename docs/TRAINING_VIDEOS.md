@@ -149,7 +149,7 @@ scene, so the next video meets the same colleagues.
 
 | Key | Person | Post | Role (menu) |
 | --- | --- | --- | --- |
-| `timothee` | Timothée Massomba | Directeur Général | admin |
+| `timothee` | Timothée Massomba | Directeur Général | directeur_general (since 18/11/2026, migration 156; « Administrateur » before) |
 | `luc` | Luc Nana | Contrôleur Financier | controleur_financier |
 | `daniel` | Daniel Massomba | Comptable | accountant |
 | `bertin` | Bertin Chadeu | Responsable des Opérations | operations |
@@ -529,6 +529,10 @@ Each is fixed on the video's branch, in the screen's own code, and listed here.
 | 18/11/2026 | Gestion des Vides, collecting (first take) | The WhatsApp field of the client's link came out empty (the form was reset before the phone was read); LPC's signature window named the role « operations »; on the sale grid the price ran into its label (« SANS BOUCHON200 F ») | Fixed: the phone is read first; the role as Paramètres names it (« Responsable des Opérations »); the label row keeps a gap |
 | 18/11/2026 | Proposition commerciale, « Seuil Min. » (the owner's answer 20 on register #16) | A signed devis raised the product's « Seuil Min. » to the buffer it promised (OPUR 20L: 50 to 770) | Undone: the signature leaves the threshold alone, set by hand in Données de Base; migration 155 corrects the help article. The Proposition commerciale video (partie 4) shows the alert the raise caused and says so: to refilm that chapter with the Commercial when convenient |
 | 18/11/2026 | Effacer les données, « Remise à zéro avant démarrage » (owner's decisions 16 and 17) | Everything on live is test data except the employees, but the tool kept the treasury accounts, the counters and every sub-account not tied to a client or supplier, could not keep products or suppliers on demand, and named no table of this week (`fuel_reconciliation_alerts`, `journal_line_moves`) | Built: a third tab wipes everything but the staff, roles, settings, the chart and the employees, products and suppliers kept if ticked (`DataWipe::planFull`); treasury accounts go with their sub-accounts, every counter restarts, a parent's own row never goes; `error_fixes` protected. Proved on copy B (511 and 401 rows, nothing left, then a supplier, product, treasury account, client and order from zero) and on screen; `data_wipe_full.test.php`; docs/DATA_WIPE.md |
+| 18/11/2026 | Paramètres → « LPC assujetti à la TVA » (the owner's decision 19; register #27) | The setting was on (« assujetti TVA », 19,25 %) and changed nothing but the invoice's default rate: purchases always went to 601 and 31x at TTC, and the TVA declaration read `supplier_invoices` (missing on live: 0 deductible) | Built behind the setting, **off** until the tax adviser confirms (migration 156 sets it off): on, a new invoice proposes 19,25 % (4431); a new supplier order holds the TVA as recoverable, so reception books Dr 601 HT + Dr 4452 / Cr 401 TTC, stock at HT; the declaration deducts what receptions booked to 4452 and nets the avoirs' TVA. Off: unchanged. Orders saved before never move. Help article « LPC assujetti à la TVA » |
+| 18/11/2026 | The DG's role (decision 21; register #23) | Timothée signed in as « Administrateur », like JBS Praxis Support; « Directeur Général » had nobody, and six pages checked the role name `admin` (Clôture, budgets, reports, the attestation reminder) | Migration 156: « Directeur Général » gets every permission « Administrateur » holds and its home page; Timothée moves to it; the six checks accept both. He signs in again to load it |
+| 18/11/2026 | Gestion du Personnel and JBS Praxis Support (decision 18) | The IT partner's employee record (needed for his login) sat in the payroll grid and could be paid a salary | `employees.in_payroll` (migration 156): 0 for JBS Praxis Support; the grid, the contracts, the preview and the run take only `in_payroll = 1` |
+| 18/11/2026 | Paramètres → « Délai de paiement par défaut » and « Imposer la 2FA aux administrateurs » (decision 24; register #21) | Hidden by migration 141: neither did anything | Both work and are shown again: the delay is the due date of an invoice for a client without its own terms (and the terms a new devis proposes); 2FA sends an Administrateur or the DG a 6-digit code by email after the password (« Code de connexion », 10 minutes, 5 tries; not on a remembered device; skipped if mail is not configured). Off by default. Locked out: `php scripts/admin/admin_2fa_off.php` on the server |
 
 ## 8 · Where the work stands
 
@@ -731,5 +735,12 @@ the help search, the help AI's answers and each page's « ? »), and sent in the
       place (« Centre de recyclage, Bonabéri »), no company invented. The copy is left as snapshot `after-07-vides`
       (PROMETAL: 130 back, 70 at the client, 30 to recover; empties in stock: 20 without cork, 10 with; the cash box at
       20 000 F; BL-2611-00001 still « À facturer »).
+- [x] Go-live readiness, items 2 to 7 (18/11/2026, track C on copy C; no video): the TVA switch « LPC assujetti à la
+      TVA » built and **off** (decision 19); Timothée on his own role « Directeur Général » (21); JBS Praxis Support out
+      of the payroll (18); a devis leaves « Seuil Min. » alone (20, done with Gestion des Vides, migration 155); « Délai
+      de paiement par défaut » and the admins' 2FA work (24). Migration 156, `go_live.test.php`. Checked on copy C: a
+      reception with the switch on and off, the DG's pages, the payroll grid, a 2FA sign-in with a wrong then the right
+      code. **For the owner on live:** tick « LPC assujetti à la TVA » only once the tax adviser confirms LPC charges
+      TVA; tick the 2FA once emails are configured (MAIL_FROM); Timothée signs out and in again.
 - [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
       Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.
