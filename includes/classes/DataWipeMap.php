@@ -74,7 +74,8 @@ final class DataWipeMap
                                      'suppliers', 'supplier_prices', 'supplier_price_history', 'supplier_product_rebates',
                                      'supplier_category_rebates', 'supplier_category_rebate_tiers']],
         'stock'        => ['Stock', ['products', 'inventory_movements', 'inventory_reports', 'inventory_report_items']],
-        'tresorerie'   => ['Trésorerie', ['treasury_transactions', 'treasury_edit_requests', 'cash_reconciliations', 'driver_debts']],
+        'tresorerie'   => ['Trésorerie', ['treasury_transactions', 'treasury_edit_requests', 'cash_reconciliations', 'driver_debts',
+                                         'loans', 'loan_movements', 'loan_counterparties']],
         'depenses'     => ['Dépenses', ['expenses', 'expense_attachments', 'expense_recurring_templates', 'overheads']],
         'comptabilite' => ['Comptabilité', ['journal_entries', 'journal_lines', 'fixed_assets', 'depreciation_logs', 'fixed_asset_disposals',
                                            'tax_declarations', 'tax_declaration_lines', 'closing_runs', 'year_end_adjustments', 'financial_years']],
@@ -99,6 +100,7 @@ final class DataWipeMap
         'supplier_price_history' => 'Historique des prix fournisseurs', 'supplier_product_rebates' => 'Remises par produit',
         'supplier_category_rebates' => 'Barèmes de ristourne', 'supplier_category_rebate_tiers' => 'Paliers de ristourne', 'delivery_places' => 'Lieux de livraison',
         'products' => 'Produits', 'inventory_movements' => 'Mouvements de stock', 'inventory_reports' => 'Inventaires', 'inventory_report_items' => 'Lignes d\'inventaire',
+        'loans' => 'Emprunts et prêts', 'loan_movements' => 'Intérêts et remboursements (emprunts)', 'loan_counterparties' => 'Prêteurs et emprunteurs',
         'treasury_transactions' => 'Opérations de trésorerie', 'treasury_edit_requests' => 'Demandes de correction (trésorerie)',
         'cash_reconciliations' => 'Retours de tournée', 'driver_debts' => 'Dettes chauffeurs', 'expenses' => 'Dépenses', 'expense_attachments' => 'Justificatifs de dépenses',
         'expense_recurring_templates' => 'Dépenses récurrentes', 'overheads' => 'Frais généraux', 'journal_entries' => 'Écritures comptables',
@@ -171,6 +173,9 @@ final class DataWipeMap
         // The 411xxx / 401xxx sub-account created for a client or supplier
         ['clients',   'account_id', 'chart_of_accounts', "o.code LIKE '411%'"],
         ['suppliers', 'account_id', 'chart_of_accounts', "o.code LIKE '401%'"],
+        // A lender's or borrower's own sub-account (Emprunts & Financements)
+        ['loan_counterparties', 'borrow_account_id', 'chart_of_accounts', ''],
+        ['loan_counterparties', 'lend_account_id', 'chart_of_accounts', ''],
         // Tax declarations record their entries without a foreign key
         ['tax_declarations', 'payable_je_id', 'journal_entries', ''],
         ['tax_declarations', 'payment_je_id', 'journal_entries', ''],
@@ -186,6 +191,8 @@ final class DataWipeMap
         'recycling_sales'  => ['recycling_sale'],
         'payments'         => ['wallet_apply'],
         'tax_declarations' => ['tax_declaration'],
+        'loans'            => ['loan'],
+        'loan_movements'   => ['loan_movement'],
     ];
 
     /** pdf_documents.type → the table its record_id points at */
@@ -250,6 +257,11 @@ final class DataWipeMap
              'encaissement recycleur');
         $add('expenses', 'treasury_transactions', "SELECT t.id FROM treasury_transactions t JOIN expenses e ON t.reference = e.reference
                                   AND t.transaction_type IN ('out_expense', 'in_other') WHERE e.id IN ({ids})", 'paiement de la dépense');
+        // A loan's or a repayment's own movement (Loans::approve)
+        $add('loans', 'treasury_transactions', "SELECT treasury_transaction_id FROM loans WHERE id IN ({ids}) AND treasury_transaction_id IS NOT NULL",
+             'mouvement de l\'emprunt');
+        $add('loan_movements', 'treasury_transactions', "SELECT treasury_transaction_id FROM loan_movements WHERE id IN ({ids}) AND treasury_transaction_id IS NOT NULL",
+             'mouvement du remboursement');
         // The two legs of an internal transfer go together
         $add('treasury_transactions', 'treasury_transactions', "SELECT linked_transfer_id FROM treasury_transactions WHERE id IN ({ids}) AND linked_transfer_id IS NOT NULL",
              'autre jambe du virement');

@@ -4,7 +4,8 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 Rbac::requirePermission('accounting.cashflow.view');
 /**
  * MODULE: Trésorerie & Banque
- * Comptes & Caisse, Opérations & Transferts, Rapprochement Bancaire.
+ * Comptes & Caisse, Opérations & Transferts, Rapprochement Bancaire, and
+ * Emprunts & Financements (the owner's decision 15, 18/11/2026).
  *
  * « Retour de Tournée » (driver cash-in) was removed with VIDEO_QA_FINDINGS 9.6:
  * LPC has no drivers; client payments are recorded in Facturation & AR.
@@ -17,6 +18,11 @@ $can = [
     'reconcile' => Rbac::hasPermission('accounting.cashflow.reconcile'),
     'pay'       => Rbac::hasPermission('accounting.expenses.mark_paid'),
     'decide'    => Rbac::hasPermission('admin.settings.edit'),
+    // Emprunts & Financements (decision 15): the CF, the Comptable and the DG
+    // record, the DG approves. loans_controller.php checks the same.
+    'loans'         => Rbac::hasPermission('accounting.loans.view'),
+    'loans_record'  => Rbac::hasPermission('accounting.loans.record'),
+    'loans_approve' => Rbac::hasPermission('accounting.loans.approve'),
 ];
 ?>
 <!DOCTYPE html>
@@ -68,6 +74,11 @@ $can = [
             <button onclick="switchTab('reconciliation')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-reconciliation">
                 <i class="fas fa-check-double mr-2"></i> Rapprochement Bancaire
             </button>
+            <?php if ($can['loans']): ?>
+            <button onclick="switchTab('loans')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-loans">
+                <i class="fas fa-hand-holding-usd mr-2"></i> Emprunts &amp; Financements
+            </button>
+            <?php endif; ?>
         </nav>
 
         <main role="main" id="main" class="lpc-page lpc-page-col relative">
@@ -222,8 +233,28 @@ $can = [
                 </div>
             </div>
 
+            <?php if ($can['loans']): ?>
+            <div id="content-loans" class="tab-content flex-col h-full gap-6">
+                <div id="loans-root" class="flex flex-col gap-6"></div>
+            </div>
+            <?php endif; ?>
+
         </main>
     </div>
+
+    <?php if ($can['loans']): ?>
+    <!-- One window for every loans form (new loan, repayment, decision): accounting-loans.js fills it. -->
+    <div id="modal-loan" role="dialog" aria-modal="true" aria-labelledby="loan-modal-title" class="trs-modal hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden flex flex-col animate-slide-up max-h-[92vh]">
+            <div class="bg-treasury-dark px-6 py-5 flex justify-between items-center text-white border-b border-green-800">
+                <h3 id="loan-modal-title" class="font-black text-lg tracking-wide">.</h3>
+                <button type="button" data-loan-close class="text-green-200 hover:text-white transition-colors" aria-label="Fermer"><i class="fas fa-times text-xl"></i></button>
+            </div>
+            <div id="loan-modal-body" class="p-6 bg-slate-50 overflow-y-auto space-y-4"></div>
+            <div class="bg-white px-6 py-4 border-t border-gray-200 flex justify-end gap-3" id="loan-modal-actions"></div>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <?php if ($can['open']): ?>
     <div id="modal-account" class="trs-modal hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
@@ -358,5 +389,8 @@ $can = [
 
     <script type="application/json" id="lpc-page-data"><?= json_encode(['can' => $can], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
 <script src="<?= lpc_asset('/assets/js/modules/accounting-cashflow.js') ?>" defer></script>
+<?php if ($can['loans']): ?>
+<script src="<?= lpc_asset('/assets/js/modules/accounting-loans.js') ?>" defer></script>
+<?php endif; ?>
 </body>
 </html>

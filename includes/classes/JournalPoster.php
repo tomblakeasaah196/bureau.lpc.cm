@@ -679,6 +679,33 @@ final class JournalPoster
     }
 
     /**
+     * One balanced entry for Emprunts & Financements (includes/classes/Loans.php):
+     * a loan or a repayment the DG approved, a month's interest on approved
+     * terms. $lines: [[coa id, debit, credit], ...]; zero lines are skipped.
+     * SOURCE LINK: 'loan' (source_id = loans.id) or 'loan_movement'
+     * (loan_movements.id). $user_id: who the entry is for (the approver).
+     */
+    public static function postLoanEntry(string $ref, string $date, string $desc, array $lines,
+                                         string $source_type, int $source_id, int $user_id): int
+    {
+        $db = Database::getInstance()->getConnection();
+        $debit = 0.0; $credit = 0.0;
+        foreach ($lines as [$coa, $d, $c]) {
+            $debit += self::roundFcfa((float) $d);
+            $credit += self::roundFcfa((float) $c);
+        }
+        if ($debit <= 0 || abs($debit - $credit) > 0.001) {
+            throw new RuntimeException("Écriture de financement déséquilibrée ({$debit} / {$credit}).");
+        }
+        $je_id = self::createDraftJe($db, $ref, 'OD', $date, mb_substr($desc, 0, 255), $user_id, $source_type, $source_id);
+        foreach ($lines as [$coa, $d, $c]) {
+            self::addLine($db, $je_id, (int) $coa, (float) $d, (float) $c);
+        }
+        self::post($db, $je_id, $user_id);
+        return $je_id;
+    }
+
+    /**
      * Post the JE for a treasury expense (petite caisse).
      *   Debit expense COA (typically 6xx)
      *   Credit source treasury COA (typically 5xx)
@@ -2058,8 +2085,18 @@ final class JournalPoster
         $db->prepare("CALL post_journal_entry(?, ?)")->execute([$entry_id, $user_id]);
     }
 
-    /** Look up chart_of_accounts.id by OHADA account_number prefix. Cached per request. */
-    private static function coaByOhada(PDO $db, string $prefix): ?int
+    /**
+     * The chart row an OHADA number posts to. Cached per request.
+     *
+     * The parent's own row first (code = the OHADA number: « 601 Achats de
+     * marchandises »); failing that, the parent's only active sub-account.
+     * Never « the oldest row under the parent » (the owner's decision 13,
+     * 18/11/2026): that sent client receivables to a deleted test client's
+     * 411004 and would have sent CCA Bank's entries to the legacy « LPC52111
+     * Afriland First Bank (AFB) ». Null when neither exists: the caller
+     * refuses to post rather than guess.
+     */
+    public static function coaByOhada(PDO $db, string $prefix): ?int
     {
         static $cache = [];
         if (isset($cache[$prefix])) return $cache[$prefix];
@@ -2067,94 +2104,55 @@ final class JournalPoster
         $stmt = $db->prepare("
             SELECT coa.id FROM chart_of_accounts coa
               JOIN ohada_accounts o ON coa.ohada_account_id = o.id
-             WHERE o.account_number = ?
-             ORDER BY coa.id ASC LIMIT 1
+             WHERE o.account_number = ? AND coa.code = o.account_number
+             LIMIT 1
         ");
         $stmt->execute([$prefix]);
         $r = $stmt->fetchColumn();
-        return $cache[$prefix] = ($r ? (int)$r : null);
+        if (!$r) {
+            $stmt = $db->prepare("
+                SELECT coa.id FROM chart_of_accounts coa
+                  JOIN ohada_accounts o ON coa.ohada_account_id = o.id
+                 WHERE o.account_number = ? AND coa.is_active = 1
+                 LIMIT 2
+            ");
+            $stmt->execute([$prefix]);
+            $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            $r = count($ids) === 1 ? $ids[0] : null;
+        }
+        return $cache[$prefix] = ($r ? (int) $r : null);
     }
 
     /**
-     * treasury_accounts.type → the OHADA parent its movements belong under.
+     * Map a treasury_accounts row to its own chart sub-account
+     * (treasury_accounts.coa_account_id: 5211 CCA Bank, 5521 MTN Mobile Money,
+     * 5711 Caisse Principale - Maison), so each ledger matches its statement.
      *
-     * Sprint 9 — this replaced:
-     *
-     *     $ohada = ($row['type'] === 'bank') ? '521' : '571';
-     *
-     * which sent everything that was not a bank to 571 Caisse, so MTN MoMo and
-     * Orange Money collections were booked as physical cash. That makes the
-     * Trésorerie cash reconciliation unusable — a physical count can never
-     * match a balance carrying electronic float — and it is not what SYSCOHADA
-     * révisé says: class 55 exists precisely to stop the approximation.
-     *
-     *   521 Banques
-     *   552 Monnaie électronique — téléphone portable   (MoMo / Orange Money)
-     *   554 Porte-monnaie électronique
-     *   571 Caisse                                      (physical cash only)
-     *
-     * Operator commissions are NOT netted here. They are entered by hand as a
-     * treasury expense against 6317 (Frais sur instruments de monnaie
-     * électronique) at payment time, so the collection books gross.
-     *
-     * 552 and 6317 are seeded by migration 044 — migration 003 only ever
-     * created seven parents and neither of these was among them.
+     * There is no fallback any more (the owner's decision 12, 18/11/2026): an
+     * account without its sub-account used to post to the oldest row under its
+     * type's parent (« Caisse Principale Siège », the shared 552…), which is
+     * how the ledgers stopped matching the accounts. Trésorerie & Banque
+     * creates the sub-account with the account (TreasuryAccount::ensureLedger);
+     * migration 144 created the missing ones and moved their past lines.
      */
-    private const TREASURY_OHADA = [
-        'bank'          => '521',
-        'momo'          => '552',
-        'mobile_money'  => '552',
-        'wallet'        => '554',
-        'caisse'        => '571',
-        'cash'          => '571',
-    ];
-
-    /**
-     * Map a treasury_accounts row to a chart_of_accounts.id.
-     *
-     * Prefers an explicit coa_account_id — that is how each account gets its
-     * own sub-ledger (5211 Afriland, 5212 microfinance, 5521 MTN MoMo), so a
-     * journal line can be traced back to one statement. Falls back to the
-     * shared parent above when the column is absent or unset.
-     */
-    private static function coaFromTreasury(PDO $db, int $treasury_id): int
+    public static function coaFromTreasury(PDO $db, int $treasury_id): int
     {
-        static $has_coa_col = null;
-        if ($has_coa_col === null) {
-            $chk = $db->query("
-                SELECT COUNT(*) FROM information_schema.columns
-                 WHERE table_schema = DATABASE()
-                   AND table_name = 'treasury_accounts'
-                   AND column_name = 'coa_account_id'
-            ")->fetchColumn();
-            $has_coa_col = ((int) $chk > 0);
-        }
-        $cols = $has_coa_col ? "type, coa_account_id" : "type, NULL AS coa_account_id";
-        $stmt = $db->prepare("SELECT $cols FROM treasury_accounts WHERE id = ?");
+        $stmt = $db->prepare("
+            SELECT t.name, c.id AS coa_id
+              FROM treasury_accounts t
+              LEFT JOIN chart_of_accounts c ON c.id = t.coa_account_id
+             WHERE t.id = ?
+        ");
         $stmt->execute([$treasury_id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$row) throw new RuntimeException("JournalPoster: treasury account #{$treasury_id} not found.");
-
-        if (!empty($row['coa_account_id'])) return (int) $row['coa_account_id'];
-
-        $type  = (string) $row['type'];
-        $ohada = self::TREASURY_OHADA[$type] ?? null;
-        if ($ohada === null) {
-            // Fail loudly rather than silently dumping an unknown instrument
-            // into Caisse, which is exactly how MoMo ended up there.
+        if (!$row) throw new RuntimeException("Compte de trésorerie #{$treasury_id} introuvable.");
+        if (empty($row['coa_id'])) {
             throw new RuntimeException(
-                "JournalPoster: treasury type '{$type}' has no OHADA mapping. "
-                . "Add it to JournalPoster::TREASURY_OHADA."
+                "Le compte « {$row['name']} » n'a pas de compte au plan comptable. "
+                . "Ouvrez-le dans Trésorerie & Banque (Comptes & Caisse) et enregistrez-le : son sous-compte est créé."
             );
         }
-        $coa = self::coaByOhada($db, $ohada);
-        if (!$coa) {
-            throw new RuntimeException(
-                "JournalPoster: OHADA {$ohada} not mapped (treasury type {$type}). "
-                . "Run migration 044 — it seeds 552 and 6317."
-            );
-        }
-        return $coa;
+        return (int) $row['coa_id'];
     }
 
     /**

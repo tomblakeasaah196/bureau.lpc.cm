@@ -145,6 +145,11 @@ Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026):
    cleared by an OD. Proposal: an « Entrée diverse » card on Opérations & Transferts (Finance, with its account and
    category, posted Dr 5x / Cr the chosen account), counted by the Carburant tab when its category is Carburant.
    Found by the Trésorerie session, 18/11/2026; not built.
+9. [D] The owner's decisions 12 to 15 (18/11/2026, after reviewing live Trésorerie & Banque and the Plan Comptable):
+   done by the « Trésorerie, plan comptable et emprunts » session (track B, migrations 144 and 145): each treasury
+   account its own sub-account and its past lines moved there; 26 unused sub-accounts deleted; `coaByOhada` takes the
+   parent's own row; the Plan Comptable rebuilt; « Emprunts & Financements » built; the 1 000 000 F of MTN recorded as
+   Smart Logistics' loan, waiting for the DG. See docs/TRAINING_VIDEOS.md §7.
 
 ## 10 · Gestion du Personnel (salaires)
 
@@ -165,6 +170,9 @@ Rows 1 to 5 done by the Salaires session (18/11/2026, PR #59): see docs/TRAINING
 2. [V] `postSalesCreditNote` has no caller: no credit-note entries.
 3. See 3.1 (stock accounting, 601 vs 31x/6031), 8.1 (invoice on the first 411), 8.2 (AIR twice), 4.6
    (second 411 on conversion): the ledger checks belong here if their module sessions did not fix them.
+   Since migration 144 (decision 13) « the first 411 » is the parent's own row « 411 Clients », no longer a deleted
+   test client's 411004; posting each invoice to the client's own 411 (8.1) is still to do. The same for 701: its own
+   row « 701 Ventes de marchandises » replaces the inactive « LPC70111 Sales of 20L Opur » as the fallback.
 4. [V] **A reversal counts twice in the reports** (found by the Ventes session, 18/11/2026):
    `JournalPoster::reverseSource` posts the mirror entry and stamps the original `reversed`, while the Grand
    Livre, the Balance and the review screens read `status = 'posted'` only (`review_controller.php:152, 289,
@@ -274,8 +282,11 @@ marked fixed). What was fixed is in docs/TRAINING_VIDEOS.md §7. Left:
 | 16 | The buffer a signed devis promises raises the product's « Seuil Min. » (1 667 a month × 2 weeks = 770 for PROMETAL). It never lowers it. Keep? | Yes: the stock alert fires before LPC runs short of what it promised. Lower it by hand in Données de Base when a contract ends. |
 | 17 | Should a new client start as Prospect? | Yes: a client is a prospect until it signs a devis (then Actif by itself) or someone presses « Convertir ». |
 | 18 | SMART LOGISTICS and BOULANGERIE SAKER signed devis before this change (Net 30, 1 pour 1). | Migration 137 carries their terms onto them (Net 30, 100 %), not their prices: orders may have moved the prices since. |
-| 19 | **Where did MTN MOBILE MONEY's 1 000 000 F come from?** It was entered on 03/11/2026 as the account's opening balance and posted nothing. Migration 139 posts it (Dr 552 / Cr 471 « Compte d'attente », dated 03/11) so the ledger matches the screen; 471 now waits to be cleared to its real origin: share capital (101), an associate's current account (4561, the DG's money?), a loan, another bank. | 1 000 000 F stays in 471 until the owner says; the Comptable then passes one OD (Dr 471 / Cr the right account). The MTN account's COA link was not changed: it posts to 552 by its type already. |
+| 19 | **Where did MTN MOBILE MONEY's 1 000 000 F come from?** Decided 18/11 (#15): a loan from Smart Logistics, without interest, to be repaid. Migration 144 records it (FIN-2611-00001) waiting for the DG's approval; **the DG approves it on live** (Trésorerie & Banque → Emprunts & Financements), which moves it from 471 to Smart Logistics' 466001. Before: It was entered on 03/11/2026 as the account's opening balance and posted nothing. Migration 139 posts it (Dr 552 / Cr 471 « Compte d'attente », dated 03/11) so the ledger matches the screen; 471 now waits to be cleared to its real origin: share capital (101), an associate's current account (4561, the DG's money?), a loan, another bank. | 1 000 000 F stays in 471 until the owner says; the Comptable then passes one OD (Dr 471 / Cr the right account). The MTN account's COA link was not changed: it posts to 552 by its type already. |
 | 20 | **CCA Bank and Caisse Principale - Maison read 0 F** on live although LPC surely has money in them. What were their balances on the day the app started, and on what date? (9.7 waits on this: payments beyond the balance cannot be refused while the balances are not real.) | Nothing entered. Once known, the CF enters each as a correction (or the DG through Bilan d'Ouverture if the year allows), and Gestion du Personnel starts refusing payments beyond the balance like the other modules. |
 | 21 | Paramètres → Préférences showed 19 settings that change nothing (finding 15.1). They are hidden, their values kept. Which should work (for example the default payment terms, 2FA for admins, password expiry)? | Hidden until wired; the admin video does not show them. |
 | 22 | Identité de l'Entreprise on live: the footer's RCCM ends « 8-01777 » and the field « B-01777 »; CNPS employer number, APE code and tax office are empty. Which RCCM is right, and what are the others? | Nothing changed on live; the video shows the page as it is and does not read those fields out. |
 | 23 | The « Directeur Général » role (`directeur_general`) has nobody; the DG signs in as « Administrateur », like JBS Praxis Support. Keep one role for both, or give the DG his own role (and delete the unused one)? | Unchanged; the video says both hold « Administrateur ». |
+| 24 | When LPC **lends**, where does the borrower's debt sit? The owner set the borrowing side (4621, 466, 162, 168). | Default: a related company 466 (a sub-account apart from its loan to LPC, « … (prêt de LPC) »), anyone else 271 « Prêts et créances non commerciales ». Note: OHADA company law forbids a company to lend to its managers and physical-person associates; the screen allows it and leaves it to the DG's approval. |
+| 25 | A loan's one-off fee and its interest: which accounts? | Default: the fee is kept out of the money paid over; LPC borrows: 631 Frais bancaires; LPC lends: 771. Interest LPC pays: 671 « Intérêts des emprunts » (all lenders); interest it earns: 771 « Intérêts de prêts et créances diverses » (771 read « Gains de change », which SYSCOHADA numbers 776: renamed, 776 added). Interest adds to what is owed, on the loan date's day each month. |
+| 26 | The parents' own rows « 521 Banques », « 571 Caisse » and « 552 Monnaie électronique » had no entry once each account had its sub-account. | Deleted with the other unused rows (no treasury posting can reach a parent any more); 411 and 701 got their own row instead, being where invoices still post (8.1). |

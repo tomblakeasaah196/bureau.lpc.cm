@@ -29,6 +29,10 @@
             in_client_payment:    'Paiement client',
             in_recycling_sale:    'Vente recyclage',
             in_tournee:           'Versement',
+            in_loan:              'Emprunt reçu',
+            in_loan_repayment:    'Remboursement reçu',
+            out_loan:             'Prêt accordé',
+            out_loan_repayment:   'Remboursement d\'emprunt',
             out_expense:          'Dépense',
             out_supplier_payment: 'Paiement fournisseur',
             out_payroll:          'Salaires',
@@ -43,11 +47,12 @@
         const ACCOUNT_TYPES = { bank: 'Banque', momo: 'Mobile Money', caisse: 'Caisse' };
 
         // Deep link: /modules/accounting/cashflow.php#reconciliation
-        const CASHFLOW_VALID_TABS = ['wallets', 'operations', 'reconciliation'];
+        const CASHFLOW_VALID_TABS = ['wallets', 'operations', 'reconciliation', 'loans'];
 
         window.onload = () => {
             const hash = (window.location.hash || '').replace('#', '');
-            switchTab(CASHFLOW_VALID_TABS.includes(hash) ? hash : 'wallets');
+            // « loans » exists only for who may see it (accounting.loans.view).
+            switchTab(CASHFLOW_VALID_TABS.includes(hash) && document.getElementById(`tab-${hash}`) ? hash : 'wallets');
         };
 
         function openModal(id) { const m = document.getElementById(id); if (m) m.classList.remove('hidden'); }
@@ -69,6 +74,8 @@
         }
 
         async function fetchTabData(tab) {
+            // Emprunts & Financements has its own API and script (accounting-loans.js).
+            if (tab === 'loans') { if (window.LpcLoans) window.LpcLoans.load(); return; }
             try {
                 const response = await fetch(`/api/v1/treasury_controller.php?action=read&tab=${tab}`);
                 const result = await response.json();
@@ -107,6 +114,7 @@
                             <div>
                                 <h4 class="font-black text-gray-800 text-xs uppercase tracking-widest">${a.name}</h4>
                                 <p class="text-[9px] font-bold text-gray-400 uppercase">${a.account_number || ACCOUNT_TYPES[a.type] || ''}</p>
+                                <p class="text-[9px] font-black text-gray-500" title="Son compte au plan comptable">${a.coa_code ? 'Compte ' + a.coa_code : 'Sans compte comptable'}</p>
                             </div>
                         </div>
                         <h3 class="text-2xl font-black text-gray-900">${fmt(a.balance)} F</h3>

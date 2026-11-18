@@ -146,6 +146,22 @@ final class DataWipe
         return $this->finish(['picked' => $picked], $delete, $unlink, $why, $blocked);
     }
 
+    /** SQL: no line on account $col that a document's own entry did not post. */
+    private function noEntryLeftOn(string $col): string
+    {
+        $types = [];
+        foreach (DataWipeMap::JOURNAL_SOURCES as $list) {
+            foreach ($list as $t) {
+                $types[] = $this->db->quote($t);
+                $types[] = $this->db->quote($t . '_reversal');
+            }
+        }
+        return "NOT EXISTS (SELECT 1 FROM journal_lines jl JOIN journal_entries je ON je.id = jl.journal_entry_id
+                             WHERE jl.account_id = {$col}
+                               AND NOT (COALESCE(je.source_type, '') IN (" . implode(',', $types) . ")
+                                        OR (je.source_type IS NULL AND je.reference LIKE 'PAY-%')))";
+    }
+
     /**
      * Everything that goes with the $start rows ([table => [key => true]]), until nothing new
      * turns up. $allow: protected tables that may lose the rows reached (a staff delete);
@@ -1053,6 +1069,12 @@ final class DataWipe
             if (isset($s['cols'][$owner][$col])) {
                 $pk = $s['keys'][$owned][0] ?? 'id';
                 $not = "NOT EXISTS (SELECT 1 FROM `{$owner}` x WHERE x.`{$col}` = o.`{$pk}` AND NOT (%XKEYS%))";
+                // A sub-account goes only when no entry will be left on it (the owner's decision 13,
+                // 18/11/2026): every line on it must come from a document's own entry (JOURNAL_SOURCES,
+                // a client payment), which goes with the document. A manual OD keeps the account.
+                if ($owned === 'chart_of_accounts' && isset($s['cols']['journal_lines']['account_id'])) {
+                    $not .= ' AND ' . $this->noEntryLeftOn('o.`' . $pk . '`');
+                }
                 $add(['from' => $owner, 'to' => $owned, 'mode' => 'delete', 'owned' => true, 'why' => 'sous-compte / écriture propre',
                       'sql' => "SELECT o.`{$pk}` FROM `{$owned}` o JOIN `{$owner}` w ON w.`{$col}` = o.`{$pk}` WHERE %WKEYS%"
                              . ($cond !== '' ? " AND {$cond}" : '') . " AND {$not}", 'keysOf' => $owner]);

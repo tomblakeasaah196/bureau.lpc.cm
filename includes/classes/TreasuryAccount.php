@@ -233,19 +233,39 @@ final class TreasuryAccount
         ];
     }
 
+    /**
+     * The account's own chart sub-account, created when missing; returns its id.
+     * Trésorerie & Banque calls it when an account is created or saved (the
+     * owner's decision 12, 18/11/2026): JournalPoster::coaFromTreasury no
+     * longer falls back to a row under the parent.
+     */
+    public static function ensureLedger(PDO $db, int $treasury_id): int
+    {
+        $stmt = $db->prepare("
+            SELECT t.name, t.type, c.id AS coa_id
+              FROM treasury_accounts t
+              LEFT JOIN chart_of_accounts c ON c.id = t.coa_account_id
+             WHERE t.id = ?
+        ");
+        $stmt->execute([$treasury_id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) throw new InvalidArgumentException("Compte de trésorerie #{$treasury_id} introuvable.");
+        if (!empty($row['coa_id'])) return (int) $row['coa_id'];
+
+        $coa_id = self::provisionLedgerAccount($db, $treasury_id, (string) $row['name'], (string) $row['type']);
+        $db->prepare("UPDATE treasury_accounts SET coa_account_id = ? WHERE id = ?")->execute([$coa_id, $treasury_id]);
+        return $coa_id;
+    }
+
     // -------------------------------------------------------------------------
     // internals
     // -------------------------------------------------------------------------
 
     /**
      * Create the account's chart_of_accounts row under the right OHADA parent
-     * and return its id.
-     *
-     * Codes are the parent plus a sequence: 5211, 5212, 5213 under 521;
-     * 5521, 5522 under 552. The sequence is derived from what already exists
-     * so it survives deletions and re-runs, and chart_of_accounts.code is
-     * UNIQUE, so a collision fails loudly inside the transaction rather than
-     * producing two accounts that look alike.
+     * and return its id: the parent plus one digit, 5211, 5212… under 521,
+     * 5521 under 552, 5711 under 571 (ChartOfAccounts::nextSubCode), named
+     * after the account (« 5211 CCA Bank »).
      */
     private static function provisionLedgerAccount(PDO $db, int $treasury_id, string $name, string $type): int
     {
@@ -253,49 +273,14 @@ final class TreasuryAccount
         if ($parent === null) {
             throw new InvalidArgumentException("Type de compte inconnu : '{$type}'.");
         }
-
-        $stmt = $db->prepare("SELECT id, type FROM ohada_accounts WHERE account_number = ? LIMIT 1");
-        $stmt->execute([$parent]);
-        $ohada = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$ohada) {
-            throw new RuntimeException(
-                "OHADA {$parent} absent du plan comptable. Exécutez la migration 044 "
-                . "(elle ajoute 552 et 6317, que la migration 003 n'avait jamais créés)."
-            );
-        }
-
-        // Next free suffix under this parent.
-        $stmt = $db->prepare("
-            SELECT code FROM chart_of_accounts
-             WHERE code REGEXP CONCAT('^', ?, '[0-9]+$')
-             ORDER BY CAST(SUBSTRING(code, ?) AS UNSIGNED) DESC
-             LIMIT 1
-        ");
-        $stmt->execute([$parent, strlen($parent) + 1]);
-        $last = $stmt->fetchColumn();
-        $next = $last ? ((int) substr((string) $last, strlen($parent))) + 1 : 1;
-        $code = $parent . $next;
-
-        $label = self::ledgerLabel($name, $type);
-        $db->prepare("
-            INSERT INTO chart_of_accounts (ohada_account_id, code, name, type, is_active)
-            VALUES (?, ?, ?, ?, 1)
-        ")->execute([(int) $ohada['id'], $code, $label, $ohada['type'] === 'expense' ? 'expense' : 'asset']);
-
-        return (int) $db->lastInsertId();
+        require_once __DIR__ . '/ChartOfAccounts.php';
+        return ChartOfAccounts::createSub($db, $parent, self::ledgerLabel($name, $type), 1);
     }
 
-    /** "Afriland First Bank" under 521 → "Banque — Afriland First Bank". */
+    /** The sub-account carries the account's own name: « 5211 CCA Bank ». */
     private static function ledgerLabel(string $name, string $type): string
     {
-        $prefix = [
-            'bank'   => 'Banque',
-            'momo'   => 'Monnaie électronique',
-            'wallet' => 'Porte-monnaie électronique',
-            'caisse' => 'Caisse',
-        ][$type] ?? 'Trésorerie';
-
-        return mb_substr("{$prefix} — {$name}", 0, 100);
+        return mb_substr(trim($name), 0, 100);
     }
 
     /** @return array<string,mixed> */

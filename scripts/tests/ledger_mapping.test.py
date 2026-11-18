@@ -13,11 +13,13 @@ physical cash and the Trésorerie reconciliation could never balance. The map is
 now data, and this test asserts three things about it:
 
   1. momo resolves to 552, never to 571.
-  2. JournalPoster and TreasuryAccount agree — two copies of the same mapping
-     that could drift apart is how the original problem is reintroduced.
+  2. The map lives in one place, TreasuryAccount::OHADA_PARENT (it places the
+     account's own sub-account: 5211, 5521, 5711). JournalPoster has no copy
+     of it any more: since the owner's decision 12 (18/11/2026) it posts to
+     the account's own sub-account and never falls back to a row under the
+     parent (that is how CCA Bank would have posted to « LPC52111 »).
   3. Every OHADA parent the map can produce is actually seeded by a migration,
-     because coaByOhada() returns null for an unseeded parent and the payment
-     fails at post time rather than at deploy time.
+     because the sub-account cannot be created under an unseeded parent.
 
 Run:  python3 scripts/tests/ledger_mapping.test.py
 """
@@ -53,22 +55,19 @@ def parse_php_map(path, const_name):
 
 print('─── treasury type → OHADA parent ───')
 
-jp = parse_php_map(ROOT / 'includes/classes/JournalPoster.php', 'TREASURY_OHADA')
 ta = parse_php_map(ROOT / 'includes/classes/TreasuryAccount.php', 'OHADA_PARENT')
+jp_src = (ROOT / 'includes/classes/JournalPoster.php').read_text(encoding='utf-8')
 
-check('JournalPoster::TREASURY_OHADA parses', jp is not None)
 check('TreasuryAccount::OHADA_PARENT parses', ta is not None)
+check('JournalPoster keeps no second copy of the map', 'TREASURY_OHADA' not in jp_src)
+m = re.search(r'function coaFromTreasury\(.*?\n    \}', jp_src, re.S)
+check('coaFromTreasury never falls back to a row under the parent',
+      bool(m) and 'coaByOhada' not in m.group(0) and 'coa_account_id' in m.group(0))
 
-if jp and ta:
+if ta:
     for kind, ohada in EXPECTED.items():
-        check(f'{kind} → {ohada} (JournalPoster)', jp.get(kind) == ohada, f'got {jp.get(kind)}')
         check(f'{kind} → {ohada} (TreasuryAccount)', ta.get(kind) == ohada, f'got {ta.get(kind)}')
-
-    check('mobile money is NOT booked as Caisse', jp.get('momo') != '571', 'momo maps to 571')
-
-    shared = set(jp) & set(ta)
-    drift = {k: (jp[k], ta[k]) for k in shared if jp[k] != ta[k]}
-    check('the two maps agree on shared keys', not drift, str(drift))
+    check('mobile money is NOT booked as Caisse', ta.get('momo') != '571', 'momo maps to 571')
 
 print('\n─── every parent the map can emit is seeded ───')
 
@@ -80,7 +79,7 @@ for f in migrations:
     for block in re.findall(r'INSERT INTO ohada_accounts.*?;', body, re.S | re.I):
         seeded |= set(re.findall(r"\('(\d+)'", block))
 
-for kind, ohada in sorted((jp or {}).items()):
+for kind, ohada in sorted((ta or {}).items()):
     check(f"OHADA {ohada} ({kind}) seeded by a migration", ohada in seeded,
           f'{ohada} is in no INSERT INTO ohada_accounts')
 

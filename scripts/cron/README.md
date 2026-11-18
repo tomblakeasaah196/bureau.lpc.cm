@@ -22,6 +22,7 @@ ceiling — an admin can set a long grace period without a code change.
 | Script | What it does | Cadence | Config |
 |---|---|---|---|
 | `reindex_help_chunks.php` | (Re)chunks + (re)embeds help article bodies that are new, edited, or under a stale embedding model, into `help_article_chunks` (migration 099) — the Help Centre AI Assistant's search index | nightly | provider/model/key via the gear icon on `/modules/help/index.php` (`AiSettings`, migration 098), not `.env` |
+| `loans_due.php` | Emprunts & Financements: each approved loan's interest months due (posted on its approved terms) and the due-date reminders to the DG and the CF (`Loans::runDue()`, which the tab also runs when it opens) | nightly | none |
 
 Unlike the five purge jobs above, `reindex_help_chunks.php` is not a
 housekeeping/retention script — it is what keeps the AI assistant's answers
