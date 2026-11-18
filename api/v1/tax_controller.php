@@ -42,17 +42,20 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/TaxEngine.php';
 require_once __DIR__ . '/../../includes/classes/CompanyProfile.php';
 require_once __DIR__ . '/../../includes/functions/notify.php';
-Rbac::requirePermission('accounting.invoices.view');
+require_once __DIR__ . '/../../includes/classes/JournalPoster.php';
 
-// No dedicated accounting.tax.* permission exists yet (see the TODO on the
-// 'approve' case below). accounting.invoices.view — this file's own gate —
-// is held by admin, accountant AND sales (migrations/029_sales_role.sql
-// grants it so salespeople can see who's overdue), so it's too broad an
-// audience for tax notifications. accounting.reports.close_year is only
-// ever granted to admin + accountant (migrations/001_rbac_seed.sql), which
-// is the actual "finance decision-makers" set — used as the targeting
-// permission for every lpc_notify_permission() call in this file.
-const LPC_TAX_NOTIFY_PERM = 'accounting.reports.close_year';
+// Who may do what (VIDEO_QA_FINDINGS 13.4, migration 157). The page used to be
+// gated on accounting.invoices.view, which the sales role holds, and every
+// action, approving and paying included, needed nothing more.
+//   accounting.tax.view     read the declarations (Comptable, CF, DG, Administrateur)
+//   accounting.tax.prepare  save a month, upload an AIR attestation, mark it filed
+//   accounting.tax.approve  « Approuver & verrouiller » (CF, DG, Administrateur)
+//   accounting.tax.pay      « Enregistrer paiement » (Comptable, CF, DG, Administrateur)
+Rbac::requirePermission('accounting.tax.view');
+
+// Notices about declarations go to those who approve them; the person who
+// acted is left out of each.
+const LPC_TAX_NOTIFY_PERM = 'accounting.tax.approve';
 
 $user_id = (int)($_SESSION['user_id'] ?? 0);
 $db      = Database::getInstance()->getConnection();
@@ -104,6 +107,7 @@ try {
 
         // -----------------------------------------------------------------
         case 'persist': {
+            Rbac::requirePermission('accounting.tax.prepare');
             $kind  = $json['kind']  ?? 'air';
             $year  = (int)($json['year']  ?? date('Y'));
             $month = (int)($json['month'] ?? date('n'));
@@ -124,7 +128,7 @@ try {
         // Body: {kind, year, month, notes?}
         // -----------------------------------------------------------------
         case 'approve': {
-            Rbac::requirePermission('accounting.invoices.view');   // TODO: dedicated 'accounting.tax.approve' when RBAC schema allows.
+            Rbac::requirePermission('accounting.tax.approve');
             $kind  = $json['kind']  ?? '';
             $year  = (int)($json['year']  ?? 0);
             $month = (int)($json['month'] ?? 0);
@@ -186,18 +190,30 @@ try {
         //   payment_date?, [file] (quittance)
         // -----------------------------------------------------------------
         case 'record_payment': {
+            Rbac::requirePermission('accounting.tax.pay');
             $id      = (int)  ($_POST['declaration_id']     ?? $json['declaration_id'] ?? 0);
             $tid     = (int)  ($_POST['treasury_account_id']?? $json['treasury_account_id'] ?? 0);
             $amount  = (float)($_POST['paid_amount']        ?? $json['paid_amount'] ?? 0);
             $ref     = trim((string)($_POST['paid_reference'] ?? $json['paid_reference'] ?? ''));
             $pd      = trim((string)($_POST['payment_date']   ?? $json['payment_date']   ?? date('Y-m-d')));
-            if (!$id || !$tid || $amount <= 0) throw new Exception("Paramètres de règlement incomplets.");
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $pd)) $pd = date('Y-m-d');
+            if (!$id) throw new Exception("Déclaration manquante.");
 
-            $q = $db->prepare("SELECT id, kind, period_year, period_month, locked_at, net_to_pay FROM tax_declarations WHERE id = ?");
+            $q = $db->prepare("SELECT id, kind, period_year, period_month, status, locked_at, net_to_pay, carry_forward, payment_je_id
+                                 FROM tax_declarations WHERE id = ?");
             $q->execute([$id]);
             $row = $q->fetch(PDO::FETCH_ASSOC);
             if (!$row) throw new Exception("Déclaration introuvable.");
-            if (empty($row['locked_at'])) throw new Exception("Déclaration non approuvée. Cliquez d'abord sur « Approuver ».");
+            if (empty($row['locked_at'])) throw new Exception("Déclaration non approuvée. Cliquez d'abord sur « Approuver & verrouiller ».");
+            if (!empty($row['payment_je_id']) || $row['status'] === 'paid') throw new Exception("Cette déclaration est déjà payée.");
+
+            // The declaration's locked amount is what leaves the bank: a different
+            // figure (penalties, a partial payment) is an OD in Écritures.
+            $net = TaxEngine::round((float) $row['net_to_pay']);
+            if (abs(TaxEngine::round($amount) - $net) > 0.5) {
+                throw new Exception("Le montant payé doit être le net à payer de la déclaration : " . number_format($net, 0, ',', ' ') . " FCFA.");
+            }
+            if ($net > 0 && !$tid) throw new Exception("Choisissez le compte de trésorerie qui paie.");
 
             // Optional quittance file.
             $quittance_path = null;
@@ -211,48 +227,30 @@ try {
                 }
             }
 
-            // Post treasury JE. The liability side is inferred from the kind.
-            $liability_ohada = match ($row['kind']) {
-                'tva'       => '4432',   // TVA collectée à décaisser
-                'air'       => '4471',   // Acompte IS / minimum
-                'irpp_dipe' => '447',    // Etat — impôts et taxes
-                'cnps'      => '431',    // Sécurité sociale
-                'tsr'       => '4481',
-                'commune'   => '447',
-                'patente'   => '4457',
-                default     => '447',
-            };
-            $je_id = null;
-            try {
-                require_once __DIR__ . '/../../includes/classes/JournalPoster.php';
-                $je_id = tax_postTreasurySettlement($liability_ohada, $tid, TaxEngine::round($amount),
-                    "Paiement " . strtoupper($row['kind']) . " {$row['period_year']}-" . str_pad($row['period_month'], 2, '0', STR_PAD_LEFT)
-                        . ($ref !== '' ? " · réf. {$ref}" : ''),
-                    $pd, $id, $user_id);
-            } catch (Throwable $e) {
-                // JE posting failed (mapping missing, sequence collision).
-                // We STILL record the payment metadata — the accountant
-                // will fix the mapping and repost. Better to preserve the
-                // paid_amount / quittance than to lose the click.
-                error_log('tax.record_payment: JE post failed: ' . $e->getMessage());
-            }
+            // The entry pays the accounts the month booked (13.1, 13.2): a failure
+            // refuses the payment instead of marking it paid with no entry.
+            $period = "{$row['period_year']}-" . str_pad((string) $row['period_month'], 2, '0', STR_PAD_LEFT);
+            $label  = "Paiement " . tax_kindLabel((string) $row['kind']) . " {$period}" . ($ref !== '' ? " · réf. {$ref}" : '');
+            $db->beginTransaction();
+            $lines = tax_settlementLines($db, $row);
+            $je_id = JournalPoster::postTaxSettlement($id, $label, $pd, $lines, $net > 0 ? $tid : null, $net, $user_id);
 
             $db->prepare("
                 UPDATE tax_declarations
                    SET status = 'paid', paid_at = ?, paid_amount = ?, paid_reference = ?,
                        payment_je_id = ?, treasury_account_id = ?, quittance_path = COALESCE(?, quittance_path)
                  WHERE id = ?
-            ")->execute([$pd, TaxEngine::round($amount), $ref ?: null, $je_id, $tid, $quittance_path, $id]);
+            ")->execute([$pd, $net, $ref ?: null, $je_id, $net > 0 ? $tid : null, $quittance_path, $id]);
+            $db->commit();
 
-            tax_audit('tax_declaration.pay', $id, ['amount'=>$amount, 'reference'=>$ref, 'je_id'=>$je_id]);
+            tax_audit('tax_declaration.pay', $id, ['amount'=>$net, 'reference'=>$ref, 'je_id'=>$je_id]);
 
             lpc_notify_permission(
                 $db,
                 LPC_TAX_NOTIFY_PERM,
                 'Paiement fiscal enregistré',
-                ($_SESSION['user_name'] ?? 'Un opérateur') . " a réglé la déclaration " . strtoupper($row['kind'])
-                    . " ({$row['period_year']}-" . str_pad((string) $row['period_month'], 2, '0', STR_PAD_LEFT) . ") — "
-                    . number_format($amount, 0, ',', ' ') . " FCFA" . ($ref !== '' ? " (réf. $ref)" : '') . '.',
+                ($_SESSION['user_name'] ?? 'Un opérateur') . " a réglé la déclaration " . tax_kindLabel((string) $row['kind'])
+                    . " ({$period}) : " . number_format($net, 0, ',', ' ') . " FCFA" . ($ref !== '' ? " (réf. $ref)" : '') . '.',
                 '/modules/accounting/tax_declarations.php',
                 'info',
                 [$user_id]
@@ -264,6 +262,7 @@ try {
 
         // -----------------------------------------------------------------
         case 'mark_filed': {
+            Rbac::requirePermission('accounting.tax.prepare');
             $id  = (int)($json['declaration_id'] ?? 0);
             $ref = trim((string)($json['reference'] ?? ''));
             if (!$id) throw new Exception("declaration_id required.");
@@ -295,13 +294,9 @@ try {
 
         // -----------------------------------------------------------------
         case 'mark_paid': {
-            $id = (int)($json['declaration_id'] ?? 0);
-            if (!$id) throw new Exception("declaration_id required.");
-            $db->prepare("UPDATE tax_declarations SET status='paid', paid_at=NOW() WHERE id=?")
-               ->execute([$id]);
-            tax_audit('tax_declaration.mark_paid_legacy', $id, []);
-            echo json_encode(['status'=>'success']);
-            break;
+            // A status flip with no entry and no money leaving the bank: the
+            // books never saw the payment. Paying goes through record_payment.
+            throw new Exception("Utilisez « Enregistrer paiement » : il passe l'écriture et sort l'argent du compte de trésorerie.");
         }
 
         // -----------------------------------------------------------------
@@ -368,6 +363,19 @@ try {
                 }
             }
 
+            // « AIR retenu à récupérer »: what the clients withheld and the
+            // books hold on 4424 until a declaration uses it (register 8.16; the
+            // card read the current month's certified AIR instead).
+            $air_receivable = 0.0;
+            try {
+                $air_receivable = TaxEngine::round((float) $db->query("
+                    SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
+                      FROM journal_lines jl
+                      JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
+                      JOIN chart_of_accounts ca ON ca.id = jl.account_id
+                     WHERE ca.code LIKE '4424%'")->fetchColumn());
+            } catch (Throwable $e) { /* chart without 4424 */ }
+
             $ytd = [];
             try {
                 $q = $db->prepare("
@@ -380,7 +388,7 @@ try {
                 $ytd = $q->fetchAll(PDO::FETCH_ASSOC) ?: [];
             } catch (Throwable $e) { /* history table might be empty */ }
 
-            echo json_encode(['status'=>'success','data'=>['upcoming'=>$upcoming,'ytd'=>$ytd,
+            echo json_encode(['status'=>'success','data'=>['upcoming'=>$upcoming,'ytd'=>$ytd,'air_receivable'=>$air_receivable,
                               'today'=>date('Y-m-d'),'settings'=>['niu'=>TaxEngine::settings()['niu'] ?? '—']]]);
             break;
         }
@@ -418,12 +426,14 @@ try {
         // (Kept identical to the pre-Sprint-9 implementation.)
         // -----------------------------------------------------------------
         case 'attestation_request': {
+            Rbac::requirePermission('accounting.tax.prepare');
             include __DIR__ . '/_tax_attestation_letter.php';
             exit;
         }
 
         // -----------------------------------------------------------------
         case 'upload_certificate': {
+            Rbac::requirePermission('accounting.tax.prepare');
             $client_id  = (int)  ($_POST['client_id']       ?? 0);
             $ref        = trim  ((string)($_POST['certificate_ref'] ?? ''));
             $issue_date =        ($_POST['issue_date']      ?? date('Y-m-d'));
@@ -516,7 +526,11 @@ try {
             $s = TaxEngine::settings();
             $treasuries = [];
             try {
-                $q = $db->query("SELECT id, name, kind, currency FROM treasury_accounts WHERE COALESCE(is_active,1)=1 ORDER BY name ASC");
+                // The payment dialog's « Compte débité ». It asked for columns the
+                // table does not have (kind, currency, is_active): the list came
+                // back empty and the dialog said no treasury account existed.
+                $q = $db->query("SELECT id, name, type, balance, 'XAF' AS currency FROM treasury_accounts
+                                  WHERE deleted_at IS NULL AND status = 'active' ORDER BY sort_order ASC, name ASC");
                 $treasuries = $q->fetchAll(PDO::FETCH_ASSOC) ?: [];
             } catch (Throwable $e) { /* pre-treasury installs */ }
             $rates_snapshot = [];
@@ -622,8 +636,8 @@ function tax_persistSnapshot(PDO $db, int $user_id, string $kind, int $year, int
     $db->prepare("
         INSERT INTO tax_declarations
             (kind, period_year, period_month, status, computed_at,
-             due_date, total_due, total_credit, net_to_pay, computed_by)
-        VALUES (?, ?, ?, 'ready', NOW(), ?, ?, ?, ?, ?)
+             due_date, total_due, total_credit, net_to_pay, carry_forward, computed_by)
+        VALUES (?, ?, ?, 'ready', NOW(), ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
             status = IF(status IN ('filed','paid'), status,
                         IF(locked_at IS NOT NULL, status, 'ready')),
@@ -632,11 +646,12 @@ function tax_persistSnapshot(PDO $db, int $user_id, string $kind, int $year, int
             total_due   = IF(locked_at IS NOT NULL, total_due,   VALUES(total_due)),
             total_credit= IF(locked_at IS NOT NULL, total_credit,VALUES(total_credit)),
             net_to_pay  = IF(locked_at IS NOT NULL, net_to_pay,  VALUES(net_to_pay)),
+            carry_forward = IF(locked_at IS NOT NULL, carry_forward, VALUES(carry_forward)),
             computed_by = VALUES(computed_by)
     ")->execute([
         $kind, $year, $month,
         $out['due_date'] ?? null,
-        (float)$out['total_due'], (float)$out['credit'], (float)$out['net'], $user_id
+        (float)$out['total_due'], (float)$out['credit'], (float)$out['net'], (float)($out['carry'] ?? 0), $user_id
     ]);
 
     $decl_id = (int) $db->query("
@@ -787,45 +802,104 @@ HTML;
     return 'uploads/tax_declarations/' . $fname;
 }
 
-/**
- * Post a balanced JE:  Debit liability COA · Credit treasury COA
- * for a declaration payment. Uses the private-JE machinery directly
- * (mirroring JournalPoster::postExpense reversed).
- */
-function tax_postTreasurySettlement(string $liability_ohada, int $treasury_account_id, float $amount, string $desc, string $date, int $decl_id, int $user_id): int
+/** The name a declaration kind goes by on screen and in the journal. */
+function tax_kindLabel(string $kind): string
 {
-    $db = Database::getInstance()->getConnection();
+    return match ($kind) {
+        'tva' => 'TVA', 'air' => 'AIR', 'irpp_dipe' => 'DIPE', 'cnps' => 'CNPS',
+        'tsr' => 'TSR', 'commune' => 'Taxe communale', 'patente' => 'Patente',
+        default => strtoupper($kind),
+    };
+}
 
-    $liab_coa = (int) $db->query("SELECT id FROM chart_of_accounts WHERE ohada_prefix LIKE " . $db->quote($liability_ohada . '%') . " LIMIT 1")->fetchColumn();
-    if (!$liab_coa) {
-        // Try exact ohada_accounts join → chart_of_accounts.
-        $liab_coa = (int) $db->query("SELECT c.id FROM chart_of_accounts c JOIN ohada_accounts o ON o.account_number = c.ohada_account_number WHERE o.account_number = " . $db->quote($liability_ohada) . " LIMIT 1")->fetchColumn();
+/**
+ * The lines a declaration's payment posts besides the treasury credit, as
+ * SYSCOHADA numbers (VIDEO_QA_FINDINGS 13.2). They pay the accounts the month
+ * booked, from the LOCKED snapshot (tax_declaration_lines), never a recompute:
+ *
+ *   TVA      Dr 4431 collectée, Cr 4452 déductible, Cr 4449 crédit reporté,
+ *            Dr 4449 crédit à reporter (the month nets to zero then: OD, no money)
+ *   AIR      Dr 4471 AIR brut (acompte d'IS), Cr 4424 AIR retenu par les clients
+ *            and attested (never more than the gross)
+ *   DIPE     Dr 432 what the month's payslips credited to it; any part they did not
+ *            accrue (the FNE of a payslip calculated before migration 136) is a
+ *            charge: Dr 6412
+ *   CNPS     Dr 433 likewise, the rest Dr 664
+ *   TSR      Dr 4481;  commune tax and patente: Dr 6418 (not accrued: a charge)
+ *
+ * It used to debit 4432 for the TVA, 447 for the DIPE and 431 for the CNPS,
+ * none of which the sales or the payroll ever credit.
+ */
+function tax_settlementLines(PDO $db, array $decl): array
+{
+    $id   = (int) $decl['id'];
+    $kind = (string) $decl['kind'];
+    $net  = TaxEngine::round((float) $decl['net_to_pay']);
+    $q = $db->prepare("SELECT line_code, amount FROM tax_declaration_lines WHERE declaration_id = ?");
+    $q->execute([$id]);
+    $amt = [];
+    foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $l) $amt[$l['line_code']] = TaxEngine::round((float) $l['amount']);
+    $a = fn (string $code) => (float) ($amt[$code] ?? 0);
+
+    $lines = [];
+    $add = function (string $acc, float $d, float $c) use (&$lines) {
+        if ($d > 0 || $c > 0) $lines[] = ['account' => $acc, 'debit' => $d, 'credit' => $c];
+    };
+
+    switch ($kind) {
+        case 'tva':
+            $add('4431', $a('TVA_COLLECTEE'), 0);
+            $add('4452', 0, $a('TVA_DEDUCTIBLE'));
+            $add('4449', 0, $a('TVA_CREDIT_REPORTE'));
+            $add('4449', TaxEngine::round((float) ($decl['carry_forward'] ?? 0)), 0);
+            break;
+        case 'air':
+            $gross = $a('AIR_BRUT');
+            $add('4471', $gross, 0);
+            $add('4424', 0, min($gross, $a('AIR_RETENU_SOURCE')));
+            break;
+        case 'irpp_dipe':
+        case 'cnps':
+            [$liab, $charge] = $kind === 'cnps' ? ['433', '664'] : ['432', '6412'];
+            $booked = tax_payrollBooked($db, $liab, (int) $decl['period_year'], (int) $decl['period_month']);
+            $fromLiab = min($net, max(0.0, $booked));
+            $add($liab, $fromLiab, 0);
+            $add($charge, TaxEngine::round($net - $fromLiab), 0);
+            break;
+        case 'tsr':
+            $add('4481', $net, 0);
+            break;
+        default:            // commune, patente
+            $add('6418', $net, 0);
     }
-    if (!$liab_coa) throw new RuntimeException("Compte OHADA {$liability_ohada} non mappé dans le plan comptable.");
+    return $lines;
+}
 
-    // Treasury COA — reuse JournalPoster's helper via reflection would be
-    // fragile; do the same lookup inline.
-    $tr = $db->prepare("SELECT ta.chart_of_account_id FROM treasury_accounts ta WHERE ta.id = ?");
-    $tr->execute([$treasury_account_id]);
-    $treasury_coa = (int) $tr->fetchColumn();
-    if (!$treasury_coa) throw new RuntimeException("Compte de trésorerie {$treasury_account_id} sans COA.");
+/**
+ * What a month's payslips credited to a payroll liability (432 or 433), less
+ * what an earlier payment of that month already took out of it.
+ */
+function tax_payrollBooked(PDO $db, string $code, int $year, int $month): float
+{
+    $q = $db->prepare("
+        SELECT COALESCE(SUM(jl.credit - jl.debit), 0)
+          FROM journal_lines jl
+          JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
+          JOIN chart_of_accounts ca ON ca.id = jl.account_id
+          JOIN hr_payslips ps ON je.source_type = 'payslip' AND ps.id = je.source_id
+         WHERE ca.code = ? AND ps.year = ? AND ps.month = ?");
+    $q->execute([$code, $year, $month]);
+    $booked = (float) $q->fetchColumn();
 
-    $ref = 'TAX-' . strtoupper(bin2hex(random_bytes(3))) . '-' . $decl_id;
-    $has_src = (int) $db->query("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='journal_entries' AND column_name='source_type'")->fetchColumn() > 0;
-    if ($has_src) {
-        $db->prepare("INSERT INTO journal_entries (reference, journal_code, date, description, status, created_by, source_type, source_id) VALUES (?, 'OD', ?, ?, 'draft', ?, 'tax_declaration', ?)")
-           ->execute([$ref, $date, $desc, $user_id, $decl_id]);
-    } else {
-        $db->prepare("INSERT INTO journal_entries (reference, journal_code, date, description, status, created_by) VALUES (?, 'OD', ?, ?, 'draft', ?)")
-           ->execute([$ref, $date, $desc, $user_id]);
-    }
-    $je_id = (int) $db->lastInsertId();
-
-    $addLine = $db->prepare("INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit) VALUES (?, ?, ?, ?)");
-    $addLine->execute([$je_id, $liab_coa,     TaxEngine::round($amount), 0]);
-    $addLine->execute([$je_id, $treasury_coa, 0, TaxEngine::round($amount)]);
-    $db->prepare("CALL post_journal_entry(?, ?)")->execute([$je_id, $user_id]);
-    return $je_id;
+    $p = $db->prepare("
+        SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
+          FROM journal_lines jl
+          JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
+          JOIN chart_of_accounts ca ON ca.id = jl.account_id
+          JOIN tax_declarations td ON je.source_type = 'tax_declaration' AND td.id = je.source_id
+         WHERE ca.code = ? AND td.period_year = ? AND td.period_month = ?");
+    $p->execute([$code, $year, $month]);
+    return TaxEngine::round($booked - (float) $p->fetchColumn());
 }
 
 /** Best-effort audit logger. Never throws. */

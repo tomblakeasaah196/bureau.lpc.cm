@@ -119,8 +119,8 @@ $CATALOGUE = [
   'acc_budgets'    => ['href'=>'/modules/accounting/budgets.php',                'icon'=>$I['chart'],     'permission'=>'accounting.budgets.view',      'label_fr'=>'Budgets & Performance',  'label_en'=>'Budgets & Performance'],
   'acc_assets'     => ['href'=>'/modules/accounting/fixed_assets.php',           'icon'=>$I['building'],  'permission'=>'accounting.fixed_assets.view', 'label_fr'=>'Immobilisations',  'label_en'=>'Fixed Assets'],
   'acc_reports'    => ['href'=>'/modules/accounting/reports.php',                'icon'=>$I['calculator'],'permission'=>'accounting.reports.view',      'label_fr'=>'États Financiers (Bilan · Résultat · TFT · Notes · Clôture)',  'label_en'=>'Financial Statements (Bilan · P&L · TFT · Notes · Closing)'],
-  // tax_declarations.php gates on accounting.invoices.view (see its header).
-  'acc_tax'        => ['href'=>'/modules/accounting/tax_declarations.php',       'icon'=>$I['calculator'],'permission'=>'accounting.invoices.view',     'label_fr'=>'Déclarations Fiscales',  'label_en'=>'Tax Declarations'],
+  // tax_declarations.php gates on accounting.tax.view (migration 157).
+  'acc_tax'        => ['href'=>'/modules/accounting/tax_declarations.php',       'icon'=>$I['calculator'],'permission'=>'accounting.tax.view',          'label_fr'=>'Déclarations Fiscales',  'label_en'=>'Tax Declarations'],
 
   'hr_payroll'     => ['href'=>'/modules/hr/payroll_finance.php',                'icon'=>$I['briefcase'], 'permission'=>'hr.payroll.view',              'label_fr'=>'Gestion du Personnel',  'label_en'=>'Staff Management'],
   'analytics'      => ['href'=>'/modules/analytics/reports.php',                 'icon'=>$I['chart'],     'permission'=>'analytics.reports.view',       'label_fr'=>'Rapports Consolidés',  'label_en'=>'Consolidated Reports'],

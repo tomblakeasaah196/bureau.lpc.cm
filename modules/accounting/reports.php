@@ -9,6 +9,21 @@ Rbac::requirePermission('accounting.reports.view');
 // Strict RBAC: Admin and Finance ONLY.
 $lang = lpc_i18n_current_lang();
 $user_role = $_SESSION['user_role'];
+// The closing is a permission, not a role name (VIDEO_QA_FINDINGS 13.5: only a
+// role named exactly « admin » saw the assistant, though the Comptable and the
+// Contrôleur Financier hold accounting.closing.run).
+$can_close = Rbac::hasPermission('accounting.closing.run');
+// Every year with entries, plus this one (the picker offered 2026 and 2025, fixed).
+$report_years = [(int) date('Y')];
+try {
+    $pdoY = Database::getInstance()->getConnection();
+    $report_years = array_merge($report_years,
+        array_map('intval', $pdoY->query("SELECT DISTINCT YEAR(date) FROM journal_entries WHERE status = 'posted'")->fetchAll(PDO::FETCH_COLUMN)),
+        array_map('intval', $pdoY->query("SELECT year FROM financial_years")->fetchAll(PDO::FETCH_COLUMN)));
+    $yearStates = $pdoY->query("SELECT year, state FROM financial_years")->fetchAll(PDO::FETCH_KEY_PAIR);
+} catch (Throwable $e) { $yearStates = []; }
+$report_years = array_values(array_unique(array_filter($report_years)));
+rsort($report_years);
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo $lang; ?>">
@@ -88,8 +103,11 @@ $user_role = $_SESSION['user_role'];
             <div class="lpc-field">
                 <label for="report_year"><?= htmlspecialchars(__t('ui.x.exercice_n')) ?></label>
                 <select id="report_year" onchange="fetchFinancials()">
-                    <option value="2026" selected><?= htmlspecialchars(__t('ui.x.2026_en_cours')) ?></option>
-                    <option value="2025"><?= htmlspecialchars(__t('ui.x.2025_cloture')) ?></option>
+                    <?php foreach ($report_years as $ry):
+                        $rs = (string) ($yearStates[$ry] ?? 'open');
+                        $rl = $rs === 'final_closed' ? 'clôturé' : ($rs === 'open' ? 'en cours' : 'en clôture'); ?>
+                    <option value="<?= (int) $ry ?>"<?= $ry === (int) date('Y') ? ' selected' : '' ?>><?= (int) $ry ?> (<?= htmlspecialchars($rl) ?>)</option>
+                    <?php endforeach; ?>
                 </select>
             </div>
 
@@ -97,7 +115,7 @@ $user_role = $_SESSION['user_role'];
 
             <button onclick="exportToPDF()" data-perm="accounting.reports.export" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold text-xs border border-gray-300 shadow-sm transition-all"><i class="fas fa-file-pdf text-rose-500 mr-1"></i> PDF</button>
             <button onclick="exportToExcel()" data-perm="accounting.reports.export" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold text-xs border border-gray-300 shadow-sm transition-all"><i class="fas fa-file-excel text-emerald-600 mr-1"></i> CSV</button>
-            <?php if(in_array($user_role, ['admin', 'directeur_general'], true)): ?>
+            <?php if($can_close): ?>
             <button onclick="initiateClosure()" id="btn_cloture" class="bg-rose-600 hover:bg-rose-700 text-white px-5 py-2 rounded-lg font-black text-xs shadow-md transition-all flex items-center gap-2">
                 <i class="fas fa-lock"></i> Clôturer l'Exercice
             </button>
@@ -117,7 +135,7 @@ $user_role = $_SESSION['user_role'];
                 <button onclick="switchTab('notes')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-notes">
                     <i class="fas fa-book-open mr-2"></i> Notes Annexes
                 </button>
-                <?php if(in_array($user_role, ['admin', 'directeur_general'], true)): ?>
+                <?php if($can_close): ?>
                 <button onclick="switchTab('cloture')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-cloture">
                     <i class="fas fa-lock mr-2"></i> Assistant Clôture
                 </button>
@@ -244,7 +262,7 @@ $user_role = $_SESSION['user_role'];
                 </div>
             </div>
 
-            <?php if(in_array($user_role, ['admin', 'directeur_general'], true)): ?>
+            <?php if($can_close): ?>
             <!-- Sprint 8B — Assistant Clôture Annuelle -->
             <div id="content-cloture" class="tab-content flex-col h-full gap-6">
                 <div class="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
@@ -269,11 +287,11 @@ $user_role = $_SESSION['user_role'];
                                 </button>
                                 <button onclick="runClosingPhase('is_provision')" class="text-left p-4 rounded-xl border border-gray-200 hover:border-amber-400 hover:bg-amber-50 transition">
                                     <div class="font-black text-sm text-gray-800">Provision IS</div>
-                                    <div class="text-[11px] text-gray-500 mt-1">Charge 891 vs dette 4472, taux selon régime fiscal.</div>
+                                    <div class="text-[11px] text-gray-500 mt-1">Charge 89 contre dette 4472, au taux du régime fiscal.</div>
                                 </button>
                                 <button onclick="runClosingPhase('profit_incorporation')" class="text-left p-4 rounded-xl border border-gray-200 hover:border-amber-400 hover:bg-amber-50 transition">
-                                    <div class="font-black text-sm text-gray-800">Affectation du résultat</div>
-                                    <div class="text-[11px] text-gray-500 mt-1">Incorpore le net dans 131 (bénéfice) ou 139 (perte).</div>
+                                    <div class="font-black text-sm text-gray-800">Résultat de l'exercice</div>
+                                    <div class="text-[11px] text-gray-500 mt-1">Calcule le résultat (classes 6, 7 et 8). Il passe en 131 (bénéfice) ou 139 (perte) avec les À-nouveaux.</div>
                                 </button>
                             </div>
                         </div>
@@ -308,6 +326,7 @@ $user_role = $_SESSION['user_role'];
                                 <strong>Transitions autorisées :</strong> open → inventory → adjustments → provisional_closed → locked → final_closed.
                                 Un exercice en <em>provisional_closed</em> n'accepte plus que des OD (opérations diverses).
                                 Un exercice <em>locked</em> ou <em>final_closed</em> ne peut plus recevoir d'écritures.
+                                La clôture définitive passe les À-nouveaux au 01/01 de l'exercice suivant (soldes des classes 1 à 5 et résultat en 131 ou 139).
                             </p>
                         </div>
                     </div>

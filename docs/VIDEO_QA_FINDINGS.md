@@ -100,11 +100,8 @@ Left:
    refund screen is for later (the same need as 9.8, money coming back).
 13. [V] An invoice paid before migration 152 with AIR withheld kept its double AIR (Dr 4424 / Cr 411 a second time).
    On 17/11 live had no payment; migration 152's header gives the query and the OD to pass if one exists.
-14. [V] The attestation form (Déclarations Fiscales → Retenues à la source) has placeholders but no labels, and
-   proposes the previous month. The « AIR en attente d'attestation » total is read by the bell, not shown on that
-   tab. Small; for Comptabilité 3.
-16. [V] For Comptabilité 3: Déclarations Fiscales → Échéances, the card « AIR retenu à récupérer » read 0 F while
-   4424 held PROMETAL's 9 810 F (before and after its attestation): it reads something else than 4424.
+14. Done (Comptabilité 3): the attestation form has labels and proposes the current month.
+16. Done (Comptabilité 3): « AIR retenu à récupérer » reads 4424 (9 810 F on copy A until the AIR declaration uses it).
 15. Not real (copy only): the help drawer's video poster answered 404 on copy C (the copy's videos folder does not
    hold the file); the Responsable des Opérations gets 403 on Facturation and Déclarations Fiscales, as intended.
 
@@ -146,11 +143,9 @@ Left:
 
 3. Done: 8.1 and 8.2 (Facturation session, migration 152): each client's own 411, the AIR once; the Balance des
    Tiers shows each client. 3.1 (Stock) and 4.6 (Proposition) were done earlier.
-5. [V] Journal codes: payroll, stock entries and treasury openings post in OD, purchases in AC, payments in BQ.
-   Nothing posts in VT or CA yet (invoices and cash sales are Facturation's). Fine for the books; the « Journal »
-   filter shows it.
-6. [V] A client's or supplier's opening balance keyed on Bilan d'Ouverture reaches its 411/401 sub-account but
-   creates no invoice or order to collect or pay. The screen says so. Only matters for a new year.
+5. Done (Comptabilité 3): invoices and credit notes post in VT (Facturation), and every treasury movement in CA
+   for a cash box, BQ for a bank or Mobile Money (`JournalPoster::journalForTreasury`).
+6. Moved to 13.8 (opening receivables at go-live) and owner table 34.
 
 ## 12 · Comptabilité 2 (Immobilisations, Budgets & Performance)
 
@@ -167,27 +162,25 @@ Reproduced on copy B and fixed by the « Comptabilité 2 » video session (18/11
 6. [V] Nothing pays a 4812 « Fournisseurs d'immobilisations » balance from the app: an asset bought on credit is
    settled by an OD in Écritures (Dr 4812 / Cr 5x) and the treasury movement by hand. A « Payer » on the register
    row, like « Payer Fournisseur » in Achats, would close the loop.
-7. [V] Closing: « Extourner » on a depreciation adjustment reverses its entry on 01/01 N+1 but leaves the months
-   logged as depreciated (`YearEndClosing::reverseAdjustment`). For Comptabilité 3.
+7. Done (Comptabilité 3): reversing a closing depreciation deletes the months it logged, so a run books them again.
 
 ## 13 · Comptabilité 3 (Déclarations Fiscales, États Financiers, Clôture)
 
-1. [V] **Tax payments never reach the ledger**: `tax_controller.php:794, 797, 803` query
-   `chart_of_accounts.ohada_prefix`, `.ohada_account_number` and `treasury_accounts.chart_of_account_id`
-   (the real column is `coa_account_id`); the error is swallowed (`:227-233`) and the declaration turns
-   « paid » with no entry, no treasury movement, no balance change.
-2. [V] Even fixed they would hit the wrong accounts: TVA paid from 4432 while sales TVA is in 4431; DIPE
-   to 447 and CNPS to 431 while payroll books 432 and 433 (`:210-219` vs `JournalPoster::postPayslipAccrual`).
-   Since 18/11/2026 (Salaires) 432's monthly credit equals the DIPE to the franc, FNE included (copy, Nov.
-   2026: 76 727 both), and 433's equals the CNPS declaration: paying the DIPE should debit 432 and the CNPS 433.
-3. [V] TVA overstated: the deductible part reads `supplier_invoices` (missing on live: always 0); the
-   carry-over column is missing; TSR always 0.
-4. [V] Déclarations Fiscales is gated only on `accounting.invoices.view` (the `sales` role can approve and
-   pay declarations); no CSRF.
-5. [V] Closing: « Assistant Clôture » and « Clôturer l'Exercice » show only when the role name is exactly
-   `admin`; the old closing likely doubles opening balances [I]; profit incorporation ignores class 8;
-   the year picker is hardcoded to 2026 and 2025. The Comptable holds `closing.run` / `reopen` on live,
-   which migration 088 gave to admin only.
+Reproduced on copy A and fixed by the « Comptabilité 3 » video session (track A, 18/11/2026): 13.1 to 13.5, 8.14,
+8.16, 11.5, 12.7, and what the QA found on the two pages (docs/TRAINING_VIDEOS.md §7; migration 157,
+`scripts/tests/tax_closing.test.php`, five new scenarios in `syscohada_postings.test.py`, two checks in
+`books_balance.sql`). 13.3's TSR is not real for LPC: it reads foreign services LPC does not buy (always 0, said on
+the line). Live: on 17/11 no declaration was marked paid, and live data is test data (owner answer 16). Left:
+
+6. [V] The Vue Dirigeant's ratios (`executive_summary_data.php`) do not follow the Compte de Résultat: copy A,
+   November 2026, EBE 34 287 F (7,7 %) while the SIG reads −1 324 733 F (personnel charges left out). For
+   Tableaux de bord (14).
+7. Done with the go-live session's switch (migration 156, track C): « LPC assujetti à la TVA » (`tax_tva_liable`,
+   off by default) is what the declarations read; off, the TVA block says there is nothing to declare. On, the
+   deductible part is what receptions booked to 4452 (not the ristourne's line).
+8. [V] Opening receivables at go-live (was 11.6): a client's or supplier's balance keyed in Bilan d'Ouverture reaches
+   its 411 / 401 sub-account but no invoice or order exists to collect or pay it. A year closed in the app is fine
+   (the À-nouveaux carry each sub-account and old invoices stay open). For the go-live, see owner table 34.
 
 ## 14 · Tableaux de bord & Rapports Consolidés
 
@@ -276,3 +269,5 @@ marked fixed). What was fixed is in docs/TRAINING_VIDEOS.md §7. Left:
 | 30 | A client contests a CRE after LPC has counted and signed it (7.3). Should LPC's count stand, or the client's word? | Decided 18/11 (answer 30): LPC's count stands until the client signs; until then « Il y a une erreur de quantité » undoes it and the CRE turns « Contesté » (done, migration 150). |
 | 31 | Should the Contrôleur Financier see Gestion des Vides and the recycler sales' revenue? On live he could not open the page. | Decided 18/11 (answer 23): the Contrôleur Financier AND the Comptable work in Gestion des Vides, not read only: they collect, sign CREs for LPC and sell to recyclers (migration 154). |
 | 32 | 10L empties (answer 7, « to be verified »): live had one « Emballage 10L » at 100 F marked with cork. | Migration 150 makes it « 10L sans bouchon » at 100 F (OPUR 10L's empty) and adds « 10L avec bouchon » at 200 F. Prices stay editable in Données de Base. |
+| 33 | **CNPS accident du travail**: the payroll charges 16,2 % employer CNPS (PVID 4,2 + PF 7 + AT 5 %, i.e. risk group C), while Paramètres → Fiscal say group A (AT 1,75 %). Which group is LPC in (ask the CNPS: water distribution with delivery trucks)? | The declaration follows what the payroll booked (433, 128 520 F for November on copy A) and shows « Taux AT de la paie 5,00 % ; Paramètres (groupe A) : 1,75 %. À vérifier avec la CNPS. » On the answer, the payroll rate (`payroll_rates.cnps_employer_rate`) or the group in Paramètres is corrected. |
+| 34 | **Opening receivables and payables at go-live** (13.8): after the wipe, how will LPC enter what clients owe and what it owes suppliers on day one? Keyed in Bilan d'Ouverture, they reach each client's 411 sub-account but no invoice exists to record the payment against. | Default: the Comptable keys them in Bilan d'Ouverture (the ledger is right) and, when a client pays an old balance, records it as an OD (Dr bank / Cr the client's 411). A session can add « Encaissement sur solde d'ouverture » if the owner wants it on screen. |

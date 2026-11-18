@@ -221,7 +221,7 @@ final class JournalPoster
             ? ("Encaissement facture {$invRef}"
                 . ($withheld > 0 ? " (dont AIR retenu à la source " . number_format($withheld, 0, ',', ' ') . " FCFA)" : ''))
             : "Avance client (portefeuille)";
-        $je_id = self::createDraftJe($db, $ref, 'BQ', (string)$pay['payment_date'], $desc, $user_id,
+        $je_id = self::createDraftJe($db, $ref, self::journalForTreasury($db, $treasury_account_id), (string)$pay['payment_date'], $desc, $user_id,
                                      'invoice_payment', $payment_id);
         if ($amount > 0)    self::addLine($db, $je_id, $treasury_coa, $amount,    0.0);
         if ($air_extra > 0) self::addLine($db, $je_id, $air_coa,      $air_extra, 0.0);
@@ -838,7 +838,7 @@ final class JournalPoster
             ? $entry_date
             : date('Y-m-d');
 
-        $je_id = self::createDraftJe($db, $ref, 'OD', $date, $desc, $user_id);
+        $je_id = self::createDraftJe($db, $ref, self::journalForTreasury($db, $treasury_account_id), $date, $desc, $user_id);
         self::addLine($db, $je_id, $expense_coa_id, $amount, 0.0);
         self::addLine($db, $je_id, $treasury_coa,   0.0,     $amount);
         self::post($db, $je_id, $user_id);
@@ -1462,16 +1462,15 @@ final class JournalPoster
         $supplier_coa = self::coaForSupplier($db, (int) $po['supplier_id']);
         $treasury_coa = self::coaFromTreasury($db, $treasury_account_id);
 
-        // 3. Post the JE. Journal code 'BQ' matches postInvoicePayment: any
-        //    treasury movement is BQ regardless of the underlying instrument
-        //    (bank, caisse, MoMo). The sub-ledger distinction lives in the
-        //    treasury COA the coaFromTreasury lookup returned.
+        // 3. Post the JE. Journal CA for a cash box, BQ for a bank or MoMo
+        //    account (journalForTreasury, VIDEO_QA_FINDINGS 11.5). The sub-ledger
+        //    lives in the treasury COA the coaFromTreasury lookup returned.
         $ref  = 'PAY-FRS-' . $po['reference'];
         $desc = "Règlement fournisseur · {$po['reference']}";
         if ($note !== '') $desc .= " · {$note}";
 
         $je_id = self::createDraftJe(
-            $db, $ref, 'BQ', $payment_date, $desc, $user_id,
+            $db, $ref, self::journalForTreasury($db, $treasury_account_id), $payment_date, $desc, $user_id,
             'purchase_order_payment', $po_id
         );
         self::addLine($db, $je_id, $supplier_coa, $amount, 0.0);   // Dr 401
@@ -1591,7 +1590,7 @@ final class JournalPoster
         if ($note !== '') $desc .= " · {$note}";
 
         $je_id = self::createDraftJe(
-            $db, $ref, 'BQ', $payment_date, $desc, $user_id,
+            $db, $ref, self::journalForTreasury($db, $treasury_account_id), $payment_date, $desc, $user_id,
             'advance_disbursement', $advance_id
         );
         self::addLine($db, $je_id, $advance_coa,  $amount, 0.0);  // Dr 421
@@ -1737,7 +1736,7 @@ final class JournalPoster
         if ($note !== '') $desc .= " · {$note}";
 
         $je_id = self::createDraftJe(
-            $db, $ref, 'BQ', $payment_date, $desc, $user_id,
+            $db, $ref, self::journalForTreasury($db, $treasury_account_id), $payment_date, $desc, $user_id,
             'payroll_settlement', (int) $first_id
         );
         self::addLine($db, $je_id, $personnel_coa, $total, 0.0);  // Dr 422
@@ -1906,12 +1905,11 @@ final class JournalPoster
         $ref  = 'REC-' . $reference;
         $desc = "Vente recyclage — réf {$reference}";
 
-        // Journal code 'BQ' matches every other treasury-side entry (see
-        // postInvoicePayment, postSupplierPayment). The sub-ledger
-        // distinction lives in the treasury COA the coaFromTreasury lookup
-        // returned — 571 for caisse, 552 for MoMo, 521 for bank.
+        // Journal: CA for a cash box, BQ for a bank or MoMo account, like every
+        // other treasury-side entry (journalForTreasury). The sub-ledger lives in
+        // the treasury COA the coaFromTreasury lookup returned.
         $je_id = self::createDraftJe(
-            $db, $ref, 'BQ', $sale_date, $desc, $user_id,
+            $db, $ref, self::journalForTreasury($db, $treasury_account_id), $sale_date, $desc, $user_id,
             'recycling_sale', $sale_id
         );
         self::addLine($db, $je_id, $treasury_coa, $amount, 0.0);  // Dr 5xx
@@ -1960,6 +1958,81 @@ final class JournalPoster
      * @param  string   $reason      shown in the reversing entry's description
      * @return int[]                 ids of the reversing entries created
      */
+    /**
+     * Post the settlement of a tax or social declaration (Déclarations Fiscales
+     * → « Enregistrer paiement »), VIDEO_QA_FINDINGS 13.1 and 13.2.
+     *
+     * $lines are the declaration's own accounts, as SYSCOHADA numbers:
+     *   [['account' => '432', 'debit' => 57246, 'credit' => 0], ...]
+     * — the liabilities the month booked (4431 TVA, 432 DIPE, 433 CNPS…) are
+     * debited, the credits it uses (4452 TVA déductible, 4449 crédit reporté,
+     * 4424 AIR retenu) are credited. $cash leaves the treasury account: the
+     * last credit line, the treasury's own sub-account, journal BQ, and a
+     * treasury movement 'out_tax_payment'. A declaration that nets to zero
+     * (a TVA credit month) posts its lines in OD and moves no money.
+     *
+     * Called inside the caller's transaction; throws rather than half-posting
+     * (the old path swallowed the error and marked the declaration paid).
+     */
+    public static function postTaxSettlement(
+        int $declaration_id,
+        string $label,
+        string $date,
+        array $lines,
+        ?int $treasury_account_id,
+        float $cash,
+        int $user_id
+    ): int {
+        $db   = Database::getInstance()->getConnection();
+        require_once __DIR__ . '/../functions/books_period.php';
+        $cash = self::roundFcfa($cash);
+        $day  = preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) ? $date : date('Y-m-d');
+        if ($cash > 0 && !$treasury_account_id) throw new RuntimeException("Choisissez le compte de trésorerie qui paie.");
+
+        $resolved = [];
+        foreach ($lines as $l) {
+            $num = (string) $l['account'];
+            $id  = self::coaByOhada($db, $num) ?: lpc_books_account($db, $num);
+            if (!$id) throw new RuntimeException("Compte {$num} absent du plan comptable : créez-le dans Plan Comptable.");
+            $resolved[] = [$id, self::roundFcfa((float) ($l['debit'] ?? 0)), self::roundFcfa((float) ($l['credit'] ?? 0))];
+        }
+        $treasury_coa = $cash > 0 ? self::coaFromTreasury($db, (int) $treasury_account_id) : 0;
+        if ($cash > 0) {
+            // Never more than the account holds, as Dépenses and Immobilisations refuse.
+            $bal = $db->prepare("SELECT name, balance FROM treasury_accounts WHERE id = ? FOR UPDATE");
+            $bal->execute([(int) $treasury_account_id]);
+            $ta = $bal->fetch(PDO::FETCH_ASSOC);
+            if ($ta && (float) $ta['balance'] + 0.5 < $cash) {
+                throw new RuntimeException("Solde insuffisant sur « {$ta['name']} » (" . number_format((float) $ta['balance'], 0, ',', ' ')
+                    . " FCFA) pour payer " . number_format($cash, 0, ',', ' ') . " FCFA.");
+            }
+        }
+
+        $sumD = 0.0; $sumC = $cash;
+        foreach ($resolved as [, $d, $c]) { $sumD += $d; $sumC += $c; }
+        if (abs($sumD - $sumC) > 0.5) {
+            throw new RuntimeException(sprintf("Règlement non équilibré (débit %s, crédit %s).",
+                number_format($sumD, 0, ',', ' '), number_format($sumC, 0, ',', ' ')));
+        }
+
+        $ref = 'TAX-' . $declaration_id;
+        $je_id = self::createDraftJe($db, $ref, $cash > 0 ? self::journalForTreasury($db, $treasury_account_id) : 'OD', $day, mb_substr($label, 0, 255), $user_id,
+                                     'tax_declaration', $declaration_id);
+        foreach ($resolved as [$id, $d, $c]) self::addLine($db, $je_id, $id, $d, $c);
+        if ($cash > 0) self::addLine($db, $je_id, $treasury_coa, 0.0, $cash);
+        self::post($db, $je_id, $user_id);
+
+        if ($cash > 0) {
+            $db->prepare("
+                INSERT INTO treasury_transactions (account_id, transaction_type, amount, reference, description, logged_by)
+                VALUES (?, 'out_tax_payment', ?, ?, ?, ?)
+            ")->execute([(int) $treasury_account_id, $cash, $ref, mb_substr($label, 0, 255), $user_id]);
+            $db->prepare("UPDATE treasury_accounts SET balance = balance - ? WHERE id = ?")
+               ->execute([$cash, (int) $treasury_account_id]);
+        }
+        return $je_id;
+    }
+
     public static function reverseSource(string $source_type, int $source_id, string $reason = ''): array
     {
         $db      = Database::getInstance()->getConnection();
@@ -2120,6 +2193,23 @@ final class JournalPoster
         self::post($db, $je_id, $user_id);
 
         return $je_id;
+    }
+
+    /**
+     * The journal a treasury movement belongs in (VIDEO_QA_FINDINGS 11.5):
+     * « CA » (caisse) for a cash box, « BQ » for a bank or Mobile Money account.
+     * Everything that moved money used BQ, so the Caisse journal stayed empty.
+     */
+    public static function journalForTreasury(PDO $db, ?int $treasury_account_id): string
+    {
+        if (!$treasury_account_id) return 'BQ';
+        static $cache = [];
+        if (!isset($cache[$treasury_account_id])) {
+            $q = $db->prepare("SELECT type FROM treasury_accounts WHERE id = ?");
+            $q->execute([$treasury_account_id]);
+            $cache[$treasury_account_id] = (string) $q->fetchColumn();
+        }
+        return $cache[$treasury_account_id] === 'caisse' ? 'CA' : 'BQ';
     }
 
     private static function createDraftJe(

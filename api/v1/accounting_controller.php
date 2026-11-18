@@ -106,6 +106,8 @@ function acc_source_label(?string $type): string {
         'stock'                  => 'Stock',
         'depreciation'           => 'Immobilisations · amortissement',
         'fixed_asset'            => 'Immobilisations',
+        'tax_declaration'        => 'Déclarations Fiscales · paiement',
+        'year_opening'           => 'Clôture · À-nouveaux',
     ];
     foreach ($map as $prefix => $label) {
         if (strpos($t, $prefix) === 0) return $label . (str_ends_with($t, '_reversal') && $prefix !== 'payslip_reversal' ? ' · extourne' : '');

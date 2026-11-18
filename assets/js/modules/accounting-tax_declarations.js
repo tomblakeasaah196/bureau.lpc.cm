@@ -162,8 +162,8 @@ async function loadDashboard() {
         document.getElementById('kpi_next_due').textContent = '—';
         document.getElementById('kpi_next_amount').textContent = fmt(0);
     }
-    const airRow = rows.find(x => x.kind === 'air');
-    document.getElementById('kpi_air_credit').textContent = airRow ? fmt(airRow.credit) : fmt(0);
+    // What the clients withheld and 4424 still holds until a declaration uses it.
+    document.getElementById('kpi_air_credit').textContent = fmt(r.data.air_receivable || 0);
 
     const meta = k => KIND_META[k] || {label: k, chip: '', destination: '—'};
     body.innerHTML = rows.map(r => {
@@ -295,7 +295,9 @@ function renderMonthlyModal() {
     document.getElementById('tmm-commune').textContent = fmt(t.commune || 0);
     document.getElementById('tmm-grand').textContent   = fmt(t.grand || 0);
     document.getElementById('tmm-subtitle').textContent =
-        `Échéance : ${data.due_date || '—'} — cliquez sur « Approuver » pour verrouiller la déclaration et générer le PDF.`;
+        ((window.PAGE_DATA && PAGE_DATA.can && PAGE_DATA.can.approve)
+            ? `Échéance : ${data.due_date || '—'} · cliquez sur « Approuver & verrouiller » pour figer la déclaration et générer le PDF.`
+            : `Échéance : ${data.due_date || '—'} · le Contrôleur Financier approuve et verrouille ; vous pourrez ensuite enregistrer le paiement.`);
 
     const blocks = data.blocks || {};
     const locks  = data.locks  || {};
@@ -348,7 +350,8 @@ function renderKindSection(year, month, kind, meta, block, lock) {
 
     // Header status + action buttons.
     let statusBadge = '<span class="badge-status st-missing">à faire</span>';
-    let approveBtn = `<button onclick="approveDeclaration('${kind}', ${year}, ${month})" class="text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 rounded-md px-3 py-1.5 uppercase tracking-wider"><i class="fas fa-lock mr-1"></i>Approuver &amp; verrouiller</button>`;
+    const CAN = (window.PAGE_DATA && PAGE_DATA.can) || {};
+    let approveBtn = !CAN.approve ? '' : `<button onclick="approveDeclaration('${kind}', ${year}, ${month})" class="text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 rounded-md px-3 py-1.5 uppercase tracking-wider"><i class="fas fa-lock mr-1"></i>Approuver &amp; verrouiller</button>`;
     let payBtn = '';
     let pdfBtn = '';
     let quittanceBtn = '';
@@ -363,8 +366,10 @@ function renderKindSection(year, month, kind, meta, block, lock) {
         if (lock.snapshot_pdf_path) {
             pdfBtn = `<a href="${API}?action=snapshot_pdf&id=${lock.id}" target="_blank" class="text-xs font-bold text-blue-700 hover:text-blue-900 uppercase tracking-wider"><i class="fas fa-file-pdf mr-1"></i>PDF snapshot</a>`;
         }
-        if (lock.locked_at && lock.status !== 'paid') {
-            payBtn = `<button onclick="openPaymentDialog(${lock.id}, '${kind}', ${block.net})" class="text-xs font-black text-white bg-blue-600 hover:bg-blue-700 rounded-md px-3 py-1.5 uppercase tracking-wider"><i class="fas fa-money-bill-transfer mr-1"></i>Enregistrer paiement</button>`;
+        // The locked amount is what is paid, never a recompute of the month.
+        if (lock.locked_at && lock.status !== 'paid' && CAN.pay) {
+            const due = Number(lock.net_to_pay || 0);
+            payBtn = `<button onclick="openPaymentDialog(${lock.id}, '${kind}', ${due})" class="text-xs font-black text-white bg-blue-600 hover:bg-blue-700 rounded-md px-3 py-1.5 uppercase tracking-wider"><i class="fas fa-money-bill-transfer mr-1"></i>${due > 0 ? 'Enregistrer paiement' : 'Solder (rien à payer)'}</button>`;
         }
         if (lock.quittance_path) {
             quittanceBtn = `<a href="${API}?action=quittance_stream&id=${lock.id}" target="_blank" class="text-xs font-bold text-emerald-700 hover:text-emerald-900 uppercase tracking-wider"><i class="fas fa-receipt mr-1"></i>Quittance</a>`;
@@ -416,7 +421,9 @@ async function openPaymentDialog(declarationId, kind, net) {
         await alertDlg('Aucun compte de trésorerie configuré. Créez-en un dans Trésorerie avant d\'enregistrer le paiement.', {level: 'warn'});
         return;
     }
-    const opts = treasuries.map(t => `<option value="${t.id}">${esc(t.name)} — ${esc(t.currency || 'XAF')}</option>`).join('');
+    // The bank first; each account with what it holds (a payment beyond it is refused).
+    const ordered = treasuries.slice().sort((a, b) => (a.type === 'bank' ? 0 : 1) - (b.type === 'bank' ? 0 : 1));
+    const opts = ordered.map(t => `<option value="${t.id}">${esc(t.name)} (solde ${fmt(Number(t.balance || 0))})</option>`).join('');
     const bodyHtml = `
         <div class="grid grid-cols-1 gap-3 text-sm">
             <label class="text-xs font-bold text-gray-600">Compte débité <select id="_pay_tid" class="border rounded px-2 py-1.5 w-full">${opts}</select></label>

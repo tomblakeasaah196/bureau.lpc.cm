@@ -103,7 +103,7 @@ $__tabPages = [
         ['id' => 'recycling', 'fr' => 'Vente Recyclage',   'en' => 'Recycling Sale'],
         ['id' => 'revenue',   'fr' => 'Revenus Recyclage', 'en' => 'Recycling Revenue', 'perm' => 'operations.recycling.view'],
     ]],
-    ['perm' => 'accounting.invoices.view', 'href' => '/modules/accounting/tax_declarations.php',
+    ['perm' => 'accounting.tax.view', 'href' => '/modules/accounting/tax_declarations.php',
      'fr' => 'Déclarations Fiscales', 'en' => 'Tax Declarations', 'tabs' => [
         ['id' => 'monthly',     'fr' => 'Déclarations Mensuelles', 'en' => 'Monthly Filings'],
         ['id' => 'withholding', 'fr' => 'Retenues à la Source',    'en' => 'Withholding Tax'],
