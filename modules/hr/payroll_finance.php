@@ -189,15 +189,15 @@ $user_role = $_SESSION['user_role'];
                                      Shown by loadPayrollGrid() when the month has some. */ ?>
                             <?php if (Rbac::hasPermission('hr.payroll.generate')): ?>
                             <button type="button" id="btn_cancel_payroll" onclick="cancelPayroll()"
-                                    class="hidden bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 px-5 py-3 rounded-xl font-black text-sm transition-all shadow-sm flex items-center gap-2">
+                                    class="hidden bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 px-5 py-3 rounded-xl font-black text-sm transition-all shadow-sm flex items-center gap-2 whitespace-nowrap shrink-0">
                                 <i class="fas fa-undo"></i> Annuler la Paie
                             </button>
                             <?php endif; ?>
                             <button type="button" id="btn_mark_paid" onclick="openMarkPaidModal()"
-                                    class="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-black text-sm transition-all shadow-md flex items-center gap-2">
+                                    class="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-black text-sm transition-all shadow-md flex items-center gap-2 whitespace-nowrap shrink-0">
                                 <i class="fas fa-money-bill-wave"></i> Marquer Payées
                             </button>
-                            <button type="button" id="btn_generate_payroll" onclick="submitPayroll()" disabled class="bg-gray-300 text-gray-500 px-8 py-3 rounded-xl font-black text-sm transition-all shadow-md cursor-not-allowed flex items-center gap-2">
+                            <button type="button" id="btn_generate_payroll" onclick="submitPayroll()" disabled class="bg-gray-300 text-gray-500 px-8 py-3 rounded-xl font-black text-sm transition-all shadow-md cursor-not-allowed flex items-center gap-2 whitespace-nowrap shrink-0">
                                 <i class="fas fa-magic"></i> Calculer & Valider Paie
                             </button>
                         </div>
@@ -215,7 +215,7 @@ $user_role = $_SESSION['user_role'];
          rows). Posts Dr 421 / Cr treasury when confirmed.
          =====================================================================
     */ ?>
-    <div id="modal-disburse-advance" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
+    <div id="modal-disburse-advance" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
         <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col">
             <div class="bg-emerald-700 px-6 py-4 flex justify-between items-center shrink-0">
                 <h3 class="font-black text-white text-lg flex items-center">
@@ -266,7 +266,7 @@ $user_role = $_SESSION['user_role'];
          payslips selected.
          =====================================================================
     */ ?>
-    <div id="modal-mark-paid" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
+    <div id="modal-mark-paid" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]">
             <div class="bg-emerald-700 px-8 py-5 flex justify-between items-center shrink-0">
                 <h3 class="font-black text-white text-xl flex items-center">
@@ -367,7 +367,7 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
-    <div id="modal-contract" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="modal-contract" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col animate-slide-up">
             <div class="bg-pay-dark px-6 py-5 flex justify-between items-center text-white border-b border-green-800">
                 <h3 class="font-black text-lg tracking-wide flex items-center gap-3"><i class="fas fa-file-signature"></i> <?= htmlspecialchars(__t('ui.x.dossier_employe')) ?></h3>
@@ -442,7 +442,7 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
-    <div id="modal-advance" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="modal-advance" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
             <div class="bg-pay-highlight px-6 py-5 flex justify-between items-center text-white">
                 <h3 class="font-black text-lg tracking-wide flex items-center gap-3"><i class="fas fa-hand-holding-usd"></i> <?= htmlspecialchars(__t('ui.x.demande_d_acompte')) ?></h3>
@@ -476,7 +476,7 @@ $user_role = $_SESSION['user_role'];
     <!-- Payroll DETAIL modal — full breakdown per employee.           -->
     <!-- Populated by openPayrollDetailModal(uid) in hr-payroll_finance.js -->
     <!-- ============================================================= -->
-    <div id="modal-payroll-detail" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
+    <div id="modal-payroll-detail" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col">
             <div class="bg-indigo-700 px-6 py-4 flex justify-between items-center text-white shrink-0">
                 <div>

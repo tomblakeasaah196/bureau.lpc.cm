@@ -117,7 +117,7 @@
 
                 tbody.innerHTML += LPC.html`
                     <tr class="hover:bg-gray-50 border-b border-gray-100">
-                        <td class="py-3 px-6 text-xs font-bold text-gray-500">${a.request_date}</td>
+                        <td class="py-3 px-6 text-xs font-bold text-gray-500">${a.request_date_fr || a.request_date}</td>
                         <td class="py-3 px-6 text-sm font-black text-gray-800">${a.employee_name}</td>
                         <td class="py-3 px-6 text-right text-sm font-black text-pay-dark">${fmt(a.amount)} F</td>
                         <td class="py-3 px-6 text-center">${LPC.raw(statusBadge)}</td>
@@ -327,12 +327,12 @@
 
                     // Enable generate button if there are employees to process
                     const btn = document.getElementById('btn_generate_payroll');
-                    if (globalData.payroll_grid.some(g => !g.is_paid)) {
+                    if (globalData.payroll_grid.some(g => !g.is_paid && !g.no_salary)) {
                         btn.disabled = false;
-                        btn.className = "bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-black text-sm transition-all shadow-xl flex items-center gap-2 cursor-pointer";
+                        btn.className = "bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-black text-sm transition-all shadow-xl flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0";
                     } else {
                         btn.disabled = true;
-                        btn.className = "bg-gray-300 text-gray-500 px-8 py-3 rounded-xl font-black text-sm transition-all shadow-md cursor-not-allowed flex items-center gap-2";
+                        btn.className = "bg-gray-300 text-gray-500 px-8 py-3 rounded-xl font-black text-sm transition-all shadow-md cursor-not-allowed flex items-center gap-2 whitespace-nowrap shrink-0";
                         if(globalData.payroll_grid.length > 0) LPC.modal.alert(globalData.payroll_grid.some(g => g.payslip_status === 'validated')
                             ? "La paie de ce mois est calculée. Elle reste à payer : « Marquer Payées » quand les salaires sont versés."
                             : "La paie de ce mois est calculée et payée.");
@@ -353,8 +353,14 @@
 
             globalData.payroll_grid.forEach(e => {
                 const isPaid = e.is_paid;
-                const trClass = isPaid ? "bg-gray-50 opacity-75" : "hover:bg-indigo-50/30";
-                const readOnly = isPaid ? "disabled readonly" : "";
+                // A calculated row shows its payslip (sl); a row with no salary has nothing to calculate.
+                const sl = e.slip || null;
+                const locked = isPaid || e.no_salary;
+                const trClass = isPaid ? "bg-gray-50" : (e.no_salary ? "bg-gray-50 text-gray-400" : "hover:bg-indigo-50/30");
+                const readOnly = locked ? "disabled readonly" : "";
+                const base = sl ? sl.base_salary : e.base_salary;
+                const pay  = sl ? sl.payment : e.default_payment;
+                const cell = (k) => sl ? fmt(sl[k]) : '–';
 
                 // The token goes into an href, so it is escaped by the inner
                 // LPC.html before the snippet is marked raw — that is what stops
@@ -363,7 +369,7 @@
                     ? LPC.raw(LPC.html`<a href="/public/documents/payslip.php?token=${e.token}" target="_blank" class="text-rose-500 hover:text-rose-700" title="Imprimer Fiche"><i class="fas fa-file-pdf text-lg"></i></a>`)
                     : '-';
 
-                const indemn = Number(e.housing || 0) + Number(e.transport || 0);
+                const indemn = sl ? Number(sl.housing || 0) + Number(sl.transport || 0) : Number(e.housing || 0) + Number(e.transport || 0);
                 tbody.innerHTML += LPC.html`
                     <tr class="${trClass} border-b border-gray-100" data-uid="${e.user_id}">
                         <td class="py-2 px-3 font-black text-gray-800">
@@ -371,35 +377,35 @@
                                     class="text-left hover:text-indigo-700 hover:underline"
                                     title="Voir la fiche détaillée">${e.employee_name}</button>
                         </td>
-                        <td class="py-2 px-3 text-right font-bold text-gray-500">${fmt(e.base_salary)}</td>
+                        <td class="py-2 px-3 text-right font-bold text-gray-500">${fmt(base)}</td>
                         <td class="py-2 px-3 text-right font-bold text-sky-700 bg-sky-50/40" title="Indemnités logement + transport (contrat)">${fmt(indemn)}</td>
                         <td class="py-2 px-3 text-right bg-emerald-50/30">
-                            <input type="number" min="0" class="input-grid grid-bonus bg-white border border-emerald-200 rounded p-1.5 outline-none focus:ring-1 focus:ring-emerald-500 w-20" value="0" ${readOnly} oninput="previewRow(this)">
+                            <input type="number" min="0" class="input-grid grid-bonus bg-white border border-emerald-200 rounded p-1.5 outline-none focus:ring-1 focus:ring-emerald-500 w-20" value="${sl ? sl.bonuses : 0}" ${readOnly} oninput="previewRow(this)">
                         </td>
                         <td class="py-2 px-3 text-right bg-rose-50/30">
                             <input type="number" min="0" step="0.5" class="input-grid grid-absence bg-white border border-rose-200 rounded p-1.5 outline-none focus:ring-1 focus:ring-rose-500 w-16" value="0" ${readOnly} oninput="previewRow(this)">
                         </td>
                         <td class="py-2 px-3 text-right bg-rose-50/30">
-                            <input type="number" min="0" class="input-grid grid-driver-debt bg-white border border-rose-200 rounded p-1.5 outline-none focus:ring-1 focus:ring-rose-500 w-20" value="${e.driver_debt || 0}" ${readOnly} oninput="previewRow(this)">
+                            <input type="number" min="0" class="input-grid grid-driver-debt bg-white border border-rose-200 rounded p-1.5 outline-none focus:ring-1 focus:ring-rose-500 w-20" value="${sl ? sl.driver_debt : (e.driver_debt || 0)}" ${readOnly} oninput="previewRow(this)">
                         </td>
                         <td class="py-2 px-3 text-right font-black text-amber-600 bg-amber-50/30 grid-advances">${fmt(e.advances)}</td>
-                        <td class="py-2 px-3 text-right font-black text-indigo-700 grid-gross">${fmt(e.base_salary + (e.housing||0) + (e.transport||0))}</td>
-                        <td class="py-2 px-3 text-right text-orange-700 grid-cnps">–</td>
-                        <td class="py-2 px-3 text-right text-orange-700 grid-irpp">–</td>
-                        <td class="py-2 px-3 text-right text-orange-700 grid-cfc">–</td>
-                        <td class="py-2 px-3 text-right text-orange-700 grid-cac">–</td>
-                        <td class="py-2 px-3 text-right text-orange-700 grid-crtv">–</td>
-                        <td class="py-2 px-3 text-right font-black text-emerald-800 bg-emerald-50/50 grid-net">–</td>
+                        <td class="py-2 px-3 text-right font-black text-indigo-700 grid-gross">${sl ? fmt(sl.gross) : fmt(e.base_salary + (e.housing||0) + (e.transport||0))}</td>
+                        <td class="py-2 px-3 text-right text-orange-700 grid-cnps">${cell('cnps')}</td>
+                        <td class="py-2 px-3 text-right text-orange-700 grid-irpp">${cell('irpp')}</td>
+                        <td class="py-2 px-3 text-right text-orange-700 grid-cfc">${cell('cfc')}</td>
+                        <td class="py-2 px-3 text-right text-orange-700 grid-cac">${cell('cac')}</td>
+                        <td class="py-2 px-3 text-right text-orange-700 grid-crtv">${cell('crtv')}</td>
+                        <td class="py-2 px-3 text-right font-black text-emerald-800 bg-emerald-50/50 grid-net">${cell('net')}</td>
                         <td class="py-2 px-3 text-center">
                             <select class="grid-payment bg-white border border-gray-200 rounded p-1.5 text-[10px] font-black outline-none" ${readOnly}>
-                                <option value="bank"   ${e.default_payment === 'bank'   ? 'selected' : ''}>BANQUE</option>
-                                <option value="caisse" ${e.default_payment === 'caisse' ? 'selected' : ''}>CAISSE</option>
+                                <option value="bank"   ${pay === 'bank'   ? 'selected' : ''}>BANQUE</option>
+                                <option value="caisse" ${pay === 'caisse' ? 'selected' : ''}>CAISSE</option>
                             </select>
                             ${LPC.raw(e.payslip_status === 'paid'
                                 ? '<span class="block mt-1 text-[9px] font-black uppercase tracking-widest text-emerald-700">Payé</span>'
                                 : e.payslip_status === 'validated'
                                     ? '<span class="block mt-1 text-[9px] font-black uppercase tracking-widest text-blue-700">À payer</span>'
-                                    : '')}
+                                    : e.no_salary ? '<span class="block mt-1 text-[9px] font-black uppercase tracking-widest text-gray-400">Sans salaire</span>' : '')}
                         </td>
                         <td class="py-2 px-3 text-center">${pdfLink}</td>
                     </tr>`;
@@ -454,13 +460,13 @@
             const btn = document.getElementById('btn_generate_payroll');
             if (!anyPreviewable) {
                 btn.disabled = true;
-                btn.className = "bg-gray-300 text-gray-500 px-8 py-3 rounded-xl font-black text-sm shadow-md cursor-not-allowed flex items-center gap-2";
+                btn.className = "bg-gray-300 text-gray-500 px-8 py-3 rounded-xl font-black text-sm shadow-md cursor-not-allowed flex items-center gap-2 whitespace-nowrap shrink-0";
             } else if (allPreviewed) {
                 btn.disabled = false;
-                btn.className = "bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-black text-sm shadow-xl flex items-center gap-2 cursor-pointer";
+                btn.className = "bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-black text-sm shadow-xl flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0";
             } else {
                 btn.disabled = true;
-                btn.className = "bg-gray-300 text-gray-500 px-8 py-3 rounded-xl font-black text-sm shadow-md cursor-not-allowed flex items-center gap-2";
+                btn.className = "bg-gray-300 text-gray-500 px-8 py-3 rounded-xl font-black text-sm shadow-md cursor-not-allowed flex items-center gap-2 whitespace-nowrap shrink-0";
             }
         }
 
