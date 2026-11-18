@@ -207,6 +207,7 @@
             if (t === 'in_return_emp') return rt === 'cre' ? LPC.html`Emballages vides rentrés (CRE)` : LPC.html`Emballages vides rentrés ${m.bl_ref || ''}`;
             if (t === 'out_damaged') return m.note ? LPC.html`Avarie : ${m.note}` : LPC.html`Avarie`;
             if (t === 'in_adjustment' && rt === 'delivery') return LPC.html`Refusé par le client, remis en stock ${m.bl_ref || ''}`;
+            if (t === 'in_adjustment' && rt === 'delivery_cancel') return LPC.html`BL annulé, remis en stock ${m.bl_ref || ''}`;
             return t === 'in_adjustment'
                 ? LPC.html`Surplus constaté à l'inventaire ${m.audit_ref || ''}`
                 : LPC.html`Manquant constaté à l'inventaire ${m.audit_ref || ''}`;

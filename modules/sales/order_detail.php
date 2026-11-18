@@ -151,7 +151,7 @@ $so_id = (int) ($_GET['id'] ?? 0);
                             <i class="fas fa-circle-info mr-1"></i>
                             « Remise » et « Majoration » = écart <strong>déclaré</strong> par l'opérateur sur cette ligne
                             (respectivement à la baisse et à la hausse). Un prix vendu égal au tarif signifie qu'il n'y a
-                            eu ni remise ni majoration — y compris lorsque le tarif lui-même a été modifié à la saisie
+                            eu ni remise ni majoration, y compris lorsque le tarif lui-même a été modifié à la saisie
                             (voir « Changements de prix » ci-dessous).
                         </p>
                     </div>
@@ -171,9 +171,9 @@ $so_id = (int) ($_GET['id'] ?? 0);
                          otherwise, see sales-order_detail.js). */ ?>
                 <div class="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden hidden" id="so-empties-card">
                     <div class="bg-amber-600 px-6 py-3 flex items-center justify-between">
-                        <h4 class="text-xs font-black text-white uppercase tracking-widest"><i class="fas fa-recycle mr-2"></i>Consignes attendues de ce client</h4>
+                        <h4 class="text-xs font-black text-white uppercase tracking-widest"><i class="fas fa-recycle mr-2"></i>Vides à récupérer auprès de ce client</h4>
                         <a id="so-empties-deeplink" href="#" class="text-white/90 hover:text-white text-[10px] font-black uppercase tracking-widest underline">
-                            <i class="fas fa-external-link-alt mr-1"></i>Voir toutes ses consignes
+                            <i class="fas fa-external-link-alt mr-1"></i>Gestion des Vides
                         </a>
                     </div>
                     <div class="overflow-x-auto">
@@ -181,9 +181,9 @@ $so_id = (int) ($_GET['id'] ?? 0);
                             <thead class="bg-amber-50 border-b border-amber-100 text-[10px] uppercase text-amber-700 font-black tracking-widest">
                                 <tr>
                                     <th class="py-3 px-6">Produit livré</th>
-                                    <th class="py-3 px-4 text-center">Qté expédiée</th>
-                                    <th class="py-3 px-4">Emballage consigné</th>
-                                    <th class="py-3 px-4 text-center">Vides attendus</th>
+                                    <th class="py-3 px-4 text-center">Bouteilles livrées</th>
+                                    <th class="py-3 px-4">Emballage vide</th>
+                                    <th class="py-3 px-4 text-center">Minimum à récupérer (<span id="so-empties-pct">100 %</span>)</th>
                                 </tr>
                             </thead>
                             <tbody id="so-empties-body" class="divide-y divide-gray-100 text-sm"></tbody>
@@ -191,11 +191,11 @@ $so_id = (int) ($_GET['id'] ?? 0);
                     </div>
                     <div class="px-6 py-4 bg-amber-50 border-t border-amber-100 grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
-                            <p class="text-[10px] font-black text-amber-700 uppercase tracking-widest">Attendus sur cette commande</p>
+                            <p class="text-[10px] font-black text-amber-700 uppercase tracking-widest">Minimum sur cette commande</p>
                             <p class="text-xl font-black text-amber-900 mt-1" id="so-empties-order-total">—</p>
                         </div>
                         <div>
-                            <p class="text-[10px] font-black text-rose-700 uppercase tracking-widest">Solde dû (confirmé)</p>
+                            <p class="text-[10px] font-black text-rose-700 uppercase tracking-widest">Vides chez le client (BL signés)</p>
                             <p class="text-xl font-black text-rose-800 mt-1" id="so-empties-client-owed">—</p>
                         </div>
                         <div>

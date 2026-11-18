@@ -202,14 +202,14 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
     <!-- ===================================================================
          MODAL: Saisie de commande
          =================================================================== -->
-    <div id="orderModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/70 backdrop-blur-sm p-4 transition-opacity">
+    <div id="orderModal" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/70 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col h-[90vh]">
             <div class="bg-gray-900 px-8 py-5 flex justify-between items-center text-white shrink-0">
                 <div>
                     <h3 class="font-black text-xl tracking-wide flex items-center"><i class="fas fa-shopping-cart mr-3"></i> <span id="order-modal-title"><?= htmlspecialchars(__t('ui.x.saisie_de_commande_client')) ?></span></h3>
                     <p class="text-xs text-gray-400 font-bold mt-1 uppercase"><?= htmlspecialchars(__t('ui.x.genere_une_commande_en_attente_de_dispat')) ?></p>
                 </div>
-                <button type="button" onclick="closeModal('orderModal')" class="text-white/70 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
+                <button type="button" aria-label="Fermer" onclick="closeModal('orderModal')" class="text-white/70 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
             </div>
 
             <div class="flex-1 overflow-y-auto p-8 bg-gray-50/50">
@@ -350,7 +350,7 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
          Nothing here is pre-ticked. A default would decide on the operator's
          behalf, which is the entire thing being avoided.
          =================================================================== -->
-    <div id="priceConfirmModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="priceConfirmModal" style="z-index: 9010;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[85vh]">
             <div class="bg-blue-600 px-8 py-5 text-white shrink-0">
                 <h3 class="font-black text-xl tracking-wide flex items-center"><i class="fas fa-tags mr-3"></i> Prix différents du tarif</h3>
@@ -400,14 +400,14 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
     <!-- ===================================================================
          MODAL: KPI details
          =================================================================== -->
-    <div id="kpiDetailsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="kpiDetailsModal" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col h-[70vh]">
             <div class="bg-gray-900 px-8 py-5 flex justify-between items-center shrink-0">
                 <div>
                     <h3 class="font-black text-white text-xl flex items-center"><i class="fas fa-list-alt mr-3 text-lpc-light"></i> <span id="kpi-detail-title">Détails</span></h3>
                     <p id="kpi-detail-period" class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1"></p>
                 </div>
-                <button type="button" onclick="closeModal('kpiDetailsModal')" class="text-gray-400 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
+                <button type="button" aria-label="Fermer" onclick="closeModal('kpiDetailsModal')" class="text-gray-400 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
             </div>
             <div class="flex-1 overflow-y-auto p-8">
                 <table class="w-full text-left border-collapse">
@@ -421,11 +421,11 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
     <!-- ===================================================================
          MODAL: Annuler une commande
          =================================================================== -->
-    <div id="cancelOrderModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="cancelOrderModal" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
             <div class="bg-red-600 px-8 py-5 flex justify-between items-center text-white shrink-0">
                 <h3 class="font-black text-lg tracking-wide flex items-center"><i class="fas fa-ban mr-3"></i> Annuler la commande</h3>
-                <button type="button" onclick="closeModal('cancelOrderModal')" class="text-red-200 hover:text-white"><i class="fas fa-times text-xl"></i></button>
+                <button type="button" aria-label="Fermer" onclick="closeModal('cancelOrderModal')" class="text-red-200 hover:text-white"><i class="fas fa-times text-xl"></i></button>
             </div>
             <div class="p-8 space-y-4">
                 <input type="hidden" id="cancel_so_id" value="">
@@ -435,6 +435,11 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
                 <p class="text-xs text-gray-500 font-medium">
                     La commande reste visible dans l'historique, grisée, et sort de tous les indicateurs.
                     Elle n'est pas supprimée.
+                </p>
+                <p class="text-xs text-gray-500 font-medium">
+                    Un BL que le client n'a pas encore signé est annulé avec elle : les bouteilles reviennent
+                    en stock et leur valeur au compte de stock. Un BL signé ne s'annule pas ici
+                    (avoir dans Facturation).
                 </p>
                 <div>
                     <label for="cancel_reason" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Motif <span class="text-red-500">*</span></label>
@@ -451,11 +456,11 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
     <!-- ===================================================================
          MODAL: Générer BL / Dispatch
          =================================================================== -->
-    <div id="dispatchModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/70 backdrop-blur-sm p-4 transition-opacity">
+    <div id="dispatchModal" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/70 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
             <div class="bg-blue-600 px-8 py-5 flex justify-between items-center text-white shrink-0">
                 <h3 class="font-black text-xl tracking-wide flex items-center"><i class="fas fa-truck-loading mr-3"></i> <span><?= htmlspecialchars(__t('ui.x.generer_bl_dispatch')) ?></span></h3>
-                <button type="button" onclick="closeModal('dispatchModal')" class="text-blue-200 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
+                <button type="button" aria-label="Fermer" onclick="closeModal('dispatchModal')" class="text-blue-200 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
             </div>
 
             <div class="p-8">
@@ -521,9 +526,9 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
                             // choice among active vehicles; the affectation, if
                             // any, merely pre-selects one.
                             ?>
-                            <label for="disp_vehicle" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.vehicule')) ?></label>
+                            <label for="disp_vehicle" class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1"><?= htmlspecialchars(__t('ui.x.vehicule')) ?> <span class="text-blue-500">*</span></label>
                             <select id="disp_vehicle" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-600">
-                                <option value=""><?= htmlspecialchars(__t('ui.x.aucun')) ?></option>
+                                <option value="">-- Sélectionner un véhicule --</option>
                             </select>
                             <p class="text-[9px] text-gray-400 font-bold mt-1" id="disp_vehicle_hint"><i class="fas fa-info-circle"></i> <?= htmlspecialchars(__t('ui.x.vehicule_optionnel_affectation_prerempli')) ?></p>
                         </div>
@@ -555,14 +560,14 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
     <!-- ===================================================================
          MODAL: Clôturer la livraison
          =================================================================== -->
-    <div id="closeDeliveryModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/70 backdrop-blur-sm p-4 transition-opacity">
+    <div id="closeDeliveryModal" style="z-index: 9000;" class="hidden fixed inset-0 flex items-center justify-center bg-gray-900/70 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col h-[85vh]">
             <div class="bg-emerald-600 px-8 py-5 flex justify-between items-center text-white shrink-0">
                 <div>
                     <h3 class="font-black text-xl tracking-wide flex items-center"><i class="fas fa-check-double mr-3"></i> <span><?= htmlspecialchars(__t('ui.x.cloturer_la_livraison')) ?></span></h3>
                     <p class="text-xs text-emerald-100 font-bold mt-1 uppercase"><?= htmlspecialchars(__t('ui.x.ajustement_des_quantites_et_encaissement')) ?></p>
                 </div>
-                <button type="button" onclick="closeModal('closeDeliveryModal')" class="text-emerald-200 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
+                <button type="button" aria-label="Fermer" onclick="closeModal('closeDeliveryModal')" class="text-emerald-200 hover:text-white transition-colors"><i class="fas fa-times text-2xl"></i></button>
             </div>
 
             <div class="flex-1 overflow-y-auto p-8 bg-gray-50">
@@ -622,10 +627,10 @@ $discount_max_pct = Prefs::float('sales_discount_max_pct', 15);
         </div>
     </div>
 
-    <div id="modal-share-bl" class="hidden fixed inset-0 z-50 flex items-end md:items-center justify-center bg-gray-900/90 backdrop-blur-sm transition-opacity">
+    <div id="modal-share-bl" style="z-index: 9000;" class="hidden fixed inset-0 flex items-end md:items-center justify-center bg-gray-900/90 backdrop-blur-sm transition-opacity">
         <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
             <div class="bg-gray-50 p-6 text-center border-b border-gray-200 relative">
-                <button onclick="closeModal('modal-share-bl')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800 text-2xl"><i class="fas fa-times-circle"></i></button>
+                <button type="button" aria-label="Fermer" onclick="closeModal('modal-share-bl')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800 text-2xl"><i class="fas fa-times-circle"></i></button>
                 <h3 class="font-black text-xl text-gray-900 tracking-tight"><?= htmlspecialchars(__t('ui.x.faire_signer_le_client')) ?></h3>
                 <p class="text-xs font-bold text-gray-500 mt-1"><?= htmlspecialchars(__t('ui.x.bl_ref')) ?> <span id="share_bl_ref" class="text-blue-600 font-black">BL-...</span></p>
             </div>

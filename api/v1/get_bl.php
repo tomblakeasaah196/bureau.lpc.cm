@@ -33,13 +33,14 @@ try {
             d.driver_signature_image as driver_sig, d.driver_digital_hash as driver_hash, d.driver_signed_at,
             so.reference as so_ref, so.total_amount, so.payment_status,
             c.name as client_name, c.address as client_address, c.phone as client_phone, c.email as client_email,
-            dr.first_name as driver_fn, dr.last_name as driver_ln,
+            COALESCE(de.first_name, dr.first_name) as driver_fn, COALESCE(de.last_name, dr.last_name) as driver_ln,
             v.plate_number as vehicle_plate,
             cr.first_name as creator_fn, cr.last_name as creator_ln,
             r.name as role_name
         FROM deliveries d
         JOIN sales_orders so ON d.sales_order_id = so.id
         JOIN clients c ON d.client_id = c.id
+        LEFT JOIN employees de ON d.driver_employee_id = de.id   -- the driver is an employee (migration 142)
         LEFT JOIN users dr ON d.driver_id = dr.id
         LEFT JOIN vehicles v ON d.vehicle_id = v.id
         JOIN users cr ON d.created_by = cr.id

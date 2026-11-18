@@ -134,7 +134,7 @@ const config = {
         gridClass: 'grid grid-cols-1 md:grid-cols-4 gap-6 mb-8',
         columns: [
             { key: 'date', label: 'Date Sortie', render: v => `<span class="text-xs font-bold text-gray-500">${LPC.fmt.date(v)}</span>` },
-            { key: 'reference', label: 'Réf. BL', render: v => LPC.html`<span class="font-black text-blue-700 tracking-wide">${v}</span>` },
+            { key: 'reference', label: 'Réf. BL', render: v => LPC.html`<span class="font-black text-blue-700 tracking-wide whitespace-nowrap">${v}</span>` },
             { key: 'client_name', label: 'Client', render: v => LPC.html`<span class="font-bold text-gray-700">${v}</span>` },
             // Migration 061: this column read driver_name alone and rendered
             // "Enlèvement" for anything null — which after the business-model
@@ -143,27 +143,29 @@ const config = {
             // INTERNAL VIEW ONLY: none of this reaches the customer's BL.
             { key: 'delivery_mode', label: 'Acheminement', render: (v, row) => {
                 const m = DELIVERY_MODES[v] || DELIVERY_MODES.own_fleet;
-                const who = v === 'supplier' ? (row.supplier_name || '—')
+                const who = v === 'supplier' ? (row.supplier_name || '')
                           : v === 'client_pickup' ? 'Véhicule client'
-                          : (row.driver_name || '—');
-                const tone = v === 'supplier' ? 'text-violet-700 bg-violet-50'
-                           : v === 'client_pickup' ? 'text-gray-500 bg-gray-100'
-                           : 'text-gray-700 bg-gray-50';
-                return LPC.html`<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded ${tone}">
-                    <i class="fas ${m.icon} text-[10px]"></i>
-                    <span class="text-[10px] font-black uppercase tracking-wide">${m.short}</span>
+                          : (row.driver_name || '');
+                const sub = v === 'own_fleet' ? (row.plate_number || '') : '';
+                const tone = v === 'supplier' ? 'text-violet-700'
+                           : v === 'client_pickup' ? 'text-gray-500'
+                           : 'text-gray-700';
+                return LPC.html`<span class="inline-flex flex-col ${tone} whitespace-nowrap">
+                    <span class="text-[10px] font-black uppercase tracking-wide"><i class="fas ${m.icon} text-[10px] mr-1"></i>${m.short}</span>
                     <span class="text-xs font-bold">${who}</span>
+                    ${sub ? LPC.raw(LPC.html`<span class="text-[10px] font-bold text-gray-400">${sub}</span>`) : ''}
                 </span>`;
             }},
             { key: 'status', label: 'Statut Logistique', render: v => {
                 if (v === 'draft') return '<span class="text-gray-500 bg-gray-100 px-2 py-1 rounded text-[10px] font-black uppercase">Brouillon</span>';
                 if (v === 'dispatched') return '<span class="text-blue-600 bg-blue-50 px-2 py-1 rounded text-[10px] font-black uppercase animate-pulse">En Transit</span>';
-                if (v === 'driver_confirmed') return '<span class="text-amber-600 bg-amber-50 px-2 py-1 rounded text-[10px] font-black uppercase border border-amber-200"><i class="fas fa-user-check mr-1"></i>Confirmé Chauffeur</span>';
-                if (v === 'completed') return '<span class="text-green-600 bg-green-50 px-2 py-1 rounded text-[10px] font-black uppercase">Terminé</span>';
+                if (v === 'driver_confirmed') return '<span class="text-amber-600 bg-amber-50 px-2 py-1 rounded text-[10px] font-black uppercase border border-amber-200 whitespace-nowrap"><i class="fas fa-user-check mr-1"></i>Clôturé · à signer</span>';
+                if (v === 'completed') return '<span class="text-green-600 bg-green-50 px-2 py-1 rounded text-[10px] font-black uppercase whitespace-nowrap"><i class="fas fa-signature mr-1"></i>Signé par le client</span>';
+                if (v === 'cancelled') return '<span class="text-red-600 bg-red-50 px-2 py-1 rounded text-[10px] font-black uppercase">Annulé</span>';
                 return v;
             }},
             { key: 'invoice_reference', label: 'Facture', render: (v, row) =>
-                v ? LPC.html`<span class="text-emerald-700 bg-emerald-50 px-2 py-1 rounded text-[10px] font-black">${v}</span>`
+                v ? LPC.html`<span class="text-emerald-700 bg-emerald-50 px-2 py-1 rounded text-[10px] font-black whitespace-nowrap">${v}</span>`
                   : (row.status === 'completed'
                       ? '<span class="text-amber-700 bg-amber-50 px-2 py-1 rounded text-[10px] font-black uppercase">À facturer</span>'
                       : '<span class="text-gray-300">—</span>') },
@@ -221,14 +223,19 @@ async function fetchMetaData() {
             // metaData.assignments here, so on any day Flotte had not yet run
             // the morning affectation this dropdown was empty and no BL could
             // name a driver.
+            // The driver is an employee (VIDEO_QA_FINDINGS 5.1): LPC has no
+            // driver accounts. Chauffeurs first, then the rest of the staff.
             const driverSel = document.getElementById('disp_driver');
             (metaData.drivers || []).forEach(d => {
-                driverSel.innerHTML += LPC.html`<option value="${d.id}">${d.first_name} ${d.last_name}</option>`;
+                const post = d.job_title ? ` · ${d.job_title}` : '';
+                driverSel.innerHTML += LPC.html`<option value="${d.id}">${d.first_name} ${d.last_name}${post}</option>`;
             });
 
+            const VEHICLE_TYPES = { truck: 'Camion', tricycle: 'Tricycle', bike: 'Moto' };
             const vehSel = document.getElementById('disp_vehicle');
             (metaData.vehicles || []).forEach(v => {
-                vehSel.innerHTML += LPC.html`<option value="${v.id}">${v.plate_number} (${v.type})</option>`;
+                const what = v.make_model || VEHICLE_TYPES[v.type] || v.type;
+                vehSel.innerHTML += LPC.html`<option value="${v.id}">${v.plate_number} · ${what}</option>`;
             });
 
             const supSel = document.getElementById('disp_supplier');
@@ -243,6 +250,9 @@ async function fetchMetaData() {
 async function refreshToInvoiceBadge() {
     const badge = document.getElementById('badge-to-invoice');
     if (!badge) return;
+    // Only for who may open Facturation: the Responsable des Opérations got a
+    // 403 on every visit (the shortcut itself is hidden for them).
+    if (window.LPC && LPC.can && !LPC.can('accounting.invoices.view')) return;
     try {
         // invoices_controller already computes this count for its own tab
         // badge, so it is read from there rather than recomputed — one source,
@@ -414,8 +424,8 @@ function renderTableRow(row, tab) {
                 <button onclick="event.stopPropagation(); openOrderModal(${row.id})" data-perm="sales.orders.edit" class="text-gray-500 hover:text-gray-900 p-2 mr-1" title="Modifier" aria-label="Modifier"><i class="fas fa-edit"></i></button>
                 <button onclick="event.stopPropagation(); openDispatchModal(${row.id}, '${esc(row.reference)}', '${esc(row.client_name)}')" data-perm="sales.orders.dispatch" class="text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest mr-2 shadow-sm transition-colors"><i class="fas fa-truck-loading mr-1"></i> Générer BL</button>
                 <button onclick="event.stopPropagation(); deleteRecord('order', ${row.id})" data-perm="sales.orders.delete" class="text-red-400 hover:text-red-600 p-2" title="Supprimer"><i class="fas fa-trash-alt"></i></button>`;
-        } else if (!cancelled) {
-            // Cancelling is available after dispatch, where deleting is not —
+        } else if (row.status === 'dispatched') {
+            // Cancelling is available after dispatch, where deleting is not:
             // that is the whole difference between the two and why they are
             // separate permissions (migration 062).
             actions += `<button onclick="event.stopPropagation(); openCancelOrderModal(${row.id}, '${esc(row.reference)}')" data-perm="sales.orders.cancel" class="text-red-600 hover:text-red-700 p-2" title="Annuler la commande" aria-label="Annuler"><i class="fas fa-ban"></i></button>`;
@@ -429,13 +439,14 @@ function renderTableRow(row, tab) {
             // supplier delivery has no driver coming back to the yard, and a
             // pickup has no one to return at all — the same close-out step is
             // just an ops user recording what the client actually accepted.
-            const closeLabel = row.delivery_mode === 'own_fleet' ? 'Retour Chauffeur' : 'Clôturer';
+            // « Clôturer » whatever the channel: the office records what the
+            // client accepted and the empties handed back, then the client signs.
+            const closeLabel = 'Clôturer';
             actions += `<button onclick="event.stopPropagation(); openCompleteDeliveryModal(${row.id}, '${esc(row.reference)}', ${row.payment_collected || 0}, '${esc(row.delivery_mode || 'own_fleet')}', '${esc(row.token)}')" data-perm="sales.deliveries.close" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-sm transition-colors"><i class="fas fa-check-double mr-1"></i> ${closeLabel}</button>`;
         } else if (row.status === 'driver_confirmed') {
             actions += `<button onclick="event.stopPropagation(); showBLShareModal('${esc(row.reference)}', '${esc(row.token)}', '')" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-sm transition-colors"><i class="fas fa-qrcode mr-1"></i> Signature Client</button>`;
-        } else if (row.status === 'completed') {
-            actions += `<span class="text-emerald-500 text-[10px] font-black uppercase px-2 py-1"><i class="fas fa-lock mr-1"></i>Clôturé</span>`;
         }
+        // A signed BL needs no action here: its status says « Signé par le client ».
     }
 
     tr += `<td class="py-4 px-6 border-b border-gray-50 text-right whitespace-nowrap" onclick="event.stopPropagation()">${actions}</td></tr>`;
@@ -1253,8 +1264,8 @@ function autoSelectVehicle() {
 
     if (hint) {
         hint.innerHTML = assignment
-            ? '<i class="fas fa-link"></i> Pré-rempli depuis l\'affectation du jour — modifiable.'
-            : '<i class="fas fa-info-circle"></i> Véhicule optionnel. Aucune affectation aujourd\'hui pour ce chauffeur.';
+            ? '<i class="fas fa-link"></i> Pré-rempli depuis l\'affectation du jour, modifiable.'
+            : '<i class="fas fa-info-circle"></i> Un véhicule de LPC en service. Aucune affectation aujourd\'hui pour ce chauffeur.';
     }
 }
 
@@ -1316,6 +1327,9 @@ async function submitDispatch() {
     // Client-side guards mirror the server's, purely for a faster and more
     // specific message. sales_controller.php re-validates all of this — the
     // browser is not the enforcement point.
+    if (mode === 'own_fleet' && !document.getElementById('disp_vehicle').value) {
+        return LPC.modal.alert('Sélectionnez le véhicule de LPC, ou choisissez un autre mode de livraison.');
+    }
     if (mode === 'own_fleet' && !document.getElementById('disp_driver').value) {
         return LPC.modal.alert('Sélectionnez le chauffeur, ou choisissez un autre mode de livraison.');
     }
@@ -1328,7 +1342,7 @@ async function submitDispatch() {
         sales_order_id: document.getElementById('disp_so_id').value,
         date: document.getElementById('disp_date').value,
         delivery_mode: mode,
-        driver_id: mode === 'own_fleet' ? document.getElementById('disp_driver').value : '',
+        driver_employee_id: mode === 'own_fleet' ? document.getElementById('disp_driver').value : '',
         vehicle_id: mode === 'own_fleet' ? document.getElementById('disp_vehicle').value : '',
         delivery_supplier_id: mode === 'supplier' ? document.getElementById('disp_supplier').value : ''
     };
@@ -1448,6 +1462,14 @@ async function submitCloseDelivery() {
 // 11. SHARE / SIGN
 // ---------------------------------------------------------------------------
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+// Escape closes the window on top (the price check above the order form).
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const order = ['priceConfirmModal', 'modal-share-bl', 'kpiDetailsModal', 'cancelOrderModal', 'closeDeliveryModal', 'dispatchModal', 'orderModal'];
+    const open = order.find(id => { const el = document.getElementById(id); return el && !el.classList.contains('hidden'); });
+    if (open) { e.preventDefault(); closeModal(open); }
+});
 
 let currentBLShareLink = '';
 const domain = window.location.origin;
