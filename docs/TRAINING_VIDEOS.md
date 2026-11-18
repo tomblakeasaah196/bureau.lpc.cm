@@ -18,6 +18,7 @@ its choreography together.
 | Modules, partie 2 : Gestion des Achats (order at the tariff, price check, remise or ristourne, two receptions, ristourne earned, payment, order detail, cancellation, the Grand Livre) | `gestion-des-achats.js` | Made 18/11/2026, 5:40, 11 chapters, -16.1 LUFS, 14.5 MB (refilmed the same day with the owner's ristourne rule; the first cut was replaced); sent in the chat; files in `bureau_video/publish/gestion-des-achats/`; to publish (§5) |
 | Modules, partie 3 : Stock & Emballages et Fiche de Stock (the KPIs and the table, an avarie, the Historique, a sealed inventory and its certificate, the Fiche in bottles and francs, 311 and 6031 in the Grand Livre) | `stock-et-emballages.js` | Made 18/11/2026 (track A), 6:04, 8 chapters, -16.1 LUFS, 16.3 MB; sent in the chat; files in `bureau_video/publish/stock-et-emballages/`; to publish (§5) |
 | Modules, partie 6 : Flotte (the truck, its daily assignment, fuel, a breakdown, the repair, the visite technique and a vidange, Finance validating the fuel expense) | `flotte.js` | Made 18/11/2026 (track B), 4:39, 10 chapters, -16.1 LUFS, 12.3 MB; sent in the chat; files in `bureau_video/publish/flotte/`; to publish (§5) |
+| Modules, partie 10 : Salaires (an advance requested, approved and paid out; November undone, calculated again and paid; the detail, the payslip, the entries). Real pay: library audience = the payroll roles | `salaires.js` | Made 18/11/2026 (track C), 6:55, 12 chapters, -16.1 LUFS, 19.2 MB; sent in the chat; files in `bureau_video/publish/salaires/`; to publish (§5), with no `audience` (see §8) |
 
 ---
 
@@ -480,5 +481,22 @@ the help search, the help AI's answers and each page's « ? »), and sent in the
       missing (4 027 F); the Directeur Général reads 311 and 6031 in the Grand Livre. Two shots were refilmed with three
       added lines to reach 6:04. 3.6 (« Stock Tampon ») is left to Proposition commerciale. The copy is left as snapshot
       `after-03-stock` (255 OPUR 20L, CUMP 2 013,46 F, 311 at 513 433 F).
+- [x] Modules, partie 10 · Salaires (18/11/2026, track C on copy C): QA (crawler as the CF, the Comptable, the DG and
+      Ops on Gestion du Personnel and Déclarations Fiscales; then the month by hand, scripted: an advance requested,
+      approved, refused again, paid out; the grid; a second run; « Marquer Payées »; the entries, the DIPE, the PHP log),
+      PR #59 (VIDEO_QA_FINDINGS §10, all five rows: « Payé » only once paid, « Annuler la Paie » reversing linked entries,
+      pending-only approvals and paid-out-only deductions, the dead « Décaisser » button, the Comptable approves advances,
+      the FNE booked so 432 equals the DIPE, no family fields; migration 136 with ten help articles; `payroll_flow.test.php`),
+      then #63 and #64 from the rehearsal and the first take (a calculated month's grid shows its payslips, a row with no
+      salary locked, windows above the shell, one notice at a time, roles named as in Paramètres). All merged and
+      deployed; live serves the new script and the payroll API refuses anonymous calls (migration 136 on live data not
+      checked: needs a sign-in). Pay on camera is the real grid, by the owner's decision, and the video films
+      Gestion du Personnel only so its audience stays the payroll roles (a page on screen widens it). On the copy the
+      Comptable approves and pays out an example 30 000 F advance for the Responsable des Opérations from the Caisse; the
+      Contrôleur Financier undoes November (calculated on 03/11 with a 50 000 F prime on base 0 for the Comptable and the
+      support account), calculates it again (4 payslips, the advance deducted, FNE booked) and pays it from CCA Bank
+      (561 713 F). Rehearsing each shot's actions without recording (a light driver) caught four issues before a filming
+      turn was spent. Owner questions #13 and #14 (live November, the FNE never accrued) and finding 10.6 (payroll needs
+      a login, so drivers without one cannot be paid) are open. The copy is left as snapshot `after-10-salaires`.
 - [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
       Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.
