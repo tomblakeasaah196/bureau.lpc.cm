@@ -39,7 +39,7 @@ $login = $read('index.php');
 $help  = $read('assets/js/modules/help-admin.js');
 $prefs = $read('includes/classes/Prefs.php');
 $qa    = $read('scripts/video/qa.js');
-$mig   = $read('migrations/137_admin_settings_audit_help.sql');
+$mig   = $read('migrations/140_admin_settings_audit_help.sql');
 
 $fail = 0;
 function check(string $label, bool $ok): void
