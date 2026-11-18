@@ -247,9 +247,9 @@
         }
         dels.forEach(d => {
             const m = DELIVERY_MODES[d.delivery_mode] || DELIVERY_MODES.own_fleet;
-            const who = d.delivery_mode === 'supplier' ? (d.supplier_name || '—')
+            const who = d.delivery_mode === 'supplier' ? (d.supplier_name || '')
                       : d.delivery_mode === 'client_pickup' ? 'Véhicule client'
-                      : (d.driver_name || '—');
+                      : [d.driver_name, d.plate_number].filter(Boolean).join(' · ');
             const signed = d.signed_at
                 ? LPC.html`<span class="text-[10px] font-bold text-emerald-600"><i class="fas fa-signature mr-1"></i>Signé ${d.signatory_name ? 'par ' + d.signatory_name : ''}</span>`
                 : '<span class="text-[10px] font-bold text-gray-400">Non signé</span>';
@@ -338,7 +338,7 @@
                see that the line was considered and correctly deemed to
                have no consigne — vs. simply being absent from the list. */
             const emptyCell = l.expected === null
-                ? LPC.raw(`<span class="text-gray-300">— sans consigne —</span>`)
+                ? LPC.raw(`<span class="text-gray-300">sans emballage à récupérer</span>`)
                 : LPC.raw(LPC.html`<span class="font-bold text-amber-800">${l.empty_name || ''}</span>`);
             const expectedCell = l.expected === null
                 ? LPC.raw(`<span class="text-gray-300">—</span>`)
@@ -353,6 +353,8 @@
         });
 
         total.textContent = LPC.fmt.int(empties.total_expected_from_order || 0) + ' u.';
+        const pctEl = document.getElementById('so-empties-pct');
+        if (pctEl) pctEl.textContent = `${Number(empties.min_pct ?? 100)} %`;
         owed.textContent  = LPC.fmt.int((empties.client && empties.client.owed)      || 0) + ' u.';
         inflt.textContent = LPC.fmt.int((empties.client && empties.client.in_flight) || 0) + ' u.';
 
@@ -386,7 +388,10 @@
         if (o.status === 'pending') {
             html += `<a href="/modules/sales/orders.php" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm shadow-sm flex items-center gap-2"><i class="fas fa-truck-loading"></i> Générer un BL</a>`;
         }
-        if (o.status !== 'cancelled' && (d.deliveries || []).length === 0) {
+        // An order whose BLs the client has not signed can still be cancelled:
+        // the server takes the BLs back with it (VIDEO_QA_FINDINGS 5.4).
+        const signed = (d.deliveries || []).some(x => x.status === 'completed');
+        if (['pending', 'dispatched'].includes(o.status) && !signed) {
             html += `<button onclick="window.LPC_cancelOrder()" data-perm="sales.orders.cancel" class="px-4 py-2.5 bg-white border border-red-200 text-red-600 hover:bg-red-50 rounded-xl font-bold text-sm flex items-center gap-2"><i class="fas fa-ban"></i> Annuler</button>`;
         }
         box.innerHTML = html;

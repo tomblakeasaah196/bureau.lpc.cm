@@ -775,7 +775,7 @@ try {
             $discount_parts  = [];
 
             $stmtOrderDisc = $db->prepare("
-                SELECT so.id, so.reference, so.discount_amount, so.discount_note,
+                SELECT so.id, so.reference, so.order_discount_amount, so.discount_note,
                        so.subtotal AS order_subtotal,
                        COALESCE(SUM(di.delivered_quantity * di.unit_price), 0) AS billed_value,
                        COALESCE((
@@ -788,13 +788,16 @@ try {
                   JOIN sales_orders so ON so.id = d.sales_order_id
                   JOIN delivery_items di ON di.delivery_id = d.id
                  WHERE d.id IN ($placeholders)
-                   AND so.discount_amount > 0
-                 GROUP BY so.id, so.reference, so.discount_amount, so.discount_note, so.subtotal
+                   AND so.order_discount_amount > 0
+                 GROUP BY so.id, so.reference, so.order_discount_amount, so.discount_note, so.subtotal
             ");
             $stmtOrderDisc->execute($delivery_ids);
 
             foreach ($stmtOrderDisc->fetchAll(PDO::FETCH_ASSOC) as $od) {
-                $order_disc  = (float) $od['discount_amount'];
+                // The order's own remise only: each line is billed at the
+                // price it was sold, its line remise already in it
+                // (discount_amount holds both; VIDEO_QA_FINDINGS 5.5).
+                $order_disc  = (float) $od['order_discount_amount'];
                 $billed      = (float) $od['billed_value'];
                 $delivered   = (float) $od['order_delivered_value'];
 

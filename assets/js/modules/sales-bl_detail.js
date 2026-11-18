@@ -23,8 +23,8 @@
     const STATUS_BADGES = {
         draft:            '<span class="px-3 py-1 bg-gray-100 text-gray-700 text-[10px] font-black uppercase rounded-lg">Brouillon</span>',
         dispatched:       '<span class="px-3 py-1 bg-blue-100 text-blue-800 text-[10px] font-black uppercase rounded-lg"><i class="fas fa-truck mr-1"></i>En transit</span>',
-        driver_confirmed: '<span class="px-3 py-1 bg-amber-100 text-amber-800 text-[10px] font-black uppercase rounded-lg"><i class="fas fa-user-check mr-1"></i>Confirmé chauffeur</span>',
-        completed:        '<span class="px-3 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase rounded-lg"><i class="fas fa-lock mr-1"></i>Clôturé</span>',
+        driver_confirmed: '<span class="px-3 py-1 bg-amber-100 text-amber-800 text-[10px] font-black uppercase rounded-lg"><i class="fas fa-user-check mr-1"></i>Clôturé · à signer</span>',
+        completed:        '<span class="px-3 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase rounded-lg"><i class="fas fa-signature mr-1"></i>Signé par le client</span>',
         cancelled:        '<span class="px-3 py-1 bg-red-100 text-red-800 text-[10px] font-black uppercase rounded-lg">Annulé</span>',
     };
 
@@ -115,10 +115,36 @@
         // The signature images themselves are deliberately not sent by the API —
         // they are large base64 blobs and this is a summary page. Presence is
         // what matters here; the image lives on the printable BL.
-        box.innerHTML =
-            card('Chauffeur', 'fa-truck', !!b.driver_signed_at, b.driver_name, b.driver_signed_at, b.driver_digital_hash) +
-            card('Client', 'fa-user-check', !!b.signed_at,
-                 [b.signatory_name, b.signatory_role].filter(Boolean).join(' — '), b.signed_at, b.digital_hash);
+        // LPC's side is the office closing the delivery (« Clôturer »), no
+        // driver signature: LPC's drivers have no accounts. The client's
+        // side is the signature on the BL's link (sign_bl.php).
+        const closed = ['driver_confirmed', 'completed'].includes(b.status);
+        const m = MODES[b.delivery_mode] || MODES.own_fleet;
+        const who = b.delivery_mode === 'own_fleet'
+            ? [b.driver_name, b.plate_number].filter(Boolean).join(' · ')
+            : m.label;
+        const lpc = `
+            <div class="border ${closed ? 'border-emerald-200 bg-emerald-50/40' : 'border-gray-200'} rounded-xl p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-[10px] font-black uppercase tracking-widest ${closed ? 'text-emerald-800' : 'text-gray-500'}">
+                        <i class="fas ${m.icon} mr-1"></i>Livraison LPC
+                    </span>
+                    ${closed
+                        ? '<span class="text-[10px] font-black text-emerald-700"><i class="fas fa-check-circle"></i> Clôturée</span>'
+                        : '<span class="text-[10px] font-black text-gray-400">En transit</span>'}
+                </div>
+                <p class="text-sm font-bold text-gray-800">${LPC.escapeHtml(who || '')}</p>
+                <p class="text-[10px] font-bold text-gray-500">${LPC.escapeHtml(b.created_by_name ? 'BL établi par ' + b.created_by_name : '')}</p>
+            </div>`;
+        box.innerHTML = lpc +
+            card('Client', 'fa-user-check', b.status === 'completed',
+                 [b.signatory_name, b.signatory_role].filter(Boolean).join(' · '), b.signed_at, b.digital_hash);
+
+        if (b.status === 'cancelled') {
+            box.innerHTML += LPC.html`<div class="md:col-span-2 border border-red-200 bg-red-50 rounded-xl p-4 text-sm font-bold text-red-800">
+                <i class="fas fa-ban mr-1"></i> BL annulé${b.cancelled_by_name ? ' par ' + b.cancelled_by_name : ''}${b.cancelled_at ? ' le ' + LPC.fmt.date(b.cancelled_at) : ''} : ${b.cancellation_reason || ''}.
+                Les bouteilles sont revenues en stock.</div>`;
+        }
     }
 
     function renderLines(items, shortTotal) {
@@ -143,7 +169,7 @@
                 ? '<span class="text-gray-400 italic text-xs">en cours</span>'
                 : `<span class="font-black text-emerald-700">${it.qty_accepted}</span>`;
             const shortCell = it.qty_short === null
-                ? '<span class="text-gray-300">—</span>'
+                ? '<span class="text-gray-300">·</span>'
                 : (it.qty_short > 0
                     ? `<span class="font-black text-red-600">−${it.qty_short}</span>`
                     : '<span class="text-emerald-500"><i class="fas fa-check"></i></span>');

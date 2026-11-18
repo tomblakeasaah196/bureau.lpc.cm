@@ -52,24 +52,17 @@ require_once __DIR__ . '/notify.php';
 require_once __DIR__ . '/../classes/JournalPoster.php';
 
 /**
- * Insert an admin/finance-visible notification. Shared by both flows.
- * Extracted from cre_controller.php's private notifyAdmin() so the new
- * unified path doesn't accidentally use a different targeting rule
- * (admin+finance active users).
+ * Tell the people who act on a signed document, by permission (default: the
+ * empties side and Facturation; a BL names Operations and Facturation, a devis
+ * the commercial side).
  */
-function lpc_signature_notify_admin(PDO $db, string $title, string $message, ?string $relatedUrl = null, string $type = 'info'): void
+function lpc_signature_notify_admin(PDO $db, string $title, string $message, ?string $relatedUrl = null, string $type = 'info', array $permissions = ['operations.empties.view', 'accounting.invoices.create']): void
 {
+    // By permission, once per person (VIDEO_QA_FINDINGS 5.7): the roles
+    // 'admin' and 'finance' were named here, and 'finance' does not exist, so
+    // the Contrôleur Financier and the Comptable were never told.
     try {
-        $ids = $db->query(
-            "SELECT u.id
-               FROM users u
-               JOIN roles r ON r.id = u.role_id
-              WHERE r.name IN ('admin', 'finance')
-                AND u.status = 'active'"
-        )->fetchAll(PDO::FETCH_COLUMN);
-        if (!$ids) return;
-        $ins = $db->prepare('INSERT INTO notifications (user_id, title, message, type, related_url) VALUES (?, ?, ?, ?, ?)');
-        foreach ($ids as $uid) $ins->execute([(int) $uid, $title, $message, $type, $relatedUrl]);
+        lpc_notify_permission($db, $permissions, $title, $message, $relatedUrl, $type);
     } catch (Throwable $e) {
         // Notifications are best-effort — a broken row must not block a
         // customer's signature. Log and continue.
@@ -300,9 +293,11 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
     //    forging an item_id in the payload.
     $editedItems = is_array($extras['items'] ?? null) ? $extras['items'] : [];
     if ($editedItems) {
+        // Never more accepted than shipped: the bottles counted out of stock
+        // and into the client's empties are the ones that left on this BL.
         $upItem = $db->prepare(
             "UPDATE delivery_items
-                SET delivered_quantity = ?, returned_empty_qty = ?
+                SET delivered_quantity = LEAST(quantity, ?), returned_empty_qty = ?
               WHERE id = ? AND delivery_id = ?"
         );
         foreach ($editedItems as $ei) {
@@ -336,12 +331,14 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
     // 3. Ledger + inventory math. Same shape as the old sign_bl action.
     $items = $db->prepare(
         "SELECT di.product_id, di.quantity, di.delivered_quantity, di.returned_empty_qty,
-                di.unit_price, p.linked_empty_id
+                di.unit_price, p.linked_empty_id,
+                (SELECT MAX(soi.list_price) FROM sales_order_items soi
+                  WHERE soi.sales_order_id = ? AND soi.product_id = di.product_id) AS list_price
            FROM delivery_items di
            JOIN products p ON p.id = di.product_id
           WHERE di.delivery_id = ?"
     );
-    $items->execute([$blId]);
+    $items->execute([$del['sales_order_id'], $blId]);
     $rows = $items->fetchAll(PDO::FETCH_ASSOC);
 
     $restockEmpty = $db->prepare(
@@ -359,7 +356,10 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
     );
     $refusedValues = [];   // product_id => value back into stock
 
-    $newSubtotal = 0.0;
+    $newSubtotal  = 0.0;   // accepted bottles at the client's tariff
+    $netLines     = 0.0;   // accepted bottles at the price sold (line remise or majoration in)
+    $lineDisc     = 0.0;
+    $lineSurch    = 0.0;
     foreach ($rows as $it) {
         $accepted   = (int) $it['delivered_quantity'];
         $emptiesBack = (int) $it['returned_empty_qty'];
@@ -379,7 +379,12 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
             if ($prod) lpc_stock_blend_cump($db, $pid, $prod['qty'], $prod['cump'], $rejected, $cost);
             $refusedValues[$pid] = ($refusedValues[$pid] ?? 0) + $rejected * $cost;
         }
-        $newSubtotal += $accepted * (float) $it['unit_price'];
+        $unit = (float) $it['unit_price'];
+        $list = $it['list_price'] !== null ? (float) $it['list_price'] : $unit;
+        $newSubtotal += $accepted * $list;
+        $netLines    += $accepted * $unit;
+        if ($unit < $list) $lineDisc  += $accepted * ($list - $unit);
+        if ($unit > $list) $lineSurch += $accepted * ($unit - $list);
 
         // Empties ledger — only touched for products that carry a
         // consigne (linked_empty_id). Full ledger consistency guarantee
@@ -387,33 +392,40 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
         if (!empty($it['linked_empty_id'])) {
             $emptyPid = (int) $it['linked_empty_id'];
 
+            // The client's own row, the one with no site: the dispatch put the
+            // bottles in transit there. Without the site filter a client with
+            // a site row too had both rows moved, its empties counted twice
+            // (VIDEO_QA_FINDINGS 5.6).
             $exists = $db->prepare(
                 "SELECT id FROM client_empties_ledger
-                  WHERE client_id = ? AND product_id = ?"
+                  WHERE client_id = ? AND product_id = ? AND site_id IS NULL
+                  LIMIT 1"
             );
             $exists->execute([$del['client_id'], $emptyPid]);
-            if (!$exists->fetchColumn()) {
+            $ledgerId = (int) $exists->fetchColumn();
+            if (!$ledgerId) {
                 $db->prepare(
                     "INSERT INTO client_empties_ledger
-                         (client_id, product_id, total_out, total_in, quantity_owed, quantity_in_flight)
-                     VALUES (?, ?, 0, 0, 0, 0)"
+                         (client_id, site_id, product_id, total_out, total_in, quantity_owed, quantity_in_flight)
+                     VALUES (?, NULL, ?, 0, 0, 0, 0)"
                 )->execute([$del['client_id'], $emptyPid]);
+                $ledgerId = (int) $db->lastInsertId();
             }
             if ($accepted > 0) {
                 $db->prepare(
                     "UPDATE client_empties_ledger
                         SET total_out = total_out + ?,
                             quantity_owed = quantity_owed + ?
-                      WHERE client_id = ? AND product_id = ?"
-                )->execute([$accepted, $accepted, $del['client_id'], $emptyPid]);
+                      WHERE id = ?"
+                )->execute([$accepted, $accepted, $ledgerId]);
             }
             if ($emptiesBack > 0) {
                 $db->prepare(
                     "UPDATE client_empties_ledger
                         SET total_in = total_in + ?,
                             quantity_owed = GREATEST(0, quantity_owed - ?)
-                      WHERE client_id = ? AND product_id = ?"
-                )->execute([$emptiesBack, $emptiesBack, $del['client_id'], $emptyPid]);
+                      WHERE id = ?"
+                )->execute([$emptiesBack, $emptiesBack, $ledgerId]);
                 $restockEmpty->execute([
                     $emptyPid, $emptiesBack, $emptyPid, $blId, $loggedBy,
                 ]);
@@ -431,8 +443,8 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
                 $db->prepare(
                     "UPDATE client_empties_ledger
                         SET quantity_in_flight = GREATEST(0, quantity_in_flight - ?)
-                      WHERE client_id = ? AND product_id = ?"
-                )->execute([$shipped, $del['client_id'], $emptyPid]);
+                      WHERE id = ?"
+                )->execute([$shipped, $ledgerId]);
             }
         }
     }
@@ -447,13 +459,20 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
         );
     }
 
-    // 4. Push totals + payment status back onto the sales order.
-    $so = $db->prepare('SELECT discount_amount FROM sales_orders WHERE id = ?');
+    // 4. Push totals + payment status back onto the sales order, on what the
+    //    client accepted. Each line's price already carries its own remise
+    //    (or majoration); only the order's own remise comes off on top. The
+    //    whole discount_amount used to come off the net lines, so a line
+    //    remise was given twice (VIDEO_QA_FINDINGS 5.5).
+    $so = $db->prepare('SELECT order_discount_amount FROM sales_orders WHERE id = ?');
     $so->execute([$del['sales_order_id']]);
-    $soRow = $so->fetch(PDO::FETCH_ASSOC);
-    $discount = (float) ($soRow['discount_amount'] ?? 0);
+    $orderDisc = (float) ($so->fetchColumn() ?: 0);
+    $orderDisc = min($orderDisc, $netLines);
 
-    $newTotal = max(0.0, $newSubtotal - $discount);
+    $newSubtotal = round($newSubtotal, 2);
+    $lineDisc    = round($lineDisc, 2);
+    $lineSurch   = round($lineSurch, 2);
+    $newTotal    = round(max(0.0, $netLines - $orderDisc), 2);
     $status   = 'unpaid';
     if ($newTotal <= 0 || $pay >= $newTotal) {
         $status = 'paid';
@@ -463,16 +482,21 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
 
     $db->prepare(
         "UPDATE sales_orders
-            SET subtotal = ?, total_amount = ?, status = 'delivered', payment_status = ?
+            SET subtotal = ?, discount_amount = ?, surcharge_amount = ?, total_amount = ?,
+                status = 'delivered', payment_status = ?
           WHERE id = ?"
-    )->execute([$newSubtotal, $newTotal, $status, $del['sales_order_id']]);
+    )->execute([$newSubtotal, round($lineDisc + $orderDisc, 2), $lineSurch, $newTotal, $status, $del['sales_order_id']]);
 
+    // Who acts next: Operations (who dispatched it) and Facturation (who
+    // invoices it). Was the roles 'admin' and 'finance'; 'finance' does not
+    // exist (VIDEO_QA_FINDINGS 5.7).
     lpc_signature_notify_admin(
         $db,
-        'BL Signé & Clôturé',
-        "Le bon de livraison {$del['reference']} a été signé électroniquement.",
+        'BL signé par le client',
+        "Le bon de livraison {$del['reference']} a été signé par le client : il est prêt à facturer.",
         '/modules/sales/bl_detail.php?id=' . (int) $del['id'],
-        'info'
+        'info',
+        ['sales.orders.dispatch', 'accounting.invoices.create']
     );
 }
 

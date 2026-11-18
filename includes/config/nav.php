@@ -97,7 +97,7 @@ $CATALOGUE = [
 
   'crm_clients'    => ['href'=>'/modules/crm/clients.php',                       'icon'=>$I['users'],     'permission'=>'crm.clients.view',             'label_fr'=>'Base Clients & Devis',  'label_en'=>'Clients & Quotes'],
   'crm_studio'     => ['href'=>'/modules/crm/proposal_studio.php',               'icon'=>$I['clipboard'], 'permission'=>'crm.proposals.template',       'label_fr'=>'Studio Proposition',  'label_en'=>'Proposal Studio'],
-  'sales_orders'   => ['href'=>'/modules/sales/orders.php',                      'icon'=>$I['cart'],      'permission'=>'sales.orders.view',            'label_fr'=>'Ventes & Commandes',  'label_en'=>'Sales & Orders'],
+  'sales_orders'   => ['href'=>'/modules/sales/orders.php',                      'icon'=>$I['cart'],      'permission'=>'sales.orders.view', 'also'=>['/modules/sales/order_detail.php', '/modules/sales/bl_detail.php'], 'label_fr'=>'Ventes & Commandes',  'label_en'=>'Sales & Orders'],
 
   'inv_procure'    => ['href'=>'/modules/inventory/procurement.php',             'icon'=>$I['archive'],   'permission'=>'inventory.procurement.view',   'label_fr'=>'Gestion des Achats',  'label_en'=>'Procurement'],
   'inv_stock'      => ['href'=>'/modules/inventory/stock.php',                   'icon'=>$I['boxes'],     'permission'=>'inventory.stock.view',         'label_fr'=>'Stock & Emballages',  'label_en'=>'Stock & Packaging'],

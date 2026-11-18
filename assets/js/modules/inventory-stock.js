@@ -323,6 +323,8 @@
                 return { text: m.note ? LPC.html`Avarie : ${m.note}` : LPC.html`Avarie`, icon: 'fa-trash-alt text-red-500' };
             if (t === 'in_adjustment' && rt === 'delivery')
                 return { text: LPC.html`Refusé par le client, remis en stock${LPC.raw(ref('BL', m.bl_ref))}`, icon: 'fa-undo text-amber-500' };
+            if (t === 'in_adjustment' && rt === 'delivery_cancel')
+                return { text: LPC.html`BL annulé, remis en stock${LPC.raw(ref('BL', m.bl_ref))}`, icon: 'fa-undo text-amber-500' };
             const gap = t === 'in_adjustment' ? 'Surplus constaté à l’inventaire' : 'Manquant constaté à l’inventaire';
             const link = m.audit_token
                 ? LPC.html` <a href="/modules/inventory/print_audit.php?token=${m.audit_token}" target="_blank" class="text-blue-600 hover:text-blue-800 font-black ml-2 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 transition-colors"><i class="fas fa-external-link-alt text-[10px] mr-1"></i>Certificat ${m.audit_ref}</a>`

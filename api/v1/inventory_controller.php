@@ -356,7 +356,7 @@ try {
                     LEFT JOIN purchase_orders po ON im.movement_type = 'in_supplier' AND im.reference_id = po.id
                     LEFT JOIN deliveries d ON im.reference_id = d.id
                          AND ((im.movement_type = 'out_delivery' AND COALESCE(im.reference_type, 'delivery') = 'delivery')
-                              OR (im.movement_type IN ('in_adjustment', 'in_return_emp') AND im.reference_type = 'delivery'))
+                              OR (im.movement_type IN ('in_adjustment', 'in_return_emp') AND im.reference_type IN ('delivery', 'delivery_cancel')))
                     LEFT JOIN recycling_sales rs ON im.movement_type = 'out_delivery' AND im.reference_type = 'recycling_sale' AND im.reference_id = rs.id
                     LEFT JOIN inventory_reports ir ON im.movement_type IN ('in_adjustment', 'out_adjustment')
                          AND COALESCE(im.reference_type, 'inventory_report') = 'inventory_report' AND im.reference_id = ir.id
@@ -1156,7 +1156,7 @@ try {
                 LEFT JOIN purchase_orders po ON m.movement_type = 'in_supplier' AND m.reference_id = po.id
                 LEFT JOIN deliveries d ON m.reference_id = d.id
                      AND ((m.movement_type = 'out_delivery' AND COALESCE(m.reference_type, 'delivery') = 'delivery')
-                          OR (m.movement_type IN ('in_adjustment', 'in_return_emp') AND m.reference_type = 'delivery'))
+                          OR (m.movement_type IN ('in_adjustment', 'in_return_emp') AND m.reference_type IN ('delivery', 'delivery_cancel')))
                 LEFT JOIN recycling_sales rs ON m.movement_type = 'out_delivery' AND m.reference_type = 'recycling_sale' AND m.reference_id = rs.id
                 LEFT JOIN inventory_reports ir ON m.movement_type IN ('in_adjustment', 'out_adjustment')
                      AND COALESCE(m.reference_type, 'inventory_report') = 'inventory_report' AND m.reference_id = ir.id

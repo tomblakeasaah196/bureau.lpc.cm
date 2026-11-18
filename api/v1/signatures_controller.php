@@ -512,7 +512,10 @@ switch ($action) {
                 $db,
                 'Devis à revoir',
                 "Le client ({$p['client_name']}) souhaite discuter du devis {$p['reference']}.\n"
-                . "Message : " . mb_substr($reason, 0, 500)
+                . "Message : " . mb_substr($reason, 0, 500),
+                '/modules/crm/clients.php#devis',
+                'warning',
+                ['crm.proposals.view']
             );
 
             $db->commit();

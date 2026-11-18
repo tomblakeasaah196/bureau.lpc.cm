@@ -8,6 +8,8 @@ require_once __DIR__ . '/../../includes/classes/Paginator.php';   // Sprint 5
 // is centralised rather than reimplemented per call site.
 require_once __DIR__ . '/../../includes/functions/pricing.php';
 require_once __DIR__ . '/../../includes/functions/notify.php';
+require_once __DIR__ . '/../../includes/functions/stock.php';
+require_once __DIR__ . '/../../includes/functions/sales_delivery.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 
@@ -26,7 +28,14 @@ $jsonData = [];
 if (empty($action)) {
     $rawInput = file_get_contents('php://input');
     $jsonData = json_decode($rawInput, true);
+    if (!is_array($jsonData)) $jsonData = [];
     $action = $jsonData['action'] ?? '';
+    // A form post (FormData) carries the action in $_POST: « Supprimer » sent
+    // one and was told « Action non spécifiée » every time (VIDEO_QA_FINDINGS 5.3).
+    if (empty($action) && !empty($_POST['action'])) {
+        $action   = (string) $_POST['action'];
+        $jsonData = $_POST;
+    }
 }
 
 if (empty($action)) {
@@ -85,9 +94,11 @@ if ($ACTION_PERMS[$action] !== 'PUBLIC') {
 // ==========================================
 
 if ($action === 'driver_confirm_delivery') {
+    // « Clôturer »: the office records what the client accepted and the
+    // empties handed back, then the client signs the BL (sign_bl.php).
     $token = $jsonData['token'] ?? '';
-    $payment_collected = (float)$jsonData['payment_collected'];
-    $adjustments = $jsonData['adjustments'] ?? [];
+    $payment_collected = max(0.0, (float) ($jsonData['payment_collected'] ?? 0));
+    $adjustments = is_array($jsonData['adjustments'] ?? null) ? $jsonData['adjustments'] : [];
 
     if (empty($token)) {
         echo json_encode(['status' => 'error', 'message' => 'Token manquant.']);
@@ -100,13 +111,24 @@ if ($action === 'driver_confirm_delivery') {
         $stmtDel->execute([$token]);
         $delivery = $stmtDel->fetch(PDO::FETCH_ASSOC);
 
-        if (!$delivery || $delivery['status'] === 'completed') {
-            throw new UserFacingException("Ce BL est déjà clôturé.");
-        }
+        if (!$delivery) throw new UserFacingException("BL introuvable.");
+        if ($delivery['status'] === 'completed') throw new UserFacingException("Ce BL est déjà signé par le client.");
+        if ($delivery['status'] === 'cancelled') throw new UserFacingException("Ce BL a été annulé.");
 
-        $stmtUpdateItem = $db->prepare("UPDATE delivery_items SET delivered_quantity = ?, returned_empty_qty = ? WHERE id = ?");
+        // Only this BL's own lines, and never more accepted than shipped: the
+        // item id came from the browser and used to rewrite any BL's line.
+        $stmtItem = $db->prepare("SELECT quantity FROM delivery_items WHERE id = ? AND delivery_id = ?");
+        $stmtUpdateItem = $db->prepare("UPDATE delivery_items SET delivered_quantity = ?, returned_empty_qty = ? WHERE id = ? AND delivery_id = ?");
         foreach ($adjustments as $adj) {
-            $stmtUpdateItem->execute([(int)$adj['accepted_qty'], (int)($adj['returned_empty_qty'] ?? 0), (int)$adj['item_id']]);
+            $itemId = (int) ($adj['item_id'] ?? 0);
+            $stmtItem->execute([$itemId, $delivery['id']]);
+            $shipped = $stmtItem->fetchColumn();
+            if ($shipped === false) continue;
+            $accepted = (int) ($adj['accepted_qty'] ?? 0);
+            if ($accepted < 0 || $accepted > (int) $shipped) {
+                throw new UserFacingException("La quantité acceptée doit être comprise entre 0 et $shipped.");
+            }
+            $stmtUpdateItem->execute([$accepted, max(0, (int) ($adj['returned_empty_qty'] ?? 0)), $itemId, $delivery['id']]);
         }
 
         $stmtCloseDel = $db->prepare("UPDATE deliveries SET status = 'driver_confirmed', payment_collected = ? WHERE id = ?");
@@ -240,19 +262,23 @@ try {
             // Three independent lists are returned instead, and the affectation
             // is demoted to a CONVENIENCE — it pre-selects the vehicle for a
             // driver who happens to have one today, and is silent otherwise.
+            // VIDEO_QA_FINDINGS 5.1 (18/11/2026): the driver is an employee,
+            // as in Flotte's daily assignment (migration 133). It used to be a
+            // user with role 'driver'; LPC has no driver accounts, so the list
+            // was empty and « Flotte LPC » could never be chosen.
             $drivers = $db->query("
-                SELECT u.id, u.first_name, u.last_name
-                  FROM users u
-                  JOIN roles r ON u.role_id = r.id
-                 WHERE u.status = 'active' AND r.name = 'driver'
-                 ORDER BY u.first_name ASC, u.last_name ASC
+                SELECT e.id, e.first_name, e.last_name, e.job_title
+                  FROM employees e
+                 WHERE e.is_active = 1
+                   AND (e.termination_date IS NULL OR e.termination_date >= CURRENT_DATE())
+                 ORDER BY (e.job_title LIKE '%hauffeur%') DESC, e.first_name ASC, e.last_name ASC
             ")->fetchAll(PDO::FETCH_ASSOC);
 
             // Free choice of vehicle: no longer locked to the day's pairing.
             $vehicles = $db->query("
-                SELECT id, plate_number, type
+                SELECT id, plate_number, type, make_model
                   FROM vehicles
-                 WHERE status = 'active' AND is_active = 1
+                 WHERE status = 'active' AND is_active = 1 AND deleted_at IS NULL
                  ORDER BY plate_number ASC
             ")->fetchAll(PDO::FETCH_ASSOC);
 
@@ -267,12 +293,12 @@ try {
             // Today's affectation, kept only as a hint for the UI's vehicle
             // pre-fill. Nothing downstream may treat an empty result as a
             // reason to refuse a dispatch.
+            // Keyed by employee, like the driver list above.
             $stmt = $db->query("
-                SELECT a.driver_id, a.vehicle_id
+                SELECT a.employee_id AS driver_id, a.vehicle_id
                   FROM vehicle_assignments a
-                  JOIN users u    ON a.driver_id  = u.id
                   JOIN vehicles v ON a.vehicle_id = v.id
-                 WHERE a.assignment_date = CURRENT_DATE() AND u.status = 'active'
+                 WHERE a.assignment_date = CURRENT_DATE() AND a.employee_id IS NOT NULL
             ");
             $daily_assignments = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -410,7 +436,9 @@ try {
                 $body = "
                     FROM deliveries d
                     JOIN clients c ON d.client_id = c.id
+                    LEFT JOIN employees e ON d.driver_employee_id = e.id
                     LEFT JOIN users u ON d.driver_id = u.id
+                    LEFT JOIN vehicles v ON d.vehicle_id = v.id
                     LEFT JOIN suppliers s ON d.delivery_supplier_id = s.id
                     WHERE d.date BETWEEN ? AND ?
                 ";
@@ -418,7 +446,7 @@ try {
                 if ($lpc_q !== '') {
                     [$body, $params] = Paginator::addWhere(
                         $body, $params, $lpc_q,
-                        ['d.reference', 'c.name', 'd.status', 'u.first_name', 'u.last_name', 's.name']
+                        ['d.reference', 'c.name', 'd.status', 'e.first_name', 'e.last_name', 'u.first_name', 'u.last_name', 'v.plate_number', 's.name']
                     );
                 }
                 $body .= " ORDER BY d.date DESC, d.id DESC";
@@ -430,7 +458,8 @@ try {
                     "d.id, d.reference, d.date, d.status, d.token, d.payment_collected,
                      d.delivery_mode, d.sales_order_id,
                      c.name as client_name,
-                     CONCAT(u.first_name, ' ', u.last_name) as driver_name,
+                     COALESCE(CONCAT(e.first_name, ' ', e.last_name), CONCAT(u.first_name, ' ', u.last_name)) as driver_name,
+                     v.plate_number,
                      s.name as supplier_name,
                      (SELECT so2.reference FROM sales_orders so2 WHERE so2.id = d.sales_order_id)
                         AS so_reference,
@@ -489,7 +518,7 @@ try {
                 $kpis = $stmtKpi->fetch(PDO::FETCH_ASSOC);
 
                 $responseData['kpis'] = [
-                    'kpi_dl_dispatched' => $kpis['kpi_dl_fleet'] . ' Camion(s) · ' . $kpis['kpi_dl_supplier'] . ' Frn.',
+                    'kpi_dl_dispatched' => $kpis['kpi_dl_fleet'] . ' Flotte · ' . $kpis['kpi_dl_supplier'] . ' Fourn.',
                     'kpi_dl_completed'  => $kpis['kpi_dl_completed'] . ' BL(s)',
                     'kpi_dl_cash'       => number_format($kpis['kpi_dl_cash'], 0, ',', ' ') . ' FCFA',
                     'kpi_dl_returns'    => $kpis['kpi_dl_returns'] . ' Ligne(s)'
@@ -742,11 +771,11 @@ try {
 
             $stmtSO = $db->prepare("
                 INSERT INTO sales_orders
-                    (reference, client_id, proposal_id, date, subtotal, discount_amount, discount_note, surcharge_amount, total_amount, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (reference, client_id, proposal_id, date, subtotal, discount_amount, order_discount_amount, discount_note, surcharge_amount, total_amount, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $stmtSO->execute([
-                $reference, $client_id, $proposal_id, $date, $subtotal, $total_discount,
+                $reference, $client_id, $proposal_id, $date, $subtotal, $total_discount, $order_discount,
                 $discount_note !== '' ? $discount_note : null,
                 $line_surcharge_total,
                 $total_amount, $user_id,
@@ -807,9 +836,13 @@ try {
 
         case 'generate_dispatch':
             $db->beginTransaction();
-            $so_id = (int)$jsonData['sales_order_id'];
-            $date = $jsonData['date'];
-            $driver_id = !empty($jsonData['driver_id']) ? (int)$jsonData['driver_id'] : null;
+            $so_id = (int) ($jsonData['sales_order_id'] ?? 0);
+            $date  = (string) ($jsonData['date'] ?? '');
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $date = date('Y-m-d');
+            // The driver is an employee (VIDEO_QA_FINDINGS 5.1); driver_id is
+            // then the employee's login, when they have one.
+            $driver_employee_id = !empty($jsonData['driver_employee_id']) ? (int) $jsonData['driver_employee_id'] : null;
+            $driver_id = null;
             $vehicle_id = !empty($jsonData['vehicle_id']) ? (int)$jsonData['vehicle_id'] : null;
 
             // Migration 061 · the logistics channel is now explicit rather than
@@ -841,40 +874,42 @@ try {
                     throw new UserFacingException("Fournisseur introuvable ou inactif.");
                 }
                 // A supplier delivery uses the supplier's own means. No LPC
-                // driver, no LPC vehicle — by definition, not by omission.
-                $driver_id = null;
+                // driver, no LPC vehicle, by definition.
+                $driver_employee_id = null;
                 $vehicle_id = null;
             } elseif ($delivery_mode === 'client_pickup') {
                 // Enlèvement magasin: the client's own vehicle.
-                $driver_id = null;
+                $driver_employee_id = null;
                 $vehicle_id = null;
                 $delivery_supplier_id = null;
             } else { // own_fleet
                 $delivery_supplier_id = null;
-                // The driver is required for the fleet channel — but note what
-                // is NOT required: an entry in vehicle_assignments. Any active
-                // driver is dispatchable whether or not Flotte ran the morning
-                // affectation. That gate is what this change removes.
-                if (!$driver_id) {
+                // « Flotte LPC » is LPC's vehicle and one of its employees at
+                // the wheel. No affectation is required: Flotte's daily
+                // assignment only pre-selects the vehicle.
+                if (!$vehicle_id) {
+                    throw new UserFacingException("Sélectionnez le véhicule de LPC, ou choisissez un autre mode de livraison.");
+                }
+                if (!$driver_employee_id) {
                     throw new UserFacingException("Sélectionnez le chauffeur, ou choisissez un autre mode de livraison.");
                 }
                 $stmtDrv = $db->prepare("
-                    SELECT u.id FROM users u JOIN roles r ON u.role_id = r.id
-                     WHERE u.id = ? AND u.status = 'active' AND r.name = 'driver'
+                    SELECT e.id, (SELECT u.id FROM users u WHERE u.employee_id = e.id AND u.status = 'active' LIMIT 1) AS user_id
+                      FROM employees e
+                     WHERE e.id = ? AND e.is_active = 1
+                       AND (e.termination_date IS NULL OR e.termination_date >= CURRENT_DATE())
                 ");
-                $stmtDrv->execute([$driver_id]);
-                if (!$stmtDrv->fetchColumn()) {
-                    throw new UserFacingException("Chauffeur introuvable ou inactif.");
+                $stmtDrv->execute([$driver_employee_id]);
+                $drv = $stmtDrv->fetch(PDO::FETCH_ASSOC);
+                if (!$drv) {
+                    throw new UserFacingException("Chauffeur introuvable parmi le personnel actif.");
                 }
-                if ($vehicle_id) {
-                    $stmtVeh = $db->prepare("SELECT id FROM vehicles WHERE id = ? AND status = 'active' AND is_active = 1");
-                    $stmtVeh->execute([$vehicle_id]);
-                    if (!$stmtVeh->fetchColumn()) {
-                        throw new UserFacingException("Véhicule introuvable ou hors service.");
-                    }
+                $driver_id = $drv['user_id'] !== null ? (int) $drv['user_id'] : null;
+                $stmtVeh = $db->prepare("SELECT id FROM vehicles WHERE id = ? AND status = 'active' AND is_active = 1 AND deleted_at IS NULL");
+                $stmtVeh->execute([$vehicle_id]);
+                if (!$stmtVeh->fetchColumn()) {
+                    throw new UserFacingException("Véhicule introuvable ou hors service.");
                 }
-                // $vehicle_id stays optional: a driver can leave on foot with a
-                // handcart, or the vehicle can be recorded later.
             }
 
             $stmtCheck = $db->prepare("SELECT client_id, status FROM sales_orders WHERE id = ? FOR UPDATE");
@@ -888,16 +923,15 @@ try {
             $reference = DocCounter::next($db, 'delivery');
             $token = bin2hex(random_bytes(16));
 
-            $stmtDel = $db->prepare("INSERT INTO deliveries (reference, sales_order_id, client_id, driver_id, vehicle_id, delivery_mode, delivery_supplier_id, date, status, token, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'dispatched', ?, ?)");
-            $stmtDel->execute([$reference, $so_id, $order['client_id'], $driver_id, $vehicle_id, $delivery_mode, $delivery_supplier_id, $date, $token, $user_id]);
-            $delivery_id = $db->lastInsertId();
+            $stmtDel = $db->prepare("INSERT INTO deliveries (reference, sales_order_id, client_id, driver_id, driver_employee_id, vehicle_id, delivery_mode, delivery_supplier_id, date, status, token, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'dispatched', ?, ?)");
+            $stmtDel->execute([$reference, $so_id, $order['client_id'], $driver_id, $driver_employee_id, $vehicle_id, $delivery_mode, $delivery_supplier_id, $date, $token, $user_id]);
+            $delivery_id = (int) $db->lastInsertId();
 
             $stmtItems = $db->prepare("SELECT product_id, quantity, unit_price FROM sales_order_items WHERE sales_order_id = ?");
             $stmtItems->execute([$so_id]);
             $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
 
             $stmtDelItem = $db->prepare("INSERT INTO delivery_items (delivery_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)");
-            $stmtInvOut  = $db->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, unit_cost, reference_id, reference_type, logged_by) VALUES (?, 'out_delivery', ?, ?, ?, 'delivery', ?)");
 
             // Sprint 12 (empties in-flight, migration 074) — the client_empties
             // _ledger.quantity_in_flight bucket. Written HERE, at dispatch,
@@ -935,27 +969,19 @@ try {
                   WHERE id = ?"
             );
 
-            // Sprint-4-Batch-B: lock the aggregated stock per product BEFORE
-            // decrementing so two concurrent dispatches for the same SKU can't
-            // over-issue. The FOR UPDATE on products blocks concurrent
-            // damage/audit paths that also touch the same row.
-            $stmtStockLock = $db->prepare("
-                SELECT p.name, p.cump,
-                       COALESCE((SELECT SUM(CASE WHEN movement_type LIKE 'in_%' THEN quantity ELSE -quantity END)
-                                   FROM inventory_movements WHERE product_id = p.id), 0) AS current_qty
-                  FROM products p WHERE p.id = ? FOR UPDATE
-            ");
-
+            // Lock each product's stock BEFORE taking from it, so two
+            // dispatches of the same product cannot over-issue; every movement
+            // goes through lpc_stock_move (its cost: the CUMP of the day).
             foreach ($items as $item) {
-                $stmtStockLock->execute([$item['product_id']]);
-                $prod = $stmtStockLock->fetch(PDO::FETCH_ASSOC);
+                $prod = lpc_stock_lock($db, (int) $item['product_id']);
                 if (!$prod) throw new UserFacingException("Produit #{$item['product_id']} introuvable.");
-                if ((int) $prod['current_qty'] < (int) $item['quantity']) {
-                    throw new UserFacingException("Stock insuffisant pour {$prod['name']} ({$prod['current_qty']} disponible, {$item['quantity']} demandé).");
+                if ($prod['qty'] < (int) $item['quantity']) {
+                    throw new UserFacingException("Stock insuffisant pour {$prod['name']} ({$prod['qty']} disponible, {$item['quantity']} demandé).");
                 }
 
                 $stmtDelItem->execute([$delivery_id, $item['product_id'], $item['quantity'], $item['unit_price']]);
-                $stmtInvOut->execute([$item['product_id'], $item['quantity'], $prod['cump'], $delivery_id, $user_id]);
+                lpc_stock_move($db, (int) $item['product_id'], 'out_delivery', (int) $item['quantity'],
+                               'delivery', $delivery_id, $user_id, $prod['cump']);
 
                 // In-flight ledger bump for consigned products only. Non-
                 // consigné SKUs (Jus 30L etc.) return no rows from the
@@ -1027,12 +1053,17 @@ try {
             break;
 
         case 'delete_order':
-            $so_id = (int)$_POST['id'];
-            $stmtCheck = $db->prepare("SELECT status FROM sales_orders WHERE id = ?");
-            $stmtCheck->execute([$so_id]);
-            if ($stmtCheck->fetchColumn() !== 'pending') throw new UserFacingException("Impossible de supprimer. BL déjà généré.");
-
+            $so_id = (int) ($jsonData['id'] ?? 0);
             $db->beginTransaction();
+            $stmtCheck = $db->prepare("SELECT status FROM sales_orders WHERE id = ? FOR UPDATE");
+            $stmtCheck->execute([$so_id]);
+            $st = $stmtCheck->fetchColumn();
+            if ($st === false) throw new UserFacingException("Commande introuvable.");
+            if ($st !== 'pending') throw new UserFacingException("Suppression impossible : un BL a déjà été généré. Utilisez « Annuler » avec un motif.");
+            $stmtBl = $db->prepare("SELECT COUNT(*) FROM deliveries WHERE sales_order_id = ?");
+            $stmtBl->execute([$so_id]);
+            if ((int) $stmtBl->fetchColumn() > 0) throw new UserFacingException("Suppression impossible : cette commande a un historique de BL. Utilisez « Annuler » avec un motif.");
+
             $db->prepare("DELETE FROM sales_order_items WHERE sales_order_id = ?")->execute([$so_id]);
             $db->prepare("DELETE FROM sales_orders      WHERE id = ?")->execute([$so_id]);
             $db->commit();
@@ -1166,8 +1197,9 @@ try {
             // Every BL raised against this order.
             $stmtDel = $db->prepare("
                 SELECT d.id, d.reference, d.date, d.status, d.token, d.delivery_mode,
-                       d.payment_collected, d.signed_at, d.signatory_name,
-                       CONCAT(u.first_name, ' ', u.last_name) AS driver_name,
+                       d.payment_collected, d.signed_at, d.signatory_name, d.cancellation_reason,
+                       COALESCE(CONCAT(e.first_name, ' ', e.last_name), CONCAT(u.first_name, ' ', u.last_name)) AS driver_name,
+                       v.plate_number,
                        s.name AS supplier_name,
                        (SELECT i.reference FROM invoice_deliveries idl
                           JOIN invoices i ON i.id = idl.invoice_id
@@ -1175,7 +1207,9 @@ try {
                        (SELECT idl.invoice_id FROM invoice_deliveries idl
                          WHERE idl.delivery_id = d.id LIMIT 1) AS invoice_id
                   FROM deliveries d
+                  LEFT JOIN employees e ON e.id = d.driver_employee_id
                   LEFT JOIN users u     ON u.id = d.driver_id
+                  LEFT JOIN vehicles v  ON v.id = d.vehicle_id
                   LEFT JOIN suppliers s ON s.id = d.delivery_supplier_id
                  WHERE d.sales_order_id = ?
                  ORDER BY d.date ASC, d.id ASC
@@ -1242,6 +1276,11 @@ try {
                   LEFT JOIN products pe ON pe.id = p.linked_empty_id
                  WHERE p.id = ?
             ");
+            // LPC sells the bottle; the client must hand back at least the
+            // share its signed devis sets (empties_return_min_pct, migration
+            // 137; 100 % when none). Counted on what the client accepted once
+            // the BL is signed, on what left before that.
+            $minPct = $order['empties_return_min_pct'] !== null ? (float) $order['empties_return_min_pct'] : 100.0;
             $expected_empties = [];
             $expected_total = 0;
             foreach ($lines as $l) {
@@ -1257,12 +1296,13 @@ try {
                     ];
                     continue;
                 }
-                $exp = (int) $l['qty_dispatched'];
+                $base = (int) $l['qty_accepted'] > 0 ? (int) $l['qty_accepted'] : (int) $l['qty_dispatched'];
+                $exp  = (int) ceil($base * $minPct / 100 - 1e-9);
                 $expected_total += $exp;
                 $expected_empties[] = [
                     'product_id'    => (int) $l['product_id'],
                     'product_name'  => $l['product_name'],
-                    'qty_dispatched'=> $exp,
+                    'qty_dispatched'=> $base,
                     'empty_name'    => $pe['empty_name'],
                     'expected'      => $exp,
                 ];
@@ -1290,15 +1330,18 @@ try {
                         'qty_dispatched' => $tot_dispatched,
                         'qty_accepted'   => $tot_accepted,
                         'qty_remaining'  => max(0, $tot_ordered - $tot_dispatched),
-                        'line_discount'  => round($tot_line_disc, 2),
-                        // The order-level exceptional remise, i.e. everything
-                        // given away that was not attributable to a line.
-                        'order_discount' => round((float) $order['discount_amount'] - $tot_line_disc, 2),
+                        // What the order's remise holds beyond its own remise:
+                        // the lines', on what the client accepted once the BL
+                        // is signed (lpc_signature_side_effects_bl).
+                        'line_discount'  => round(max(0, (float) $order['discount_amount'] - (float) $order['order_discount_amount']), 2),
+                        // The order-level exceptional remise, as typed on the
+                        // order (migration 142; was derived from the total).
+                        'order_discount' => round((float) $order['order_discount_amount'], 2),
                         // Migration 070 · line-level surcharges. Never netted
                         // against line_discount / order_discount in this
                         // response; the front end shows them as an opposing
                         // row in the totals card.
-                        'line_surcharge' => round($tot_line_surch, 2),
+                        'line_surcharge' => round((float) $order['surcharge_amount'], 2),
                     ],
                     // Sprint 12 — new payload branch. Front-end reads
                     // `empties.lines` for the per-line table and
@@ -1306,6 +1349,7 @@ try {
                     'empties' => [
                         'lines'  => $expected_empties,
                         'total_expected_from_order' => $expected_total,
+                        'min_pct' => $minPct,
                         'client' => [
                             'client_id' => (int) $order['client_id'],
                             'owed'      => (int) $clientEmpties['owed'],
@@ -1327,8 +1371,9 @@ try {
             $stmt = $db->prepare("
                 SELECT d.*, c.name AS client_name, c.phone AS client_phone,
                        so.reference AS so_reference,
-                       CONCAT(u.first_name, ' ', u.last_name) AS driver_name,
-                       v.plate_number, s.name AS supplier_name,
+                       COALESCE(CONCAT(e.first_name, ' ', e.last_name), CONCAT(u.first_name, ' ', u.last_name)) AS driver_name,
+                       v.plate_number, v.make_model, s.name AS supplier_name,
+                       CONCAT(ca.first_name, ' ', ca.last_name) AS cancelled_by_name,
                        CONCAT(cb.first_name, ' ', cb.last_name) AS created_by_name,
                        (SELECT i.reference FROM invoice_deliveries idl
                           JOIN invoices i ON i.id = idl.invoice_id
@@ -1338,15 +1383,34 @@ try {
                   FROM deliveries d
                   JOIN clients c ON c.id = d.client_id
                   LEFT JOIN sales_orders so ON so.id = d.sales_order_id
+                  LEFT JOIN employees e ON e.id = d.driver_employee_id
                   LEFT JOIN users u     ON u.id = d.driver_id
                   LEFT JOIN vehicles v  ON v.id = d.vehicle_id
                   LEFT JOIN suppliers s ON s.id = d.delivery_supplier_id
                   LEFT JOIN users cb    ON cb.id = d.created_by
+                  LEFT JOIN users ca    ON ca.id = d.cancelled_by
                  WHERE d.id = ?
             ");
             $stmt->execute([$del_id]);
             $delivery = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$delivery) throw new UserFacingException("BL introuvable.");
+
+            // Who signed for the client: document_signatures is the record
+            // since the unified signature (the old columns stay empty, so the
+            // page printed « — » under « Client · Signé »).
+            $stmtSig = $db->prepare("
+                SELECT signatory_name, signatory_role, signatory_phone, signed_at
+                  FROM document_signatures
+                 WHERE document_type = 'bl' AND document_id = ? AND party = 'external' AND revoked_at IS NULL
+                 ORDER BY id DESC LIMIT 1
+            ");
+            $stmtSig->execute([$del_id]);
+            if ($sig = $stmtSig->fetch(PDO::FETCH_ASSOC)) {
+                $delivery['signatory_name']  = $sig['signatory_name'];
+                $delivery['signatory_role']  = $sig['signatory_role'];
+                $delivery['signatory_phone'] = $sig['signatory_phone'];
+                $delivery['signed_at']       = $delivery['signed_at'] ?: $sig['signed_at'];
+            }
 
             // Signature images are large base64 blobs and this endpoint feeds a
             // summary page — send whether they exist, not the payload itself.
@@ -1584,16 +1648,31 @@ try {
             if (!$cur) throw new UserFacingException("Commande introuvable.");
             if ($cur['status'] === 'cancelled') throw new UserFacingException("Cette commande est déjà annulée.");
 
+            // VIDEO_QA_FINDINGS 5.4: this used to refuse any order with a BL
+            // and send the user to « annuler la livraison », which existed
+            // nowhere. A BL the client has not signed is taken back here, with
+            // the order: the bottles return to stock at the cost they left at,
+            // the delivery entry is reversed, the empties in transit released.
+            // A signed BL is a delivery that happened: Facturation's avoir.
             $stmtLive = $db->prepare("
-                SELECT COUNT(*) FROM deliveries
-                 WHERE sales_order_id = ? AND status <> 'cancelled'
+                SELECT d.id, d.reference, d.status,
+                       (SELECT COUNT(*) FROM invoice_deliveries idl WHERE idl.delivery_id = d.id) AS invoiced
+                  FROM deliveries d
+                 WHERE d.sales_order_id = ? AND d.status <> 'cancelled'
+                 FOR UPDATE
             ");
             $stmtLive->execute([$so_id]);
-            if ((int) $stmtLive->fetchColumn() > 0) {
-                throw new UserFacingException(
-                    "Cette commande a déjà un BL actif. Annulez d'abord la livraison "
-                    . "(le stock et l'écriture comptable doivent être repris)."
-                );
+            $live = $stmtLive->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($live as $bl) {
+                if ($bl['status'] === 'completed' || (int) $bl['invoiced'] > 0) {
+                    throw new UserFacingException(
+                        "Le BL {$bl['reference']} est signé par le client : la livraison a eu lieu. "
+                        . "Pour la reprendre, établissez un avoir dans Facturation."
+                    );
+                }
+            }
+            foreach ($live as $bl) {
+                lpc_sales_cancel_delivery($db, (int) $bl['id'], $reason, $user_id);
             }
 
             $db->prepare("
@@ -1760,11 +1839,11 @@ try {
 
             $db->prepare("
                 UPDATE sales_orders
-                   SET date = ?, subtotal = ?, discount_amount = ?, discount_note = ?,
+                   SET date = ?, subtotal = ?, discount_amount = ?, order_discount_amount = ?, discount_note = ?,
                        surcharge_amount = ?, total_amount = ?
                  WHERE id = ?
             ")->execute([
-                $date, $subtotal, $total_discount,
+                $date, $subtotal, $total_discount, $order_discount,
                 $discount_note !== '' ? $discount_note : null,
                 $line_surcharge_total, $total_amount, $so_id,
             ]);

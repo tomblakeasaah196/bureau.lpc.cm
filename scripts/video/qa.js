@@ -243,6 +243,8 @@ async function main() {
         } else if (!(await closeWindows(page))) {
           await page.reload({ waitUntil: "domcontentloaded" }).catch(() => null);
           await settle(page, 700);
+          // Back on the tab being crawled: a reload opens the page's first tab.
+          if (view.tab) { await page.evaluate(markClickables, true); await page.locator(`[data-qa="${view.tab.id}"]`).click({ timeout: 4000 }).catch(() => null); await settle(page, 500); }
           await page.evaluate(markClickables, false);
           bucket = [];
         }
