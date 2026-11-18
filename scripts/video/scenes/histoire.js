@@ -237,7 +237,7 @@ module.exports = {
       shots: [
         station(6, "Étape sept : les vides, suivis par le Responsable des Opérations.", "operations"),
         glimpse({ as: "bertin", role: "operations", start: PAGE.empties, ground: on("pre-histoire-vides"), lines: [
-          { say: "Pour PROMETAL, l'application compte les bonbonnes livrées, les vides rendus, et ce qui reste à récupérer pour atteindre 80 %.",
+          { say: "Pour PROMETAL : deux cents bonbonnes livrées, donc au moins 160 vides à récupérer. Après une collecte de 130, il en reste 30.",
             do: (s) => h.soft(s, s.page.locator("tr").filter({ hasText: "PROMETAL" }).first()) },
           { say: "Chaque collecte produit un Certificat de Restitution d'Emballages, le CRE, que le client signe.",
             do: (s) => h.soft(s, s.page.getByRole("button", { name: /Collecter/ }).first()) },
@@ -252,11 +252,11 @@ module.exports = {
       shots: [
         station(7, "Étape huit : la facture et l'encaissement, tenus par le Comptable.", "comptable"),
         glimpse({ as: "daniel", role: "comptable", start: PAGE.invoices, ground: on("pre-histoire-facture"), lines: [
-          { say: "Il facture le bon de livraison signé. L'échéance tombe quinze jours plus tard, comme le devis le prévoit.",
+          { say: "Il facture le bon de livraison signé : 455 000 FCFA, à payer quinze jours plus tard, comme le devis le prévoit.",
             do: (s) => h.soft(s, s.page.locator("tr").filter({ hasText: "PROMETAL" }).first()) },
-          { say: "PROMETAL retient l'impôt à la source : la facture montre le net à virer.",
+          { say: "PROMETAL retient 2,2 % d'acompte d'impôt : la facture montre le net à virer, 444 990 FCFA.",
             do: (s) => h.soft(s, s.page.locator("tr").filter({ hasText: "PROMETAL" }).first()) },
-          { say: "Le virement arrivé, le Comptable l'encaisse, avec la retenue et son attestation.",
+          { say: "Le virement arrivé, le Comptable l'encaisse : la retenue est comptée, et l'attestation de PROMETAL enregistrée pour la déclaration.",
             do: (s) => h.soft(s, s.page.locator("tr").filter({ hasText: "PROMETAL" }).first()) },
         ] }),
       ],
