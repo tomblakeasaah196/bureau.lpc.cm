@@ -529,7 +529,7 @@ $user_role = $_SESSION['user_role'];
             <div class="bg-gray-50 px-8 py-5 border-t border-gray-200 flex justify-between items-center gap-4 shrink-0">
                 <p class="text-[11px] font-bold text-gray-500">
                     <i class="fas fa-shield-halved mr-1"></i>
-                    Un changement de prix est tracé dans l'historique du fournisseur — ce n'est ni une remise, ni une ristourne.
+                    Un nouveau prix entre dans l'historique du fournisseur : ce n'est ni une remise, ni une ristourne.
                 </p>
                 <div class="flex gap-3">
                     <button type="button" onclick="closeModal('poPriceConfirmModal')" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors">Retour</button>

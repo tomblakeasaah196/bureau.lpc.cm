@@ -15,6 +15,7 @@ its choreography together.
 | Courrier (your mailbox, shared mailboxes, Praxis AI) | `courrier.js` (+ `courrier.seed.php`) | Made 18/11/2026, 6:28, 10 chapters, -16.0 LUFS, 18.0 MB; sent in the chat; to publish (§5) |
 | Introduction, partie 2 : Chacun son espace (each role's home and menu) | `intro-2-chacun-son-espace.js` | Made 18/11/2026, 4:44, 7 chapters, -16.1 LUFS, 12.7 MB; sent in the chat; to publish in the live Centre d'Aide once deployed (§5) |
 | Modules, partie 1 : Données de Base (products, client and supplier tariffs, suppliers and their 401, employees; what view-only roles see) | `donnees-de-base.js` | Made 18/11/2026, 6:33, 9 chapters, -16.0 LUFS, 15.8 MB; sent in the chat; files in `bureau_video/publish/donnees-de-base/`; to publish (§5) |
+| Modules, partie 2 : Gestion des Achats (order at the tariff, price check, remise or ristourne, two receptions, ristourne earned, payment, order detail, cancellation, the Grand Livre) | `gestion-des-achats.js` | Made 18/11/2026, 5:22, 11 chapters, -16.1 LUFS, 13.8 MB; sent in the chat; files in `bureau_video/publish/gestion-des-achats/`; to publish (§5) |
 
 ---
 
@@ -382,5 +383,14 @@ the help search, the help AI's answers and each page's « ? »), and sent in the
       details never go on camera); HOREB SARL is saved unchanged to show its 401002 in the confirmation; no
       supplier or tariff is created on camera (none agreed in real life). The copy is left as snapshot
       `after-01-donnees-de-base` for Gestion des Achats.
+- [x] Modules, partie 2 · Gestion des Achats (18/11/2026): QA (crawler as the four roles on Achats, Ristournes, Stock,
+      order detail and Grand Livre; then the whole chain by hand, scripted), PR #53 (§2 and 3.1: Ops receives,
+      perpetual stock at reception, payment only when fully received, remise vs ristourne, ristourne without
+      withholding, migration 131), merged and deployed; live serves the new script, the purchase APIs refuse
+      anonymous calls; migration 131's effect on live data not checked (needs a sign-in). Filmed on the copy after
+      a power cut mid-take (full refilm from `pre-02-film`). The copy had no `post_journal_entry` (§6.22). Decisions:
+      the video's order is PO-2611-00007 (100 OPUR 20L, 185 000 F), paid from MTN MOBILE MONEY; the HOREB remise and
+      the cancellation are shown and not saved. 5:22 rather than 6: every step is in; nothing was padded. The copy is
+      left as snapshot `after-02-gestion-des-achats` (260 OPUR 20L in stock, MTN 704 000 F).
 - [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
       Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.
