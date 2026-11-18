@@ -211,8 +211,14 @@ final class JournalPoster
 
         // 4. Post the JE draft, add balanced lines, call post_journal_entry.
         $ref  = 'PAY-' . $pay['reference'];
+        $invRef = '#' . $pay['invoice_id'];
+        if ($pay['invoice_id']) {
+            $ir = $db->prepare("SELECT i.reference, c.name FROM invoices i JOIN clients c ON c.id = i.client_id WHERE i.id = ?");
+            $ir->execute([(int) $pay['invoice_id']]);
+            if ($row = $ir->fetch(PDO::FETCH_ASSOC)) $invRef = $row['reference'] . ' · ' . $row['name'];
+        }
         $desc = $pay['invoice_id']
-            ? ("Encaissement paiement facture #{$pay['invoice_id']}"
+            ? ("Encaissement facture {$invRef}"
                 . ($withheld > 0 ? " (dont AIR retenu à la source " . number_format($withheld, 0, ',', ' ') . " FCFA)" : ''))
             : "Avance client (portefeuille)";
         $je_id = self::createDraftJe($db, $ref, 'BQ', (string)$pay['payment_date'], $desc, $user_id,
@@ -362,7 +368,9 @@ final class JournalPoster
         $revenue_split = self::splitRevenueByProduct($db, (int) $invoice_id, $subtotal, $revenue_coa);
 
         $ref  = 'INV-' . $inv['reference'];
-        $desc = "Émission facture #{$inv['reference']} (client #{$inv['client_id']})";
+        $cn = $db->prepare("SELECT name FROM clients WHERE id = ?");
+        $cn->execute([(int) $inv['client_id']]);
+        $desc = "Facture {$inv['reference']} · " . ((string) ($cn->fetchColumn() ?: "client #{$inv['client_id']}"));
         // source_type/source_id so the entry is traceable back to the invoice
         // and can be extourned with reverseSource('invoice', $id) — the sale
         // was the only document type still posting untraceably.
@@ -2102,7 +2110,9 @@ final class JournalPoster
         if (!$client_411) throw new RuntimeException("JournalPoster: 411 (Clients) not mapped.");
 
         $ref  = 'WLT-' . $pay['reference'];
-        $desc = "Imputation avoir client sur facture #{$pay['invoice_id']}";
+        $ir = $db->prepare("SELECT reference FROM invoices WHERE id = ?");
+        $ir->execute([(int) $pay['invoice_id']]);
+        $desc = "Trop-perçu utilisé sur la facture " . ((string) ($ir->fetchColumn() ?: '#' . $pay['invoice_id']));
         $je_id = self::createDraftJe($db, $ref, 'OD', (string) $pay['payment_date'], $desc, $user_id,
                                      'wallet_apply', (int) $payment_id);
         self::addLine($db, $je_id, $client_419, $amount, 0.0);
