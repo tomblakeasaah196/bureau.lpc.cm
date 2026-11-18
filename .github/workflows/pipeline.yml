@@ -77,6 +77,8 @@ jobs:
         run: php scripts/tests/proposal_flow.test.php
       - name: Ventes & Commandes (LPC's truck and staff drivers, Ops closes, remises given once, cancelling after a BL)
         run: php scripts/tests/sales_flow.test.php
+      - name: Gestion des Vides (each client's minimum, one debt per bottle size, contests, recycler stock)
+        run: php scripts/tests/empties_flow.test.php
       - name: Gestion du Personnel (advances, the month's payroll, undo, paying, FNE and the DIPE)
         run: php scripts/tests/payroll_flow.test.php
       - name: Trésorerie & Dépenses (one gate, who pays, opening balances, the fuel check)

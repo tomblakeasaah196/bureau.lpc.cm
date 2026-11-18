@@ -290,8 +290,12 @@ final class DataWipeMap
                  WHERE r.id IN ({ids}) AND m.movement_type IN ('in_adjustment', 'out_adjustment')
                    AND EXISTS (SELECT 1 FROM inventory_report_items i WHERE i.report_id = r.id AND i.product_id = m.product_id)
                    AND m.date BETWEEN r.created_at - INTERVAL 1 DAY AND r.created_at + INTERVAL 1 DAY", 'écart d\'inventaire');
-        // A signed CRE puts its empties back in stock without a reference (lpc_signature_side_effects_cre):
-        // same product, quantity and operator, at the signature
+        // A signed CRE puts its empties back in stock (lpc_signature_side_effects_cre): since migration 150 the
+        // movement names its CRE; earlier ones carry no reference (same product, quantity and operator, at the signature)
+        $add('cre_documents', 'inventory_movements', "SELECT m.id FROM inventory_movements m WHERE m.reference_type = 'cre' AND m.reference_id IN ({ids})
+                 AND m.movement_type = 'in_return_emp'", 'emballages rentrés au CRE');
+        $add('cre_documents', 'inventory_movements', "SELECT m.id FROM inventory_movements m WHERE m.reference_type = 'cre_contested' AND m.reference_id IN ({ids})",
+                 'retour contesté par le client');
         $add('cre_documents', 'inventory_movements', "SELECT m.id FROM inventory_movements m JOIN cre_documents c ON m.logged_by = c.operator_id
                  JOIN cre_items i ON i.cre_document_id = c.id AND i.product_id = m.product_id AND i.quantity = m.quantity
                  WHERE c.id IN ({ids}) AND m.movement_type = 'in_return_emp' AND m.reference_id IS NULL AND c.signed_at IS NOT NULL

@@ -80,24 +80,11 @@ Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026):
 
 ## 7 · Gestion des Vides (CRE = Certificat de Restitution d'Emballages)
 
-1. [V] **The 80 % rule is free text** in `proposals.empties_policy`; no empties code reads it. The ledger
-   expects 100 % back: no return-rate figure against the client's agreed minimum, no write-off of the
-   20 % LPC may keep short. The owner's business: LPC must recover at least the agreed share.
-2. [V] Debt only grows when the full product has `linked_empty_id` (OPUR 20L has it on live).
-3. [V] **The internal signature of a CRE applies everything** (status signed, total_in, owed, stock
-   `in_return_emp`; `signatures_controller.php:282-311`); after it the client can no longer refuse
-   (`reject_cre` requires `en_transit`, `cre_controller.php:289`). Help 069:144, 229-235 are out of date.
-4. [V] A CRE with a site selected never reduces the debt: BL ledger rows have `site_id` NULL and the CRE
-   update matches on site; later BL signings then update several rows (see 5.6).
-5. [V] Vente Recyclage: `operations.recycling.sell` and `.override_price` are admin only by migration
-   (live: admin, DG, Ops, sales hold `.sell`); no stock check, so empties stock can go negative; the
-   movement reuses `out_delivery` (hence the wrong « Expédition Client » label, 3.5). Entry: Dr 571/552/521
-   / Cr 7074, journal BQ, ref REC-… (`JournalPoster.php:1470-1530`).
-6. [V] « Revenus Recyclage » checks hardcoded role names admin / finance / accountant
-   (`cre_controller.php:546, 644`); the help says the Comptable sees it but the Comptable cannot open the
-   page (`operations.empties.view`). Help 069:287 (« Valider la caisse chauffeur ») is out of date.
-7. [V] « Historique » shows only the current user's CREs (`:453`); « Rapport PDF » and « Exporter » have no
-   handler [I].
+All seven rows done 18/11/2026 (Gestion des Vides session, migrations 150 and 151), moved to
+docs/TRAINING_VIDEOS.md §7. Not real or already gone: 7.2 (debt grows only for a full product with
+`linked_empty_id`: OPUR 20L and OPUR 10L both have one; that is the design), the « Rapport PDF » and
+« Exporter » buttons of 7.7 (no longer on the page). 7.5's « own movement type » is not added: the sale
+keeps `out_delivery` with `reference_type = 'recycling_sale'`, which every stock screen reads since 3.5.
 
 ## 8 · Facturation & AR
 
@@ -297,3 +284,6 @@ marked fixed). What was fixed is in docs/TRAINING_VIDEOS.md §7. Left:
 | 27 | **Purchase TVA** (open point under answer 9). Supplier orders are TTC and reception books the whole TTC to 601 and 31x; the ristourne already sends its 19,25 % TVA to 4452 « TVA récupérable ». Under SYSCOHADA and the CGI, input TVA is deductible only on purchases used for operations **subject to TVA** (taxed at 19,25 %, or at 0 % with the right to deduct, like exports). If LPC's water is **outside or exempt from TVA** (the owner thinks there is no TVA on water), the purchase TVA is a cost: 601 and 31x at TTC are right, and the ristourne's 19,25 % should go to 6019 too, not 4452. If LPC **charges TVA** on its sales (Préférences say « assujetti TVA », 19,25 %), reception should split it: Dr 601 HT + Dr 4452 TVA / Cr 401 TTC, stock 31x at HT, and LPC deducts it each month. Which is LPC's position (ask the tax adviser: exempt, 0 % with deduction, or 19,25 %)? | Nothing changed: reception keeps 601 and 31x at TTC (right if water is not taxed). On the answer, a session changes reception, the ristourne's TVA line and the CUMP together, and decides whether past receptions are restated. |
 | 28 | **Budgets: a ninth line, « Coût des marchandises vendues ».** Budget actuals now come from the ledger (12.3). Goods purchased (601), their stock variation (6031) and the rebates obtained (6019) are LPC's largest charge and fitted none of the MD's eight lines: in « Autres charges » they would swamp it. Keep a line of their own? | Default: yes, line « Coût des marchandises vendues » (migration 148): purchases net of stock and rebates, i.e. the cost of what was sold. With perpetual stock it reads near 0 until bottles leave (copy B: -7 446 F, the ristourne). Remove it by deleting the line's row if the owner prefers eight. |
 | 29 | **Capitalising: « Déjà au bilan »** posts nothing (for an asset bought before the app, already in the Bilan d'Ouverture or an earlier entry). Misused, an asset would sit in the register without its cost in class 2. | Default: offered, with the sentence « Aucune écriture : l'acquisition est déjà au bilan » before saving; the register row says « déjà au bilan ». The real truck on live: the CF chooses when he capitalises it. |
+| 30 | A client contests a CRE after LPC has counted and signed it (7.3). Should LPC's count stand, or the client's word? | LPC's count books the empties (they are in LPC's hands); until the client signs, « Il y a une erreur de quantité » undoes that booking and marks the CRE « Contesté », and the Responsable des Opérations recounts with the client. Once the client has signed, a correction is a new return or an inventory. |
+| 31 | Should the Contrôleur Financier see Gestion des Vides and the recycler sales' revenue? On live he could not open the page. | Yes, read only (migration 150): the recycler's cash reaches the treasury he controls. Collecting and selling stay with the Responsable des Opérations. |
+| 32 | 10L empties (answer 7, « to be verified »): live had one « Emballage 10L » at 100 F marked with cork. | Migration 150 makes it « 10L sans bouchon » at 100 F (OPUR 10L's empty) and adds « 10L avec bouchon » at 200 F. Prices stay editable in Données de Base. |

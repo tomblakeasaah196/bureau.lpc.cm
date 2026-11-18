@@ -92,7 +92,7 @@ check('reception records its unit cost', str_contains(case_body($ic, 'receive_po
       "lpc_stock_move(\$db, \$pid, 'in_supplier', \$received_qty, 'purchase_order', \$po_id, \$user_id, \$unit_cost)"));
 check('a delivery records the CUMP it left at', str_contains($sc, 'lpc_stock_move($db, (int) $item[\'product_id\'], \'out_delivery\', (int) $item[\'quantity\'],')
       && str_contains($sc, '\'delivery\', $delivery_id, $user_id, $prod[\'cump\']);'));
-check('a recycling sale says it is one', str_contains($cre, "'recycling_sale', ?)"));
+check('a recycling sale says it is one', str_contains($cre, "'out_delivery', \$qty, 'recycling_sale', (int) \$sale_id,"));
 check('lpc_stock_move writes cost, document and note', str_contains($st, '(product_id, movement_type, quantity, unit_cost, reference_id, reference_type, note, logged_by)'));
 check('the Fiche reads opening and closing at each movement\'s cost',
       str_contains(case_body($ic, 'fiche_stock'), 'opening_value') && str_contains(case_body($ic, 'fiche_stock'), 'COALESCE(m.unit_cost, p.cump)')
