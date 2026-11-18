@@ -103,28 +103,15 @@ Reproduced on the copy and fixed by the « Gestion des Achats » video session (
 
 ## 6 · Flotte (Flotte & Maintenance, Relevé Carburant, Déclarer une Panne)
 
-Grants below are from migrations; live may differ (check `role_permissions` on the copy first).
+Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026): 6.1 to 6.7 (docs/TRAINING_VIDEOS.md
+§7; 6.6 per the owner's answer 6: fleet costs become expense requests in Gestion des Dépenses). Left:
 
-1. [V] **Fuel and breakdowns can only be entered by the `driver` role**, which LPC does not use:
-   `log_fuel` needs `fleet.fuel.log` (driver only since 028), `report_breakdown.php` needs
-   `fleet.breakdown.report` (driver only) and its vehicle list loads with `action=read`, which drivers
-   lack, so it stays empty (`fleet-report_breakdown.js:14`). Ops and the DG get 403. With driver accounts
-   going away, Ops must enter fuel and breakdowns.
-2. [V] Ops cannot add or edit a vehicle (`fleet.vehicles.create`: admin only, `001:272`).
-3. [V] The « Saisir Carburant » modal never sends the fuel type or the station (`fleet-vehicles.js:516-522`);
-   the driver page also requires an assignment for today (`fuel_log.php:76-92`).
-4. [V] The assignment's driver list shows only users with role operations or driver (`fleet_controller.php:100`).
-5. [V] **Breakdown logic is inverted**: a repair entry sets `repair → active` and never sets `repair`
-   (`:478`); help article 071 says the opposite and that maintenance reaches the ledger (it does not).
-6. [V] **Fuel, repairs and maintenance post no journal entry and no expense**; `vehicle_expenses` and
-   `fleet.vehicles.expense` exist unused. The cost must be typed again in Gestion des Dépenses
-   (« Carburant & Transport » 6022, « Assurance véhicule » 6252, « Visite technique » 6225), with no link
-   to the vehicle.
-7. [V] **Fleet RBAC and CSRF bypass**: a multipart POST arrives with a null action, so the per-action RBAC
-   and CSRF checks are skipped (`fleet_controller.php:34-68, 245`): any signed-in user can create or edit
-   vehicles. Security: fix first.
-8. [V] Capitalising a vehicle (Immobilisations « À Capitaliser (Flotte) ») posts no acquisition entry
-   (`fixed_assets_controller.php:327-346`).
+8. [V] Capitalising a vehicle (Immobilisations « À Capitaliser (Flotte) ») posts no acquisition entry: the same as
+   12.1, for the Comptabilité 2 session. Seen on the copy: the truck LT 742 KL waits in the queue.
+9. For the Trésorerie & Dépenses session (owner #6, second half): Finance's fuel money against Operations' fuel
+   logs, per period, and the alert when they differ. The link it builds on: `expenses.source_type`
+   ('fleet_fuel' | 'fleet_maintenance'), `source_id`, `vehicle_id`; `fuel_logs.expense_id`,
+   `vehicle_maintenance.expense_id` (migration 133).
 
 ## 7 · Gestion des Vides (CRE = Certificat de Restitution d'Emballages)
 
@@ -256,9 +243,10 @@ Grants below are from migrations; live may differ (check `role_permissions` on t
 | 3 | Stock accounting: perpetual (31x at reception) or periodic (601 then variation at closing)? | Decided 18/11: perpetual, as built in migration 131 (Gestion des Achats). |
 | 4 | Which taxes does PROMETAL withhold: AIR only, or TVA too? The app only handles AIR. | AIR only, at the rate set on the client. |
 | 5 | Should the Comptable approve advances and pay suppliers (`approve_advance`, `procurement.approve`), and keep `closing.run` / `reopen`? | Decided 18/11: the Comptable also pays suppliers (`inventory.procurement.approve`, migration 132, done) and approves advances (`hr.payroll.approve_advance`, for the Salaires session); closing rights unchanged. |
-| 6 | Fleet costs (fuel, repairs): post them to the ledger from Flotte, or keep typing them in Dépenses? | Post from Flotte to the same expense accounts, linked to the vehicle. |
+| 6 | Fleet costs (fuel, repairs): post them to the ledger from Flotte, or keep typing them in Dépenses? | Decided 18/11: a fuel, repair or servicing cost entered in Flotte creates a linked expense request in Gestion des Dépenses, which Finance validates and pays (done, migration 133, Flotte session). The per-period comparison and its alert: Trésorerie & Dépenses session. |
 | 7 | OPUR 10L's « Coût de référence » reads 100 F while it sells at 1 000 F and no supplier has a 10L tariff: what does LPC pay for a 10L? (Données de Base → Produits, now editable by the DG and the CF.) | Left as it is on live; the video does not show it. |
 | 8 | The never-applied « prix de repli » (a floor for products with no default price) was removed from the screen rather than wired into sales. Want it wired? | Decided 18/11: keep it removed. |
 | 9 | The ristourne: on what base, and what is withheld? | Decided 18/11 (the DG's rule of 31/07): « 3 % du montant d'achat hors taxe »; order amounts are TTC, so HT = amount ÷ 1,1925; 21,25 % withheld (19,25 % TVA to 4452, 2 % précompte to 4473), net to 4098, gross to 6019; Eau 3 % flat, other products 3/4/5 % by each order's own total. The code does this (a change of 18/11 that dropped it was reverted the same day); past accruals are correct, nothing to post. Open for the accounting sessions: should reception split the recoverable TVA (Dr 601 HT + Dr 4452 / Cr 401 TTC)? |
 | 10 | Should a purchase order be approved (DG or CF) before it goes to the supplier? | Decided 18/11: no approval before an order goes to the supplier. |
 | 11 | A supplier delivers only part of an order and will not deliver the rest: how should the remainder be closed? | Decided 18/11: the supplier brings the rest later; the order stays open until fully received. |
+| 12 | LPC's vehicles: the delivery truck's plate, make, insurance and roadworthiness dates, and who drives it (an employee in Gestion du Personnel; no login needed)? Live has no vehicle yet. | The Flotte video uses an example truck on the copy (LT 742 KL, Toyota Dyna) driven by the Responsable des Opérations. Enter the real one in Flotte & Maintenance. |

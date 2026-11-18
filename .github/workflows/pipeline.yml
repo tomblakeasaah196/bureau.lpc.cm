@@ -69,6 +69,8 @@ jobs:
         run: php scripts/tests/master_data_access.test.php
       - name: Gestion des Achats (who orders, receives and pays; what each step books)
         run: php scripts/tests/procurement_flow.test.php
+      - name: Flotte (one gate, Operations runs the fleet, costs reach Dépenses as requests)
+        run: php scripts/tests/fleet_flow.test.php
 
   mail:
     # Courrier (docs/MAIL.md §9): every scripts/tests/mail/*.test.php, each blocking. PR 1's three: the engine

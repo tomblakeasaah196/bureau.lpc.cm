@@ -833,6 +833,10 @@ html.lpc-collapsed #lpc-topbar { left: var(--lpc-sidebar-w-collapsed); }
     font-size: .625rem;
     line-height: 1;
 }
+/* A badge the page hides (no count) stays hidden: the display above beat
+   Tailwind's .hidden, so an empty tab showed « 0 » (Flotte, 18/11/2026). */
+.lpc-tabs > button > span.absolute.hidden,
+.lpc-toolbar > button.tab-link > span.absolute.hidden { display: none; }
 /* On the active (green) segment a red chip clashes; lighten it instead. */
 .lpc-tabs > button:not(.border-transparent) > span.absolute,
 .lpc-toolbar > button.tab-link:not(.border-transparent) > span.absolute {

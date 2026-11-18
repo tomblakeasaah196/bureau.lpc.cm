@@ -9,7 +9,15 @@ Rbac::requirePermission('fleet.vehicles.view');
  */
 // Strict RBAC: Admin, Operations ONLY. (Finance can view via reports, but ops manages physical assets).
 $lang = lpc_i18n_current_lang();
-$user_role = $_SESSION['user_role'];
+// What this person may do here (the API checks each action again).
+$can = [
+    'create'    => Rbac::hasPermission('fleet.vehicles.create'),
+    'edit'      => Rbac::hasPermission('fleet.vehicles.edit'),
+    'assign'    => Rbac::hasPermission('fleet.vehicles.assign'),
+    'maint'     => Rbac::hasPermission('fleet.vehicles.maintenance'),
+    'fuel'      => Rbac::hasPermission('fleet.fuel.log'),
+    'breakdown' => Rbac::hasPermission('fleet.breakdown.report'),
+];
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo $lang; ?>">
@@ -53,13 +61,14 @@ $user_role = $_SESSION['user_role'];
 
     <?php
     $pageTitle    = lpc_nav_label('fleet_vehicles');
-    $pageSubtitle = 'Logistics & Asset Management';
+    $pageSubtitle = 'Véhicules, carburant et entretien';
     $sidebar_path = $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
     if(file_exists($sidebar_path)) require_once $sidebar_path;
     require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     ?>
 
     <div id="lpc-shell-main">
+        <div id="fleet-perms" hidden<?php foreach ($can as $k => $v) echo ' data-' . $k . '="' . ($v ? '1' : '0') . '"'; ?>></div>
         <div class="lpc-toolbar">
             <button onclick="switchTab('maintenance')" id="global-alert-badge" class="hidden items-center gap-2 bg-red-100 text-red-800 px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider border border-red-300 transition-all hover:bg-red-200 shadow-sm animate-pulse-slow">
                 <i class="fas fa-exclamation-triangle"></i> <span id="alert-count">0</span> Alertes Parc
@@ -169,9 +178,18 @@ $user_role = $_SESSION['user_role'];
                         <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
                         <input type="text" onkeyup="filterTable('table-body-vehicles', this.value)" placeholder="Rechercher une plaque, modèle..." class="w-full pl-11 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-gray-900 transition-all">
                     </div>
+                    <div class="flex items-center gap-3">
+                    <?php if ($can['breakdown']): ?>
+                    <button onclick="openBreakdownModal()" class="bg-white border border-red-200 text-red-700 hover:bg-red-50 px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm transition-all flex items-center justify-center gap-2">
+                        <i class="fas fa-tools"></i> Déclarer une panne
+                    </button>
+                    <?php endif; ?>
+                    <?php if ($can['create']): ?>
                     <button onclick="openVehicleModal()" class="bg-gray-900 hover:bg-black text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 transform hover:-translate-y-0.5">
                         <i class="fas fa-plus text-lpc-light"></i> Ajouter un Véhicule
                     </button>
+                    <?php endif; ?>
+                    </div>
                 </div>
 
                 <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col shrink-0 flex-1">
@@ -200,9 +218,11 @@ $user_role = $_SESSION['user_role'];
                         <h3 class="font-black text-blue-900 text-sm uppercase tracking-widest flex items-center"><i class="fas fa-clipboard-check mr-2"></i> <?= htmlspecialchars(__t('ui.x.affectations_journalieres')) ?></h3>
                         <p class="text-xs text-blue-700/80 font-bold mt-1.5"><?= htmlspecialchars(__t('ui.x.associez_un_chauffeur_a_un_vehicule_pour')) ?></p>
                     </div>
+                    <?php if ($can['assign']): ?>
                     <button onclick="openAssignModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2">
                         <i class="fas fa-link"></i> Nouvelle Affectation
                     </button>
+                    <?php endif; ?>
                 </div>
 
                 <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col shrink-0 flex-1">
@@ -227,9 +247,11 @@ $user_role = $_SESSION['user_role'];
             <div id="content-maintenance" class="tab-content flex-col h-full overflow-y-auto pr-2 gap-6">
                 <div class="bg-white px-6 py-4 rounded-2xl border border-gray-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
                     <h3 class="font-black text-gray-800 text-sm uppercase tracking-widest flex items-center"><i class="fas fa-tools mr-2 text-gray-400"></i> <?= htmlspecialchars(__t('ui.x.historique_des_interventions')) ?></h3>
+                    <?php if ($can['maint']): ?>
                     <button onclick="openMaintenanceModal()" class="bg-gray-900 hover:bg-black text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 transform hover:-translate-y-0.5">
                         <i class="fas fa-plus text-blue-400"></i> Enregistrer Intervention
                     </button>
+                    <?php endif; ?>
                 </div>
                 
                 <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col shrink-0 flex-1">
@@ -243,6 +265,7 @@ $user_role = $_SESSION['user_role'];
                                     <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest"><?= htmlspecialchars(__t('ui.x.garage_note')) ?></th>
                                     <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right"><?= htmlspecialchars(__t('ui.x.km_au_service')) ?></th>
                                     <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right"><?= htmlspecialchars(__t('ui.x.cout_fcfa')) ?></th>
+                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-center">Dépense</th>
                                 </tr>
                             </thead>
                             <tbody id="table-body-maintenance" class="divide-y divide-gray-50 text-sm">
@@ -258,9 +281,11 @@ $user_role = $_SESSION['user_role'];
                         <h3 class="font-black text-amber-900 text-sm uppercase tracking-widest flex items-center"><i class="fas fa-gas-pump mr-2"></i> <?= htmlspecialchars(__t('ui.x.journal_de_carburant')) ?></h3>
                         <p class="text-xs text-amber-700/80 font-bold mt-1.5"><?= htmlspecialchars(__t('ui.x.saisie_des_pleins_le_systeme_validera_la')) ?></p>
                     </div>
+                    <?php if ($can['fuel']): ?>
                     <button onclick="openFuelModal()" class="bg-amber-500 hover:bg-amber-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2">
                         <i class="fas fa-plus"></i> Saisir Carburant
                     </button>
+                    <?php endif; ?>
                 </div>
 
                 <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col shrink-0 flex-1">
@@ -274,6 +299,7 @@ $user_role = $_SESSION['user_role'];
                                     <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right"><?= htmlspecialchars(__t('ui.x.cout_total_fcfa')) ?></th>
                                     <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right"><?= htmlspecialchars(__t('ui.x.odometre_km')) ?></th>
                                     <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-center"><?= htmlspecialchars(__t('ui.x.loggue_par')) ?></th>
+                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-center">Dépense</th>
                                 </tr>
                             </thead>
                             <tbody id="table-body-fuel" class="divide-y divide-gray-100 text-sm">
@@ -286,7 +312,7 @@ $user_role = $_SESSION['user_role'];
         </main>
     </div>
 
-    <div id="modal-vehicle" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="modal-vehicle" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity" style="z-index:9000">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] animate-slide-up border border-gray-700">
             <div class="bg-gray-900 px-6 py-5 flex justify-between items-center text-white shrink-0 border-b border-gray-800">
                 <h3 class="font-black text-lg tracking-wide flex items-center gap-3">
@@ -368,7 +394,7 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
-    <div id="modal-fuel" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="modal-fuel" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity" style="z-index:9000">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
             <div class="bg-amber-500 px-6 py-5 flex justify-between items-center text-white border-b border-amber-600">
                 <h3 class="font-black text-lg tracking-wide flex items-center gap-3">
@@ -381,8 +407,22 @@ $user_role = $_SESSION['user_role'];
                 <form id="form-fuel" class="space-y-5">
                     <div>
                         <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.vehicule_concerne')) ?> <span class="text-amber-500">*</span></label>
-                        <select id="fuel_vehicle_id" required class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-amber-500">
+                        <select id="fuel_vehicle_id" required onchange="fuelVehicleChanged()" class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-amber-500">
                             </select>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label for="fuel_type" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Type de carburant</label>
+                            <select id="fuel_type" class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-amber-500">
+                                <option value="diesel"><?= htmlspecialchars(__t('ui.x.diesel_gasoil')) ?></option>
+                                <option value="gasoline"><?= htmlspecialchars(__t('ui.x.essence_super')) ?></option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="fuel_station" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Station-service</label>
+                            <input type="text" id="fuel_station" maxlength="100" placeholder="Ex : TOTAL Bonabéri" class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-amber-500">
+                        </div>
                     </div>
 
                     <div>
@@ -406,6 +446,12 @@ $user_role = $_SESSION['user_role'];
                         <span class="block text-[10px] font-black text-amber-800 uppercase tracking-widest"><?= htmlspecialchars(__t('ui.x.cout_total_calcule')) ?></span>
                         <span class="text-2xl font-black text-amber-600" id="fuel_total_display">0 FCFA</span>
                     </div>
+
+                    <div>
+                        <label for="fuel_receipt" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Ticket <span class="text-gray-400 normal-case">(photo ou PDF, facultatif)</span></label>
+                        <input type="file" id="fuel_receipt" accept="image/jpeg,image/png,image/webp,application/pdf" class="w-full text-xs font-bold text-gray-600">
+                    </div>
+                    <p class="text-[10px] font-bold text-gray-500"><i class="fas fa-info-circle mr-1"></i>Le plein crée une demande de dépense « Carburant & Transport » que la Finance valide dans Gestion des Dépenses.</p>
                 </form>
             </div>
             
@@ -419,7 +465,7 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
-    <div id="modal-maint" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="modal-maint" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity" style="z-index:9000">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh] animate-slide-up">
         <div class="bg-gray-900 px-6 py-5 flex justify-between items-center text-white border-b border-gray-800">
             <h3 class="font-black text-lg tracking-wide flex items-center gap-3">
@@ -459,6 +505,11 @@ $user_role = $_SESSION['user_role'];
                     </div>
 
                     <div>
+                        <label for="maint_garage" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Garage</label>
+                        <input type="text" id="maint_garage" maxlength="100" class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <div>
                         <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2"><?= htmlspecialchars(__t('ui.x.description_notes')) ?></label>
                         <textarea id="maint_desc" rows="2" class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-medium text-gray-900 outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
                     </div>
@@ -473,6 +524,7 @@ $user_role = $_SESSION['user_role'];
                             <input type="number" id="maint_next_odo" class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
                     </div>
+                    <p class="text-[10px] font-bold text-gray-500"><i class="fas fa-info-circle mr-1"></i>Un coût crée une demande de dépense que la Finance valide dans Gestion des Dépenses. Une réparation remet en service un véhicule en panne.</p>
                 </form>
             </div>
             
@@ -486,7 +538,7 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
-    <div id="modal-assign" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="modal-assign" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity" style="z-index:9000">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
             <div class="bg-blue-600 px-6 py-5 flex justify-between items-center text-white border-b border-blue-700">
                 <h3 class="font-black text-lg tracking-wide flex items-center gap-3">
@@ -537,6 +589,43 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
+
+    <div id="modal-breakdown" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity" style="z-index:9000">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
+            <div class="bg-red-600 px-6 py-5 flex justify-between items-center text-white border-b border-red-700">
+                <h3 class="font-black text-lg tracking-wide flex items-center gap-3">
+                    <i class="fas fa-tools"></i> Déclarer une panne
+                </h3>
+                <button type="button" onclick="closeModal('modal-breakdown')" aria-label="Fermer" class="text-red-100 hover:text-white transition-colors"><i class="fas fa-times text-xl"></i></button>
+            </div>
+            <div class="p-8 bg-slate-50">
+                <div class="mb-5 bg-red-50 border border-red-200 p-4 rounded-xl">
+                    <p class="text-xs font-bold text-red-900 leading-tight">Le véhicule passe « En panne » et n'est plus proposé aux affectations. Il revient en service quand la réparation est enregistrée.</p>
+                </div>
+                <form id="form-breakdown" class="space-y-5">
+                    <div>
+                        <label for="brk_vehicle_id" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Véhicule <span class="text-red-500">*</span></label>
+                        <select id="brk_vehicle_id" required class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-red-500"></select>
+                    </div>
+                    <div>
+                        <label for="brk_odo" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Odomètre actuel (Km) <span class="text-gray-400 normal-case">(facultatif)</span></label>
+                        <input type="number" id="brk_odo" min="0" class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-red-500">
+                    </div>
+                    <div>
+                        <label for="brk_desc" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Description du problème <span class="text-red-500">*</span></label>
+                        <textarea id="brk_desc" rows="3" required class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-medium text-gray-900 outline-none focus:ring-2 focus:ring-red-500 resize-none"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="bg-white px-6 py-4 border-t border-gray-200 flex justify-end gap-3 rounded-b-2xl">
+                <button type="button" onclick="closeModal('modal-breakdown')" class="px-5 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
+                <button type="button" onclick="submitBreakdown()" id="btn-submit-brk" class="px-8 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm shadow-xl transition-all flex items-center gap-2">
+                    <span id="btn-submit-brk-text"><i class="fas fa-bullhorn"></i> Déclarer la panne</span>
+                    <i id="btn-submit-brk-spinner" class="fas fa-circle-notch fa-spin hidden"></i>
+                </button>
+            </div>
+        </div>
+    </div>
 
     <div id="toast-container" class="fixed bottom-5 right-5 z-[9999] flex flex-col gap-3"></div>
 

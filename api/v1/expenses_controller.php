@@ -222,6 +222,7 @@ try {
                 JOIN expense_categories ec ON ec.id = e.category_id
            LEFT JOIN treasury_accounts ta ON ta.id = e.treasury_account_id
            LEFT JOIN suppliers s          ON s.id = e.supplier_id
+           LEFT JOIN vehicles v           ON v.id = e.vehicle_id
            LEFT JOIN (SELECT expense_id, COUNT(*) n FROM expense_attachments GROUP BY expense_id) att
                   ON att.expense_id = e.id
                 WHERE e.expense_date BETWEEN ? AND ?
@@ -230,19 +231,19 @@ try {
             if ($cat > 0)              { $body .= " AND e.category_id = ?";   $params[] = $cat; }
             if (in_array($stat, ['paid','unpaid'], true)) { $body .= " AND e.payment_status = ?"; $params[] = $stat; }
             if ($q !== '') {
-                $body   .= " AND (e.reference LIKE ? OR e.title LIKE ? OR ec.name LIKE ? OR s.name LIKE ?)";
+                $body   .= " AND (e.reference LIKE ? OR e.title LIKE ? OR ec.name LIKE ? OR s.name LIKE ? OR v.plate_number LIKE ?)";
                 // likeTerm() escapes % and _ — searching for "50%" or "loyer_2"
                 // used to turn the user's own wildcards into SQL wildcards and
                 // return the whole table.
                 $like    = likeTerm($q);
-                $params  = array_merge($params, [$like, $like, $like, $like]);
+                $params  = array_merge($params, [$like, $like, $like, $like, $like]);
             }
             $body .= " ORDER BY e.expense_date DESC, e.id DESC";
 
             $page = Paginator::paginate($db, $body, $params,
                 "e.id, e.reference, e.title, e.amount, e.expense_date, e.payment_status,
                  e.payment_date, e.category_id, e.supplier_id, e.treasury_account_id,
-                 e.journal_entry_id,
+                 e.journal_entry_id, e.vehicle_id, e.source_type, v.plate_number AS vehicle_plate,
                  ec.name AS category_name, ec.icon AS category_icon, ec.color AS category_color,
                  ta.name AS treasury_name, ta.type AS treasury_type,
                  s.name  AS supplier_name,
@@ -268,11 +269,12 @@ try {
             if ($id <= 0) jr('error', 'ID manquant.');
             $stmt = $db->prepare("
                 SELECT e.*, ec.name AS category_name, ec.slug AS category_slug,
-                       ta.name AS treasury_name, s.name AS supplier_name
+                       ta.name AS treasury_name, s.name AS supplier_name, v.plate_number AS vehicle_plate
                   FROM expenses e
                   JOIN expense_categories ec ON ec.id = e.category_id
              LEFT JOIN treasury_accounts ta ON ta.id = e.treasury_account_id
              LEFT JOIN suppliers s          ON s.id = e.supplier_id
+             LEFT JOIN vehicles v           ON v.id = e.vehicle_id
                  WHERE e.id = ?
             ");
             $stmt->execute([$id]);
