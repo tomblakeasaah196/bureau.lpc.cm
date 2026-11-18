@@ -524,7 +524,8 @@ if ($method === 'POST') {
     }
 
     if ($action === 'close_year') {
-        if ($user_role !== 'admin') sendResponse('error', 'Seul un Administrateur peut clôturer un exercice.');
+        // The DG holds his own role since decision 21 (18/11/2026).
+        if (!in_array($user_role, ['admin', 'directeur_general'], true)) sendResponse('error', 'Seul le Directeur Général ou un Administrateur peut clôturer un exercice.');
         $year = (int)$payload['year'];
         $next_year = $year + 1;
 

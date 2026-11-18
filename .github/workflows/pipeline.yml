@@ -93,6 +93,8 @@ jobs:
         run: php scripts/tests/books_review.test.php
       - name: Facturation & AR (each client's 411, AIR once, credit notes, CSRF, the attestation letter)
         run: php scripts/tests/invoicing_flow.test.php
+      - name: Go-live readiness (the TVA switch, the DG's role, payroll without the IT partner, payment terms, 2FA)
+        run: php scripts/tests/go_live.test.php
 
   mail:
     # Courrier (docs/MAIL.md §9): every scripts/tests/mail/*.test.php, each blocking. PR 1's three: the engine

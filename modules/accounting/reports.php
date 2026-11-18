@@ -97,7 +97,7 @@ $user_role = $_SESSION['user_role'];
 
             <button onclick="exportToPDF()" data-perm="accounting.reports.export" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold text-xs border border-gray-300 shadow-sm transition-all"><i class="fas fa-file-pdf text-rose-500 mr-1"></i> PDF</button>
             <button onclick="exportToExcel()" data-perm="accounting.reports.export" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold text-xs border border-gray-300 shadow-sm transition-all"><i class="fas fa-file-excel text-emerald-600 mr-1"></i> CSV</button>
-            <?php if($user_role === 'admin'): ?>
+            <?php if(in_array($user_role, ['admin', 'directeur_general'], true)): ?>
             <button onclick="initiateClosure()" id="btn_cloture" class="bg-rose-600 hover:bg-rose-700 text-white px-5 py-2 rounded-lg font-black text-xs shadow-md transition-all flex items-center gap-2">
                 <i class="fas fa-lock"></i> Clôturer l'Exercice
             </button>
@@ -117,7 +117,7 @@ $user_role = $_SESSION['user_role'];
                 <button onclick="switchTab('notes')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-notes">
                     <i class="fas fa-book-open mr-2"></i> Notes Annexes
                 </button>
-                <?php if($user_role === 'admin'): ?>
+                <?php if(in_array($user_role, ['admin', 'directeur_general'], true)): ?>
                 <button onclick="switchTab('cloture')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-cloture">
                     <i class="fas fa-lock mr-2"></i> Assistant Clôture
                 </button>
@@ -244,7 +244,7 @@ $user_role = $_SESSION['user_role'];
                 </div>
             </div>
 
-            <?php if($user_role === 'admin'): ?>
+            <?php if(in_array($user_role, ['admin', 'directeur_general'], true)): ?>
             <!-- Sprint 8B — Assistant Clôture Annuelle -->
             <div id="content-cloture" class="tab-content flex-col h-full gap-6">
                 <div class="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
