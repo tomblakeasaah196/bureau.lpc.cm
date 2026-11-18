@@ -211,7 +211,7 @@ module.exports = {
           { say: "Il confirme. Quatre bulletins sont calculés. Le compte du support, sans salaire, est laissé de côté.",
             do: async (s) => { await press(s, "Confirmer"); await s.wait(3); } },
           { say: "Les lignes se verrouillent, marquées « À payer ».",
-            do: async (s) => { await press(s, "OK"); await okIf(s, 4); await h.soft(s, gridRow(s, "Bertin").locator("span").filter({ hasText: /À payer/ })); } },
+            do: async (s) => { await press(s, "OK"); await okIf(s, 1); await h.soft(s, gridRow(s, "Bertin").locator("span").filter({ hasText: /À payer/ })); } },
         ],
       }],
     },
@@ -276,7 +276,7 @@ module.exports = {
             do: async (s) => { await s.click(s.page.getByRole("button", { name: /Régler le Groupe Banque/ })); await s.wait(2); } },
           { say: "Les bulletins sont payés : la grille et chaque bulletin disent maintenant « Payé », avec la date.",
             do: async (s) => {
-              await press(s, "OK"); await s.wait(2.5);
+              await press(s, "OK"); await s.wait(1.2);
               const ok = modal(s).getByRole("button", { name: "OK" });
               if (await ok.isVisible().catch(() => false)) await press(s, "OK");
               await s.click(s.page.locator("#modal-mark-paid").getByRole("button", { name: "Fermer" }).last()); await s.wait(0.8);
