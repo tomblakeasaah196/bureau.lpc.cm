@@ -12,6 +12,7 @@ its choreography together.
 | Video | Scene | Status |
 | --- | --- | --- |
 | Introduction, partie 1 : Premiers pas (the app, signing in, the shell, signing out) | `intro-1-premiers-pas.js` | Made 17/11/2026, 6:57, 10 chapters, -16.0 LUFS, 18.8 MB; sent in the chat; to publish in the live Centre d'Aide once this branch is deployed (§5) |
+| Courrier (your mailbox, shared mailboxes, Praxis AI) | `courrier.js` (+ `courrier.seed.php`) | Made 18/11/2026, 6:28, 10 chapters, -16.0 LUFS, 18.0 MB; sent in the chat; to publish (§5) |
 | Introduction, partie 2 : Chacun son espace (each role's home and menu) | `intro-2-chacun-son-espace.js` | Made 18/11/2026, 4:44, 7 chapters, -16.1 LUFS, 12.7 MB; sent in the chat; to publish in the live Centre d'Aide once deployed (§5) |
 
 ---
@@ -168,6 +169,27 @@ button, link, tab, menu item or option by its exact name, any case), `hover`, `t
 `soft` (glide there if it shows within a few seconds, so a line that only points never costs a take),
 `tour`, and `mailPage` (an email as the app wrote it, from Mailpit through `ground.mailTo`).
 
+### 4.2b · Courrier and Praxis AI on the copy
+
+The copy never reaches mail.lpc.cm or Google, whatever a scene does (`scripts/video/mail-fake.php`, loaded by
+`router.php` for every request and by `mail.php`):
+
+- **Mail** runs on the Courrier tests' own `FakeMailServer`, its mailboxes kept in `VIDEO_HOME/mail-state.json`
+  (saved and restored with every snapshot). A message sent on camera lands in a colleague's fake inbox when that
+  colleague has one there, as a mail server would deliver it. The cron jobs run on demand:
+  `node -e 'require("./scripts/video/ground").mail("sync")'` (or `"send"`, or `"seed", "<file>"`); a shot calls
+  `ground.mailAsync(...)` so the camera keeps rolling.
+- **The mail shown is written for the video** (owner's decision, 18/11/2026): a scene's `*.seed.php` adds the
+  mailboxes (fake passwords) and delivers the examples. Real people and partners by name, partners' addresses on
+  `example.com` (reserved: it can reach no real company), references from the copy (PO-2611-00004…). The video
+  says the messages are examples. `mail.php seed` first deletes the copy's cached real mail: never filmed.
+- **Praxis AI** answers from `VIDEO_HOME/ai-replies.json`, which the scene writes in `prepare`: `{match, reply|json,
+  delay}`, `match` one phrase or a list that must all be in the request. Write each answer from what the app really
+  sends: run the step once with no answers and read `ai-replies.json.unmatched.jsonl`; every answered request is
+  logged in `ai-replies.json.log.jsonl`. In an Ask answer, `{{ref:words}}` becomes the `[n]` the app gave the
+  message holding those words, so a citation can never point at the wrong message. The answer says only what
+  the messages say, as the real prompt requires. The placeholder key `mail.php seed` sets is never sent anywhere.
+
 ### 4.3 · The commands
 
 ```bash
@@ -231,7 +253,16 @@ top of this file.
     the « Aide » drawer show the video itself.
 15. **PHP's built-in server answers one request at a time on Windows**: a page with many calls takes a
     few seconds to settle. Leave it; `settle()` waits for the network to go quiet.
-16. **Never film Courrier's mailboxes**: they hold people's real mail (Timothée has unread mail).
+16. **Never film Courrier's real mailboxes**: they hold people's real mail. The copy's Courrier is the fake one (§4.2b).
+17. **Probes that pipe into `tail`/`grep` can hang for minutes** on Windows (a child keeps the pipe open): write a
+    probe's output to a file, then read it.
+18. **`snapshot: true` on a shot** saves the copy before it on a full run and restores it before a retake
+    (`--only`): set it on every shot that writes (Courrier: c05, c07, c08, c09). A failed take otherwise leaves a
+    note, a draft or a sent message the retake meets twice.
+19. **A page keeps hidden copies of its dialogs** (Boîtes mail has two « Adresse » fields): address fields with
+    `getByLabel(...).filter({ visible: true })`.
+20. **Écrire avec l'IA shows its draft for review**: « Utiliser ce brouillon » puts it in the message.
+21. **The voice service drops connections at times** (« getaddrinfo failed »): rerun narrate; it resumes.
 
 ## 7 · Bugs found while filming
 
@@ -259,6 +290,9 @@ Each is fixed on the video's branch, in the screen's own code, and listed here.
 | 18/11/2026 | Paramètres · Utilisateurs, Rôles | Roles printed by their technical name (accountant, controleur_financier) | Fixed: Comptable, Contrôleur Financier, Administrateur… (technical name kept small) |
 | 18/11/2026 | Vue Opérations · État de la flotte | « 0 actifs / 0 hors service » in the big figure ran out of the card | Fixed: the figure is the active count, the split the line under it |
 | 18/11/2026 | Paramètres · Rôles, Comptable | The accountant's role holds permissions whose labels say they are the DG's or the MD's: « Ré-ouvrir un exercice verrouillé (DG) », « Approuver ou refuser une demande de transfert (MD / Admin) » | **Not changed**: access is the owner's decision (Paramètres → Rôles & Permissions) |
+| 18/11/2026 | Courrier · Demander à votre courrier | Its suggested questions named the test data's people (« Marc a-t-il renvoyé la facture de septembre ? », « le client de Bonamoussadi »), who exist nowhere in LPC's mail | Fixed: questions LPC's people ask (`modules/mail/mounts/ask_mail.php`) |
+| 18/11/2026 | Courrier · Demander à votre courrier, search | A plural in the question never found its singular: « Quelles factures fournisseurs… » missed the invoice that says « facture », in FULLTEXT and in the LIKE fallback | Fixed: `MailSearch::terms` adds the singular of a French plural (5 letters or more; -aux → -al); `ai_unit.test.php` |
+| 18/11/2026 | Daniel Massomba's signature | His employee record on live holds the phone « +537 640656636 » (Cameroon is +237), printed in every signature | **Data, to correct on live** (Gestion du Personnel): the owner confirmed +237 640656636; the copy has it |
 | 18/11/2026 | Journal d'Erreurs on the copy | « Aucun fichier de log accessible »: the copy has no server log in the place the page reads | Not code: never film it from the copy |
 
 ## 8 · Where the work stands
@@ -281,5 +315,9 @@ the help search, the help AI's answers and each page's « ? »), and sent in the
       Bertin's Vue Opérations and the stock alert; JBS Praxis Support's Utilisateurs, Rôles & Permissions,
       Identité de l'Entreprise and the training videos' page. Nothing changed on screen. Three bugs fixed.
       Refilm the Vue Ventes chapter with a real salesperson once LPC creates a Sales login.
+- [x] Courrier (18/11/2026): Daniel connects his mailbox, reads, searches, replies (undo send), schedules, reads his
+      signature; Timothée adds invoicing@lpc.cm and gives Daniel « Lecture et envoi » and Luc « Gestionnaire »; Daniel
+      assigns himself NOFIA SA's conversation, notes it, has Praxis AI summarise it and draft the reply, sends it from
+      INVOICING-LPC, marks it Traitée, and asks his mail which supplier invoices await payment. Two bugs fixed.
 - [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
       Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.

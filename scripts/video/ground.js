@@ -120,6 +120,8 @@ function snapshot(name) {
   } finally {
     fs.closeSync(out);
   }
+  // The fake mail server's state goes with it (Courrier: mail on the server and its copy in the database).
+  if (fs.existsSync(MAIL_STATE)) fs.copyFileSync(MAIL_STATE, snapFile(name).replace(/\.sql$/, ".mail.json"));
   return snapFile(name);
 }
 
@@ -128,6 +130,8 @@ function restore(name) {
   const d = guard();
   if (!fs.existsSync(snapFile(name))) throw new Error(`No snapshot ${name}`);
   load(snapFile(name), { quiet: true });
+  const mailCopy = snapFile(name).replace(/\.sql$/, ".mail.json");
+  if (fs.existsSync(mailCopy)) fs.copyFileSync(mailCopy, MAIL_STATE);
   return d;
 }
 
@@ -161,7 +165,38 @@ function serve({ detached = false } = {}) {
     "-d", "upload_max_filesize=20M", "-d", "post_max_size=22M", "-d", "memory_limit=256M", "-d", "display_errors=0",
     "-S", `127.0.0.1:${PORT}`, "-t", ROOT, path.join(__dirname, "router.php"),
   ];
-  return spawn(PHP(), args, { cwd: ROOT, env: { ...process.env, LPC_ENV_PATH: ENV_FILE, PHP_CLI_SERVER_WORKERS: "4" }, stdio: detached ? "ignore" : "inherit", detached });
+  return spawn(PHP(), args, { cwd: ROOT, env: { ...process.env, ...mailEnv() }, stdio: detached ? "ignore" : "inherit", detached });
+}
+
+/**
+ * Courrier on the copy (scripts/video/mail-fake.php): the fake mail server's state and Praxis AI's written
+ * answers live in VIDEO_HOME, and both are always on, so the copy can never reach mail.lpc.cm or Google.
+ */
+const MAIL_STATE = path.join(HOME, "mail-state.json");
+const AI_REPLIES = path.join(HOME, "ai-replies.json");
+function mailEnv() {
+  return { LPC_ENV_PATH: ENV_FILE, LPC_VIDEO_MAIL_STATE: MAIL_STATE, LPC_VIDEO_AI_REPLIES: AI_REPLIES };
+}
+
+/** Run scripts/video/mail.php on the copy: `seed <file>`, `sync`, `send`. Returns its output. */
+function mail(...args) {
+  guard();
+  return execFileSync(PHP(), [path.join(__dirname, "mail.php"), ...args], { cwd: ROOT, env: { ...process.env, ...mailEnv() }, encoding: "utf8" });
+}
+
+/** mail(), without stopping the camera: a shot that sends or syncs mid-take keeps recording while PHP works. */
+function mailAsync(...args) {
+  guard();
+  return new Promise((resolve, reject) => {
+    require("node:child_process").execFile(PHP(), [path.join(__dirname, "mail.php"), ...args], { cwd: ROOT, env: { ...process.env, ...mailEnv() }, encoding: "utf8" },
+      (err, stdout, stderr) => (err ? reject(new Error(`${err.message}\n${stderr}`)) : resolve(stdout)));
+  });
+}
+
+/** The written answers Praxis AI gives on the copy (a scene writes its own before filming). */
+function aiReplies(list) {
+  fs.writeFileSync(AI_REPLIES, JSON.stringify(list, null, 1));
+  try { fs.unlinkSync(AI_REPLIES + ".unmatched.jsonl"); } catch { /* none yet */ }
 }
 
 /** Mailpit's newest message to `to` (subject, HTML), for a shot that shows an email. */
@@ -178,4 +213,4 @@ async function mailTo(to, { subject } = {}) {
   return { to, subject: full.Subject, html: full.HTML || text, at: full.Date };
 }
 
-module.exports = { ROOT, HOME, ENV_FILE, ORIGIN, PORT, DB_PORT, PASSWORD, PHP, env, db, guard, sql, quote, ready, snapshot, restore, load, migrate, serve, mailTo };
+module.exports = { ROOT, HOME, ENV_FILE, ORIGIN, PORT, DB_PORT, PASSWORD, PHP, env, db, guard, sql, quote, ready, snapshot, restore, load, migrate, serve, mailTo, mail, mailAsync, aiReplies, MAIL_STATE, AI_REPLIES };

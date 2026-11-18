@@ -288,6 +288,12 @@ async function film(plan, out, opts) {
   try {
     for (const shot of plan.shots) {
       if (shot.kind === "card" || (opts.only && !opts.only.has(shot.id))) continue;
+      // `snapshot: true`: the copy as it stands before this shot, saved by a full run and put back before a
+      // retake (--only), so a shot that writes always starts from the same ground (runbook §4.1).
+      if (shot.snapshot && opts.ground) {
+        const name = `${plan.id}-${shot.id}`;
+        if (opts.only) opts.ground.restore(name); else opts.ground.snapshot(name);
+      }
       process.stdout.write(`filming ${shot.id} (${shot.kind}, ${shot.lines.length} lines) ... `);
       // A shot takes about as long as its narration; far longer means it is stuck, and the run stops there.
       const limit = shot.lines.reduce((t, l) => t + l.duration + 2, 0) * 1.6 + 120;

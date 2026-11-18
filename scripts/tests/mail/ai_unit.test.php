@@ -38,9 +38,14 @@ check('clip adds an ellipsis', MailText::clip(str_repeat('a', 20), 10) === str_r
 section('The search\'s words');
 check('French filler words dropped', MailSearch::terms('Qu\'est-ce que Marc a dit sur la facture de septembre ?') === ['marc', 'facture', 'septembre'], json_encode(MailSearch::terms('Qu\'est-ce que Marc a dit sur la facture de septembre ?')));
 check('short codes kept ("T4", "n°")', in_array('t4', MailSearch::terms('Le devis T4 ?'), true));
+$plural = MailSearch::terms('Quelles factures fournisseurs attendent un paiement ?');
+check('a plural also looks for its singular (factures → facture)', in_array('factures', $plural, true) && in_array('facture', $plural, true) && in_array('fournisseur', $plural, true), json_encode($plural));
+check('short words keep their s (avis, pas)', !in_array('avi', MailSearch::terms('Un avis de virement ?'), true));
+check('-aux plurals look for -al (journaux → journal)', in_array('journal', MailSearch::terms('Les journaux de caisse'), true));
 check('elision split ("d\'Awa" → awa)', in_array('awa', MailSearch::terms('Le message d\'Awa'), true) && in_array('awa', MailSearch::terms('Le message d’Awa'), true));
 check('addresses kept whole', in_array('marc@epicerie.test', MailSearch::terms('Mails de marc@epicerie.test'), true));
-check('at most 8 words', count(MailSearch::terms('un deux trois quatre cinq six sept huit neuf dix onze douze treize')) === 8);
+$long = MailSearch::terms('un deux trois quatre cinq six sept huit neuf dix onze douze treize');
+check('at most 8 of the question\'s words (their singulars follow)', array_slice($long, 0, 8) === ['deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf'] && !in_array('dix', $long, true), json_encode($long));
 check('a question of filler gives no words', MailSearch::terms('Qu\'est-ce que tu as reçu ?') === []);
 
 section('The Ask answer is escaped; [n] links only to the messages given');
