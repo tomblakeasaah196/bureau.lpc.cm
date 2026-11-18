@@ -148,13 +148,10 @@ Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026):
 
 ## 10 · Gestion du Personnel (salaires)
 
-Rows 1 to 5 done by the Salaires session (18/11/2026, PR #59): see docs/TRAINING_VIDEOS.md §7.
-
-6. [V] The payroll lists only employees who have a login: the grid joins `users` and `hr_payslips` keys on
-   `users.id` (`payroll_controller.php` get_payroll_grid, generate_month). The drivers the Flotte session plans
-   as employees without a login (owner #12) would never appear in « Génération de la Paie ». Before LPC adds
-   them, key payroll and advances on `employees.id` (a migration of `hr_payslips`/`hr_advances`), or give each
-   driver a login (the owner does not want driver accounts).
+Rows 1 to 5 done by the Salaires session (18/11/2026, PR #59), row 6 by the admin series' session (migration 144):
+see docs/TRAINING_VIDEOS.md §7. Left: driver debts (`driver_debts.driver_id`) are still kept by login, so an
+employee without one has none deducted; the data wipe's own-rows list removes payslips and advances by login
+(`DataWipeMap::STAFF_OWN`), not those of an employee who never had one.
 
 ## 11 · Comptabilité 1 (Plan Comptable, Bilan d'Ouverture, Écritures, Grand Livre)
 

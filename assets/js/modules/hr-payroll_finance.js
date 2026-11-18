@@ -29,6 +29,8 @@
             accountant: 'Comptable', operations: 'Opérations', sales: 'Commercial', driver: 'Chauffeur',
         };
         const roleLabel = (name) => ROLE_LABELS[String(name || '').toLowerCase()] || (name || '');
+        // An employee without a login (LPC's drivers, migration 144) has no role: their post says who they are.
+        const whoLabel = (row) => roleLabel(row && row.role_name) || (row && row.job_title) || 'Sans compte';
 
         // Deep-link support: /modules/hr/payroll_finance.php#payroll
         const PAYROLL_VALID_TABS = ['advances', 'contracts', 'payroll'];
@@ -145,7 +147,7 @@
             sel.innerHTML = '<option value="">-- Choisir Employé --</option>';
             globalData.contracts.forEach(c => {
                 if(c.is_active == 1) {
-                    sel.innerHTML += LPC.html`<option value="${c.user_id}" data-base="${c.base_salary}">${c.employee_name} (Base: ${fmt(c.base_salary)})</option>`;
+                    sel.innerHTML += LPC.html`<option value="${c.employee_id}" data-base="${c.base_salary}">${c.employee_name} (Base: ${fmt(c.base_salary)})</option>`;
                 }
             });
         }
@@ -188,7 +190,7 @@
             try {
                 const result = await jsonPost({
                     action: 'request_advance',
-                    user_id: document.getElementById('adv_user_id').value,
+                    employee_id: document.getElementById('adv_user_id').value,
                     amount: document.getElementById('adv_amount').value
                 });
                 if(result.status === 'success') {
@@ -241,7 +243,7 @@
                 tbody.innerHTML += LPC.html`
                     <tr class="hover:bg-gray-50 border-b border-gray-100">
                         <td class="py-3 px-6 text-sm font-black text-gray-800">${activeBadge}${c.employee_name}</td>
-                        <td class="py-3 px-6 text-xs text-gray-500 uppercase">${roleLabel(c.role_name)}</td>
+                        <td class="py-3 px-6 text-xs text-gray-500 uppercase">${whoLabel(c)}</td>
                         <td class="py-3 px-6 text-right text-sm font-black text-gray-900">${fmt(c.base_salary)}</td>
                         <td class="py-3 px-6 text-right text-xs font-bold text-gray-400">${fmt(totalAllow)}</td>
                         <td class="py-3 px-6 text-center text-xs font-mono text-gray-500">${c.cnps_number || '-'}</td>
@@ -378,9 +380,9 @@
 
                 const indemn = sl ? Number(sl.housing || 0) + Number(sl.transport || 0) : Number(e.housing || 0) + Number(e.transport || 0);
                 tbody.innerHTML += LPC.html`
-                    <tr class="${trClass} border-b border-gray-100" data-uid="${e.user_id}">
+                    <tr class="${trClass} border-b border-gray-100" data-uid="${e.employee_id}">
                         <td class="py-2 px-3 font-black text-gray-800">
-                            <button type="button" onclick="openPayrollDetailModal(${e.user_id})"
+                            <button type="button" onclick="openPayrollDetailModal(${e.employee_id})"
                                     class="text-left hover:text-indigo-700 hover:underline"
                                     title="Voir la fiche détaillée">${e.employee_name}</button>
                         </td>
@@ -432,7 +434,7 @@
             const period = document.getElementById('payroll_period').value;
             const payload = {
                 action: 'preview',
-                user_id: uid,
+                employee_id: uid,
                 period,
                 bonuses:              parseFloat(tr.querySelector('.grid-bonus').value)       || 0,
                 absences_days:        parseFloat(tr.querySelector('.grid-absence').value)    || 0,
@@ -487,7 +489,7 @@
             rows.forEach(r => {
                 if (!r.querySelector('.grid-bonus').disabled) {
                     employees.push({
-                        user_id: r.getAttribute('data-uid'),
+                        employee_id: r.getAttribute('data-uid'),
                         bonuses:              parseFloat(r.querySelector('.grid-bonus').value)       || 0,
                         absences_days:        parseFloat(r.querySelector('.grid-absence').value)    || 0,
                         driver_debt_deducted: parseFloat(r.querySelector('.grid-driver-debt').value)|| 0,
@@ -576,7 +578,7 @@
 
             let res;
             try {
-                const r = await fetch(`/api/v1/payroll_controller.php?action=employee_full_detail&user_id=${uid}&period=${encodeURIComponent(period)}`);
+                const r = await fetch(`/api/v1/payroll_controller.php?action=employee_full_detail&employee_id=${uid}&period=${encodeURIComponent(period)}`);
                 res = await r.json();
             } catch (e) {
                 document.getElementById('pdet_name').textContent = 'Erreur réseau';
@@ -598,7 +600,7 @@
 
             // Header
             document.getElementById('pdet_name').textContent   = id.employee_name;
-            document.getElementById('pdet_role').textContent   = roleLabel(id.role_name);
+            document.getElementById('pdet_role').textContent   = whoLabel(id);
             document.getElementById('pdet_period').textContent = d.period;
             document.getElementById('pdet_source').textContent = cur.source === 'payslip'
                 ? (cur.status === 'paid' ? 'bulletin payé' : 'bulletin calculé, à payer')
@@ -928,7 +930,7 @@
                            onchange="onMpCheck('${groupKey}', ${p.id}, ${Number(p.net_pay)}, this.checked)">
                     <div class="flex-1 min-w-0">
                         <p class="font-bold text-gray-900 truncate">${p.employee_name}</p>
-                        <p class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">${roleLabel(p.role_name)}</p>
+                        <p class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">${whoLabel(p)}</p>
                     </div>
                     <p class="font-black text-gray-900">${fmt(p.net_pay)} F</p>
                 </label>`).join('');
