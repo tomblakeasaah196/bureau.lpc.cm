@@ -116,6 +116,47 @@ try {
         case 'plan':
             $reply(['status' => 'success', 'plan' => $view($wiper->plan($picked))]);
 
+        // « Remise à zéro avant démarrage » (the owner's decisions 16 and 17): everything but the staff,
+        // the employees, the settings and the chart; products and suppliers kept if ticked.
+        case 'full_plan':
+            $reply(['status' => 'success', 'plan' => $view($wiper->planFull(!empty($in['keep_products']), !empty($in['keep_suppliers'])))]);
+
+        case 'full_send_code':
+            if (!DataWipeAccess::md($db)) {
+                throw new DomainException(DataWipeAccess::mdMissing());
+            }
+            $plan = $wiper->planFull(!empty($in['keep_products']), !empty($in['keep_suppliers']));
+            if ($plan['blocked']) {
+                throw new DomainException(implode(' ', $plan['blocked']));
+            }
+            if (!$plan['total']) {
+                throw new DomainException('Il n\'y a rien à effacer.');
+            }
+            DataWipeAccess::sendCode($db, $user, DataWipe::fullPick(!empty($in['keep_products']), !empty($in['keep_suppliers'])),
+                "  REMISE À ZÉRO AVANT DÉMARRAGE (tout sauf le personnel, les employés, les paramètres et le plan comptable ; produits "
+                . (!empty($in['keep_products']) ? 'gardés' : 'effacés') . ', fournisseurs ' . (!empty($in['keep_suppliers']) ? 'gardés' : 'effacés') . ")\n"
+                . $what($plan));
+            $reply(['status' => 'success', 'message' => 'Code envoyé à ' . DataWipeAccess::maskedEmail() . '. Il est valable ' . DataWipeAccess::CODE_MINUTES . ' minutes.']);
+
+        case 'full_run':
+            $reason = trim((string) ($in['reason'] ?? ''));
+            if (mb_strlen($reason) < 10) {
+                throw new DomainException('Écrivez le motif en quelques mots (10 caractères au moins) : il est envoyé au DG.');
+            }
+            if (!DataWipeAccess::md($db)) {
+                throw new DomainException(DataWipeAccess::mdMissing());
+            }
+            $kp = !empty($in['keep_products']);
+            $ks = !empty($in['keep_suppliers']);
+            $codeId = DataWipeAccess::checkCode($db, $user, DataWipe::fullPick($kp, $ks), trim((string) ($in['code'] ?? '')));
+            $done = $wiper->runFull($kp, $ks, $user, $reason, fn (PDO $db) => DataWipeAccess::consumeCode($db, $codeId));
+            $told = DataWipeAccess::tellMd($db, $done, $user, $reason);
+            $reply(['status' => 'success', 'wipe' => [
+                'id' => $done['id'], 'total' => $done['total'], 'expires' => $done['expires'], 'balances' => $done['balances'],
+                'tables' => array_map(fn ($t, $n) => ['label' => DataWipeMap::label($t), 'rows' => $n], array_keys($done['counts']), $done['counts']),
+                'md' => $told, 'warnings' => $done['warnings'],
+            ]]);
+
         case 'send_code':
             if (!$picked) {
                 throw new DomainException('Cochez au moins une table.');

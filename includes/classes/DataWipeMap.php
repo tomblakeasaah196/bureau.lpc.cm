@@ -50,7 +50,29 @@ final class DataWipeMap
         'budget_buckets', 'budget_bucket_accounts', 'delivery_places',
         // The tool's own log
         'data_wipes', 'data_wipe_codes', 'data_wipe_lock',
+        // The Journal d'Erreurs' « corrigé » marks: the app's own state, not test data
+        'error_fixes',
     ];
+
+    // =========================================================================
+    // « Remise à zéro avant démarrage » (the owner's decisions 16 and 17, 18/11/2026)
+    // =========================================================================
+
+    /**
+     * The full reset takes every table above that is not protected, and also
+     * empties these protected ones: everything on live is test data except the
+     * staff, the employees, the settings and the chart (decision 16). Treasury
+     * accounts go with their own sub-accounts (5211, 5521…); the numbering
+     * counters all restart.
+     */
+    public const FULL_RESET_ALSO = ['treasury_accounts'];
+
+    /** Kept only if « Garder les produits et leurs prix » is ticked at wipe time (decision 17). */
+    public const FULL_RESET_PRODUCTS = ['products'];
+
+    /** Kept only if « Garder les fournisseurs et leurs tarifs » is ticked (tariffs, history and ristourne ladders). */
+    public const FULL_RESET_SUPPLIERS = ['suppliers', 'supplier_prices', 'supplier_price_history', 'supplier_product_rebates',
+                                         'supplier_category_rebates', 'supplier_category_rebate_tiers'];
 
     /** Whole families never wiped: Courrier holds a copy of real mail; the help centre is content. */
     public const PROTECTED_PREFIXES = ['mail_', 'help_'];
@@ -74,10 +96,10 @@ final class DataWipeMap
                                      'suppliers', 'supplier_prices', 'supplier_price_history', 'supplier_product_rebates',
                                      'supplier_category_rebates', 'supplier_category_rebate_tiers']],
         'stock'        => ['Stock', ['products', 'inventory_movements', 'inventory_reports', 'inventory_report_items']],
-        'tresorerie'   => ['Trésorerie', ['treasury_transactions', 'treasury_edit_requests', 'cash_reconciliations', 'driver_debts',
+        'tresorerie'   => ['Trésorerie', ['treasury_transactions', 'treasury_edit_requests', 'cash_reconciliations', 'driver_debts', 'fuel_reconciliation_alerts',
                                          'loans', 'loan_movements', 'loan_counterparties']],
         'depenses'     => ['Dépenses', ['expenses', 'expense_attachments', 'expense_recurring_templates', 'overheads']],
-        'comptabilite' => ['Comptabilité', ['journal_entries', 'journal_lines', 'fixed_assets', 'depreciation_logs', 'fixed_asset_disposals',
+        'comptabilite' => ['Comptabilité', ['journal_entries', 'journal_lines', 'journal_line_moves', 'fixed_assets', 'depreciation_logs', 'fixed_asset_disposals',
                                            'tax_declarations', 'tax_declaration_lines', 'closing_runs', 'year_end_adjustments', 'financial_years']],
         'budgets'      => ['Budgets et objectifs', ['budgets', 'budget_lines', 'budget_transfers', 'budget_transfer_requests',
                                                    'budget_bucket_targets', 'performance_targets', 'operational_targets']],
@@ -101,7 +123,8 @@ final class DataWipeMap
         'supplier_category_rebates' => 'Barèmes de ristourne', 'supplier_category_rebate_tiers' => 'Paliers de ristourne', 'delivery_places' => 'Lieux de livraison',
         'products' => 'Produits', 'inventory_movements' => 'Mouvements de stock', 'inventory_reports' => 'Inventaires', 'inventory_report_items' => 'Lignes d\'inventaire',
         'loans' => 'Emprunts et prêts', 'loan_movements' => 'Intérêts et remboursements (emprunts)', 'loan_counterparties' => 'Prêteurs et emprunteurs',
-        'treasury_transactions' => 'Opérations de trésorerie', 'treasury_edit_requests' => 'Demandes de correction (trésorerie)',
+        'treasury_transactions' => 'Opérations de trésorerie', 'fuel_reconciliation_alerts' => 'Alertes carburant (Finance / Opérations)',
+        'journal_line_moves' => 'Lignes déplacées entre sous-comptes', 'treasury_edit_requests' => 'Demandes de correction (trésorerie)',
         'cash_reconciliations' => 'Retours de tournée', 'driver_debts' => 'Dettes chauffeurs', 'expenses' => 'Dépenses', 'expense_attachments' => 'Justificatifs de dépenses',
         'expense_recurring_templates' => 'Dépenses récurrentes', 'overheads' => 'Frais généraux', 'journal_entries' => 'Écritures comptables',
         'journal_lines' => 'Lignes d\'écritures', 'fixed_assets' => 'Immobilisations', 'depreciation_logs' => 'Amortissements', 'fixed_asset_disposals' => 'Cessions',
@@ -176,6 +199,9 @@ final class DataWipeMap
         // A lender's or borrower's own sub-account (Emprunts & Financements)
         ['loan_counterparties', 'borrow_account_id', 'chart_of_accounts', ''],
         ['loan_counterparties', 'lend_account_id', 'chart_of_accounts', ''],
+        // A treasury account's own sub-account (5211 CCA Bank…, migration 144): only the full reset
+        // empties treasury_accounts. (No owned sub-account is ever a parent's own row: DataWipe::edges.)
+        ['treasury_accounts', 'coa_account_id', 'chart_of_accounts', ''],
         // Tax declarations record their entries without a foreign key
         ['tax_declarations', 'payable_je_id', 'journal_entries', ''],
         ['tax_declarations', 'payment_je_id', 'journal_entries', ''],

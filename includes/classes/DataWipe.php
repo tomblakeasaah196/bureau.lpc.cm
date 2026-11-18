@@ -54,6 +54,8 @@ final class DataWipe
     /** @var array{tables: array, cols: array, keys: array, fks: array}|null */
     private ?array $schema = null;
     private ?array $edges = null;
+    /** The full reset takes every journal entry: a sub-account never keeps one (DataWipe::planFull). */
+    private bool $full = false;
 
     public function __construct(PDO $db)
     {
@@ -144,6 +146,98 @@ final class DataWipe
         }
         [$delete, $unlink, $why, $blocked] = $this->closure($start, $why);
         return $this->finish(['picked' => $picked], $delete, $unlink, $why, $blocked);
+    }
+
+    /**
+     * « Remise à zéro avant démarrage » (the owner's decisions 16 and 17, 18/11/2026): every table
+     * that may be wiped, plus the treasury accounts and their own sub-accounts; the numbering
+     * restarts. Kept: users, roles, settings, the chart (parents and categories), the employees,
+     * Courrier and the help centre, and, if asked, the products and their prices ($keepProducts)
+     * and the suppliers with their tariffs and ristourne ladders ($keepSuppliers).
+     */
+    public function fullResetTables(bool $keepProducts, bool $keepSuppliers): array
+    {
+        $tables = [];
+        foreach ($this->modules() as $m) {
+            foreach (array_keys($m['tables']) as $t) {
+                $tables[] = $t;
+            }
+        }
+        $keep = array_merge($keepProducts ? DataWipeMap::FULL_RESET_PRODUCTS : [], $keepSuppliers ? DataWipeMap::FULL_RESET_SUPPLIERS : []);
+        $tables = array_values(array_diff($tables, $keep));
+        sort($tables);
+        return $tables;
+    }
+
+    /** What the full reset would take, without changing anything (plan() plus 'mode' => 'full', 'options'). */
+    public function planFull(bool $keepProducts, bool $keepSuppliers): array
+    {
+        $picked = $this->fullResetTables($keepProducts, $keepSuppliers);
+        $start = [];
+        $why = [];
+        $allow = [];
+        foreach ($picked as $t) {
+            $why[$t] = 'remise à zéro';
+            if ($keys = $this->allKeys($t)) {
+                $start[$t] = $keys;
+            }
+        }
+        foreach (DataWipeMap::FULL_RESET_ALSO as $t) {
+            if (!$this->hasTable($t) || empty($this->schema()['keys'][$t])) {
+                continue;
+            }
+            $allow[$t] = true;
+            $why[$t] = 'remise à zéro';
+            if ($keys = $this->allKeys($t)) {
+                $start[$t] = $keys;
+            }
+        }
+        // Every entry goes, so a sub-account never keeps one: the « manual entry left » guard is off
+        if (!$this->full) {
+            $this->full = true;
+            $this->edges = null;
+        }
+        // The activity log keeps what it says about staff, roles, settings, the chart and Courrier;
+        // its lines about the wiped tables go (most name rows that no longer exist)
+        foreach (['audit_logs', 'audit_logs_archive'] as $log) {
+            if ($this->hasColumn($log, 'table_name')) {
+                $names = array_merge($picked, array_keys($allow));
+                $in = implode(',', array_map([$this->db, 'quote'], $names));
+                if ($keys = $this->rowKeys($log, "table_name IN ({$in})")) {
+                    $start[$log] = ($start[$log] ?? []) + $keys;
+                    $why[$log] = 'activité sur les données effacées';
+                }
+            }
+        }
+        // Kept products or suppliers keep what they hold; anything that would take them blocks the run
+        [$delete, $unlink, $why, $blocked] = $this->closure($start, $why, $allow);
+        foreach ([$keepProducts ? DataWipeMap::FULL_RESET_PRODUCTS : [], $keepSuppliers ? DataWipeMap::FULL_RESET_SUPPLIERS : []] as $kept) {
+            foreach ($kept as $t) {
+                // A price-history line a wiped purchase order wrote goes with it; the tariff itself stays
+                if ($t === 'supplier_price_history') {
+                    continue;
+                }
+                if (!empty($delete[$t])) {
+                    $blocked['keep' . $t] = sprintf('« %s » doit être gardé, mais %d ligne(s) partiraient avec ce qui est effacé.', DataWipeMap::label($t), count($delete[$t]));
+                }
+            }
+        }
+        $picked = array_values(array_unique(array_merge($picked, array_keys($allow))));
+        sort($picked);
+        return $this->finish(['picked' => $picked, 'mode' => 'full',
+                              'options' => ['products' => $keepProducts, 'suppliers' => $keepSuppliers]], $delete, $unlink, $why, $blocked);
+    }
+
+    /** Run the full reset (planFull), the same way as run(): one transaction, the copy first, every counter restarted. */
+    public function runFull(bool $keepProducts, bool $keepSuppliers, array $user, string $reason, ?callable $inTransaction = null): array
+    {
+        return $this->execute(fn () => $this->planFull($keepProducts, $keepSuppliers), $user, $reason, $inTransaction);
+    }
+
+    /** What a one-time code for the full reset is tied to: the choices, not a table list that may grow. */
+    public static function fullPick(bool $keepProducts, bool $keepSuppliers): array
+    {
+        return ['@remise-a-zero', 'produits=' . ($keepProducts ? 'gardés' : 'effacés'), 'fournisseurs=' . ($keepSuppliers ? 'gardés' : 'effacés')];
     }
 
     /** SQL: no line on account $col that a document's own entry did not post. */
@@ -689,7 +783,9 @@ final class DataWipe
 
             // The log names records by their label: the screen and the MD read it, ids alone say nothing
             $logged = $records ? json_encode(['mode' => 'records', 'records' => array_column($plan['records'], 'label'), 'picked' => $plan['picked']], JSON_UNESCAPED_UNICODE)
-                               : json_encode($plan['picked']);
+                    : (($plan['mode'] ?? '') === 'full'
+                        ? json_encode(['mode' => 'full', 'options' => $plan['options'], 'picked' => $plan['picked']], JSON_UNESCAPED_UNICODE)
+                        : json_encode($plan['picked']));
             $db->prepare("INSERT INTO data_wipes (user_id, user_name, picked, reason) VALUES (?, ?, ?, ?)")
                ->execute([(int) $user['id'], mb_substr((string) $user['name'], 0, 160), $logged, mb_substr($reason, 0, 1000)]);
             $id = (int) $db->lastInsertId();
@@ -808,6 +904,14 @@ final class DataWipe
             if ($records) {
                 // One by one: a counter whose last number went steps back; a number from the middle stays a gap
                 $summary['numbering'] = $this->numberSteps($held, $out);
+            } elseif (($plan['mode'] ?? '') === 'full' && $this->hasTable('document_counters')) {
+                // The full reset: every series starts again at 00001 (decision 17, « numbering counters »)
+                $rows = $db->query('SELECT ' . $this->colList($this->copyCols('document_counters')) . " FROM document_counters FOR UPDATE")->fetchAll(PDO::FETCH_ASSOC);
+                if ($rows) {
+                    fwrite($out, $this->sqlInsert('document_counters', $rows));
+                    $db->exec("DELETE FROM document_counters");
+                    $reset = array_values(array_unique(array_column($rows, 'doc_type')));
+                }
             } elseif ($this->hasTable('document_counters') && class_exists('DocCounter')) {
                 foreach ($emptied as $t) {
                     foreach (DocCounter::typesFor($t) as $type) {
@@ -890,6 +994,9 @@ final class DataWipe
 
         $done = ['id' => $id, 'counts' => $counts, 'total' => array_sum($counts), 'copy_file' => basename($archive),
                  'expires' => $expires, 'balances' => $summary, 'emptied' => $emptied, 'picked' => $plan['picked'], 'warnings' => $warnings];
+        if (($plan['mode'] ?? '') === 'full') {
+            $done += ['mode' => 'full', 'options' => $plan['options']];
+        }
         if ($records) {
             $done += ['mode' => 'records', 'records' => array_column($plan['records'], 'label'), 'numbering' => $summary['numbering'] ?? [],
                       'reassigned' => $plan['reassigned'], 'mailboxes' => $plan['mailboxes']];
@@ -903,6 +1010,11 @@ final class DataWipe
         $picked = json_decode($json, true) ?: [];
         if (($picked['mode'] ?? null) === 'records') {
             return 'Un par un : ' . implode(', ', (array) ($picked['records'] ?? []));
+        }
+        if (($picked['mode'] ?? null) === 'full') {
+            $o = (array) ($picked['options'] ?? []);
+            return 'Remise à zéro avant démarrage (produits ' . (!empty($o['products']) ? 'gardés' : 'effacés')
+                 . ', fournisseurs ' . (!empty($o['suppliers']) ? 'gardés' : 'effacés') . ')';
         }
         return implode(', ', array_map([DataWipeMap::class, 'label'], $picked));
     }
@@ -1073,7 +1185,14 @@ final class DataWipe
                 // 18/11/2026): every line on it must come from a document's own entry (JOURNAL_SOURCES,
                 // a client payment), which goes with the document. A manual OD keeps the account.
                 if ($owned === 'chart_of_accounts' && isset($s['cols']['journal_lines']['account_id'])) {
-                    $not .= ' AND ' . $this->noEntryLeftOn('o.`' . $pk . '`');
+                    if (!$this->full) {
+                        $not .= ' AND ' . $this->noEntryLeftOn('o.`' . $pk . '`');
+                    }
+                }
+                // Never a parent's own row (« 411 Clients », « 5211 »'s parent…), whatever points at it:
+                // only the sub-accounts made for a client, supplier, lender or treasury account go.
+                if ($owned === 'chart_of_accounts' && isset($s['cols']['chart_of_accounts']['ohada_account_id'], $s['tables']['ohada_accounts'])) {
+                    $not .= " AND NOT EXISTS (SELECT 1 FROM ohada_accounts pa WHERE pa.id = o.ohada_account_id AND pa.account_number = o.code)";
                 }
                 $add(['from' => $owner, 'to' => $owned, 'mode' => 'delete', 'owned' => true, 'why' => 'sous-compte / écriture propre',
                       'sql' => "SELECT o.`{$pk}` FROM `{$owned}` o JOIN `{$owner}` w ON w.`{$col}` = o.`{$pk}` WHERE %WKEYS%"

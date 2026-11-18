@@ -93,6 +93,32 @@ Code: `DataWipe::searchRecords()`, `planRecords()`, `runRecords()`; `includes/cl
     - **Their traces in shared mailboxes follow the choice.** Hand over: notes, assignments and "sent by" move to the picked account. Wipe: their notes go, and their name is cleared from assignments and "opened by". Shared mail itself is never touched.
 - **No trace:** the activity lines bureau's triggers write during a one-by-one delete (an account's deletion, the hand-overs) are removed in the same transaction.
 
+## Remise à zéro avant démarrage (the third tab)
+The owner's decisions 16 and 17 (18/11/2026): everything on live is test data except the staff and the employees. The day LPC
+starts for real, this tab wipes it all at once, with the same safeguards (code by email tied to the choices, written reason, the
+DG told, the safety copy for 30 days).
+- **Always kept:** users, roles and permissions, sessions and personal preferences; the employees and their contracts; settings
+  (`app_preferences`, company profile, tax and payroll rates, AI settings); the chart of accounts (OHADA parents and their own rows,
+  expense and product categories, the budget lines); Courrier; the help centre; the Journal d'Erreurs' marks; the tool's own log.
+- **Kept if ticked at wipe time:** « Garder les produits et leurs prix » (`products`); « Garder les fournisseurs et leurs tarifs »
+  (`suppliers`, their prices and price history, product rebates, ristourne ladders and tiers, and their 401 sub-accounts).
+- **Everything else goes** (`DataWipe::planFull`): every table the other tabs may wipe (orders, receptions, stock movements, devis,
+  invoices, payments, attestations, CRE and recycling, expenses and recurring models, fleet vehicles and logs, payroll and advances,
+  journal entries and the lines moved between sub-accounts, fixed assets and depreciation, budgets' targets and transfers,
+  loans with their movements and counterparties, declarations, closing runs, notifications, signatures, PDFs, the fuel alerts…),
+  plus **the treasury accounts**. A table added later is taken too unless it is listed as protected.
+- **Sub-accounts:** those made for a wiped client (411…), supplier (401…), lender or borrower (466…, 4621…) and treasury account
+  (5211, 5521, 5711…) go, even with a manual entry on them (every entry goes). **A parent's own row never goes** (its code is the
+  OHADA number: « 411 Clients », « 521 Banques »), whatever points at it (`DataWipe::edges`).
+- **Afterwards:** every numbering counter restarts (devis, orders, BL, invoices, purchases, expenses, loans…: 00001); the activity
+  log keeps its lines about the staff, roles, settings, the chart and Courrier, and loses those about the wiped data; the treasury
+  accounts are created again with their real opening balances (each gets its sub-account), then the real suppliers, products and
+  clients are entered.
+- **Proved on copy B** (18/11/2026): on the treasury, fleet and assets chain (511 rows) and on the commercial chain (401 rows:
+  PROMETAL, its devis and signature, order, BL), nothing left in any non-protected table, no journal line, protected tables
+  unchanged; then a supplier (401001), a product (WAT-20L-001), a treasury account (5211), a client (411001) and an order
+  (CMD-2611-00001) created from zero; and the whole tab driven on screen (plan, code by email, run, the DG told, the history line).
+
 ## The safety copy
 - **What it is:** `wipe-<id>-<random>.tar.gz`, holding `restore.sql`, `files/` and `LISEZMOI.txt`.
 - **Where it lives:** in `WIPE_COPY_DIR`, or by default `bureau_wipe_copies/` two levels above the site (the cPanel home, next to `public_html`). That is outside the web root, with mode 0600.
@@ -119,6 +145,9 @@ Code: `DataWipe::searchRecords()`, `planRecords()`, `runRecords()`; `includes/cl
 3. **Migration** `355_data_wipe.sql` runs with the deploy.
 
 ## Tests
+`scripts/tests/wipe/data_wipe_full.test.php` checks the full reset both ways (everything; products and suppliers kept), the
+sub-accounts that go and the parents that stay, the counters, the activity log and the code tied to the choices.
+
 `scripts/tests/wipe/data_wipe.test.php` (CI job "Numbering and data wipe tests", MariaDB 10.11) checks:
 - plans and the links above;
 - protected tables, refusals;
