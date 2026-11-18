@@ -85,14 +85,20 @@ $user_role = $_SESSION['user_role'];
                     <thead class="bg-gray-900 text-[10px] uppercase text-gray-300 font-black tracking-widest">
                         <tr>
                             <th class="py-4 px-6 w-1/3"><?= htmlspecialchars(__t('ui.x.produit')) ?></th>
+                            <th class="py-4 px-6 text-center">Stock initial</th>
                             <th class="py-4 px-6 text-center text-blue-300"><?= htmlspecialchars(__t('ui.x.total_entrees')) ?></th>
                             <th class="py-4 px-6 text-center text-rose-300"><?= htmlspecialchars(__t('ui.x.total_sorties')) ?></th>
-                            <th class="py-4 px-6 text-right text-white"><?= htmlspecialchars(__t('ui.x.variation_nette')) ?></th>
+                            <th class="py-4 px-6 text-right text-white">Stock final</th>
                         </tr>
                     </thead>
                     <tbody id="matrix-body" class="text-sm">
                         </tbody>
                 </table>
+                <p id="fiche-value-note" class="px-6 py-3 text-[11px] text-gray-500 border-t border-gray-100 bg-gray-50/60">
+                    Stock initial : ce que le produit détenait au premier jour de la période. Stock final : ce qu'il détenait au dernier.
+                    En valeur, chaque mouvement compte à son propre coût : le prix d'achat à la réception, le CUMP du jour pour une sortie, une avarie ou un écart d'inventaire.
+                    Cliquez sur un produit pour voir chaque mouvement et le solde après lui.
+                </p>
             </div>
         </main>
     </div>

@@ -915,7 +915,10 @@ if ($method === 'POST') {
             ") : null;
 
             // Added reference_id ($sale_id) to keep the inventory cleanly linked
-            $stmtMove = $pdo->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, reference_id, logged_by) VALUES (?, 'out_delivery', ?, ?, ?)");
+            // reference_type says the reference is a recycling sale, not a BL:
+            // the Historique showed these as a client delivery with whatever
+            // BL had the same id (VIDEO_QA_FINDINGS 3.5, migration 134).
+            $stmtMove = $pdo->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, unit_cost, reference_id, reference_type, logged_by) VALUES (?, 'out_delivery', ?, (SELECT cump FROM products WHERE id = ?), ?, 'recycling_sale', ?)");
             $stmtPrice = $pdo->prepare("SELECT base_price, name FROM products WHERE id = ?");
 
             $client_ip  = substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
@@ -986,7 +989,7 @@ if ($method === 'POST') {
                     }
 
                     // Deduct from physical stock (Driver selling empties out of stock)
-                    $stmtMove->execute([$pid, $qty, $sale_id, $user_id]);
+                    $stmtMove->execute([$pid, $qty, $pid, $sale_id, $user_id]);
 
                     $details_notif[] = "$qty x {$prod['name']}"
                         . ($is_override ? ' (prix négocié)' : '');

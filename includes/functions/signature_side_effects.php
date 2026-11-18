@@ -46,6 +46,9 @@ if (basename($_SERVER['PHP_SELF'] ?? '') === basename(__FILE__)) {
     die('Direct access not permitted.');
 }
 
+require_once __DIR__ . '/stock.php';
+require_once __DIR__ . '/../classes/JournalPoster.php';
+
 /**
  * Insert an admin/finance-visible notification. Shared by both flows.
  * Extracted from cre_controller.php's private notifyAdmin() so the new
@@ -221,10 +224,12 @@ function lpc_signature_side_effects_cre(PDO $db, int $creId): void
             AND (site_id = ? OR (? IS NULL AND site_id IS NULL))
             AND product_id = ?"
     );
+    // reference_id stays empty (DataWipeMap finds these by time and
+    // operator); reference_type says a CRE brought them (migration 134).
     $stockMove = $db->prepare(
         "INSERT INTO inventory_movements
-             (product_id, movement_type, quantity, logged_by)
-         VALUES (?, 'in_return_emp', ?, ?)"
+             (product_id, movement_type, quantity, unit_cost, reference_type, logged_by)
+         VALUES (?, 'in_return_emp', ?, (SELECT cump FROM products WHERE id = ?), 'cre', ?)"
     );
 
     foreach ($rows as $it) {
@@ -237,7 +242,7 @@ function lpc_signature_side_effects_cre(PDO $db, int $creId): void
             $cre['client_id'], $cre['site_id'], $cre['site_id'], $pid,
         ]);
         // Put empties physically back into stock (driver's hand).
-        $stockMove->execute([$pid, $it['quantity'], $cre['operator_id']]);
+        $stockMove->execute([$pid, $it['quantity'], $pid, $cre['operator_id']]);
     }
 
     lpc_signature_notify_admin(
@@ -337,16 +342,20 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
     $items->execute([$blId]);
     $rows = $items->fetchAll(PDO::FETCH_ASSOC);
 
-    $restockFull  = $db->prepare(
-        "INSERT INTO inventory_movements
-             (product_id, movement_type, quantity, reference_id, logged_by)
-         VALUES (?, 'in_adjustment', ?, ?, ?)"
-    );
     $restockEmpty = $db->prepare(
         "INSERT INTO inventory_movements
-             (product_id, movement_type, quantity, reference_id, logged_by)
-         VALUES (?, 'in_return_emp', ?, ?, ?)"
+             (product_id, movement_type, quantity, unit_cost, reference_id, reference_type, logged_by)
+         VALUES (?, 'in_return_emp', ?, (SELECT cump FROM products WHERE id = ?), ?, 'delivery', ?)"
     );
+    // What a refused bottle cost when it left on this BL (its delivery entry
+    // took it out of 31x at that cost).
+    $dispatchCost = $db->prepare(
+        "SELECT unit_cost FROM inventory_movements
+          WHERE movement_type = 'out_delivery' AND reference_id = ? AND product_id = ?
+            AND COALESCE(reference_type, 'delivery') = 'delivery' AND unit_cost IS NOT NULL
+          ORDER BY id DESC LIMIT 1"
+    );
+    $refusedValues = [];   // product_id => value back into stock
 
     $newSubtotal = 0.0;
     foreach ($rows as $it) {
@@ -356,9 +365,17 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
         $rejected   = max(0, $shipped - $accepted);
 
         if ($rejected > 0) {
-            $restockFull->execute([
-                (int) $it['product_id'], $rejected, $blId, $loggedBy,
-            ]);
+            // The client refused these bottles: they come back into stock,
+            // and into 31x at the cost they left at (VIDEO_QA_FINDINGS 3.1;
+            // the delivery entry had already taken the whole BL out).
+            $pid  = (int) $it['product_id'];
+            $prod = lpc_stock_lock($db, $pid);
+            $dispatchCost->execute([$blId, $pid]);
+            $cost = $dispatchCost->fetchColumn();
+            $cost = ($cost !== false && $cost !== null) ? (float) $cost : (float) ($prod['cump'] ?? 0);
+            lpc_stock_move($db, $pid, 'in_adjustment', $rejected, 'delivery', $blId, $loggedBy, $cost);
+            if ($prod) lpc_stock_blend_cump($db, $pid, $prod['qty'], $prod['cump'], $rejected, $cost);
+            $refusedValues[$pid] = ($refusedValues[$pid] ?? 0) + $rejected * $cost;
         }
         $newSubtotal += $accepted * (float) $it['unit_price'];
 
@@ -396,7 +413,7 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
                       WHERE client_id = ? AND product_id = ?"
                 )->execute([$emptiesBack, $emptiesBack, $del['client_id'], $emptyPid]);
                 $restockEmpty->execute([
-                    $emptyPid, $emptiesBack, $blId, $loggedBy,
+                    $emptyPid, $emptiesBack, $emptyPid, $blId, $loggedBy,
                 ]);
             }
 
@@ -416,6 +433,16 @@ function lpc_signature_side_effects_bl(PDO $db, int $blId, array $extras): void
                 )->execute([$shipped, $del['client_id'], $emptyPid]);
             }
         }
+    }
+
+    // 3b. Perpetual stock: refused bottles back into 31x, Dr 31x / Cr 6031.
+    if ($refusedValues) {
+        JournalPoster::postStockAdjustment(
+            'delivery_refusal', $blId, $refusedValues, date('Y-m-d'),
+            'RET-' . $del['reference'],
+            "Bouteilles refusées au BL {$del['reference']}, remises en stock",
+            $loggedBy
+        );
     }
 
     // 4. Push totals + payment status back onto the sales order.

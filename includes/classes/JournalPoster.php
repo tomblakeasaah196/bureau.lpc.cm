@@ -920,6 +920,89 @@ final class JournalPoster
     }
 
     /**
+     * Bottles that enter or leave the stock outside a purchase or a sale: an
+     * avarie, an inventory gap, bottles a client refused at delivery.
+     *
+     *   value < 0 (out: avarie, missing at the count)   Dr 6031 / Cr 31x
+     *   value > 0 (in: surplus at the count, refused)   Dr 31x  / Cr 6031
+     *
+     * Perpetual inventory (the owner's answer 3, VIDEO_QA_FINDINGS 3.1,
+     * 18/11/2026): 31x holds the value of the bottles on hand, so a bottle
+     * that leaves it any other way than a delivery must leave the account too,
+     * or 31x stays above the warehouse. The other side is the product's
+     * variation account (6031 by default), the one its deliveries use: a loss
+     * or a gap is a cost of the goods, and the entry's text says which.
+     *
+     * @param array<int,float> $values product_id => signed value (+ in, - out)
+     * @param int|null $user_id who the entry is booked by (default: the session)
+     * @return int|null the entry, or null when nothing has a value or an account
+     */
+    public static function postStockAdjustment(
+        string $source_type,
+        int $source_id,
+        array $values,
+        string $date,
+        string $reference,
+        string $description,
+        ?int $user_id = null   // a client's signature has no session: the caller names who
+    ): ?int {
+        $db      = Database::getInstance()->getConnection();
+        $user_id = $user_id ?: (int) ($_SESSION['user_id'] ?? 0);
+
+        if (!self::hasProductAccountMapping($db) || !$values) return null;
+
+        $cogs_default = self::coaByOhada($db, '6031');
+        if (!$cogs_default) {
+            throw new RuntimeException("JournalPoster: OHADA 6031 is not mapped in chart_of_accounts. Apply migration 041.");
+        }
+
+        $ids = implode(',', array_map('intval', array_keys($values)));
+        $map = [];
+        foreach ($db->query("
+            SELECT p.id,
+                   COALESCE(p.stock_account_id, pc.stock_account_id) AS stock_coa,
+                   COALESCE(p.cogs_account_id,  pc.cogs_account_id)  AS cogs_coa
+              FROM products p
+              LEFT JOIN product_categories pc ON pc.id = p.category_id
+             WHERE p.id IN ({$ids})
+        ")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $map[(int) $r['id']] = $r;
+        }
+
+        $lines = [];   // "stock|variation" => signed value
+        foreach ($values as $pid => $value) {
+            $m = $map[(int) $pid] ?? null;
+            if (!$m || empty($m['stock_coa'])) {
+                error_log("JournalPoster::postStockAdjustment — {$source_type} #{$source_id}: product #{$pid} has no stock account, "
+                        . round((float) $value) . " FCFA not posted.");
+                continue;
+            }
+            $key = (int) $m['stock_coa'] . '|' . (!empty($m['cogs_coa']) ? (int) $m['cogs_coa'] : $cogs_default);
+            $lines[$key] = ($lines[$key] ?? 0) + (float) $value;
+        }
+        foreach ($lines as $k => $v) {
+            $lines[$k] = self::roundFcfa($v);
+            if ($lines[$k] == 0.0) unset($lines[$k]);
+        }
+        if (!$lines) return null;
+
+        $je_id = self::createDraftJe($db, $reference, 'OD', $date, $description, $user_id, $source_type, $source_id);
+        foreach ($lines as $k => $v) {
+            [$stock, $variation] = array_map('intval', explode('|', $k));
+            if ($v > 0) {
+                self::addLine($db, $je_id, $stock,     $v,  0.0);
+                self::addLine($db, $je_id, $variation, 0.0, $v);
+            } else {
+                self::addLine($db, $je_id, $variation, -$v, 0.0);
+                self::addLine($db, $je_id, $stock,     0.0, -$v);
+            }
+        }
+        self::post($db, $je_id, $user_id);
+
+        return $je_id;
+    }
+
+    /**
      * Ristourne earned on reception — Debit 4098 / Credit 6019.
      *
      *   Debit  4098 Fournisseurs - RRR à obtenir  — the supplier now owes us this

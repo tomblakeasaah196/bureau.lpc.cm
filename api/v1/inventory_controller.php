@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/Paginator.php';   // Sprint 5
 require_once __DIR__ . '/../../includes/classes/JournalPoster.php';
 require_once __DIR__ . '/../../includes/functions/procurement.php';
+require_once __DIR__ . '/../../includes/functions/stock.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 // Baseline gate only. Write actions re-check with their own permission —
@@ -79,7 +80,29 @@ try {
             // sensible response but bounded by Paginator::DEFAULT_PER_PAGE.
             $lpc_q = trim((string) ($_GET['q'] ?? ''));
 
-            if ($tab === 'stock' || $tab === 'audit') {
+            if ($tab === 'audit') {
+                // The count sheet: EVERY product a person can count (active,
+                // or still holding stock), never a page of 25. It also feeds
+                // the Avarie list. VIDEO_QA_FINDINGS 3.3 (18/11/2026): this
+                // read shared the stock tab's 25-row page.
+                $qty = lpc_stock_qty_sql('p.id');
+                $rows = $db->query("
+                    SELECT * FROM (
+                        SELECT p.id, p.category, p.name, p.format, p.cump, p.min_stock_level, p.is_active,
+                               {$qty} AS current_qty
+                          FROM products p
+                         WHERE p.deleted_at IS NULL
+                    ) x
+                    WHERE x.is_active = 1 OR x.current_qty <> 0
+                    ORDER BY x.category ASC, x.name ASC
+                ")->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($rows as &$r) {
+                    $r['current_qty'] = (int) $r['current_qty'];
+                }
+                unset($r);
+                $responseData['table'] = $rows;
+
+            } elseif ($tab === 'stock') {
                 // The `current_qty` subquery is reused in a few places below
                 // (SELECT list, KPI aggregation, filter WHERE). Kept as a
                 // local so all four callsites stay in lockstep.
@@ -153,9 +176,9 @@ try {
                     $kpiSql = "
                         SELECT
                             COUNT(*) AS total_skus,
-                            SUM(CASE WHEN q.qty <= 0 THEN 1 ELSE 0 END) AS rupture_count,
+                            SUM(CASE WHEN COALESCE(q.qty, 0) <= 0 THEN 1 ELSE 0 END) AS rupture_count,
                             SUM(CASE WHEN q.qty > 0 AND q.qty <= p.min_stock_level THEN 1 ELSE 0 END) AS alert_count,
-                            SUM(q.qty * p.cump) AS total_value
+                            SUM(COALESCE(q.qty, 0) * p.cump) AS total_value
                         FROM products p
                         LEFT JOIN (
                             SELECT product_id,
@@ -331,24 +354,29 @@ try {
                     JOIN products p ON im.product_id = p.id
                     JOIN users u ON im.logged_by = u.id
                     LEFT JOIN purchase_orders po ON im.movement_type = 'in_supplier' AND im.reference_id = po.id
-                    LEFT JOIN deliveries d ON im.movement_type = 'out_delivery' AND im.reference_id = d.id
-                    LEFT JOIN inventory_reports ir ON im.movement_type IN ('in_adjustment', 'out_adjustment') AND im.reference_id = ir.id
+                    LEFT JOIN deliveries d ON im.reference_id = d.id
+                         AND ((im.movement_type = 'out_delivery' AND COALESCE(im.reference_type, 'delivery') = 'delivery')
+                              OR (im.movement_type IN ('in_adjustment', 'in_return_emp') AND im.reference_type = 'delivery'))
+                    LEFT JOIN recycling_sales rs ON im.movement_type = 'out_delivery' AND im.reference_type = 'recycling_sale' AND im.reference_id = rs.id
+                    LEFT JOIN inventory_reports ir ON im.movement_type IN ('in_adjustment', 'out_adjustment')
+                         AND COALESCE(im.reference_type, 'inventory_report') = 'inventory_report' AND im.reference_id = ir.id
                     WHERE $dateFilter
                 ";
                 if ($lpc_q !== '') {
                     [$body, $params] = Paginator::addWhere(
                         $body, $params, $lpc_q,
-                        ['p.name', 'im.movement_type', 'po.reference', 'd.reference', 'ir.reference']
+                        ['p.name', 'im.movement_type', 'im.note', 'po.reference', 'd.reference', 'rs.reference', 'ir.reference']
                     );
                 }
                 $body .= " ORDER BY im.date DESC, im.id DESC";
 
                 $select = "
-                    im.id, im.date, im.movement_type, im.quantity,
+                    im.id, im.date, im.movement_type, im.quantity, im.reference_type, im.note, im.unit_cost,
                     p.name as product_name,
                     CONCAT(u.first_name, ' ', u.last_name) as logged_by_name,
                     po.reference as po_ref,
                     d.reference as bl_ref,
+                    rs.reference as recycling_ref,
                     ir.token as audit_token,
                     ir.reference as audit_ref,
                     (SELECT SUM(CASE WHEN m2.movement_type LIKE 'in_%' THEN m2.quantity ELSE -m2.quantity END)
@@ -497,7 +525,6 @@ try {
             }
             $stock_values = [];   // product_id => value moved into stock this reception
 
-            $stmtMove = $db->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, reference_id, logged_by) VALUES (?, 'in_supplier', ?, ?, ?)");
             $stmtGetProd = $db->prepare("SELECT name, cump, COALESCE((SELECT SUM(CASE WHEN movement_type LIKE 'in_%' THEN quantity ELSE -quantity END) FROM inventory_movements WHERE product_id = ?), 0) as current_qty FROM products WHERE id = ? FOR UPDATE");
             $stmtUpdateCUMP = $db->prepare("UPDATE products SET cump = ? WHERE id = ?");
 
@@ -566,10 +593,7 @@ try {
                 $qty_before  = (int)$prod['current_qty'];
                 $old_cump    = (float)$prod['cump'];
 
-                // 2. Stock In
-                $stmtMove->execute([$pid, $received_qty, $po_id, $user_id]);
-
-                // 3. CUMP Recalculation — weighted average over pre-receipt stock.
+                // 2. CUMP Recalculation — weighted average over pre-receipt stock.
                 //
                 //    Valued at the COST of the goods, which excludes recoverable
                 //    VAT: that VAT is a receivable against the State, never a
@@ -586,6 +610,10 @@ try {
                     $new_cump = ($total_value_old + $total_value_new) / ($qty_before + $received_qty);
                 }
                 $stmtUpdateCUMP->execute([$new_cump, $pid]);
+
+                // 3. Stock in, at what one bottle cost (the Fiche de Stock
+                //    values each movement at its own cost, migration 134).
+                lpc_stock_move($db, $pid, 'in_supplier', $received_qty, 'purchase_order', $po_id, $user_id, $unit_cost);
 
                 // Kept TTC: it is what the supplier will invoice and what 401
                 // must be credited with. The split happens once, below.
@@ -824,8 +852,12 @@ try {
         // Re-submitting the same request returns {status:'error', code:'duplicate_audit'}.
         // ==========================================
         case 'submit_audit':
+            // Sealing an inventory rewrites the stock and the stock account:
+            // inventory.stock.audit, not just the right to look at the stock
+            // (VIDEO_QA_FINDINGS 3.2, 18/11/2026).
+            Rbac::requirePermission('inventory.stock.audit');
             $adjustments = $jsonData['adjustments'] ?? [];
-            if (empty($adjustments)) throw new UserFacingException("Aucun ajustement fourni.");
+            if (empty($adjustments) || !is_array($adjustments)) throw new UserFacingException("Aucun comptage fourni.");
 
             // 1. Idempotency check. Client MUST send `idempotency_key`; the
             //    frontend generates it once per user click and re-sends it on
@@ -849,6 +881,42 @@ try {
 
             $db->beginTransaction();
 
+            // 1b. The counts. The browser sends what was counted; the server
+            //     reads what the system holds itself, under lock, and derives
+            //     the gap. It used to store the browser's theoretical and
+            //     difference figures as they came (VIDEO_QA_FINDINGS 3.3).
+            //     Only products with a gap are kept, as before: a report's
+            //     lines are its variations.
+            $counted = [];
+            foreach ($adjustments as $adj) {
+                $pid = (int) ($adj['product_id'] ?? 0);
+                if ($pid <= 0 || !isset($adj['physical']) || $adj['physical'] === '') continue;
+                $physical = (int) $adj['physical'];
+                if ($physical < 0) throw new UserFacingException("Une quantité comptée ne peut pas être négative.");
+                $counted[$pid] = $physical;
+            }
+            if (!$counted) throw new UserFacingException("Aucun comptage fourni.");
+            ksort($counted);   // lock rows in one order, so two counts never deadlock
+
+            $lines = [];
+            foreach ($counted as $pid => $physical) {
+                $prod = lpc_stock_lock($db, $pid);
+                if (!$prod) throw new UserFacingException("Produit #{$pid} introuvable.");
+                $diff = $physical - $prod['qty'];
+                if ($diff === 0) continue;
+                $lines[] = [
+                    'product_id'  => $pid,
+                    'name'        => $prod['name'],
+                    'theoretical' => $prod['qty'],
+                    'physical'    => $physical,
+                    'difference'  => $diff,
+                    'cump'        => $prod['cump'],
+                ];
+            }
+            if (!$lines) {
+                throw new UserFacingException("Aucun écart : les quantités comptées correspondent au stock enregistré.");
+            }
+
             // 2. Generate Reference & Token
             // INV-20261102-001: the day's next number, from a counter locked in
             // this transaction (DocCounter, migration 350), instead of a count
@@ -860,7 +928,11 @@ try {
             $operator_name = $_SESSION['user_name'];
 
             // 3. Generate Digital Hash (Seal)
-            $raw_data = $reference . $operator_name . $ip . $timestamp . json_encode($adjustments);
+            $raw_data = $reference . $operator_name . $ip . $timestamp . json_encode(array_map(
+                fn ($l) => ['product_id' => $l['product_id'], 'theoretical' => $l['theoretical'],
+                            'physical' => $l['physical'], 'difference' => $l['difference']],
+                $lines
+            ));
             $hash = hash('sha256', $raw_data);
 
             // 4. Create the Report Header — writes idempotency_key so a
@@ -891,54 +963,56 @@ try {
             }
             $report_id = $db->lastInsertId();
 
-            // 5. Process Items & Movements — every product row is locked
-            //    FOR UPDATE inside the transaction so a concurrent dispatch
-            //    that also touches the same product blocks until we're done.
-            $stmtMove = $db->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, reference_id, logged_by) VALUES (?, ?, ?, ?, ?)");
+            // 5. The report's lines, the movements and their value. The
+            //    product rows were locked FOR UPDATE above, so a concurrent
+            //    dispatch of the same product waits until this commits.
             $stmtItem = $db->prepare("INSERT INTO inventory_report_items (report_id, product_id, theoretical_qty, physical_qty, difference) VALUES (?, ?, ?, ?, ?)");
-            $stmtProdLock = $db->prepare("SELECT name FROM products WHERE id = ? FOR UPDATE");
-
-            $notif_details = [];
-
-            foreach ($adjustments as $adj) {
-                $pid = (int)$adj['product_id'];
-                $diff = (int)$adj['difference'];
-                $theo = (int)$adj['theoretical'];
-                $real = (int)$adj['physical'];
-
-                // Lock the product row so a concurrent dispatch waits.
-                $stmtProdLock->execute([$pid]);
-                $pname = $stmtProdLock->fetchColumn();
-                if (!$pname) throw new UserFacingException("Produit #{$pid} introuvable.");
-
-                // Record line item in the report
-                $stmtItem->execute([$report_id, $pid, $theo, $real, $diff]);
-
-                // Apply the physical adjustment to the actual stock
-                if ($diff > 0) {
-                    $stmtMove->execute([$pid, 'in_adjustment', $diff, $report_id, $user_id]);
-                    $notif_details[] = "+$diff $pname (Trouvé)";
-                } elseif ($diff < 0) {
-                    $abs_diff = abs($diff);
-                    $stmtMove->execute([$pid, 'out_adjustment', $abs_diff, $report_id, $user_id]);
-                    $notif_details[] = "-$abs_diff $pname (Manquant)";
-                }
+            $values = [];
+            $net_value = 0.0;
+            foreach ($lines as $l) {
+                $stmtItem->execute([$report_id, $l['product_id'], $l['theoretical'], $l['physical'], $l['difference']]);
+                $type = $l['difference'] > 0 ? 'in_adjustment' : 'out_adjustment';
+                lpc_stock_move($db, $l['product_id'], $type, abs($l['difference']), 'inventory_report', (int) $report_id, $user_id, $l['cump']);
+                $values[$l['product_id']] = $l['difference'] * $l['cump'];
+                $net_value += $l['difference'] * $l['cump'];
             }
+
+            // 6. Perpetual stock: the gap leaves (or enters) 31x at CUMP.
+            //    A shortage: Dr 6031 / Cr 31x; a surplus: Dr 31x / Cr 6031
+            //    (VIDEO_QA_FINDINGS 3.1).
+            JournalPoster::postStockAdjustment(
+                'inventory_report', (int) $report_id, $values, date('Y-m-d'),
+                $reference, "Écarts d'inventaire {$reference} (valorisés au CUMP)"
+            );
 
             notifyAdminFinance($db, "Inventaire Physique Validé", "$operator_name a verrouillé un inventaire (Réf: $reference).",
                 "/modules/inventory/print_audit.php?token=$token", 'info');
 
             $db->commit();
-            echo json_encode(['status' => 'success', 'token' => $token, 'reference' => $reference]);
+            echo json_encode([
+                'status'    => 'success',
+                'token'     => $token,
+                'reference' => $reference,
+                'lines'     => array_map(fn ($l) => [
+                    'product_name' => $l['name'], 'theoretical' => $l['theoretical'],
+                    'physical' => $l['physical'], 'difference' => $l['difference'],
+                    'value' => round($l['difference'] * $l['cump']),
+                ], $lines),
+                'net_value' => round($net_value),
+            ]);
             break;
 
         // ==========================================
         // ACTION: LOG DAMAGE (Avarie)
         // ==========================================
         case 'log_damage':
+            // Declaring bottles lost takes them out of the stock and out of
+            // 31x: inventory.stock.damage (VIDEO_QA_FINDINGS 3.2, 18/11/2026;
+            // anyone who could see the stock could declare one).
+            Rbac::requirePermission('inventory.stock.damage');
             $db->beginTransaction();
-            $pid    = (int) $jsonData['product_id'];
-            $qty    = (int) $jsonData['quantity'];
+            $pid    = (int) ($jsonData['product_id'] ?? 0);
+            $qty    = (int) ($jsonData['quantity'] ?? 0);
             $reason = trim((string) ($jsonData['reason'] ?? ''));
 
             // These are operator-actionable refusals, not server failures:
@@ -947,57 +1021,88 @@ try {
             // fall into the blanket handler below, become a 500 "Erreur
             // serveur", and be logged as a crash — exactly what happened with
             // an out-of-stock avarie (see lpc_error.log "Stock insuffisant").
-            if ($qty <= 0) throw new UserFacingException("Quantité invalide.");
+            if ($qty <= 0) throw new UserFacingException("Indiquez combien de bouteilles sont perdues.");
+            if ($reason === '') throw new UserFacingException("Indiquez la raison de l'avarie.");
 
             // Sprint-4-Batch-B: lock the product row + verify sufficient stock
             // before decrementing. Wraps the read AND the write in the same
             // transaction so two concurrent damage logs don't over-decrement.
-            $stmtProdLock = $db->prepare("
-                SELECT p.name,
-                       COALESCE((SELECT SUM(CASE WHEN movement_type LIKE 'in_%' THEN quantity ELSE -quantity END)
-                                   FROM inventory_movements WHERE product_id = p.id), 0) AS current_qty
-                  FROM products p WHERE p.id = ? FOR UPDATE
-            ");
-            $stmtProdLock->execute([$pid]);
-            $prod = $stmtProdLock->fetch(PDO::FETCH_ASSOC);
+            $prod = lpc_stock_lock($db, $pid);
             if (!$prod) throw new UserFacingException("Produit introuvable.");
             $pname = $prod['name'];
 
-            if ((int) $prod['current_qty'] < $qty) {
-                throw new UserFacingException("Stock insuffisant : {$prod['current_qty']} en stock, {$qty} demandés.");
+            if ($prod['qty'] < $qty) {
+                throw new UserFacingException("Stock insuffisant : {$prod['qty']} en stock, {$qty} demandés.");
             }
 
-            $stmtMove = $db->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, logged_by) VALUES (?, 'out_damaged', ?, ?)");
-            $stmtMove->execute([$pid, $qty, $user_id]);
+            // The reason is kept on the movement (it went only into a
+            // notification before) and the bottles leave at today's CUMP.
+            $movement_id = lpc_stock_move($db, $pid, 'out_damaged', $qty, 'damage', null, $user_id, $prod['cump'], $reason);
+            $value = $qty * $prod['cump'];
+
+            // Perpetual stock: Dr 6031 / Cr 31x (VIDEO_QA_FINDINGS 3.1).
+            JournalPoster::postStockAdjustment(
+                'stock_damage', $movement_id, [$pid => -$value], date('Y-m-d'),
+                'AVR-' . $movement_id, mb_substr("Avarie : {$qty} × {$pname} ({$reason})", 0, 255)
+            );
 
             $operator_name = $_SESSION['user_name'];
             notifyAdminFinance($db, "Alerte Avarie (Stock Perdu)", "$operator_name a déclaré la perte de $qty x $pname.\nMotif: $reason",
                 '/modules/inventory/stock.php', 'warning');
 
             $db->commit();
-            echo json_encode(['status' => 'success']);
+            echo json_encode([
+                'status'    => 'success',
+                'product'   => $pname,
+                'quantity'  => $qty,
+                'value'     => round($value),
+                'new_stock' => $prod['qty'] - $qty,
+            ]);
             break;
             
     // ==========================================
         // ACTION: FICHE DE STOCK (Summary & Chart)
         // ==========================================
         case 'fiche_stock':
-            $start_date = $_GET['start'] ?? date('Y-m-01');
-            $end_date = $_GET['end'] ?? date('Y-m-t');
+            [$start_date, $end_date] = lpc_fiche_period();
 
-            // 1. Summary Matrix (Grouped by Product)
+            // 1. One line per product: what it held at the start, what came
+            //    in, what went out, what it held at the end; in units and in
+            //    value. Each movement is valued at its own cost (the purchase
+            //    cost at reception, the CUMP of that day for anything else,
+            //    migration 134), so a past month is no longer re-priced at
+            //    today's CUMP (VIDEO_QA_FINDINGS 3.4, 18/11/2026).
+            $val = "m.quantity * COALESCE(m.unit_cost, p.cump)";
             $stmtSummary = $db->prepare("
                 SELECT p.id, p.name, p.category, p.cump,
-                       SUM(CASE WHEN m.movement_type LIKE 'in_%' THEN m.quantity ELSE 0 END) as total_in,
-                       SUM(CASE WHEN m.movement_type LIKE 'out_%' THEN m.quantity ELSE 0 END) as total_out
-                FROM products p
-                LEFT JOIN inventory_movements m ON p.id = m.product_id AND DATE(m.date) BETWEEN ? AND ?
-                WHERE p.is_active = 1 OR m.id IS NOT NULL
-                GROUP BY p.id
-                ORDER BY p.category ASC, p.name ASC
+                       SUM(CASE WHEN m.date <  ? THEN (CASE WHEN m.movement_type LIKE 'in_%' THEN m.quantity ELSE -m.quantity END) ELSE 0 END) AS opening_qty,
+                       SUM(CASE WHEN m.date <  ? THEN (CASE WHEN m.movement_type LIKE 'in_%' THEN {$val} ELSE -{$val} END) ELSE 0 END) AS opening_value,
+                       SUM(CASE WHEN m.date >= ? AND m.movement_type LIKE 'in_%'  THEN m.quantity ELSE 0 END) AS total_in,
+                       SUM(CASE WHEN m.date >= ? AND m.movement_type LIKE 'in_%'  THEN {$val} ELSE 0 END) AS value_in,
+                       SUM(CASE WHEN m.date >= ? AND m.movement_type LIKE 'out_%' THEN m.quantity ELSE 0 END) AS total_out,
+                       SUM(CASE WHEN m.date >= ? AND m.movement_type LIKE 'out_%' THEN {$val} ELSE 0 END) AS value_out
+                  FROM products p
+                  LEFT JOIN inventory_movements m ON m.product_id = p.id AND m.date < ?
+                 WHERE p.deleted_at IS NULL
+                 GROUP BY p.id, p.name, p.category, p.cump
+                HAVING MAX(p.is_active) = 1 OR COUNT(m.id) > 0
+                 ORDER BY p.category ASC, p.name ASC
             ");
-            $stmtSummary->execute([$start_date, $end_date]);
-            $summary = $stmtSummary->fetchAll(PDO::FETCH_ASSOC);
+            $from = $start_date . ' 00:00:00';
+            $to   = date('Y-m-d', strtotime($end_date . ' +1 day')) . ' 00:00:00';
+            $stmtSummary->execute([$from, $from, $from, $from, $from, $from, $to]);
+            $summary = [];
+            foreach ($stmtSummary->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $r['opening_qty']   = (int) $r['opening_qty'];
+                $r['total_in']      = (int) $r['total_in'];
+                $r['total_out']     = (int) $r['total_out'];
+                $r['closing_qty']   = $r['opening_qty'] + $r['total_in'] - $r['total_out'];
+                $r['opening_value'] = round((float) $r['opening_value']);
+                $r['value_in']      = round((float) $r['value_in']);
+                $r['value_out']     = round((float) $r['value_out']);
+                $r['closing_value'] = $r['opening_value'] + $r['value_in'] - $r['value_out'];
+                $summary[] = $r;
+            }
 
             // 2. Chart Data (Daily Trend)
             $stmtChart = $db->prepare("
@@ -1012,30 +1117,73 @@ try {
             $stmtChart->execute([$start_date, $end_date]);
             $chart = $stmtChart->fetchAll(PDO::FETCH_ASSOC);
 
-            echo json_encode(['status' => 'success', 'data' => ['summary' => $summary, 'chart' => $chart]]);
+            echo json_encode(['status' => 'success', 'data' => [
+                'summary' => $summary, 'chart' => $chart, 'start' => $start_date, 'end' => $end_date,
+            ]]);
             break;
 
         // ==========================================
         // ACTION: FICHE DE STOCK (Drill-down Details)
         // ==========================================
         case 'get_fiche_details':
-            $product_id = (int)$_GET['product_id'];
-            $start_date = $_GET['start'] ?? date('Y-m-01');
-            $end_date = $_GET['end'] ?? date('Y-m-t');
+            // The product's card for the period, as a stock card reads: the
+            // balance at the start, each movement in order with the balance
+            // after it (units and value), the balance at the end.
+            $product_id = (int) ($_GET['product_id'] ?? 0);
+            [$start_date, $end_date] = lpc_fiche_period();
+            $from = $start_date . ' 00:00:00';
+            $to   = date('Y-m-d', strtotime($end_date . ' +1 day')) . ' 00:00:00';
+
+            $signedQty = "CASE WHEN m.movement_type LIKE 'in_%' THEN m.quantity ELSE -m.quantity END";
+            $stmtOpen = $db->prepare("
+                SELECT COALESCE(SUM({$signedQty}), 0) AS qty,
+                       COALESCE(SUM(({$signedQty}) * COALESCE(m.unit_cost, p.cump)), 0) AS value
+                  FROM inventory_movements m JOIN products p ON p.id = m.product_id
+                 WHERE m.product_id = ? AND m.date < ?
+            ");
+            $stmtOpen->execute([$product_id, $from]);
+            $open = $stmtOpen->fetch(PDO::FETCH_ASSOC);
 
             $stmt = $db->prepare("
-                SELECT m.date, m.movement_type, m.quantity, 
+                SELECT m.id, m.date, m.movement_type, m.quantity, m.reference_type, m.note,
+                       COALESCE(m.unit_cost, p.cump) AS unit_cost,
                        CONCAT(u.first_name, ' ', u.last_name) as logged_by_name,
-                       po.reference as po_ref, d.reference as bl_ref
+                       po.reference as po_ref, d.reference as bl_ref, rs.reference as recycling_ref,
+                       ir.reference as audit_ref
                 FROM inventory_movements m
+                JOIN products p ON p.id = m.product_id
                 JOIN users u ON m.logged_by = u.id
                 LEFT JOIN purchase_orders po ON m.movement_type = 'in_supplier' AND m.reference_id = po.id
-                LEFT JOIN deliveries d ON m.movement_type = 'out_delivery' AND m.reference_id = d.id
-                WHERE m.product_id = ? AND DATE(m.date) BETWEEN ? AND ?
-                ORDER BY m.date DESC
+                LEFT JOIN deliveries d ON m.reference_id = d.id
+                     AND ((m.movement_type = 'out_delivery' AND COALESCE(m.reference_type, 'delivery') = 'delivery')
+                          OR (m.movement_type IN ('in_adjustment', 'in_return_emp') AND m.reference_type = 'delivery'))
+                LEFT JOIN recycling_sales rs ON m.movement_type = 'out_delivery' AND m.reference_type = 'recycling_sale' AND m.reference_id = rs.id
+                LEFT JOIN inventory_reports ir ON m.movement_type IN ('in_adjustment', 'out_adjustment')
+                     AND COALESCE(m.reference_type, 'inventory_report') = 'inventory_report' AND m.reference_id = ir.id
+                WHERE m.product_id = ? AND m.date >= ? AND m.date < ?
+                ORDER BY m.date ASC, m.id ASC
             ");
-            $stmt->execute([$product_id, $start_date, $end_date]);
-            echo json_encode(['status' => 'success', 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+            $stmt->execute([$product_id, $from, $to]);
+
+            $qty   = (int) $open['qty'];
+            $value = round((float) $open['value']);
+            $rows  = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $m) {
+                $sign = str_starts_with($m['movement_type'], 'in_') ? 1 : -1;
+                $m['quantity']      = (int) $m['quantity'];
+                $m['unit_cost']     = (float) $m['unit_cost'];
+                $m['value']         = round($m['quantity'] * $m['unit_cost']);
+                $qty   += $sign * $m['quantity'];
+                $value += $sign * $m['value'];
+                $m['balance_qty']   = $qty;
+                $m['balance_value'] = $value;
+                $rows[] = $m;
+            }
+            echo json_encode(['status' => 'success', 'data' => [
+                'opening' => ['qty' => (int) $open['qty'], 'value' => round((float) $open['value'])],
+                'movements' => $rows,
+                'closing' => ['qty' => $qty, 'value' => $value],
+            ]]);
             break;
             
         // ==========================================
