@@ -1,6 +1,8 @@
 <?php
-// Plan Comptable admin — add / rename / deactivate OHADA + LPC accounts
-// and remap the expense categories that point at them.
+// Plan Comptable: classes 1 to 9 as tabs, a search, each OHADA parent with its
+// sub-accounts folded under it; add a sub-account, rename, deactivate, delete
+// what nothing uses (the owner's decision 14, 18/11/2026); and the expense
+// categories' accounts. assets/js/modules/admin-chart_of_accounts.js draws it.
 //
 // RBAC: view is gated by accounting.chart.view. Every mutation endpoint on
 // api/v1/accounting_controller.php enforces its own more specific permission
@@ -21,7 +23,7 @@ $lang = lpc_i18n_current_lang();
 <a href="#main" class="lpc-skip-link"><?= htmlspecialchars(__t('ui.a11y.skip_to_content')) ?></a>
 <?php
 $pageTitle    = lpc_nav_label('admin_coa');
-$pageSubtitle = 'OHADA / SYSCOHADA — comptes et catégories de dépense';
+$pageSubtitle = 'SYSCOHADA · classes 1 à 9, comptes et sous-comptes';
 require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php';
 require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 ?>
@@ -31,7 +33,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     </main>
 </div>
 
-<div id="coaModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 backdrop-blur-sm p-4 transition-opacity">
+<div id="coaModal" role="dialog" aria-modal="true" aria-labelledby="coa-modal-title" class="hidden fixed inset-0 z-[9000] flex items-center justify-center bg-gray-900/50 backdrop-blur-sm p-4 transition-opacity">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
         <div class="bg-lpc-dark px-6 py-4 flex justify-between items-center text-white">
             <h3 id="coa-modal-title" class="font-black text-base tracking-wide">...</h3>

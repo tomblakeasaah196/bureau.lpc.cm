@@ -168,6 +168,7 @@ $wiring = [
     'api/v1/cre_controller.php'              => ['cre' => 1, 'recycling' => 1],
     'api/v1/inventory_controller.php'        => ['inventory' => 1],
     'includes/classes/RecurringExpenses.php' => ['expense_recurring' => 1],
+    'includes/classes/Loans.php'             => ['loan' => 1],
 ];
 foreach ($wiring as $file => $types) {
     $code = wipe_test_code($file);

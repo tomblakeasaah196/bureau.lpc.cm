@@ -20,6 +20,7 @@
  */
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/JournalPoster.php';
+require_once __DIR__ . '/../../includes/classes/TreasuryAccount.php';
 require_once __DIR__ . '/../../includes/functions/notify.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -91,7 +92,18 @@ const TREASURY_DIRECTION_SQL = "CASE WHEN t.transaction_type LIKE 'in\\_%' OR t.
 if (!$isWrite) {
     $tab = $_GET['tab'] ?? 'wallets';
     try {
-        $accounts = $pdo->query("SELECT * FROM treasury_accounts WHERE status = 'active' ORDER BY type, name")->fetchAll(PDO::FETCH_ASSOC);
+        // Each account with its own sub-account and that ledger's balance, so the
+        // card shows « 5211 » and a difference with the screen would be visible.
+        $accounts = $pdo->query("
+            SELECT a.*, c.code AS coa_code, c.name AS coa_name,
+                   (SELECT COALESCE(SUM(l.debit - l.credit), 0)
+                      FROM journal_lines l JOIN journal_entries e ON e.id = l.journal_entry_id
+                     WHERE l.account_id = a.coa_account_id AND e.status = 'posted') AS ledger_balance
+              FROM treasury_accounts a
+              LEFT JOIN chart_of_accounts c ON c.id = a.coa_account_id
+             WHERE a.status = 'active'
+             ORDER BY a.type, a.name
+        ")->fetchAll(PDO::FETCH_ASSOC);
         $transactions = $pdo->query("
             SELECT t.id, t.account_id, t.transaction_type, t.amount, t.reference, t.description, t.is_reconciled,
                    t.created_at, a.name AS account_name, a.type AS account_type,
@@ -158,6 +170,8 @@ try {
         $pdo->prepare("INSERT INTO treasury_accounts (name, type, account_number, balance, created_by) VALUES (?, ?, ?, ?, ?)")
             ->execute([$name, $type, $acc_num, $balance, $user_id]);
         $new_acc_id = (int) $pdo->lastInsertId();
+        // Its own sub-account (5211, 5521, 5711…), before anything posts (decision 12).
+        TreasuryAccount::ensureLedger($pdo, $new_acc_id);
 
         $je_id = null;
         if ($balance > 0) {
@@ -215,6 +229,9 @@ try {
         }
         $params[] = $acc_id;
         $pdo->prepare("UPDATE treasury_accounts SET " . implode(', ', $sets) . " WHERE id = ?")->execute($params);
+        // The sub-account follows the account's name; one is created if missing.
+        $coa_id = TreasuryAccount::ensureLedger($pdo, $acc_id);
+        $pdo->prepare("UPDATE chart_of_accounts SET name = ? WHERE id = ?")->execute([mb_substr($name, 0, 100), $coa_id]);
 
         $pdo->commit();
         sendResponse('success', 'Compte mis à jour.');

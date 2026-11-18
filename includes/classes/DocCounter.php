@@ -62,6 +62,7 @@ final class DocCounter
         'cre'               => ['table' => 'cre_documents',     'format' => 'CRE-{YYYY}{MM}{DD}-{SEQ3}', 'period' => 'day'],
         'inventory'         => ['table' => 'inventory_reports', 'format' => 'INV-{YYYY}{MM}{DD}-{SEQ3}', 'period' => 'day'],
         'recycling'         => ['table' => 'recycling_sales',   'format' => 'REC-{YYYY}{MM}-{SEQ3}',     'period' => 'month'],
+        'loan'              => ['table' => 'loans',             'format' => 'FIN-{YYMM}-{SEQ}',          'period' => 'pref'],
     ];
 
     /**

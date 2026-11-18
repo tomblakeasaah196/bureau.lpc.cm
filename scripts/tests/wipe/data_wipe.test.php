@@ -170,6 +170,14 @@ check('wallets and empties ledger go with the client', count($p['delete']['clien
 check('deliveries, orders, invoices and all payments go', count($p['delete']['deliveries']) === 2 && count($p['delete']['sales_orders']) === 2 && count($p['delete']['payments']) === 3);
 check('the quote (named in text, not linked) stays', empty($p['delete']['proposals']));
 check('the supplier\'s 401 stays', !isset($p['delete']['chart_of_accounts'][6]));
+// The owner's decision 13 (18/11/2026): the sub-account goes only when no entry is left on it.
+$db->exec("INSERT INTO journal_entries (id, reference, date, status, source_type, source_id) VALUES (7, 'OD-REGUL-ALPHA', '2026-11-03', 'draft', NULL, NULL)");
+$db->exec("INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit) VALUES (7, 4, 500, 0), (7, 3, 0, 500)");
+$p7 = $wiper->plan(['clients']);
+check('a client\'s 411 that a manual entry still uses stays (411001), the other goes (411002)',
+      !isset($p7['delete']['chart_of_accounts'][4]) && isset($p7['delete']['chart_of_accounts'][5]));
+check('and the manual entry stays', !isset($p7['delete']['journal_entries'][7]));
+$db->exec("DELETE FROM journal_entries WHERE id = 7");
 check('stock: the BL\'s out and empties-back movements go, the reception stays',
       isset($p['delete']['inventory_movements'][2], $p['delete']['inventory_movements'][3], $p['delete']['inventory_movements'][4]) && !isset($p['delete']['inventory_movements'][1]));
 

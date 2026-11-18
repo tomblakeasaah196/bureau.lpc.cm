@@ -86,19 +86,32 @@ if ($method === 'GET') {
                      ORDER BY account_number ASC
                 ")->fetchAll();
 
+                // Each row with its posted balance and what uses it: the page
+                // offers « Supprimer » only when nothing does (decision 14).
                 $coa = $pdo->query("
                     SELECT c.id, c.ohada_account_id, c.code, c.name, c.type,
                            c.is_active,
                            o.account_number AS ohada_number,
                            o.name           AS ohada_name,
-                           (SELECT COUNT(*) FROM journal_lines jl
-                             WHERE jl.account_id = c.id)              AS lines_count,
+                           (SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
+                              FROM journal_lines jl JOIN journal_entries je ON je.id = jl.journal_entry_id
+                             WHERE jl.account_id = c.id AND je.status = 'posted') AS balance,
                            (SELECT COUNT(*) FROM expense_categories ec
                              WHERE ec.coa_account_id = c.id)          AS categories_count
                       FROM chart_of_accounts c
                       JOIN ohada_accounts    o ON o.id = c.ohada_account_id
                      ORDER BY c.code ASC
                 ")->fetchAll();
+                require_once __DIR__ . '/../../includes/classes/ChartOfAccounts.php';
+                $usage = ChartOfAccounts::usage($pdo);
+                foreach ($coa as &$row) {
+                    $u = $usage[(int) $row['id']] ?? ['lines' => 0, 'links' => []];
+                    $row['lines_count'] = $u['lines'];
+                    $row['links']       = (object) $u['links'];
+                    $row['is_own']      = ($row['code'] === $row['ohada_number']);
+                    $row['deletable']   = ($u['lines'] === 0 && !$u['links'] && !$row['is_own']);
+                }
+                unset($row);
 
                 $response_data['ohada_masters'] = $ohada;
                 $response_data['coa']           = $coa;
@@ -106,6 +119,8 @@ if ($method === 'GET') {
                     Rbac::hasPermission('accounting.chart.edit');
                 $response_data['can_create']    =
                     Rbac::hasPermission('accounting.chart.create');
+                $response_data['can_delete']    =
+                    Rbac::hasPermission('accounting.chart.edit');
                 break;
 
             case 'queue':
@@ -187,22 +202,28 @@ else if ($method === 'POST') {
         // 1. CREATE AUXILIARY ACCOUNT (Plan Comptable LPC)
         if ($action === 'create_lpc_account') {
             Rbac::requirePermission('accounting.chart.create');
-            $ohada_id = (int)$payload['ohada_account_id'];
-            $code = trim($payload['code']);
-            $name = trim($payload['name']);
+            $ohada_id = (int)($payload['ohada_account_id'] ?? 0);
+            $code = trim((string)($payload['code'] ?? ''));
+            $name = trim((string)($payload['name'] ?? ''));
+            if ($name === '') throw new Exception("Indiquez le nom du sous-compte.");
 
-            if (strlen($code) !== 6 || !is_numeric($code)) {
-                throw new Exception("Le code compte doit être strictement composé de 6 chiffres.");
+            $stmtP = $pdo->prepare("SELECT type, account_number FROM ohada_accounts WHERE id = ?");
+            $stmtP->execute([$ohada_id]);
+            $parent = $stmtP->fetch(PDO::FETCH_ASSOC);
+            if (!$parent) throw new Exception("Compte OHADA parent introuvable.");
+            $type = $parent['type'];
+
+            // A sub-account's code starts with its parent's number (5211 under
+            // 521, 466001 under 466); left empty, the next free one is taken.
+            require_once __DIR__ . '/../../includes/classes/ChartOfAccounts.php';
+            if ($code === '') $code = ChartOfAccounts::nextSubCode($pdo, $parent['account_number'], 3);
+            if (!preg_match('/^[0-9]{2,10}$/', $code) || strpos($code, $parent['account_number']) !== 0) {
+                throw new Exception("Le code doit commencer par {$parent['account_number']} et ne contenir que des chiffres (10 au plus).");
             }
 
             $stmt = $pdo->prepare("SELECT COUNT(*) FROM chart_of_accounts WHERE code = ?");
             $stmt->execute([$code]);
             if ($stmt->fetchColumn() > 0) throw new Exception("Ce code de compte ($code) existe déjà.");
-
-            $stmtP = $pdo->prepare("SELECT type FROM ohada_accounts WHERE id = ?");
-            $stmtP->execute([$ohada_id]);
-            $type = $stmtP->fetchColumn();
-            if (!$type) throw new Exception("Compte OHADA parent introuvable.");
             // ohada_accounts.type carries an 'other' member that
             // chart_of_accounts.type does not accept — migration 084 maps it
             // to 'asset' when it seeds its own mirrors. Copying the parent
@@ -214,9 +235,9 @@ else if ($method === 'POST') {
             $stmtI = $pdo->prepare("INSERT INTO chart_of_accounts (ohada_account_id, code, name, type, is_active) VALUES (?, ?, ?, ?, 1)");
             $stmtI->execute([$ohada_id, $code, $name, $type]);
 
+            $new_id = (int)$pdo->lastInsertId();
             $pdo->commit();
-            sendResponse('success', 'Compte LPC créé avec succès.',
-                ['id' => (int)$pdo->lastInsertId()]);
+            sendResponse('success', "Sous-compte $code créé.", ['id' => $new_id, 'code' => $code]);
         }
 
         // -----------------------------------------------------------------
@@ -399,6 +420,28 @@ else if ($method === 'POST') {
 
             $pdo->commit();
             sendResponse('success', $active ? 'Compte réactivé.' : 'Compte désactivé.');
+        }
+
+        // Delete a row nothing uses: no journal line, no client, supplier,
+        // treasury account, product, category, fixed asset, loan or setting
+        // (the owner's decision 14). A used row is deactivated instead.
+        if ($action === 'delete_lpc_account') {
+            Rbac::requirePermission('accounting.chart.edit');
+            $id = (int)($payload['id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT code, name FROM chart_of_accounts WHERE id = ? FOR UPDATE");
+            $stmt->execute([$id]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) throw new Exception("Compte introuvable.");
+            require_once __DIR__ . '/../../includes/classes/ChartOfAccounts.php';
+            $why = ChartOfAccounts::whyNotDeletable($pdo, $id);
+            if ($why !== '') throw new Exception($why);
+
+            $pdo->prepare("DELETE FROM chart_of_accounts WHERE id = ?")->execute([$id]);
+            $pdo->prepare("INSERT INTO audit_logs (user_id, action, table_name, record_id, old_json, new_value) VALUES (?, 'DELETE', 'chart_of_accounts', ?, ?, ?)")
+                ->execute([$user_id, $id, json_encode(['code' => $row['code'], 'name' => $row['name']], JSON_UNESCAPED_UNICODE),
+                           "COA deleted: {$row['code']}"]);
+            $pdo->commit();
+            sendResponse('success', "Compte {$row['code']} supprimé.");
         }
 
         if ($action === 'remap_expense_category') {
