@@ -60,7 +60,7 @@
     const classOf = (number) => String(number || '').charAt(0);
 
     function toast(msg, type = 'success') {
-        if (window.LPC?.toast) return LPC.toast(type, msg);
+        if (window.LPC?.toast) return LPC.toast(msg, type);
         alert(msg);
     }
     async function ask(msg) {
