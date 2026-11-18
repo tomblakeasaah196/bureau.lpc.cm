@@ -240,9 +240,12 @@ final class DataWipeAccess
             }
             $when = date('d/m/Y à H:i');
             $records = ($wipe['mode'] ?? 'tables') === 'records';
-            $title = $records ? 'Enregistrements effacés' : 'Données de test effacées';
+            $full = ($wipe['mode'] ?? 'tables') === 'full';
+            $title = $records ? 'Enregistrements effacés' : ($full ? 'Remise à zéro avant démarrage' : 'Données de test effacées');
             $short = number_format((int) $wipe['total'], 0, ',', ' ') . ($records ? ' lignes effacées' : ' lignes de test effacées') . ' le ' . $when . ' par ' . $user['name']
-                   . ' (' . ($records ? 'un par un : ' . implode(', ', $wipe['records']) : implode(', ', array_map([DataWipeMap::class, 'label'], $wipe['picked'])))
+                   . ' (' . ($records ? 'un par un : ' . implode(', ', $wipe['records'])
+                          : ($full ? DataWipe::pickedText(json_encode(['mode' => 'full', 'options' => $wipe['options'] ?? []]))
+                                   : implode(', ', array_map([DataWipeMap::class, 'label'], $wipe['picked']))))
                    . '). Motif : ' . $reason;
 
             if (!function_exists('lpc_notify_user')) {

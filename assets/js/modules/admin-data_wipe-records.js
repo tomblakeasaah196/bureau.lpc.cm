@@ -59,7 +59,7 @@
             document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
         });
         if (focus) { tab.focus(); }
-        try { history.replaceState(null, '', tab.id === 'dw-tab-records' ? '#un-par-un' : location.pathname + location.search); } catch (e) { /* stays on the tab anyway */ }
+        try { history.replaceState(null, '', tab.id === 'dw-tab-records' ? '#un-par-un' : tab.id === 'dw-tab-full' ? '#remise-a-zero' : location.pathname + location.search); } catch (e) { /* stays on the tab anyway */ }
     }
     els.tabs.forEach(function (tab, i) {
         tab.addEventListener('click', function () { showTab(tab, false); });
@@ -71,6 +71,7 @@
         });
     });
     if (location.hash === '#un-par-un') { showTab(document.getElementById('dw-tab-records'), false); }
+    if (location.hash === '#remise-a-zero') { showTab(document.getElementById('dw-tab-full'), false); }
 
     // ---- 1. Find and pick ----------------------------------------------------------
     function key(r) { return r.table + '#' + r.id; }

@@ -7,7 +7,7 @@
  * else gets what a page that doesn't exist gets (DataWipeAccess). That account
  * alone has it in the sidebar, under Courrier; no search, no permission.
  *
- * Two tabs (owner, 3 Nov 2026), each with the same safeguards:
+ * Three tabs (owner, 3 Nov 2026; the third, 18 Nov 2026), each with the same safeguards:
  *   · Tables entières: pick tables → see everything that goes with them, with
  *     row counts and the balances recalculated → a code emailed to that account
  *     + a reason → the wipe (copied first, kept 30 days) → the MD is told.
@@ -16,6 +16,9 @@
  *     accounts by number or name, choose for each account whether its records
  *     are handed over or wiped too, then the same plan, code, copy and notice.
  *     Script: assets/js/modules/admin-data_wipe-records.js
+ *   · Remise à zéro avant démarrage (decisions 16 and 17): everything but the
+ *     staff, the employees, the settings and the chart; products and suppliers
+ *     kept if ticked (DataWipe::planFull). Script: admin-data_wipe-full.js
  * Past wipes below, with their copies while they are kept.
  * -----------------------------------------------------------------------------
  */
@@ -132,6 +135,7 @@ require __DIR__ . '/../../includes/components/topbar.php';
 <div class="dw-tabs" role="tablist" aria-label="Façon d'effacer">
     <button type="button" class="dw-tab" role="tab" id="dw-tab-tables" aria-controls="dw-panel-tables" aria-selected="true">Tables entières</button>
     <button type="button" class="dw-tab" role="tab" id="dw-tab-records" aria-controls="dw-panel-records" aria-selected="false" tabindex="-1">Un par un</button>
+    <button type="button" class="dw-tab" role="tab" id="dw-tab-full" aria-controls="dw-panel-full" aria-selected="false" tabindex="-1">Remise à zéro avant démarrage</button>
 </div>
 
 <div id="dw-panel-tables" role="tabpanel" aria-labelledby="dw-tab-tables">
@@ -262,6 +266,64 @@ require __DIR__ . '/../../includes/components/topbar.php';
 </div>
 </div>
 
+<div id="dw-panel-full" role="tabpanel" aria-labelledby="dw-tab-full" hidden>
+<div class="dw-card" style="margin-bottom:1rem">
+    <p class="dw-intro">
+        Le jour où LPC commence pour de vrai, tout ce qui a servi aux essais part en une fois : commandes, réceptions, stock,
+        devis, factures, encaissements, emballages, dépenses, flotte, paie, écritures, comptes de trésorerie et leurs
+        mouvements, emprunts, immobilisations, budgets, déclarations, notifications. La numérotation de chaque document
+        repart à 00001.
+    </p>
+    <p class="dw-intro" style="margin-top:.5rem">
+        <strong>Sont toujours gardés :</strong> les comptes et rôles du personnel, les employés, les paramètres, le plan comptable
+        (ses comptes et les catégories ; les sous-comptes des clients, fournisseurs, prêteurs et comptes de trésorerie effacés partent avec eux),
+        Courrier et le centre d'aide. Comme partout ici : copie privée gardée <?= (int) DataWipe::KEEP_DAYS ?> jours, code par email, DG prévenu.
+    </p>
+    <?php if (!$md): ?>
+        <div class="dw-alert is-danger"><?= $e(DataWipeAccess::mdMissing()) ?></div>
+    <?php endif; ?>
+</div>
+
+<div class="dw-grid">
+    <section class="dw-card" aria-labelledby="df-pick-title">
+        <h2 id="df-pick-title">1. Ce que vous gardez</h2>
+        <label class="dw-row"><input type="checkbox" class="dw-check" id="df-keep-products">
+            <span>Garder les produits et leurs prix</span></label>
+        <p class="dw-sub" style="margin:.2rem 0 .8rem 1.8rem">Le catalogue reste ; son stock repart à zéro.</p>
+        <label class="dw-row"><input type="checkbox" class="dw-check" id="df-keep-suppliers">
+            <span>Garder les fournisseurs et leurs tarifs</span></label>
+        <p class="dw-sub" style="margin:.2rem 0 0 1.8rem">Avec leurs paliers de ristourne et leur compte 401. Leurs commandes et ce qui leur est dû partent.</p>
+    </section>
+
+    <div class="dw-side">
+        <section class="dw-card" aria-labelledby="df-plan-title" aria-live="polite">
+            <h2 id="df-plan-title">2. Ce qui sera effacé</h2>
+            <div id="df-plan"><p class="dw-sub">Calcul…</p></div>
+        </section>
+
+        <section class="dw-card" style="margin-top:1rem" aria-labelledby="df-confirm-title">
+            <h2 id="df-confirm-title">3. Confirmer</h2>
+            <p class="dw-sub">Un code est envoyé à <strong><?= $e(DataWipeAccess::maskedEmail()) ?></strong>, valable <?= (int) DataWipeAccess::CODE_MINUTES ?> minutes et seulement pour les choix affichés.</p>
+            <div class="dw-actions">
+                <button type="button" class="btn btn-secondary" id="df-send" disabled>Envoyer le code</button>
+            </div>
+            <div class="dw-field">
+                <label for="df-code">Code reçu par email</label>
+                <input id="df-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="d{6}" placeholder="000000">
+            </div>
+            <div class="dw-field">
+                <label for="df-reason">Motif (envoyé au DG)</label>
+                <textarea id="df-reason" rows="3" maxlength="1000" placeholder="Ex. : fin des essais, démarrage réel le 2 décembre"></textarea>
+            </div>
+            <div class="dw-actions">
+                <button type="button" class="dw-danger" id="df-run" disabled>Tout effacer</button>
+            </div>
+            <div id="df-msg" role="status"></div>
+        </section>
+    </div>
+</div>
+</div>
+
 <section class="dw-card" style="margin-top:1rem" aria-labelledby="dw-past-title" id="past">
     <h2 id="dw-past-title">Effacements passés</h2>
     <?php if (!$history): ?>
@@ -303,6 +365,7 @@ require __DIR__ . '/../../includes/components/topbar.php';
 <script type="application/json" id="dw-data"><?= json_encode($data, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES) ?></script>
 <script src="<?= lpc_asset('/assets/js/modules/admin-data_wipe.js') ?>" defer></script>
 <script src="<?= lpc_asset('/assets/js/modules/admin-data_wipe-records.js') ?>" defer></script>
+<script src="<?= lpc_asset('/assets/js/modules/admin-data_wipe-full.js') ?>" defer></script>
 <?= Rbac::jsBootstrap() ?>
 <script src="<?= lpc_asset('/assets/js/lpc-rbac.js') ?>" defer></script>
 </body>
