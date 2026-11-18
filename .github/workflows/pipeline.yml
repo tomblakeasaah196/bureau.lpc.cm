@@ -65,6 +65,8 @@ jobs:
         run: php scripts/tests/account_recovery.test.php
       - name: Quick sign-in (passkey checks with real keys, PIN rules, wiring)
         run: php scripts/tests/quick_signin.test.php
+      - name: Données de Base (who may read and write, what a save keeps)
+        run: php scripts/tests/master_data_access.test.php
 
   mail:
     # Courrier (docs/MAIL.md §9): every scripts/tests/mail/*.test.php, each blocking. PR 1's three: the engine

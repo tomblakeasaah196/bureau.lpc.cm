@@ -47,7 +47,7 @@ $lang = lpc_i18n_current_lang();
                     <svg class="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                     <input type="text" id="mdm-search" placeholder="Rechercher..." onkeyup="filterTable()" class="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-light transition-shadow shadow-sm">
                 </div>
-                <button onclick="openModal()" class="bg-lpc-dark hover:bg-green-800 text-white px-6 py-3 rounded-xl font-bold text-sm shadow-md flex items-center gap-2 transition-transform active:scale-95">
+                <button onclick="openModal()" id="btn-add" data-perm="admin.master_data.edit" class="bg-lpc-dark hover:bg-green-800 text-white px-6 py-3 rounded-xl font-bold text-sm shadow-md flex items-center gap-2 transition-transform active:scale-95">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                     <span id="btn-add-text"><?= htmlspecialchars(__t('ui.x.ajouter')) ?></span>
                 </button>
@@ -81,7 +81,7 @@ $lang = lpc_i18n_current_lang();
             </div>
             <div class="px-8 py-5 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
                 <button type="button" onclick="closeModal()" class="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-800"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
-                <button type="button" onclick="saveRecord()" class="px-8 py-2.5 bg-lpc-light hover:bg-green-500 text-white rounded-xl font-bold text-sm shadow-md"><?= htmlspecialchars(__t('ui.x.enregistrer')) ?></button>
+                <button type="button" onclick="saveRecord()" id="btn-save" data-perm="admin.master_data.edit" class="px-8 py-2.5 bg-lpc-light hover:bg-green-500 text-white rounded-xl font-bold text-sm shadow-md"><?= htmlspecialchars(__t('ui.x.enregistrer')) ?></button>
             </div>
         </div>
     </div>

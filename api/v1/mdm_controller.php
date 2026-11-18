@@ -5,15 +5,30 @@ require_once __DIR__ . '/../../includes/functions/notify.php';
 require_once __DIR__ . '/../../includes/functions/pricing.php';   // supplier tariff helpers (063/115)
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
-Rbac::requirePermission('admin.master_data.view');
 // api/v1/mdm_controller.php
-header('Content-Type: application/json');
+//
+// Who may do what (VIDEO_QA_FINDINGS §1.1, 18/11/2026). The page is open to
+// every role holding admin.master_data.view (DG, Contrôleur Financier,
+// Comptable, Opérations); every action that writes needs .edit (DG, CF) and a
+// valid CSRF token. An admin-only gate used to sit here: it answered 401 to the
+// Contrôleur Financier, who owns the master data with the DG, and three of the
+// write actions relied on it instead of checking .edit themselves.
+Rbac::requirePermission('admin.master_data.view');
 
-require_once '../../includes/config/db.php';
-require_once '../../includes/classes/Database.php';
+require_once __DIR__ . '/../../includes/classes/Database.php';
 
-if (!isset($_SESSION['user_id']) || $_SESSION['user_role'] !== 'admin') {
-    http_response_code(401); echo json_encode(['status' => 'error', 'message' => 'Accès Refusé']); exit;
+/** The actions that only read. Anything else writes and is gated below. */
+const MDM_READ_ACTIONS = ['read', 'next_code', 'supplier_price_history', 'client_price_history'];
+
+$mdm_action = (string) ($_REQUEST['action'] ?? '');
+if (!in_array($mdm_action, MDM_READ_ACTIONS, true)) {
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        http_response_code(405);
+        echo json_encode(['status' => 'error', 'message' => 'Méthode non autorisée.']);
+        exit;
+    }
+    Rbac::requirePermission('admin.master_data.edit');
+    Csrf::requireValid();
 }
 
 // =============================================================================
@@ -50,57 +65,6 @@ const MDM_UOMS = [
     ['v' => 'pack',      'l' => 'Pack'],
     ['v' => 'palette',   'l' => 'Palette'],
 ];
-
-/**
- * The last rung of the price ladder (migration 042).
- *
- * Prices resolve in three steps, and this is step three:
- *   1. client_prices.custom_price   negotiated tarif for this client+product
- *   2. products.base_price          the catalogue price
- *   3. price_fallback_amount        a floor, for when base_price is 0/NULL
- *
- * Returned as a shape rather than a bare number so the UI can render the whole
- * policy — the amount, the behaviour on a zero line, and how many products
- * would actually hit it today. That last count is the honest part: a fallback
- * nobody can see the blast radius of is a setting people set once and forget.
- *
- * Degrades to defaults when migration 042 has not been applied, so the tab
- * renders on an un-migrated database instead of 500-ing.
- */
-function mdm_fallback_price(PDO $db): array
-{
-    $amount = 0.0;
-    $mode   = 'warn';
-
-    if (class_exists('Prefs')) {
-        try {
-            $amount = (float) Prefs::float('price_fallback_amount', 0.0);
-            $mode   = (string) Prefs::str('price_fallback_mode', 'warn');
-        } catch (Throwable $e) {
-            // Preferences table missing or migration not run — keep the defaults.
-            error_log('mdm_fallback_price: ' . $e->getMessage());
-        }
-    }
-    if (!in_array($mode, ['zero', 'warn', 'block'], true)) $mode = 'warn';
-
-    // Products that would fall through to the floor as things stand.
-    $exposed = 0;
-    try {
-        $exposed = (int) $db->query("
-            SELECT COUNT(*) FROM products
-             WHERE is_active = 1 AND (base_price IS NULL OR base_price = 0)
-        ")->fetchColumn();
-    } catch (Throwable $e) {
-        error_log('mdm_fallback_price count: ' . $e->getMessage());
-    }
-
-    return [
-        'amount'          => $amount,
-        'mode'            => $mode,
-        'exposed_products'=> $exposed,
-        'configurable'    => class_exists('Prefs'),
-    ];
-}
 
 /** True once migration 041 is applied. Cached per request. */
 function mdm_has_product_master_v2(PDO $db): bool
@@ -273,6 +237,29 @@ function mdm_derive_prefix(PDO $db, string $name): string
         if (!$stmt->fetchColumn()) return $try;
     }
     return $base . strtoupper(bin2hex(random_bytes(1)));
+}
+
+/**
+ * A supplier's own payable account, 401001, 401002… under OHADA 401
+ * Fournisseurs, so the ledger shows what LPC owes each supplier apart.
+ * Only six-digit 401nnn codes count for the sequence: a four-digit 4011 is
+ * not one of them. Caller holds the transaction.
+ */
+function mdm_mint_supplier_account(PDO $db, string $name): int
+{
+    $max = (int) $db->query("
+        SELECT MAX(CAST(SUBSTRING(code, 4) AS UNSIGNED))
+          FROM chart_of_accounts
+         WHERE code REGEXP '^401[0-9]{3}$'
+    ")->fetchColumn();
+    $code = '401' . str_pad((string) ($max + 1), 3, '0', STR_PAD_LEFT);
+
+    $ohada = $db->query("SELECT id FROM ohada_accounts WHERE account_number = '401' LIMIT 1")->fetchColumn();
+    if (!$ohada) $ohada = 1;   // the seed's id for 401 Fournisseurs
+
+    $db->prepare("INSERT INTO chart_of_accounts (ohada_account_id, code, name, type, is_active) VALUES (?, ?, ?, 'liability', 1)")
+       ->execute([(int) $ohada, $code, "Fournisseur - " . $name]);
+    return (int) $db->lastInsertId();
 }
 
 try {
@@ -506,9 +493,6 @@ try {
                   WHERE is_active = 1
                   ORDER BY name ASC LIMIT 1000"
             )->fetchAll(PDO::FETCH_ASSOC);
-
-            // The fallback rung of the price ladder. See ACTION: SAVE_FALLBACK.
-            $response['meta']['fallback_price'] = mdm_fallback_price($db);
         }
         elseif ($module === 'supplier_pricing') {
             // -----------------------------------------------------------------
@@ -735,44 +719,6 @@ try {
     }
 
     // =========================================================================
-    // ACTION: SAVE_FALLBACK — the global floor + zero-line policy (migration 042).
-    // =========================================================================
-    if ($action === 'save_fallback' && $module === 'pricing') {
-        Rbac::requirePermission('admin.master_data.edit');
-
-        if (!class_exists('Prefs')) {
-            throw new MdmValidationException("Préférences indisponibles (migration 034 requise).");
-        }
-
-        $amount = $_POST['amount'] ?? null;
-        $mode   = trim((string) ($_POST['mode'] ?? 'warn'));
-
-        if (!is_numeric($amount))  throw new MdmValidationException("Montant invalide.");
-        $amount = round((float) $amount, 2);
-        if ($amount < 0)           throw new MdmValidationException("Le montant ne peut pas être négatif.");
-        if (!in_array($mode, ['zero', 'warn', 'block'], true)) {
-            throw new MdmValidationException("Politique de prix nul inconnue.");
-        }
-
-        try {
-            Prefs::setMany([
-                'price_fallback_amount' => $amount,
-                'price_fallback_mode'   => $mode,
-            ], $_SESSION['user_id'] ?? null);
-        } catch (RuntimeException $e) {
-            // setMany throws this when the preference rows are missing, which
-            // means 042 has not been run. That is actionable, so it is shown.
-            throw new MdmValidationException(
-                "Migration 042 requise avant de configurer le prix de repli."
-            );
-        }
-
-        Prefs::flush();
-        echo json_encode(['status' => 'success', 'fallback' => mdm_fallback_price($db)]);
-        exit;
-    }
-
-    // =========================================================================
     // ACTION: SUPPLIER_PRICE_HISTORY — append-only log for one (supplier, product).
     // -------------------------------------------------------------------------
     // Reads supplier_price_history (migration 063) for the row the admin is
@@ -825,6 +771,50 @@ try {
 
         $db->prepare("DELETE FROM supplier_prices WHERE supplier_id = ? AND product_id = ?")
            ->execute([$sid, $pid]);
+
+        echo json_encode(['status' => 'success']);
+        exit;
+    }
+
+    // =========================================================================
+    // CLIENT TARIFFS · history and delete (VIDEO_QA_FINDINGS §1.6). The mirror
+    // of the supplier pair above: the history is the append-only
+    // client_price_history (migration 062), written by orders and by this
+    // screen; deleting a tariff puts the pair back on the product's default
+    // price and is not itself a price change, so it is not logged there.
+    // =========================================================================
+    if ($action === 'client_price_history') {
+        $cid = (int) ($_GET['client_id']  ?? 0);
+        $pid = (int) ($_GET['product_id'] ?? 0);
+        if ($cid <= 0 || $pid <= 0) {
+            throw new MdmValidationException("Client ou produit manquant.");
+        }
+
+        $stmt = $db->prepare("
+            SELECT h.old_price, h.new_price, h.source, h.source_reference,
+                   h.note, h.changed_at,
+                   CONCAT(u.first_name, ' ', u.last_name) AS user_name
+              FROM client_price_history h
+              LEFT JOIN users u ON u.id = h.changed_by
+             WHERE h.client_id = ? AND h.product_id = ?
+             ORDER BY h.changed_at DESC, h.id DESC
+             LIMIT 200
+        ");
+        $stmt->execute([$cid, $pid]);
+
+        echo json_encode(['status' => 'success', 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+        exit;
+    }
+
+    if ($action === 'delete_client_price') {
+        $cid = (int) ($_POST['client_id']  ?? 0);
+        $pid = (int) ($_POST['product_id'] ?? 0);
+        if ($cid <= 0 || $pid <= 0) {
+            throw new MdmValidationException("Client ou produit manquant.");
+        }
+
+        $db->prepare("DELETE FROM client_prices WHERE client_id = ? AND product_id = ?")
+           ->execute([$cid, $pid]);
 
         echo json_encode(['status' => 'success']);
         exit;
@@ -1020,6 +1010,7 @@ try {
     // =========================================================================
     if ($action === 'save') {
         $id = !empty($_POST['id']) ? $_POST['id'] : null;
+        $save_extra = [];
 
         // Fleet: read-only through this controller. The write surface is
         // /modules/fleet/vehicles.php via api/v1/fleet_controller.php, which
@@ -1145,10 +1136,37 @@ try {
             if ($units_per_pack === 1) $sold_by = 'unit';   // "pack of 1" is not a pack
 
             // Account overrides. Blank means inherit from the category, which is
-            // what we expect for virtually every product.
-            $revenue_account_id = !empty($_POST['revenue_account_id']) ? (int) $_POST['revenue_account_id'] : null;
-            $stock_account_id   = !empty($_POST['stock_account_id'])   ? (int) $_POST['stock_account_id']   : null;
-            $cogs_account_id    = !empty($_POST['cogs_account_id'])    ? (int) $_POST['cogs_account_id']    : null;
+            // what we expect for virtually every product. The form does not
+            // show them, so an edit that does not send a key keeps what the
+            // product has: saving a product used to wipe its per-product
+            // accounts (VIDEO_QA_FINDINGS §1.4).
+            $prev_accounts = ['revenue_account_id' => null, 'stock_account_id' => null, 'cogs_account_id' => null];
+            if ($id) {
+                $stmtAcc = $db->prepare("SELECT revenue_account_id, stock_account_id, cogs_account_id FROM products WHERE id = ?");
+                $stmtAcc->execute([$id]);
+                $prev_accounts = $stmtAcc->fetch(PDO::FETCH_ASSOC) ?: $prev_accounts;
+            }
+            $account_or_prev = static function (string $key) use ($prev_accounts) {
+                if (!array_key_exists($key, $_POST)) {
+                    return $prev_accounts[$key] !== null ? (int) $prev_accounts[$key] : null;
+                }
+                return !empty($_POST[$key]) ? (int) $_POST[$key] : null;
+            };
+            $revenue_account_id = $account_or_prev('revenue_account_id');
+            $stock_account_id   = $account_or_prev('stock_account_id');
+            $cogs_account_id    = $account_or_prev('cogs_account_id');
+
+            // Coût de référence (migration 115): what LPC pays for the product
+            // when a supplier has no tariff for it. Editable since 18/11/2026
+            // (VIDEO_QA_FINDINGS §1.3); a blank field keeps the current value.
+            $cost_price = null;
+            $raw_cost = trim((string) ($_POST['cost_price'] ?? ''));
+            if ($raw_cost !== '') {
+                if (!is_numeric($raw_cost)) throw new MdmValidationException("Coût de référence invalide.");
+                $cost_price = round((float) $raw_cost, 2);
+                if ($cost_price < 0)           throw new MdmValidationException("Le coût de référence ne peut pas être négatif.");
+                if ($cost_price > 99999999.99) throw new MdmValidationException("Coût de référence hors limites (99 999 999 max).");
+            }
 
             // Code: generated from category prefix + size unless the user typed
             // one. Uniqueness is checked here so a collision reads as a message
@@ -1185,11 +1203,13 @@ try {
                     $revenue_account_id, $stock_account_id, $cogs_account_id,
                     $id,
                 ]);
+                if ($cost_price !== null && mdm_has_product_cost_price($db)) {
+                    $db->prepare("UPDATE products SET cost_price = ? WHERE id = ?")->execute([$cost_price, $id]);
+                }
             } else {
-                // Migration 115 · a new product starts life with
-                // cost_price = base_price (a snapshot, not a sync — the
-                // column is deliberately never updated again). Without this,
-                // a fresh SKU would carry cost_price NULL and resolve to a
+                // Migration 115 · a new product starts with the reference
+                // cost typed in the form, or, when it is left blank,
+                // cost_price = base_price, so a fresh SKU never resolves to a
                 // 0 price in the buy-side picker. The column list is built
                 // conditionally so an un-migrated database (041 yes, 115
                 // not yet) is unaffected.
@@ -1210,7 +1230,7 @@ try {
                 if (mdm_has_product_cost_price($db)) {
                     $insert_cols  .= ", cost_price";
                     $insert_vals  .= ", ?";
-                    $insert_params[] = $base_price;
+                    $insert_params[] = $cost_price ?? $base_price;
                 }
 
                 $db->prepare("INSERT INTO products ({$insert_cols}) VALUES ({$insert_vals})")
@@ -1264,9 +1284,24 @@ try {
             $chk->execute([$pid]);
             if (!$chk->fetchColumn()) throw new MdmValidationException("Produit introuvable.");
 
-            // Pricing uses ON DUPLICATE KEY UPDATE because it's a pivot table
-            $stmt = $db->prepare("INSERT INTO client_prices (client_id, product_id, custom_price) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE custom_price=?");
-            $stmt->execute([$cid, $pid, $price, $price]);
+            // Through the same function an order's repricing uses, so a tariff
+            // set here lands in client_price_history too, with its author and
+            // date (VIDEO_QA_FINDINGS §1.6: it used to overwrite the pivot and
+            // record nothing).
+            $db->beginTransaction();
+            try {
+                lpc_apply_client_price_change(
+                    $db, $cid, $pid, $price,
+                    (int) ($_SESSION['user_id'] ?? 0),
+                    'client_file',
+                    null,
+                    'Tarif saisi depuis Données de Base'
+                );
+                $db->commit();
+            } catch (Exception $e) {
+                $db->rollBack();
+                throw $e;
+            }
         }
         elseif ($module === 'supplier_pricing') {
             // -----------------------------------------------------------------
@@ -1318,29 +1353,47 @@ try {
             }
         }
         elseif ($module === 'suppliers') {
-            $name = trim($_POST['name'] ?? '');
-            $phone = trim($_POST['phone'] ?? null);
-            $email = trim($_POST['email'] ?? null);
-            $address = trim($_POST['address'] ?? null);
+            $name = trim((string) ($_POST['name'] ?? ''));
+            $phone = trim((string) ($_POST['phone'] ?? ''));
+            $email = trim((string) ($_POST['email'] ?? ''));
+            $address = trim((string) ($_POST['address'] ?? ''));
+            if ($name === '') throw new MdmValidationException("La raison sociale est obligatoire.");
 
             if ($id) {
-                // UPDATE (Code and Account ID don't change on update)
-                $stmt = $db->prepare("UPDATE suppliers SET name=?, phone=?, email=?, address=? WHERE id=?");
-                $stmt->execute([$name, $phone, $email, $address, $id]);
-            } else {
-                // CREATE NEW SUPPLIER + AUTO-GENERATE OHADA 401
+                // UPDATE. The code never changes. The 401 account follows the
+                // name, and a supplier saved before it had one gets it now: the
+                // purchase postings refuse a supplier without one and tell the
+                // user to re-save it here (VIDEO_QA_FINDINGS §1.5).
                 $db->beginTransaction();
                 try {
-                    // 1. Find the last 401 account and increment
-                    $stmtAcc = $db->query("SELECT MAX(CAST(SUBSTRING(code, 4) AS UNSIGNED)) as max_seq FROM chart_of_accounts WHERE code LIKE '401%'");
-                    $max_seq = $stmtAcc->fetchColumn();
-                    $next_seq = ($max_seq > 0) ? $max_seq + 1 : 1;
-                    $new_account_code = '401' . str_pad($next_seq, 3, '0', STR_PAD_LEFT);
-                    
-                    // 2. Insert into Chart of Accounts (OHADA ID 1 = 401 Fournisseurs)
-                    $insAcc = $db->prepare("INSERT INTO chart_of_accounts (ohada_account_id, code, name, type, is_active) VALUES (1, ?, ?, 'liability', 1)");
-                    $insAcc->execute([$new_account_code, "Fournisseur - " . $name]);
-                    $account_id = $db->lastInsertId();
+                    $stmt = $db->prepare("UPDATE suppliers SET name=?, phone=?, email=?, address=? WHERE id=?");
+                    $stmt->execute([$name, $phone, $email, $address, $id]);
+
+                    $cur = $db->prepare("
+                        SELECT s.account_id, c.id AS coa_id
+                          FROM suppliers s
+                          LEFT JOIN chart_of_accounts c ON c.id = s.account_id
+                         WHERE s.id = ?
+                    ");
+                    $cur->execute([$id]);
+                    $acc = $cur->fetch(PDO::FETCH_ASSOC);
+                    if ($acc && empty($acc['coa_id'])) {
+                        $db->prepare("UPDATE suppliers SET account_id = ? WHERE id = ?")
+                           ->execute([mdm_mint_supplier_account($db, $name), $id]);
+                    } elseif ($acc) {
+                        $db->prepare("UPDATE chart_of_accounts SET name = ? WHERE id = ?")
+                           ->execute(["Fournisseur - " . $name, (int) $acc['coa_id']]);
+                    }
+                    $db->commit();
+                } catch (Exception $e) {
+                    $db->rollBack();
+                    throw $e;
+                }
+            } else {
+                // CREATE NEW SUPPLIER + its own OHADA 401xxx account
+                $db->beginTransaction();
+                try {
+                    $account_id = mdm_mint_supplier_account($db, $name);
 
                     // 3. AUTO-GENERATE LPC CODE: FRS-001, FRS-002...
                     $stmt_code = $db->query("SELECT lpc_code FROM suppliers WHERE lpc_code LIKE 'FRS-%' ORDER BY id DESC LIMIT 1");
@@ -1355,13 +1408,25 @@ try {
                     // 4. Save Supplier
                     $stmt = $db->prepare("INSERT INTO suppliers (lpc_code, account_id, name, phone, email, address, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)");
                     $stmt->execute([$lpc_code, $account_id, $name, $phone, $email, $address]);
-                    
+                    $id = (int) $db->lastInsertId();
+
                     $db->commit();
                 } catch (Exception $e) {
                     $db->rollBack();
                     throw $e;
                 }
             }
+
+            // Echo back the code and the 401 account, so the screen confirms
+            // what was booked rather than what was typed.
+            $confirm = $db->prepare("
+                SELECT s.name, s.lpc_code, c.code AS account_code
+                  FROM suppliers s
+                  LEFT JOIN chart_of_accounts c ON c.id = s.account_id
+                 WHERE s.id = ?
+            ");
+            $confirm->execute([$id]);
+            $save_extra['supplier'] = $confirm->fetch(PDO::FETCH_ASSOC) ?: null;
         }
         elseif ($module === 'fleet') {
             if ($id) {
@@ -1635,7 +1700,7 @@ try {
             }
         }
 
-        echo json_encode(['status' => 'success']); exit;
+        echo json_encode(['status' => 'success'] + $save_extra); exit;
     }
 
 } catch (MdmValidationException $e) {

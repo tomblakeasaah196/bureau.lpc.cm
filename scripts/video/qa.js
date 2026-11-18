@@ -128,7 +128,11 @@ async function screenErrors(page) {
       .forEach((el) => {
         const r = el.getBoundingClientRect();
         if (r.width < 4 || r.height < 4 || getComputedStyle(el).display === "none") return;
-        const t = (el.innerText || "").replace(/\s+/g, " ").trim();
+        // A help article is prose about the page and may well say « erreur » (Données de Base's does):
+        // in the help drawer only its title is read, which is where a failed load shows.
+        const help = el.closest("#lpc-help-drawer");
+        const src = help ? help.querySelector("#lpc-help-drawer-title") : el;
+        const t = ((src && src.innerText) || "").replace(/\s+/g, " ").trim();
         const line = t.split(/(?<=[.!?])\s/).find((s) => re.test(s));
         if (line && line.length < 400) found.push("screen: " + line.slice(0, 200));
       });

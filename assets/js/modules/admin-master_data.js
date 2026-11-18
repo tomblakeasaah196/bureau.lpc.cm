@@ -95,7 +95,7 @@ const mdmConfig = {
             }},
             { key: 'updated_at', label: 'MàJ', render: v => v
                 ? `<span class="text-[10px] font-bold text-gray-400">${new Date(String(v).replace(' ', 'T')).toLocaleDateString('fr-FR')}</span>`
-                : '<span class="text-gray-300">—</span>' }
+                : '<span class="text-gray-300">·</span>' }
         ],
         form: [
             { name: 'supplier_id',  label: 'Fournisseur', type: 'picker', source: 'suppliers', width: 'col-span-1' },
@@ -118,7 +118,7 @@ const mdmConfig = {
             // employees without a login — those are provisioned separately.
             { key: 'email', label: 'Connexion', render: v => `<span class="text-sm text-gray-600">${v || '<span class="italic text-gray-400">non provisionnée</span>'}</span>` },
             { key: 'full_name', label: 'Nom & Prénom', render: v => `<span class="font-black text-gray-900">${v}</span>` },
-            { key: 'role_name', label: 'Rôle Système', render: v => v ? `<span class="px-2 py-1 bg-blue-50 text-blue-600 rounded text-[10px] font-bold uppercase">${v}</span>` : '<span class="text-xs text-gray-400 italic">—</span>' },
+            { key: 'role_name', label: 'Rôle Système', render: v => v ? LPC.html`<span class="px-2 py-1 bg-blue-50 text-blue-600 rounded text-[10px] font-bold uppercase">${roleLabel(v)}</span>` : '<span class="text-xs text-gray-400 italic">Aucun</span>' },
             { key: 'job_title', label: 'Poste', render: v => `<span class="text-sm text-gray-600">${v || '-'}</span>` },
             // Statut reflects employees.is_active (payroll active), NOT
             // users.status. Toggling from Actions cascades to the linked
@@ -137,9 +137,9 @@ const mdmConfig = {
         form: [
             // lpc_code is completely removed. The backend handles it invisibly.
             { name: 'name', label: 'Raison Sociale', type: 'text', width: 'col-span-2' },
-            { name: 'phone', label: 'Téléphone', type: 'text', width: 'col-span-1' },
-            { name: 'email', label: 'Email', type: 'email', width: 'col-span-1' },
-            { name: 'address', label: 'Adresse Complète', type: 'text', width: 'col-span-2' }
+            { name: 'phone', label: 'Téléphone', type: 'text', width: 'col-span-1', optional: true },
+            { name: 'email', label: 'Email', type: 'email', width: 'col-span-1', optional: true },
+            { name: 'address', label: 'Adresse Complète', type: 'text', width: 'col-span-2', optional: true }
         ]
     },
     // The fleet tab is a READ-ONLY MIRROR of the vehicles table. Editing lives
@@ -183,6 +183,29 @@ let codeTouched = false;    // has the user overtyped the suggested SKU?
 
 const INPUT_CLS = 'w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-light';
 const LABEL_CLS = 'block text-[10px] font-black uppercase text-gray-500 mb-1.5 ml-1';
+
+/**
+ * May this person change master data? The page opens to every role holding
+ * admin.master_data.view (DG, Contrôleur Financier, Comptable, Opérations);
+ * only .edit (DG, CF) writes, and the server refuses the rest. Those who may
+ * only look get « Consulter » instead of the pencil, and the form opens
+ * read-only, so nobody fills a form the server will refuse.
+ */
+function canEdit() {
+    return !!(window.LPC && typeof LPC.can === 'function' && LPC.can('admin.master_data.edit'));
+}
+
+const ICON_EYE = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>';
+
+/** A role as people say it (Paramètres uses the same names). */
+const ROLE_LABELS = {
+    admin: 'Administrateur', directeur_general: 'Directeur Général', controleur_financier: 'Contrôleur Financier',
+    accountant: 'Comptable', operations: 'Opérations', sales: 'Commercial', driver: 'Chauffeur',
+};
+function roleLabel(name) {
+    const key = String(name || '').toLowerCase();
+    return ROLE_LABELS[key] || String(name || '').replace(/_/g, ' ');
+}
 
 function notify(message, type) {
     if (window.LPC && LPC.toast) LPC.toast(message, type || 'success');
@@ -273,17 +296,13 @@ async function fetchData() {
 // 2b. MODULE PANEL — the price ladder (Prix & Tarifs only)
 // ---------------------------------------------------------------------------
 /**
- * A price in this system resolves in three steps, and until now only the first
- * two existed anywhere a user could see them:
- *
- *   1. client_prices.custom_price   the negotiated tarif — the table below
- *   2. products.base_price          the default — buried in the Produits form
- *   3. price_fallback_amount        a floor, if base_price is 0 (migration 042)
- *
- * Step 2 living on another tab is why "what does this client actually pay?" was
- * unanswerable without opening two screens, and step 3 not existing is why a
- * product with base_price = 0 quoted at zero, silently. This panel puts all
- * three in one place and makes 2 and 3 editable where they are read.
+ * The panel above the tariff tabs. A sale's price resolves in two steps: the
+ * client's negotiated tariff, else the product's default price; a purchase's
+ * in two: the supplier's tariff, else the product's reference cost. Each panel
+ * says so in plain words, and on Tarifs Clients the default prices can be
+ * corrected in place by those who may edit. The fallback price (migration 042)
+ * was a third step shown here that no sales screen ever applied; it is gone
+ * from the screen (VIDEO_QA_FINDINGS 1.2).
  */
 function renderModulePanel() {
     const panel = document.getElementById('mdm-panel');
@@ -299,15 +318,13 @@ function renderModulePanel() {
           <div class="bg-emerald-50 border border-emerald-200 rounded-2xl px-5 py-4 flex items-start gap-4">
             <svg class="w-5 h-5 text-lpc-dark shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             <div class="min-w-0 flex-1">
-              <p class="text-sm font-black text-lpc-dark">Vue référentiel — lecture seule</p>
+              <p class="text-sm font-black text-lpc-dark">Consultation seulement</p>
               <p class="text-[12px] text-emerald-900/80 font-medium mt-0.5 leading-snug">
-                Cette liste est un miroir de la table véhicules. Toute création
-                ou modification se fait dans <strong>Flotte & Maintenance</strong>,
-                qui expose aussi l'odomètre, le carburant, l'assurance et la
-                visite technique.
+                Les véhicules se créent et se modifient dans <strong>Flotte & Maintenance</strong>,
+                avec leur kilométrage, leur carburant, leur assurance et leur visite technique.
               </p>
             </div>
-            <a href="${cfg.openUrl}" class="shrink-0 bg-lpc-dark hover:bg-green-800 text-white px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider no-underline transition-colors flex items-center gap-1.5">
+            <a href="${cfg.openUrl}" data-perm="fleet.vehicles.view" class="shrink-0 bg-lpc-dark hover:bg-green-800 text-white px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider no-underline transition-colors flex items-center gap-1.5">
               Ouvrir Flotte & Maintenance
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
             </a>
@@ -315,11 +332,10 @@ function renderModulePanel() {
         return;
     }
 
-    // Tarifs Fournisseurs gets the BUY-side ladder. The client ladder above
-    // explains how a sale is priced; this one explains how a purchase order
-    // is priced — and that CUMP is deliberately not a rung of it (migration
-    // 115). The first two rungs are edited on this tab; cost_price lives on
-    // the Produits tab for now.
+    // Tarifs Fournisseurs: how a purchase order is priced. The tariff is set
+    // on this tab, the reference cost on the product's form; the stock's
+    // average cost (CUMP) values the stock and never prices a purchase
+    // (migration 115).
     if (currentModule === 'supplier_pricing') {
         const products = metaData.products || [];
         const withCost = products.filter(p => Number(p.price) > 0).length;
@@ -330,22 +346,20 @@ function renderModulePanel() {
             <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
               <div>
                 <h3 class="text-sm font-black text-gray-900">Comment un bon de commande est tarifé</h3>
-                <p class="text-[11px] text-gray-500 mt-0.5">Le premier palier qui donne un prix l'emporte. Le CUMP n'en fait jamais partie.</p>
+                <p class="text-[11px] text-gray-500 mt-0.5">Le premier palier qui donne un prix l'emporte. Le coût moyen du stock n'en fait jamais partie.</p>
               </div>
             </div>
 
             <div class="px-6 py-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-              ${LPC.raw(ladderStep('1', 'Tarif fournisseur', 'supplier_prices', `${LPC.fmt.int(pageState.total || 0)} tarif(s) actifs`, 'bg-lpc-dark text-white'))}
-              ${LPC.raw(ladderStep('2', 'Coût de référence', 'products.cost_price', `${withCost} produit(s) renseignés`, 'bg-gray-100 text-gray-700'))}
-              ${LPC.raw(ladderStep('3', 'CUMP', 'valuation stock uniquement', 'jamais utilisé pour tarifer un BC', 'bg-amber-50 text-amber-800'))}
+              ${LPC.raw(ladderStep('1', 'Tarif fournisseur', 'ce que ce fournisseur facture', `${LPC.fmt.int(pageState.total || 0)} tarif(s) actifs`, 'bg-lpc-dark text-white'))}
+              ${LPC.raw(ladderStep('2', 'Coût de référence', 'sur la fiche du produit', `${withCost} produit(s) renseignés`, 'bg-gray-100 text-gray-700'))}
+              ${LPC.raw(ladderStep('3', 'Coût moyen (CUMP)', 'valorise le stock seulement', 'jamais utilisé pour un bon de commande', 'bg-amber-50 text-amber-800'))}
             </div>
 
             <div class="mx-6 mb-4 px-4 py-3 rounded-xl bg-gray-50 border border-gray-100 text-[11px] font-medium text-gray-600 leading-relaxed">
-              Le sélecteur de produit d'un bon de commande affiche le <strong>tarif fournisseur</strong>
-              quand il existe, sinon le <strong>coût de référence</strong> du produit. Le CUMP reste le
-              socle de valorisation du stock (fiche stock, 31x / 6031) — il ne pilote simplement plus les achats.
-              Les tarifs se remplissent aussi tout seuls : chaque bon de commande enregistre le prix saisi,
-              et l'historique de chaque ligne ci-dessous montre d'où vient chaque valeur.
+              Sur un bon de commande, le produit prend le <strong>tarif du fournisseur</strong> s'il existe,
+              sinon le <strong>coût de référence</strong> du produit. Chaque bon de commande enregistre aussi
+              le prix saisi : l'historique de chaque ligne montre d'où vient chaque valeur.
             </div>
           </div>`;
         return;
@@ -357,9 +371,13 @@ function renderModulePanel() {
         return;
     }
 
-    const fb       = metaData.fallback_price || { amount: 0, mode: 'warn', exposed_products: 0, configurable: true };
+    // Tarifs Clients: how a sale is priced. Two steps, the two that the
+    // quote and order screens apply. A third « prix de repli » step was shown
+    // here and stored, but nothing in sales ever read it, so it is no longer
+    // presented as policy (VIDEO_QA_FINDINGS §1.2).
     const products = metaData.products || [];
     const unpriced = products.filter(p => !Number(p.price));
+    const editor   = canEdit();
 
     panel.classList.remove('hidden');
     panel.innerHTML = LPC.html`
@@ -369,58 +387,28 @@ function renderModulePanel() {
             <h3 class="text-sm font-black text-gray-900">Comment le prix est choisi</h3>
             <p class="text-[11px] text-gray-500 mt-0.5">Le premier palier qui donne un prix l'emporte.</p>
           </div>
-          <button type="button" onclick="togglePricePanel()" id="price-panel-toggle"
+          ${LPC.raw(editor ? `<button type="button" onclick="togglePricePanel()" id="price-panel-toggle"
                   class="text-[11px] font-black uppercase tracking-wider text-lpc-dark hover:underline">
-            Configurer
-          </button>
+            Prix par défaut
+          </button>` : '')}
         </div>
 
-        <div class="px-6 py-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-          ${LPC.raw(ladderStep('1', 'Tarif négocié', 'client_prices', `${LPC.fmt.int(pageState.total || 0)} tarif(s) actifs`, 'bg-lpc-dark text-white'))}
-          ${LPC.raw(ladderStep('2', 'Prix par défaut', 'products.base_price', `${products.length} produit(s)`, 'bg-gray-100 text-gray-700'))}
-          ${LPC.raw(ladderStep('3', 'Prix de repli', 'préférence globale',
-              Number(fb.amount) > 0 ? `${LPC.fmt.int(fb.amount)} FCFA` : 'non défini',
-              unpriced.length ? 'bg-amber-50 text-amber-800' : 'bg-gray-100 text-gray-700'))}
+        <div class="px-6 py-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+          ${LPC.raw(ladderStep('1', 'Tarif négocié', 'le prix accordé à ce client', `${LPC.fmt.int(pageState.total || 0)} tarif(s) actifs`, 'bg-lpc-dark text-white'))}
+          ${LPC.raw(ladderStep('2', 'Prix par défaut', 'sur la fiche du produit, pour tous les autres clients', `${products.length} produit(s)`, 'bg-gray-100 text-gray-700'))}
         </div>
 
         ${LPC.raw(unpriced.length ? LPC.html`
           <div class="mx-6 mb-4 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-medium text-amber-800">
             <strong>${unpriced.length} produit(s) sans prix par défaut.</strong>
-            Sans prix de repli, ces produits sont devisés à 0 FCFA.
-            <button type="button" onclick="togglePricePanel(true)" class="underline font-black ml-1">Corriger</button>
+            Un client sans tarif négocié les recevrait à 0 FCFA.
+            ${LPC.raw(editor ? '<button type="button" onclick="togglePricePanel(true)" class="underline font-black ml-1">Corriger</button>' : '')}
           </div>` : '')}
 
-        <div id="price-panel-body" class="hidden border-t border-gray-100">
-
-          <div class="px-6 py-5 bg-gray-50 border-b border-gray-100">
-            <h4 class="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-3">Palier 3 — prix de repli</h4>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-              <div>
-                <label class="${LABEL_CLS}" for="fb_amount">Montant (FCFA)</label>
-                <input type="number" id="fb_amount" min="0" step="1" value="${Math.round(Number(fb.amount) || 0)}"
-                       class="${INPUT_CLS}">
-                <p class="text-[10px] text-gray-400 mt-1 ml-1">0 = pas de repli.</p>
-              </div>
-              <div>
-                <label class="${LABEL_CLS}" for="fb_mode">Ligne à prix nul</label>
-                <select id="fb_mode" class="${INPUT_CLS}">
-                  <option value="zero"  ${fb.mode === 'zero'  ? 'selected' : ''}>Autoriser (silencieux)</option>
-                  <option value="warn"  ${fb.mode === 'warn'  ? 'selected' : ''}>Avertir</option>
-                  <option value="block" ${fb.mode === 'block' ? 'selected' : ''}>Bloquer l'enregistrement</option>
-                </select>
-              </div>
-              <div>
-                <button type="button" onclick="saveFallback()" id="fb-save"
-                        class="w-full px-6 py-2.5 bg-lpc-dark hover:bg-green-800 text-white rounded-xl font-bold text-sm shadow-md">
-                  Enregistrer
-                </button>
-              </div>
-            </div>
-          </div>
-
+        ${LPC.raw(editor ? `<div id="price-panel-body" class="hidden border-t border-gray-100">
           <div class="px-6 py-5">
             <div class="flex items-center justify-between mb-3">
-              <h4 class="text-[10px] font-black uppercase tracking-widest text-gray-500">Palier 2 — prix par défaut</h4>
+              <h4 class="text-[10px] font-black uppercase tracking-widest text-gray-500">Palier 2 · prix par défaut</h4>
               <label class="flex items-center gap-2 text-[11px] font-bold text-gray-500 cursor-pointer">
                 <input type="checkbox" id="fb-only-unpriced" onchange="renderDefaultPrices()"
                        ${unpriced.length ? 'checked' : ''} class="accent-lpc-dark">
@@ -429,8 +417,7 @@ function renderModulePanel() {
             </div>
             <div id="default-price-list" class="divide-y divide-gray-100 max-h-80 overflow-y-auto"></div>
           </div>
-
-        </div>
+        </div>` : '')}
       </div>`;
 
     renderDefaultPrices();
@@ -443,7 +430,7 @@ function ladderStep(n, title, source, meta, chipCls) {
           <span class="w-5 h-5 rounded-full grid place-items-center text-[10px] font-black ${chipCls}">${n}</span>
           <span class="text-xs font-black text-gray-900">${title}</span>
         </div>
-        <p class="text-[10px] text-gray-400 mt-1.5 font-mono">${source}</p>
+        <p class="text-[11px] text-gray-500 mt-1.5">${source}</p>
         <p class="text-[11px] font-bold text-gray-600 mt-0.5">${meta}</p>
       </div>`;
 }
@@ -454,7 +441,7 @@ function togglePricePanel(force) {
     if (!body) return;
     const open = force === true ? true : body.classList.contains('hidden');
     body.classList.toggle('hidden', !open);
-    if (btn) btn.innerText = open ? 'Masquer' : 'Configurer';
+    if (btn) btn.innerText = open ? 'Masquer' : 'Prix par défaut';
 }
 
 /**
@@ -490,7 +477,7 @@ function renderDefaultPrices() {
                class="w-32 border border-gray-300 rounded-lg p-2 text-xs text-right font-bold focus:ring-2 focus:ring-lpc-light outline-none">
         <button type="button" onclick="saveDefaultPrice(${p.id}, this)"
                 class="px-3 py-2 rounded-lg bg-gray-100 hover:bg-lpc-dark hover:text-white text-[10px] font-black uppercase tracking-wide transition-colors">
-          OK
+          Enregistrer
         </button>
       </div>`).join('');
 }
@@ -535,34 +522,6 @@ async function saveDefaultPrice(productId, btn) {
     }
 }
 
-async function saveFallback() {
-    const btn = document.getElementById('fb-save');
-    const amount = Number((document.getElementById('fb_amount') || {}).value || 0);
-    const mode   = (document.getElementById('fb_mode') || {}).value || 'warn';
-
-    if (!Number.isFinite(amount) || amount < 0) { notify('Montant invalide.', 'error'); return; }
-
-    btn.disabled = true;
-    try {
-        const fd = new FormData();
-        fd.append('amount', amount);
-        fd.append('mode', mode);
-        const r = await fetch('/api/v1/mdm_controller.php?action=save_fallback&module=pricing',
-                              { method: 'POST', body: fd });
-        const j = await r.json();
-        if (j.status !== 'success') throw new Error(j.message || 'Échec');
-
-        metaData.fallback_price = j.fallback;
-        notify('Politique de prix enregistrée.');
-        renderModulePanel();
-        togglePricePanel(true);
-    } catch (e) {
-        notify('Erreur : ' + e.message, 'error');
-    } finally {
-        btn.disabled = false;
-    }
-}
-
 // ---------------------------------------------------------------------------
 // 3. TABLE RENDERING
 // ---------------------------------------------------------------------------
@@ -574,6 +533,10 @@ function actionsCell(pk, statusFlag, showToggle) {
     const cfg = mdmConfig[currentModule];
     if (cfg && cfg.readonly && cfg.openUrl) {
         return LPC.html`<a href="${cfg.openUrl}" title="Ouvrir dans Flotte & Maintenance" aria-label="Ouvrir dans Flotte & Maintenance" class="inline-flex items-center gap-1.5 text-lpc-dark hover:text-green-800 bg-green-50 hover:bg-green-100 px-3 py-2 rounded-lg no-underline text-xs font-black uppercase tracking-wider transition-colors">Ouvrir<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path></svg></a>`;
+    }
+
+    if (!canEdit()) {
+        return LPC.html`<button onclick="openModal(${pk})" title="Consulter" aria-label="Consulter" class="text-gray-500 hover:text-gray-800 bg-gray-100 p-2 rounded-lg">${LPC.raw(ICON_EYE)}</button>`;
     }
 
     const editBtn = LPC.html`<button onclick="openModal(${pk})" title="Modifier" aria-label="Modifier" class="text-blue-500 hover:text-blue-700 bg-blue-50 p-2 rounded-lg mr-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></button>`;
@@ -611,42 +574,62 @@ function renderTable(dataArray) {
         let tr = '<tr class="hover:bg-gray-50 transition-colors">';
         mdmConfig[currentModule].columns.forEach(col => { tr += `<td class="py-4 px-6">${col.render(row[col.key])}</td>`; });
 
-        // Tarifs Fournisseurs is a composite-key pivot (supplier_id +
-        // product_id) with no activation flag, and its rows carry two extra
-        // actions: the price history and deleting the tariff.
-        if (currentModule === 'supplier_pricing') {
-            const pk = `'${row.supplier_id}_${row.product_id}'`;
-            tr += `<td class="py-4 px-6 text-right whitespace-nowrap">${supplierPricingActions(pk, row)}</td></tr>`;
+        // The two tariff tabs are composite-key pivots (client or supplier +
+        // product) with no activation flag. Their rows carry the price
+        // history and deleting the tariff besides the pencil.
+        if (currentModule === 'supplier_pricing' || currentModule === 'pricing') {
+            const party = currentModule === 'pricing' ? row.client_id : row.supplier_id;
+            tr += `<td class="py-4 px-6 text-right whitespace-nowrap">${tariffActions(`'${party}_${row.product_id}'`, row)}</td></tr>`;
             html += tr;
             return;
         }
 
-        const pk = currentModule === 'pricing' ? `'${row.client_id}_${row.product_id}'` : row.id;
         const statusFlag = row.is_active !== undefined ? row.is_active : (row.status === 'active' ? 1 : 0);
 
-        tr += `<td class="py-4 px-6 text-right whitespace-nowrap">${actionsCell(pk, statusFlag, currentModule !== 'pricing')}</td></tr>`;
+        tr += `<td class="py-4 px-6 text-right whitespace-nowrap">${actionsCell(row.id, statusFlag, true)}</td></tr>`;
         html += tr;
     });
     tbody.innerHTML = html;
 }
 
+/** Both tariff tabs, one shape: which party, which history, what a delete falls back to. */
+const TARIFF = {
+    pricing: {
+        party: 'client', partyName: 'client_name',
+        history: 'client_price_history', del: 'delete_client_price',
+        confirm: "Supprimer ce tarif ? Ce client paiera de nouveau le prix par défaut du produit.",
+        done: "Tarif supprimé. Le prix par défaut s'applique de nouveau à ce client.",
+        delTitle: 'Supprimer le tarif (retour au prix par défaut)',
+    },
+    supplier_pricing: {
+        party: 'supplier', partyName: 'supplier_name',
+        history: 'supplier_price_history', del: 'delete_supplier_price',
+        confirm: "Supprimer ce tarif ? Pour ce fournisseur et ce produit, le bon de commande repassera au coût de référence.",
+        done: "Tarif supprimé. Le coût de référence s'applique désormais.",
+        delTitle: 'Supprimer le tarif (retour au coût de référence)',
+    },
+};
+
 /**
- * Actions for a Tarifs Fournisseurs row: edit (same modal as create),
- * price history (append-only log from migration 063), delete (clears the
- * tariff so the pair falls back to products.cost_price).
+ * Actions for a tariff row: edit (same modal as create), the price history
+ * (append-only logs, migrations 062 and 063), delete. The history is open to
+ * whoever can see the page; editing and deleting need admin.master_data.edit.
  */
-function supplierPricingActions(pk, row) {
-    const esc = v => String(v == null ? '' : v).replace(/'/g, "\\'");
+function tariffActions(pk, row) {
+    const t = TARIFF[currentModule];
+    const esc = v => String(v == null ? '' : v).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    const hist = `<button onclick="openPriceHistory(${pk}, '${esc(row[t.partyName])}', '${esc(row.product_name)}')" title="Historique des prix" aria-label="Historique des prix" class="text-indigo-500 hover:text-indigo-700 bg-indigo-50 p-2 rounded-lg mr-2"><i class="fas fa-history"></i></button>`;
+    if (!canEdit()) return hist;
     const edit = `<button onclick="openModal(${pk})" title="Modifier" aria-label="Modifier" class="text-blue-500 hover:text-blue-700 bg-blue-50 p-2 rounded-lg mr-2"><i class="fas fa-pencil-alt"></i></button>`;
-    const hist = `<button onclick="openSupplierPriceHistory(${pk}, '${esc(row.supplier_name)}', '${esc(row.product_name)}')" title="Historique des prix" aria-label="Historique des prix" class="text-indigo-500 hover:text-indigo-700 bg-indigo-50 p-2 rounded-lg mr-2"><i class="fas fa-history"></i></button>`;
-    const del  = `<button onclick="deleteSupplierPrice(${pk})" title="Supprimer le tarif (retour au coût de référence)" aria-label="Supprimer le tarif" class="text-red-500 hover:text-red-700 bg-red-50 p-2 rounded-lg"><i class="fas fa-trash-alt"></i></button>`;
+    const del  = `<button onclick="deleteTariff(${pk})" title="${t.delTitle}" aria-label="Supprimer le tarif" class="text-red-500 hover:text-red-700 bg-red-50 p-2 rounded-lg"><i class="fas fa-trash-alt"></i></button>`;
     return edit + hist + del;
 }
 
-/** Append-only log of every change to this (supplier, product) tariff. */
-async function openSupplierPriceHistory(pk, supplierName, productName) {
+/** Append-only log of every change to this (client or supplier, product) tariff. */
+async function openPriceHistory(pk, partyName, productName) {
+    const t = TARIFF[currentModule];
     const parts = String(pk).split('_');
-    const url = `/api/v1/mdm_controller.php?action=supplier_price_history&supplier_id=${parts[0]}&product_id=${parts[1]}`;
+    const url = `/api/v1/mdm_controller.php?action=${t.history}&${t.party}_id=${parts[0]}&product_id=${parts[1]}`;
     let rows;
     try {
         const r = await fetch(url);
@@ -660,14 +643,17 @@ async function openSupplierPriceHistory(pk, supplierName, productName) {
 
     const SRC_BADGE = {
         purchase_order: ['bg-gray-100 text-gray-600', 'Bon de commande'],
+        order:          ['bg-gray-100 text-gray-600', 'Commande client'],
         supplier_file:  ['bg-emerald-50 text-emerald-700', 'Données de Base'],
+        client_file:    ['bg-emerald-50 text-emerald-700', 'Données de Base'],
         import:         ['bg-blue-50 text-blue-600', 'Import'],
     };
 
-    // bodyHtml is injected raw — every database value must be escaped.
+    // bodyHtml is injected raw: every database value must be escaped.
     const esc = v => String(v == null ? '' : v)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    const none = '<span class="text-gray-300">·</span>';
 
     const body = rows.length
         ? `<div class="overflow-x-auto max-h-[55vh] overflow-y-auto">
@@ -683,12 +669,12 @@ async function openSupplierPriceHistory(pk, supplierName, productName) {
                </thead>
                <tbody>
                  ${rows.map(h => {
-                     const [bc, bl] = SRC_BADGE[h.source] || ['bg-gray-100 text-gray-600', esc(h.source || '—')];
+                     const [bc, bl] = SRC_BADGE[h.source] || ['bg-gray-100 text-gray-600', esc(h.source || '')];
                      return `<tr class="border-b border-gray-50">
                        <td class="py-2.5 px-3 text-[11px] text-gray-500 whitespace-nowrap">${new Date(String(h.changed_at).replace(' ', 'T')).toLocaleString('fr-FR')}</td>
-                       <td class="py-2.5 px-3 text-xs font-bold text-gray-700 whitespace-nowrap">${h.old_price == null ? '<span class="text-gray-400">—</span>' : LPC.fmt.int(h.old_price)} → ${LPC.fmt.int(h.new_price)} FCFA</td>
+                       <td class="py-2.5 px-3 text-xs font-bold text-gray-700 whitespace-nowrap">${h.old_price == null ? '<span class="text-gray-400">Aucun</span>' : LPC.fmt.int(h.old_price)} → ${LPC.fmt.int(h.new_price)} FCFA</td>
                        <td class="py-2.5 px-3 whitespace-nowrap"><span class="px-2 py-0.5 rounded text-[10px] font-black ${bc}">${esc(bl)}</span>${h.source_reference ? ` <span class="text-[10px] font-mono text-gray-400">${esc(h.source_reference)}</span>` : ''}</td>
-                       <td class="py-2.5 px-3 text-[11px] font-bold text-gray-600 whitespace-nowrap">${h.user_name ? esc(h.user_name) : '<span class="text-gray-300">—</span>'}</td>
+                       <td class="py-2.5 px-3 text-[11px] font-bold text-gray-600 whitespace-nowrap">${h.user_name ? esc(h.user_name) : none}</td>
                        <td class="py-2.5 px-3 text-[11px] text-gray-400 italic">${esc(h.note || '')}</td>
                      </tr>`;
                  }).join('')}
@@ -698,30 +684,28 @@ async function openSupplierPriceHistory(pk, supplierName, productName) {
         : '<p class="py-8 text-center text-xs font-bold text-gray-400">Aucun changement enregistré pour ce tarif.</p>';
 
     LPC.modal.custom({
-        title: `Historique — ${supplierName || ''} · ${productName || ''}`,
+        title: `Historique des prix · ${partyName || ''} · ${productName || ''}`,
         bodyHtml: body,
         buttons: [{ label: 'Fermer', value: null, primary: true }],
         dismissable: true,
     });
 }
 
-/** Clear the tariff: the pair falls back to products.cost_price in the picker. */
-async function deleteSupplierPrice(pk) {
+/** Clear the tariff: the pair falls back to the default price (client) or the reference cost (supplier). */
+async function deleteTariff(pk) {
+    const t = TARIFF[currentModule];
     const parts = String(pk).split('_');
-    const ok = await LPC.modal.confirm(
-        "Supprimer ce tarif ? Pour ce fournisseur et ce produit, le bon de commande repassera au coût de référence.",
-        { title: 'Supprimer le tarif', confirmLabel: 'Supprimer', danger: true }
-    );
+    const ok = await LPC.modal.confirm(t.confirm, { title: 'Supprimer le tarif', confirmLabel: 'Supprimer', danger: true });
     if (!ok) return;
 
     const fd = new FormData();
-    fd.append('supplier_id', parts[0]);
+    fd.append(`${t.party}_id`, parts[0]);
     fd.append('product_id', parts[1]);
     try {
-        const r = await fetch('/api/v1/mdm_controller.php?action=delete_supplier_price&module=supplier_pricing', { method: 'POST', body: fd });
+        const r = await fetch(`/api/v1/mdm_controller.php?action=${t.del}&module=${currentModule}`, { method: 'POST', body: fd });
         const j = await r.json();
         if (j.status !== 'success') throw new Error(j.message || 'Échec');
-        notify("Tarif supprimé. Le coût de référence s'applique désormais.");
+        notify(t.done);
         fetchData();
     } catch (e) {
         notify('Erreur : ' + e.message, 'error');
@@ -768,7 +752,7 @@ function packBadge(row) {
 
 function accountChip(row) {
     if (!schemaV2 || !row.revenue_account_code) {
-        return '<span class="text-gray-300 text-xs" title="Aucun compte dédié — la vente crédite 701">701</span>';
+        return '<span class="text-gray-300 text-xs" title="Aucun compte dédié : la vente crédite 701">701</span>';
     }
     const override = parseInt(row.revenue_is_override, 10) === 1;
     const cls = override ? 'text-purple-700 bg-purple-50 border-purple-200' : 'text-emerald-700 bg-emerald-50 border-emerald-200';
@@ -783,7 +767,7 @@ function emballageCell(row) {
         return LPC.html`<span class="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded"><i class="fas fa-link mr-1"></i>${row.linked_empty_name}</span>`;
     }
     if (parseInt(row.is_empty, 10) === 1) {
-        return '<span class="text-[10px] font-bold text-gray-400">— c\'est un emballage —</span>';
+        return '<span class="text-[10px] font-bold text-gray-400">C\'est un emballage</span>';
     }
     return '<span class="text-[10px] font-medium text-gray-400 italic">Aucun emballage</span>';
 }
@@ -916,7 +900,7 @@ function openModal(id = null) {
         } else {
             buildProductForm(form, existingData);
         }
-        document.getElementById('mdmModal').classList.remove('hidden');
+        showModal(form);
         return;
     }
 
@@ -946,7 +930,7 @@ function openModal(id = null) {
             const pwRequired = (field.optional === 'edit' && id) ? '' : 'required';
             inputHTML = LPC.html`<input ${LPC.raw(pwRequired)} type="password" id="f_${field.name}" name="${field.name}" autocomplete="new-password" placeholder="${id ? 'Laisser vide pour conserver' : '••••••••'}" class="${INPUT_CLS}">`;
         } else {
-            inputHTML = LPC.html`<input required type="${field.type}" id="f_${field.name}" name="${field.name}" value="${value}" ${(currentModule === 'pricing' || currentModule === 'supplier_pricing') && id && field.name.includes('id') ? 'readonly' : ''} class="${INPUT_CLS}">`;
+            inputHTML = LPC.html`<input ${LPC.raw(field.optional ? '' : 'required')} type="${field.type}" id="f_${field.name}" name="${field.name}" value="${value}" ${(currentModule === 'pricing' || currentModule === 'supplier_pricing') && id && field.name.includes('id') ? 'readonly' : ''} class="${INPUT_CLS}">`;
         }
 
         const helpHTML = field.help
@@ -956,6 +940,21 @@ function openModal(id = null) {
     });
 
     mountFormPickers(form);
+    showModal(form);
+}
+
+/**
+ * Open the modal. For someone who may only look, the same form opens with
+ * every field locked and no « Enregistrer » (data-perm hides it), titled
+ * « Consulter », so the Comptable or the Opérations can read a record
+ * without being offered a save the server would refuse.
+ */
+function showModal(form) {
+    if (!canEdit()) {
+        document.getElementById('modal-title').innerText = 'Consulter';
+        form.querySelectorAll('input, select, textarea').forEach(el => { el.disabled = true; });
+        form.querySelectorAll('button').forEach(el => { el.style.display = 'none'; });
+    }
     document.getElementById('mdmModal').classList.remove('hidden');
 }
 
@@ -1072,7 +1071,7 @@ function renderTarifHint() {
         msg += ` · écart de <strong>${LPC.fmt.int(Math.abs(delta))} FCFA</strong> (${Math.round(Math.abs(delta) / base * 100)} %)`;
     } else if (entered > 0 && delta > 0) {
         tone = 'bg-emerald-50 border-emerald-200 text-emerald-800';
-        msg += ` · <strong>${LPC.fmt.int(delta)} FCFA au-dessus</strong> de la référence — vérifiez.`;
+        msg += ` · <strong>${LPC.fmt.int(delta)} FCFA au-dessus</strong> de la référence : vérifiez.`;
     }
     if (entered > 0 && base > 0 && entered < base * 0.5) {
         tone = 'bg-rose-50 border-rose-200 text-rose-800';
@@ -1144,7 +1143,7 @@ function buildEmployeeForm(form, d) {
     // employee as their own manager (the server also rejects this).
     const managers = (metaData.managers || []).filter(m => String(m.id) !== String(d.id || ''));
     const managerOpts = managers.map(m => LPC.html`
-        <option value="${m.id}" ${String(d.manager_id || '') === String(m.id) ? 'selected' : ''}>${m.full_name}${m.job_title ? ' — ' + m.job_title : ''}</option>
+        <option value="${m.id}" ${String(d.manager_id || '') === String(m.id) ? 'selected' : ''}>${m.full_name}${m.job_title ? ' · ' + m.job_title : ''}</option>
     `).join('');
 
     // Enum options mirror the ENUMs in migration 108.
@@ -1223,11 +1222,11 @@ function buildEmployeeForm(form, d) {
         </div>
 
         <div class="col-span-1">
-            <label class="${LABEL_CLS}">Contact d'urgence — Nom</label>
+            <label class="${LABEL_CLS}">Contact d'urgence · Nom</label>
             <input type="text" id="f_emergency_contact_name" name="emergency_contact_name" value="${d.emergency_contact_name || ''}" class="${INPUT_CLS}">
         </div>
         <div class="col-span-1">
-            <label class="${LABEL_CLS}">Contact d'urgence — Téléphone</label>
+            <label class="${LABEL_CLS}">Contact d'urgence · Téléphone</label>
             <input type="text" id="f_emergency_contact_phone" name="emergency_contact_phone" value="${d.emergency_contact_phone || ''}" class="${INPUT_CLS}">
         </div>
     `;
@@ -1247,7 +1246,7 @@ function buildEmployeeForm(form, d) {
 
     // ---------- Section 2 · Paie & rémunération -----------------------------
     form.innerHTML += LPC.html`
-        ${LPC.raw(sectionHeader('Paie & rémunération', 'Ces valeurs pilotent la génération de la paie (module RH & Paie).'))}
+        ${LPC.raw(sectionHeader('Paie & rémunération', 'La paie mensuelle (Gestion du Personnel) part de ces montants. Un salaire se change ici.'))}
 
         <div class="col-span-1">
             <label class="${LABEL_CLS}">Salaire de base (FCFA) *</label>
@@ -1331,7 +1330,7 @@ function buildEmployeeForm(form, d) {
         <div class="col-span-2">
             <label class="${LABEL_CLS}">Responsable hiérarchique</label>
             <select id="f_manager_id" name="manager_id" class="${INPUT_CLS}">
-                <option value="">— Aucun (rapport direct au DG) —</option>
+                <option value="">Aucun (rend compte directement au DG)</option>
                 ${LPC.raw(managerOpts)}
             </select>
         </div>
@@ -1357,7 +1356,7 @@ function buildEmployeeForm(form, d) {
     if (d.user_id) {
         form.innerHTML += LPC.html`
             <div class="col-span-2 mt-2 p-3 rounded-xl bg-blue-50 border border-blue-100 text-[12px] text-blue-800">
-                <strong>Compte de connexion lié :</strong> ${d.email || '—'} · rôle ${d.role_name || '—'}.
+                <strong>Compte de connexion lié :</strong> ${d.email || 'aucun'} · rôle ${d.role_name ? roleLabel(d.role_name) : 'aucun'}.
                 Pour modifier le rôle, l'adresse email ou réinitialiser le mot de passe,
                 utilisez <a href="/modules/settings/index.php?tab=users" class="underline font-bold">Paramètres → Utilisateurs</a>.
             </div>`;
@@ -1403,7 +1402,7 @@ function buildProductForm(form, d) {
         </div>
 
         <div class="col-span-1">
-            <label class="${LABEL_CLS}">Code SKU — généré, modifiable</label>
+            <label class="${LABEL_CLS}">Code SKU (proposé, modifiable)</label>
             <div class="flex gap-2">
                 <input type="text" id="f_code" name="code" value="${d.code || ''}" oninput="markCodeTouched()"
                        placeholder="Généré automatiquement" class="${INPUT_CLS} font-mono">
@@ -1417,7 +1416,7 @@ function buildProductForm(form, d) {
             <input required type="text" id="f_name" name="name" value="${d.name || ''}" class="${INPUT_CLS}">
         </div>
 
-        ${LPC.raw(sectionHeader('Conditionnement', "Le format et le nombre d'unités par pack sont des champs à part entière : deux modules déduisaient jusqu'ici la contenance en analysant le code SKU."))}
+        ${LPC.raw(sectionHeader('Conditionnement', "La contenance du produit et, pour un jus, le nombre d'unités par pack."))}
 
         <div class="col-span-1">
             <label class="${LABEL_CLS}">Contenance / Format</label>
@@ -1445,7 +1444,7 @@ function buildProductForm(form, d) {
             </select>
         </div>
 
-        ${LPC.raw(sectionHeader('Consigne & Emballage'))}
+        ${LPC.raw(sectionHeader('Emballage vide'))}
         <div class="col-span-2" id="emballage-zone"></div>
 
         ${LPC.raw(sectionHeader('Prix & Comptabilité'))}
@@ -1456,14 +1455,24 @@ function buildProductForm(form, d) {
         </div>
 
         <div class="col-span-1">
+            <label class="${LABEL_CLS}" for="f_cost_price">Coût de référence (FCFA)</label>
+            <input type="number" min="0" step="1" id="f_cost_price" name="cost_price" value="${d.cost_price != null ? Math.round(d.cost_price) : ''}" class="${INPUT_CLS}">
+            <p class="text-[10px] text-gray-400 mt-1.5 ml-1">Ce que LPC paie ce produit quand le fournisseur n'a pas de tarif. Vide à la création : le prix de base.</p>
+        </div>
+
+        <div class="col-span-2">
             <label class="${LABEL_CLS}">Compte de vente</label>
             <div id="revenue-preview" class="w-full bg-emerald-50/60 border border-emerald-100 rounded-xl p-3 text-sm font-bold text-emerald-800"></div>
-            <p class="text-[10px] text-gray-400 mt-1.5 ml-1">Hérité de la catégorie. Chaque facture crédite ce compte au lieu du 701 global.</p>
+            <p id="revenue-hint" class="text-[10px] text-gray-400 mt-1.5 ml-1">Hérité de la catégorie. Chaque facture de ce produit crédite ce compte.</p>
         </div>
     `;
 
+    productBeingEdited = d;
     onCategoryChange(d);
 }
+
+/** The product open in the form, so the account preview can show its own account when it has one. */
+let productBeingEdited = {};
 
 function markCodeTouched() { codeTouched = true; }
 function regenerateCode()  { codeTouched = false; refreshSuggestedCode(); }
@@ -1513,8 +1522,8 @@ function onCategoryChange(d) {
         zone.innerHTML = LPC.html`
             <div class="grid grid-cols-2 gap-6 p-4 rounded-xl bg-amber-50/50 border border-amber-100">
                 <div class="col-span-2 text-[11px] font-bold text-amber-800">
-                    Contenant consigné. Le format et l'état du bouchon déterminent le prix de reprise —
-                    c'est aussi ainsi que le registre des consignes retrouve ce contenant.
+                    Un emballage vide. Son format et l'état du bouchon le distinguent des autres :
+                    c'est ainsi que le suivi des vides le retrouve chez chaque client.
                 </div>
                 <div>
                     <label class="${LABEL_CLS}">Format du contenant</label>
@@ -1544,14 +1553,14 @@ function onCategoryChange(d) {
         }).join('');
 
         const advisory = parseInt(cat.requires_emballage, 10) === 1
-            ? "Les produits de cette catégorie sont généralement consignés — mais ce champ reste facultatif."
-            : "Facultatif : beaucoup de produits se vendent sans emballage consigné.";
+            ? "À chaque livraison, le client doit autant de vides de cet emballage que de produits livrés."
+            : "Facultatif : un produit sans emballage à reprendre n'en a pas.";
 
         zone.innerHTML = LPC.html`
-            <label class="${LABEL_CLS}">Emballage consigné associé</label>
+            <label class="${LABEL_CLS}">Emballage vide lié</label>
             <div class="flex gap-2">
                 <select id="f_linked_empty_id" name="linked_empty_id" class="${INPUT_CLS}">
-                    <option value="">— Aucun emballage —</option>${LPC.raw(opts)}
+                    <option value="">Aucun emballage</option>${LPC.raw(opts)}
                 </select>
                 <button type="button" onclick="openEmballageModal()" title="Créer un emballage" aria-label="Créer un emballage"
                         class="shrink-0 px-4 rounded-xl bg-amber-500 text-white font-black text-lg leading-none hover:bg-amber-600 active:scale-95 transition-transform">+</button>
@@ -1559,11 +1568,25 @@ function onCategoryChange(d) {
             <p class="text-[10px] text-gray-500 mt-1.5 ml-1">${advisory}</p>`;
     }
 
+    // The account a sale of this product credits: its own when it has one
+    // (kept on save since 18/11/2026), else its category's, else 701.
     const prev = document.getElementById('revenue-preview');
+    const prevHint = document.getElementById('revenue-hint');
+    const own = productBeingEdited && parseInt(productBeingEdited.revenue_is_override, 10) === 1
+        && String(productBeingEdited.category_id || '') === String(cat.id);
     if (prev) {
-        prev.innerHTML = cat.revenue_code
-            ? LPC.html`<span class="font-mono">${cat.revenue_code}</span> — ${cat.revenue_name}`
-            : '<span class="text-amber-700">701 — compte global (aucun compte dédié)</span>';
+        if (own) {
+            prev.innerHTML = LPC.html`<span class="font-mono">${productBeingEdited.revenue_account_code}</span> · ${productBeingEdited.revenue_account_name}`;
+        } else {
+            prev.innerHTML = cat.revenue_code
+                ? LPC.html`<span class="font-mono">${cat.revenue_code}</span> · ${cat.revenue_name}`
+                : '<span class="text-amber-700">701 · compte général des ventes (la catégorie n\'a pas de compte)</span>';
+        }
+    }
+    if (prevHint) {
+        prevHint.textContent = own
+            ? 'Compte propre à ce produit. Chaque facture de ce produit crédite ce compte.'
+            : 'Hérité de la catégorie. Chaque facture de ce produit crédite ce compte.';
     }
 
     refreshSuggestedCode();
@@ -1642,7 +1665,7 @@ function openCategoryModal() {
             <input type="text" id="c_name" placeholder="Jus, Sirop, Boisson gazeuse…" class="${INPUT_CLS}">
         </div>
         <div class="col-span-1">
-            <label class="${LABEL_CLS}">Préfixe SKU — optionnel</label>
+            <label class="${LABEL_CLS}">Préfixe SKU (facultatif)</label>
             <input type="text" id="c_prefix" maxlength="4" placeholder="auto" class="${INPUT_CLS} font-mono uppercase">
         </div>
         <div class="col-span-1 flex items-end">
@@ -1655,11 +1678,11 @@ function openCategoryModal() {
             </label>
             <label class="flex items-center gap-3 text-xs font-bold text-gray-600">
                 <input type="checkbox" id="c_req" class="w-4 h-4 rounded border-gray-300">
-                Généralement consigné (suggère un emballage, sans l'imposer)
+                Livré avec un emballage à reprendre (le propose, sans l'imposer)
             </label>
             <label class="flex items-center gap-3 text-xs font-bold text-gray-600">
                 <input type="checkbox" id="c_container" class="w-4 h-4 rounded border-gray-300">
-                Cette catégorie EST un contenant consigné (bonbonnes vides…)
+                Cette catégorie est un emballage vide (bonbonnes vides…)
             </label>
         </div>
     `, saveCategory);
@@ -1705,9 +1728,9 @@ async function saveCategory() {
 
 function openEmballageModal() {
     const containerCat = (metaData.categories || []).find(c => parseInt(c.is_empty_container, 10) === 1);
-    if (!containerCat) { LPC.modal.alert("Aucune catégorie de contenant consigné n'est définie."); return; }
+    if (!containerCat) { LPC.modal.alert("Aucune catégorie d'emballage vide n'est définie."); return; }
 
-    openStacked('Nouvel Emballage Consigné', LPC.html`
+    openStacked('Nouvel emballage vide', LPC.html`
         <div class="col-span-2">
             <label class="${LABEL_CLS}">Désignation</label>
             <input type="text" id="e_name" placeholder="10L sans Bouchon" class="${INPUT_CLS}">
@@ -1728,9 +1751,9 @@ function openEmballageModal() {
             </select>
         </div>
         <div class="col-span-2">
-            <label class="${LABEL_CLS}">Prix de consigne (FCFA)</label>
+            <label class="${LABEL_CLS}">Prix de revente (FCFA)</label>
             <input type="number" min="0" step="1" id="e_price" value="0" class="${INPUT_CLS}">
-            <p class="text-[10px] text-gray-400 mt-1.5 ml-1">C'est ce montant que le registre des consignes utilisera pour ce contenant.</p>
+            <p class="text-[10px] text-gray-400 mt-1.5 ml-1">Le prix auquel LPC revend ce vide à un recycleur (Vente Recyclage).</p>
         </div>
     `, function () { saveEmballage(containerCat.id); });
 }
@@ -1761,7 +1784,7 @@ async function saveEmballage(categoryId) {
         const sel = document.getElementById('f_linked_empty_id');
         if (sel) {
             const empties = metaData.empties || [];
-            sel.innerHTML = '<option value="">— Aucun emballage —</option>' + empties.map(e => {
+            sel.innerHTML = '<option value="">Aucun emballage</option>' + empties.map(e => {
                 const label = e.bottle_size
                     ? `${e.bottle_size} · ${parseInt(e.has_cork, 10) === 1 ? 'avec bouchon' : 'sans bouchon'} (${e.name})`
                     : e.name;
@@ -1793,10 +1816,21 @@ async function reloadMeta() {
 // 7. PERSISTENCE
 // ---------------------------------------------------------------------------
 async function toggleStatus(id, currentStatus) {
-    if (!(await LPC.modal.confirm("Modifier le statut ?"))) return;
+    const off = parseInt(currentStatus, 10) === 1;
+    const what = currentModule === 'employees'
+        ? (off ? "Désactiver cet employé ? Son compte de connexion, s'il en a un, est fermé aussi." : "Réactiver cet employé et son compte de connexion ?")
+        : (off ? "Désactiver cette fiche ? Elle reste dans l'historique mais ne se choisit plus." : "Réactiver cette fiche ?");
+    if (!(await LPC.modal.confirm(what))) return;
     const fd = new FormData();
     fd.append('id', id); fd.append('is_active', currentStatus);
-    await fetch(`/api/v1/mdm_controller.php?action=toggle_status&module=${mdmConfig[currentModule].api}`, { method: 'POST', body: fd });
+    try {
+        const r = await fetch(`/api/v1/mdm_controller.php?action=toggle_status&module=${mdmConfig[currentModule].api}`, { method: 'POST', body: fd });
+        const j = await r.json();
+        if (j.status !== 'success') throw new Error(j.message || 'Échec');
+        notify(off ? 'Fiche désactivée.' : 'Fiche réactivée.');
+    } catch (e) {
+        notify('Erreur : ' + e.message, 'error');
+    }
     fetchData();
 }
 
@@ -1854,6 +1888,10 @@ async function saveRecord() {
             // and the revenue account are both resolved server-side.
             if (result.product) {
                 notify(`${result.product.name} enregistré · ${result.product.code} · compte ${result.product.revenue_code}`);
+            } else if (result.supplier) {
+                notify(`${result.supplier.name} enregistré · ${result.supplier.lpc_code} · compte fournisseur ${result.supplier.account_code}`);
+            } else {
+                notify('Enregistré.');
             }
             fetchData();
         } else {
