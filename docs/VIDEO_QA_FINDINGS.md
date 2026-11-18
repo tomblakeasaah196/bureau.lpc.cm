@@ -64,24 +64,10 @@ Seen and left:
 
 ## 5 · Ventes & Commandes
 
-1. [V] **« Flotte LPC » BL needs a user with role `driver`** (`sales_controller.php:853-863`): LPC has
-   none, so its own trucks cannot deliver. Fix: Flotte LPC takes a vehicle and a driver chosen among the
-   employees (no login), as the owner removes driver accounts.
-2. [V] **Only the DG can « Clôturer » a delivery** (`sales.deliveries.close`: admin, directeur_general,
-   sales, driver). The owner: Ops does orders and deliveries.
-3. [V] The order « Supprimer » posts FormData; the controller reads the action only from the URL or a
-   JSON body (`sales_controller.php:23-30`): always « Action non spécifiée ».
-4. [V] « Annuler » after a BL can never succeed (no way to cancel a BL; guard at `:1584`).
-5. [V] **Line remises are subtracted twice**: `sales_orders.discount_amount` already includes them, yet
-   it is subtracted again at BL signature (`signature_side_effects.php:427`) and on the invoice
-   (`invoices_controller.php:766-803`).
-6. [I] Empties owed may be doubled at BL signature: the ledger update has no site filter and can hit both
-   the no-site row and « Siège Principal » (`signature_side_effects.php:371-397`).
-7. [V] BL, CRE and quote-signature notifications go to roles `admin` and `finance`; `finance` does not
-   exist, CF and Cpt are never told.
-8. [V] Only the customer's signature (`sign_bl.php`, QR or WhatsApp) completes a BL and books refused
-   fulls, empties returned, empties owed and the order's delivered status; only completed BLs can be
-   invoiced. That is by design: the story shows PROMETAL signing.
+All eight rows done 18/11/2026 (Ventes & Commandes session, PR « video-05-ventes », migrations 142 and 143):
+5.1 to 5.7 fixed and moved to docs/TRAINING_VIDEOS.md §7; 5.8 (only the client's signature completes a BL)
+is the design the video shows. 5.6 could not be reproduced on the copy (PROMETAL has no site row) and was
+fixed from the code.
 
 ## 6 · Flotte (Flotte & Maintenance, Relevé Carburant, Déclarer une Panne)
 
@@ -136,6 +122,12 @@ Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026):
    → « Charger une attestation de retenue à la source ». The request letter (« Demander (PDF) »,
    `_tax_attestation_letter.php:56`) selects `users.full_name/name/username`, none of which exist [V]:
    likely an error.
+9. [V] `notifyAdminFinance` (`invoices_controller.php:73`) targets roles admin / finance / accountant by name;
+   `finance` does not exist. The signature notices moved to permissions (5.7, `lpc_notify_permission`): do the
+   same here.
+10. [V] Ventes (5.5) now keeps the order's own remise in `sales_orders.order_discount_amount`; the invoice's
+   « Remise » takes only that, pro rata of the BLs billed. The invoice lines are billed at the price sold, the
+   line remise inside it. Check the PDF shows it that way.
 
 ## 9 · Trésorerie & Banque, Gestion des Dépenses
 
@@ -173,6 +165,13 @@ Rows 1 to 5 done by the Salaires session (18/11/2026, PR #59): see docs/TRAINING
 2. [V] `postSalesCreditNote` has no caller: no credit-note entries.
 3. See 3.1 (stock accounting, 601 vs 31x/6031), 8.1 (invoice on the first 411), 8.2 (AIR twice), 4.6
    (second 411 on conversion): the ledger checks belong here if their module sessions did not fix them.
+4. [V] **A reversal counts twice in the reports** (found by the Ventes session, 18/11/2026):
+   `JournalPoster::reverseSource` posts the mirror entry and stamps the original `reversed`, while the Grand
+   Livre, the Balance and the review screens read `status = 'posted'` only (`review_controller.php:152, 289,
+   349, 369, 387`). The original drops out and the mirror stays: a cancelled reception shows 601 at minus its
+   amount instead of 0. Callers: purchase cancellation, payroll undo (« Annuler la Paie »), rebates. Fix
+   either side (read posted + reversed, or leave the original posted) and check 311, 601, 661 on the copy.
+   Ventes avoided it: a cancelled BL books its own opposite entry (`postStockAdjustment`).
 
 ## 12 · Comptabilité 2 (Immobilisations, Budgets & Performance)
 
@@ -217,6 +216,10 @@ Rows 1 to 5 done by the Salaires session (18/11/2026, PR #59): see docs/TRAINING
 4. [V] « Alertes stock » flags any product under 100 units, not its « Seuil Min. ».
 5. [V] Vue Ventes reads orders created by the signed-in user: with Ops entering orders and no Sales login,
    the DG sees 0 (the sales role will see only their own).
+6. [V] The Ops dashboard's driver columns (`ops_dashboard_api.php:176, 219, 257, 279, 536`) and the MD's
+   (`md_dashboard_api.php:366`) join `deliveries.driver_id` to users. Since migration 142 an LPC delivery names
+   its driver in `deliveries.driver_employee_id` (an employee, no login): those columns read empty. Join
+   employees as `sales_controller.php` does (`COALESCE(employee, user)`).
 
 ## 15 · Administration (Paramètres, Utilisateurs, Rôles, Centre d'Aide, Journal d'Erreurs)
 
@@ -254,7 +257,7 @@ marked fixed). What was fixed is in docs/TRAINING_VIDEOS.md §7. Left:
 | # | Question | Default used for the videos |
 | --- | --- | --- |
 | 1 | Who places supplier orders: Ops, the CF, or both? Today Ops and the Comptable can, the CF cannot. | Decided 18/11: Operations orders and receives; the Contrôleur Financier pays (unchanged). |
-| 2 | Should Ops close deliveries (`sales.deliveries.close`)? | Yes: the owner said Ops does the orders; granted by migration, listed in the PR. |
+| 2 | Should Ops close deliveries (`sales.deliveries.close`)? | Decided 18/11: yes. Granted by migration 142 (Ventes & Commandes, done). |
 | 3 | Stock accounting: perpetual (31x at reception) or periodic (601 then variation at closing)? | Decided 18/11: perpetual, as built in migration 131 (Gestion des Achats). |
 | 4 | Which taxes does PROMETAL withhold: AIR only, or TVA too? The app only handles AIR. | AIR only, at the rate set on the client. |
 | 5 | Should the Comptable approve advances and pay suppliers (`approve_advance`, `procurement.approve`), and keep `closing.run` / `reopen`? | Decided 18/11: the Comptable also pays suppliers (`inventory.procurement.approve`, migration 132, done) and approves advances (`hr.payroll.approve_advance`, for the Salaires session); closing rights unchanged. |
