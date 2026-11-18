@@ -70,6 +70,11 @@ $defaultJsonHeaders = function () {
 };
 $defaultJsonHeaders();
 
+// Writes (approve, record_payment, upload_certificate…) carry the page's token;
+// reads are GETs (VIDEO_QA_FINDINGS 8.7). A multipart upload sends it as the
+// form field, which Csrf reads too.
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') Csrf::requireValid();
+
 try {
     switch ($action) {
 
@@ -706,7 +711,7 @@ function tax_renderSnapshotPdf(int $decl_id, string $kind, int $year, int $month
     $signatory = 'Direction Financière';
     try {
         $db = Database::getInstance()->getConnection();
-        $s = $db->prepare("SELECT COALESCE(full_name, name, username, 'Direction Financière') FROM users WHERE id = ?");
+        $s = $db->prepare("SELECT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))), ''), 'Direction Financière') FROM users WHERE id = ?");
         $s->execute([(int)($_SESSION['user_id'] ?? 0)]);
         $signatory = (string) ($s->fetchColumn() ?: $signatory);
     } catch (Throwable $e) {}

@@ -98,6 +98,7 @@ function acc_source_label(?string $type): string {
         'expense'                => 'Dépenses',
         'recycling'              => 'Vides · vente recyclage',
         'invoice_credit_note'    => 'Facturation · avoir',
+        'invoice_payment'        => 'Facturation · encaissement',
         'invoice'                => 'Facturation',
         'payment'                => 'Facturation · encaissement',
         'wallet'                 => 'Facturation · avoir client',

@@ -160,7 +160,7 @@ check('the counter says the same', (int) $db->query("SELECT last_number FROM doc
 
 section('every document takes its number from DocCounter, inside its transaction');
 $wiring = [
-    'api/v1/invoices_controller.php'         => ['invoice' => 1, 'receipt' => 2, 'wallet' => 1],
+    'api/v1/invoices_controller.php'         => ['invoice' => 1, 'receipt' => 2, 'wallet' => 1, 'credit_note' => 1],
     'api/v1/create_proposal.php'             => ['quote' => 1],
     'api/v1/sales_controller.php'            => ['order' => 1, 'delivery' => 1],
     'api/v1/procurement_controller.php'      => ['purchase' => 1],

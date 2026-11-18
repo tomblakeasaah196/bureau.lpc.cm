@@ -238,6 +238,22 @@
                         <td class="py-3.5 px-6 text-right font-black text-red-600">${fmt(d.total_debt)}</td>
                     </tr>`;
             });
+
+            // Factures en retard (8.6)
+            const ob = document.getElementById('dash-overdue-body');
+            if (ob) {
+                const list = (data.overdue_invoices || []).filter(i => Number(i.balance) > 0);
+                ob.innerHTML = list.length ? list.map(i => LPC.html`
+                    <tr class="hover:bg-red-50/30">
+                        <td class="py-3 px-6 font-black text-gray-900 text-xs">${i.reference}</td>
+                        <td class="py-3 px-6 font-bold text-gray-700 text-xs">${i.client_name}</td>
+                        <td class="py-3 px-6 text-xs text-gray-500 font-bold">${LPC.fmt.date(i.due_date)}</td>
+                        <td class="py-3 px-6 text-right text-xs font-black text-red-600">${Number(i.days_late)} j</td>
+                        <td class="py-3 px-6 text-right font-black text-gray-900">${fmt(i.balance)}</td>
+                        <td class="py-3 px-6 text-right"><a href="/facture.php?token=${i.token}" target="_blank" class="text-xs font-black text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg">Relancer</a></td>
+                    </tr>`).join('')
+                    : LPC.html`<tr><td colspan="6" class="py-6 text-center text-gray-400 font-bold text-xs">Aucune facture en retard.</td></tr>`;
+            }
         }
 
         /** ================= BL NON FACTURÉS — query state =================
@@ -459,7 +475,10 @@
         }
 
         /** ================= RENDER: COMBINED INVOICES/PAYMENTS ================= */
+        let invoiceListCache = {};
         function renderInvoices(invoices) {
+            invoiceListCache = {};
+            invoices.forEach(i => { invoiceListCache[String(i.id)] = i; });
             const tbody = document.getElementById('table-body-invoices');
             tbody.innerHTML = '';
             
@@ -484,7 +503,8 @@
                         <td class="py-4 px-6 text-center">${LPC.raw(statusBadge)}</td>
                         <td class="py-4 px-6 text-right whitespace-nowrap">
                             <a href="/facture.php?token=${inv.token}" target="_blank" class="text-blue-500 bg-blue-50 hover:bg-blue-100 hover:text-blue-700 p-2.5 rounded-xl mr-2 transition-colors inline-block" title="Aperçu PDF"><i class="fas fa-file-pdf"></i></a>
-                            ${LPC.raw(inv.status !== 'paid' ? `<button onclick="openPaymentModal(${inv.id}, ${inv.client_id})" class="text-emerald-600 bg-emerald-50 hover:bg-emerald-100 p-2.5 rounded-xl transition-colors shadow-sm" title="Encaisser direct" aria-label="Encaisser direct"><i class="fas fa-plus"></i></button>` : '')}
+                            ${LPC.raw(inv.status !== 'paid' ? `<button onclick="openPaymentModal(${inv.id}, ${inv.client_id})" class="text-emerald-600 bg-emerald-50 hover:bg-emerald-100 p-2.5 rounded-xl transition-colors shadow-sm" title="Encaisser un paiement" aria-label="Encaisser un paiement"><i class="fas fa-plus"></i></button>` : '')}
+                            ${LPC.raw(inv.status !== 'paid' && LPC.can && LPC.can('accounting.invoices.create') ? `<button onclick="openCreditNoteModal(${Number(inv.id)})" class="ml-2 text-purple-700 bg-purple-50 hover:bg-purple-100 px-3 py-2 rounded-xl text-[11px] font-black transition-colors shadow-sm" title="Émettre un avoir sur cette facture">Avoir</button>` : '')}
                         </td>
                     </tr>`;
             });
@@ -501,7 +521,9 @@
 
             payments.forEach(pay => {
                 let mBadge = '';
-                if(pay.payment_method === 'cash') mBadge = '<span class="text-emerald-600 bg-emerald-50 px-2 py-1 rounded text-[10px] font-black"><i class="fas fa-money-bill-wave"></i> Cash</span>';
+                if(pay.payment_method === 'avoir') mBadge = '<span class="text-purple-700 bg-purple-50 px-2 py-1 rounded text-[10px] font-black"><i class="fas fa-file-invoice"></i> Avoir</span>';
+                else if(pay.payment_method === 'wallet') mBadge = '<span class="text-purple-700 bg-purple-50 px-2 py-1 rounded text-[10px] font-black"><i class="fas fa-wallet"></i> Trop-perçu</span>';
+                else if(pay.payment_method === 'cash') mBadge = '<span class="text-emerald-600 bg-emerald-50 px-2 py-1 rounded text-[10px] font-black"><i class="fas fa-money-bill-wave"></i> Cash</span>';
                 else if(pay.payment_method === 'bank') mBadge = '<span class="text-blue-600 bg-blue-50 px-2 py-1 rounded text-[10px] font-black"><i class="fas fa-university"></i> Banque</span>';
                 else mBadge = '<span class="text-orange-600 bg-orange-50 px-2 py-1 rounded text-[10px] font-black"><i class="fas fa-mobile-alt"></i> MoMo</span>';
 
@@ -685,6 +707,7 @@
             });
 
             window.tempInvoiceSubtotal = rawSubtotal;
+            window.tempAirRate = 0;
             calculateInvoicePreview();
             renderPaymentAccountPicker(activeBatchClientId);
             openModal('modal-generate-invoice');
@@ -712,6 +735,8 @@
                 // The due date follows the client's payment terms, from its
                 // signed devis (Net 15 → invoice date + 15 days). No terms:
                 // the usual 30 days (VIDEO_QA_FINDINGS 4.1).
+                window.tempAirRate = Number(json.air_rate) || 0;
+                calculateInvoicePreview();
                 const days = (json.payment_terms_days === null || json.payment_terms_days === undefined)
                     ? 30 : Number(json.payment_terms_days);
                 const base = document.getElementById('gen_date').valueAsDate || new Date();
@@ -767,6 +792,17 @@
             document.getElementById('prev_tva_label').innerText = tvaRate;
             document.getElementById('prev_tva_amount').innerText = LPC.fmt.fcfa(tvaAmount);
             document.getElementById('prev_grandtotal').innerText = LPC.fmt.fcfa(grandTotal);
+
+            // The AIR the client keeps (on the HT, as the server computes it).
+            const airRate = Number(window.tempAirRate) || 0;
+            const airBlock = document.getElementById('prev_air_block');
+            if (airBlock) {
+                const air = Math.round(subtotal * airRate);
+                airBlock.classList.toggle('hidden', !(air > 0));
+                document.getElementById('prev_air_label').innerText = (airRate * 100).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+                document.getElementById('prev_air_amount').innerText = '- ' + LPC.fmt.fcfa(air);
+                document.getElementById('prev_net_transfer').innerText = LPC.fmt.fcfa(grandTotal - air);
+            }
 
             const cashBanner = document.getElementById('prev_cash_banner');
             if(pendingCashInBatch > 0) {
@@ -902,20 +938,20 @@
             const hint    = document.getElementById('pay_air_hint');
             const amtEl   = document.getElementById('pay_amount');
             if (!wrapper || !field) return;
-            if (!inv || !(Number(inv.air_amount) > 0)) {
+            const airOpen = inv && inv.air_open !== undefined ? Number(inv.air_open) : Number(inv && inv.air_amount);
+            if (!inv || !(airOpen > 0)) {
                 resetAirField();
                 return;
             }
             wrapper.classList.remove('hidden');
-            field.value = Math.round(Number(inv.air_amount));
-            // Pre-fill the cash amount too if it hasn't been set — the
-            // accountant almost always receives exactly net_payable, so
-            // default to that and let them override.
-            if (amtEl && (!amtEl.value || Number(amtEl.value) === 0) && Number(inv.net_payable) > 0) {
-                amtEl.value = Math.round(Number(inv.net_payable));
+            field.value = Math.round(airOpen);
+            // Pre-fill the cash amount: what is still owed, less the AIR the
+            // client keeps (after an avoir or a part payment too).
+            if (amtEl && (!amtEl.value || Number(amtEl.value) === 0) && Number(inv.balance) > 0) {
+                amtEl.value = Math.max(0, Math.round(Number(inv.balance) - airOpen));
             }
             if (hint) {
-                hint.innerHTML = `Ce client retient l'AIR à la source. Montant attendu selon facture <strong>${inv.reference}</strong> : <strong>${LPC.fmt.int(inv.air_amount)} F</strong> — ajustez si le versement diffère (paiement partiel, etc.). Pensez à téléverser l'attestation mensuelle dans <em>Déclarations Fiscales → Retenues à la source</em>.`;
+                hint.innerHTML = `Ce client retient l'AIR à la source. Montant attendu selon facture <strong>${inv.reference}</strong> : <strong>${LPC.fmt.int(airOpen)} F</strong> — ajustez si le versement diffère (paiement partiel, etc.). Pensez à téléverser l'attestation mensuelle dans <em>Déclarations Fiscales → Retenues à la source</em>.`;
             }
         }
 
@@ -1183,3 +1219,61 @@
                 LPC.deeplink.arrive(['#table-body-invoices', '#table-body-payments']);
             }
         });
+
+        // ============================================================
+        // AVOIR (credit note) — VIDEO_QA_FINDINGS 8.11
+        // ============================================================
+        function openCreditNoteModal(invoiceId) {
+            const inv = invoiceListCache[String(invoiceId)];
+            if (!inv) return;
+            document.getElementById('cn_invoice_id').value = inv.id;
+            document.getElementById('cn_invoice_ref').innerText = inv.reference;
+            document.getElementById('cn_client').innerText = inv.client_name;
+            document.getElementById('cn_open').innerText = LPC.fmt.fcfa(Math.max(0, Number(inv.balance)));
+            document.getElementById('cn_tva_rate').innerText = Number(inv.tva_rate || 0).toLocaleString('fr-FR');
+            document.getElementById('cn_air_rate').innerText = (Number(inv.air_rate || 0) * 100).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+            document.getElementById('cn_amount_ht').value = '';
+            document.getElementById('cn_reason').value = '';
+            previewCreditNote();
+            openModal('modal-credit-note');
+        }
+
+        function previewCreditNote() {
+            const inv = invoiceListCache[String(document.getElementById('cn_invoice_id').value)];
+            if (!inv) return;
+            const ht = Math.max(0, Math.round(Number(document.getElementById('cn_amount_ht').value) || 0));
+            const vat = Math.round(ht * (Number(inv.tva_rate || 0) / 100));
+            const air = Math.round(ht * Number(inv.air_rate || 0));
+            document.getElementById('cn_vat').innerText = LPC.fmt.fcfa(vat);
+            document.getElementById('cn_total').innerText = LPC.fmt.fcfa(ht + vat);
+            document.getElementById('cn_air').innerText = LPC.fmt.fcfa(air);
+        }
+
+        async function submitCreditNote() {
+            const btn = document.getElementById('btn-submit-credit-note');
+            const payload = {
+                action: 'credit_note',
+                invoice_id: Number(document.getElementById('cn_invoice_id').value),
+                amount_ht: Number(document.getElementById('cn_amount_ht').value),
+                reason: document.getElementById('cn_reason').value.trim(),
+            };
+            btn.disabled = true;
+            try {
+                const res = await fetch('/api/v1/invoices_controller.php', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                });
+                const r = await res.json().catch(() => ({ status: 'error', message: 'Réponse invalide.' }));
+                if (r.status === 'success') {
+                    closeModal('modal-credit-note');
+                    await LPC.modal.alert(`Avoir ${r.reference} émis : ${LPC.fmt.fcfa(r.amount)} de moins à payer. `
+                        + (r.open > 0 ? `Reste dû : ${LPC.fmt.fcfa(r.open)}.` : 'La facture est soldée.'));
+                    if (typeof fetchTabData === 'function') fetchTabData('invoices_payments');
+                } else {
+                    LPC.modal.alert(r.message || "L'avoir n'a pas pu être émis.");
+                }
+            } catch (e) {
+                LPC.modal.alert('Erreur serveur : ' + e.message);
+            } finally {
+                btn.disabled = false;
+            }
+        }

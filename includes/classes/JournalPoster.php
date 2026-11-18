@@ -101,9 +101,10 @@ final class JournalPoster
             $treasury_coa = self::coaFromTreasury($db, $treasury_account_id);
         }
 
-        // 2. Credit COA — 411 if there's an invoice, 419 (client advance) otherwise.
+        // 2. Credit COA — the client's own 411 if there's an invoice (8.1),
+        //    419 (client advance) otherwise.
         $credit_coa = $pay['invoice_id']
-            ? self::coaByOhada($db, '411')
+            ? self::coaForClient($db, (int) $pay['client_id'])
             : self::coaByOhada($db, '419');
         if (!$credit_coa) {
             throw new RuntimeException("JournalPoster: OHADA credit account (411/419) not mapped.");
@@ -155,13 +156,57 @@ final class JournalPoster
             }
         }
 
-        // 3. AIR-withheld debit account (only used if withheld > 0).
+        // 3. AIR (VIDEO_QA_FINDINGS 8.2). The invoice already split what the
+        //    client withholds: Dr 4424 AIR at issuance, 411 for the net only.
+        //    The payment must not book it again (it did: 4424 held the AIR
+        //    twice and the client's 411 ended in credit by the AIR). So the
+        //    part of `withheld` that the invoice already booked moves nothing;
+        //    only an AIR the invoice did not foresee is booked here (Dr 4424 /
+        //    Cr 411), and when the payment settles the invoice with less AIR
+        //    than booked, the AIR never withheld leaves 4424 (Cr 4424): the
+        //    client paid it in cash.
+        $air_covered = 0.0;   // withheld, already in 4424 since the invoice
+        $air_extra   = 0.0;   // withheld beyond what the invoice booked
+        $air_undone  = 0.0;   // booked on the invoice, never withheld
+        if ($pay['invoice_id']) {
+            $ia = $db->prepare("
+                SELECT COALESCE(i.air_amount, 0) AS air,
+                       COALESCE((SELECT SUM(COALESCE(p2.air_withheld_amount, 0))
+                                   FROM payments p2
+                                  WHERE p2.invoice_id = i.id AND p2.status = 'validated' AND p2.id <> ?), 0) AS air_used"
+                . (self::hasColumn($db, 'payments', 'credit_air_amount')
+                    ? ", COALESCE((SELECT SUM(COALESCE(p3.credit_air_amount, 0))
+                                     FROM payments p3
+                                    WHERE p3.invoice_id = i.id AND p3.status = 'validated' AND p3.id <> ?), 0) AS air_credited"
+                    : ", 0 AS air_credited") . "
+                  FROM invoices i WHERE i.id = ?
+            ");
+            $ia->execute(self::hasColumn($db, 'payments', 'credit_air_amount')
+                ? [$payment_id, $payment_id, (int) $pay['invoice_id']]
+                : [$payment_id, (int) $pay['invoice_id']]);
+            $ar = $ia->fetch(PDO::FETCH_ASSOC) ?: ['air' => 0, 'air_used' => 0, 'air_credited' => 0];
+            $air_open    = self::roundFcfa(max(0.0, (float) $ar['air'] - (float) $ar['air_used'] - (float) $ar['air_credited']));
+            $air_covered = self::roundFcfa(min($withheld, $air_open, $settled));
+            $air_extra   = self::roundFcfa($withheld - $air_covered);
+            // Settled in full with less AIR than the invoice booked.
+            $closes = isset($open) && abs($settled - $open) < 0.5 && $advance >= 0;
+            if ($closes && $air_open > $air_covered) {
+                $air_undone = self::roundFcfa(min($air_open - $air_covered, $settled - $air_covered));
+            }
+        } else {
+            $air_extra = $withheld;
+        }
         $air_coa = null;
-        if ($withheld > 0) {
+        if ($air_extra > 0 || $air_undone > 0) {
             $air_coa = self::coaByOhada($db, '4424');
             if (!$air_coa) {
                 throw new RuntimeException("JournalPoster: OHADA 4424 (AIR retenu à la source) not mapped — run migration 020.");
             }
+        }
+        $client_credit = self::roundFcfa($settled - $air_covered - $air_undone);
+        // An AIR-only receipt the invoice already booked moves nothing at all.
+        if ($amount <= 0 && $air_extra <= 0 && $air_undone <= 0 && $advance <= 0 && $client_credit <= 0) {
+            return 0;
         }
 
         // 4. Post the JE draft, add balanced lines, call post_journal_entry.
@@ -170,13 +215,16 @@ final class JournalPoster
             ? ("Encaissement paiement facture #{$pay['invoice_id']}"
                 . ($withheld > 0 ? " (dont AIR retenu à la source " . number_format($withheld, 0, ',', ' ') . " FCFA)" : ''))
             : "Avance client (portefeuille)";
-        $je_id = self::createDraftJe($db, $ref, 'BQ', (string)$pay['payment_date'], $desc, $user_id);
-        if ($amount > 0)   self::addLine($db, $je_id, $treasury_coa, $amount,   0.0);
-        if ($withheld > 0) self::addLine($db, $je_id, $air_coa,      $withheld, 0.0);
-        // $settled + $advance == $amount + $withheld by construction, so the
-        // entry balances whether or not the payment overshot the invoice.
-        if ($settled > 0) self::addLine($db, $je_id, $credit_coa,  0.0, $settled);
-        if ($advance > 0) self::addLine($db, $je_id, $advance_coa, 0.0, $advance);
+        $je_id = self::createDraftJe($db, $ref, 'BQ', (string)$pay['payment_date'], $desc, $user_id,
+                                     'invoice_payment', $payment_id);
+        if ($amount > 0)    self::addLine($db, $je_id, $treasury_coa, $amount,    0.0);
+        if ($air_extra > 0) self::addLine($db, $je_id, $air_coa,      $air_extra, 0.0);
+        // Debits: amount + air_extra = (amount + withheld) − air_covered.
+        // Credits: client_credit + air_undone + advance = settled − air_covered + advance.
+        // settled + advance == amount + withheld by construction: it balances.
+        if ($client_credit > 0) self::addLine($db, $je_id, $credit_coa,  0.0, $client_credit);
+        if ($air_undone > 0)    self::addLine($db, $je_id, $air_coa,     0.0, $air_undone);
+        if ($advance > 0)       self::addLine($db, $je_id, $advance_coa, 0.0, $advance);
         self::post($db, $je_id, $user_id);
 
         // 5. Treasury transaction — maintain balance + audit trail.
@@ -291,7 +339,7 @@ final class JournalPoster
             );
         }
 
-        $client_coa    = self::coaByOhada($db, '411');
+        $client_coa    = self::coaForClient($db, (int) $inv['client_id']);
         $revenue_coa   = self::coaByOhada($db, $revenue_ohada) ?: self::coaByOhada($db, '701');
         $tva_coa       = ($tva > 0)       ? self::coaByOhada($db, '4431') : null;
         $air_coa       = ($air > 0)       ? self::coaByOhada($db, '4424') : null;
@@ -371,20 +419,32 @@ final class JournalPoster
         float $vat_amount,
         string $date,
         string $reference,
-        string $reason = ''
+        string $reason = '',
+        float $air_amount = 0.0,
+        ?int $payment_id = null
     ): int {
         $db      = Database::getInstance()->getConnection();
         $user_id = (int) ($_SESSION['user_id'] ?? 0);
 
         $amount_ht  = self::roundFcfa($amount_ht);
         $vat_amount = self::roundFcfa($vat_amount);
+        $air_amount = self::roundFcfa($air_amount);
         if ($amount_ht <= 0) {
             throw new RuntimeException("JournalPoster: credit note for invoice #{$invoice_id} is non-positive.");
         }
 
+        $ci = $db->prepare("SELECT client_id FROM invoices WHERE id = ?");
+        $ci->execute([$invoice_id]);
+        $client_id = (int) $ci->fetchColumn();
+        if (!$client_id) throw new RuntimeException("JournalPoster: invoice #{$invoice_id} not found.");
+
         $rrr_coa    = self::coaByOhada($db, '7019');
-        $client_coa = self::coaByOhada($db, '411');
+        $client_coa = self::coaForClient($db, $client_id);
         $tva_coa    = ($vat_amount > 0) ? self::coaByOhada($db, '4431') : null;
+        // The AIR the invoice booked on the part now credited will never be
+        // withheld: it leaves 4424 with the reduction (8.11).
+        $air_coa    = ($air_amount > 0) ? self::coaByOhada($db, '4424') : null;
+        if ($air_amount > 0 && !$air_coa) throw new RuntimeException("JournalPoster: 4424 (AIR à récupérer) not mapped — run migration 020.");
 
         if (!$rrr_coa) {
             throw new RuntimeException(
@@ -396,12 +456,16 @@ final class JournalPoster
             throw new RuntimeException("JournalPoster: 4431 (TVA facturée sur ventes) not mapped — apply migration 065.");
         }
 
-        $desc = "Avoir sur facture #{$invoice_id}" . ($reason !== '' ? " ({$reason})" : '');
-        $je_id = self::createDraftJe($db, 'AV-' . $reference, 'VT', $date, $desc, $user_id,
+        $iref = $db->prepare("SELECT reference FROM invoices WHERE id = ?");
+        $iref->execute([$invoice_id]);
+        $inv_ref = (string) ($iref->fetchColumn() ?: "#{$invoice_id}");
+        $desc = "Avoir {$reference} sur facture {$inv_ref}" . ($reason !== '' ? " ({$reason})" : '');
+        $je_id = self::createDraftJe($db, $reference, 'VT', $date, $desc, $user_id,
                                      'invoice_credit_note', $invoice_id);
         self::addLine($db, $je_id, $rrr_coa, $amount_ht, 0.0);
         if ($vat_amount > 0) self::addLine($db, $je_id, $tva_coa, $vat_amount, 0.0);
-        self::addLine($db, $je_id, $client_coa, 0.0, $amount_ht + $vat_amount);
+        if ($air_amount > 0) self::addLine($db, $je_id, $air_coa, 0.0, $air_amount);
+        self::addLine($db, $je_id, $client_coa, 0.0, $amount_ht + $vat_amount - $air_amount);
         self::post($db, $je_id, $user_id);
 
         return $je_id;
@@ -2033,7 +2097,7 @@ final class JournalPoster
         }
 
         $client_419 = self::coaByOhada($db, '419');
-        $client_411 = self::coaByOhada($db, '411');
+        $client_411 = self::coaForClient($db, (int) $pay['client_id']);   // its own 411 (8.1)
         if (!$client_419) throw new RuntimeException("JournalPoster: 419 (avances clients) not mapped — run migration 020.");
         if (!$client_411) throw new RuntimeException("JournalPoster: 411 (Clients) not mapped.");
 
@@ -2159,6 +2223,35 @@ final class JournalPoster
             $r = count($ids) === 1 ? $ids[0] : null;
         }
         return $cache[$prefix] = ($r ? (int) $r : null);
+    }
+
+    /**
+     * The client's own receivable sub-account (clients.account_id, 411030,
+     * 411035…), so each client's ledger is its statement (VIDEO_QA_FINDINGS
+     * 8.1). Every invoice, payment and credit note used to post to « 411
+     * Clients » whatever the client: the Balance des Tiers could not say who
+     * owed what. A client whose account is missing or not under 411 is an error
+     * the screen explains: saving it in Base Clients creates one.
+     */
+    public static function coaForClient(PDO $db, int $client_id): int
+    {
+        $stmt = $db->prepare("
+            SELECT c.name, coa.id AS coa_id, coa.is_active, o.account_number
+              FROM clients c
+              LEFT JOIN chart_of_accounts coa ON coa.id = c.account_id
+              LEFT JOIN ohada_accounts o ON o.id = coa.ohada_account_id
+             WHERE c.id = ?
+        ");
+        $stmt->execute([$client_id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) throw new RuntimeException("Client #{$client_id} introuvable.");
+        if (empty($row['coa_id']) || strpos((string) $row['account_number'], '411') !== 0) {
+            throw new RuntimeException(
+                "Le client « {$row['name']} » n'a pas de compte client (411…) au plan comptable. "
+                . "Ouvrez sa fiche dans Base Clients & Devis et enregistrez-la : son compte est créé."
+            );
+        }
+        return (int) $row['coa_id'];
     }
 
     /**
