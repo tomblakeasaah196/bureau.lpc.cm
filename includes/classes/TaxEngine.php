@@ -300,8 +300,12 @@ final class TaxEngine
      * CNPS is a SEPARATE declaration (different filing, different bank
      * account) — see computeCnps().
      *
-     * Because hr_payslips stores only cfc (=employee), we derive cfc_employer
-     * from gross × cfc_employer_rate (payroll_rates 2026 seeds this).
+     * The employer's CFC (1,5 %) and FNE (1 %) are what each payslip booked
+     * (hr_payslips.cfc_employer / fne_employer, migration 136), so the DIPE equals
+     * the month's credit on 432 to the franc (VIDEO_QA_FINDINGS 10.4). A payslip
+     * calculated before 18/11/2026 stored neither: its share is still derived from
+     * its gross × the rate, rounded per payslip as the payroll rounds it. For those
+     * months the FNE is declared here but was never accrued by the payroll.
      */
     public static function computeDipe(int $year, int $month): array
     {
@@ -314,6 +318,10 @@ final class TaxEngine
             'tdl'            => 0.0, 'rav'         => 0.0,
             'payslip_count'  => 0,
         ];
+        // Rates for employer contributions (CFC-pat 1.5 %, FNE 1 %).
+        $cfc_employer_rate = self::payrollRate($year, 'cfc_employer_rate', 0.015);
+        $fne_rate          = self::payrollRate($year, 'fne_rate', (float) (self::settings()['fne_rate'] ?? 0.01));
+
         if (self::tableExists($db, 'hr_payslips')) {
             $q = $db->prepare("
                 SELECT COALESCE(SUM(gross_salary),0) gross_total,
@@ -324,21 +332,19 @@ final class TaxEngine
                        COALESCE(SUM(crtv),0)         crtv,
                        COALESCE(SUM(tdl),0)          tdl,
                        COALESCE(SUM(rav),0)          rav,
+                       COALESCE(SUM(COALESCE(cfc_employer, ROUND(gross_salary * :cfc_rate))),0) cfc_employer,
+                       COALESCE(SUM(COALESCE(fne_employer, ROUND(gross_salary * :fne_rate))),0) fne_employer,
                        COUNT(*)                      payslip_count
                   FROM hr_payslips
-                 WHERE year=? AND month=? AND status IN ('validated','paid')
+                 WHERE year=:y AND month=:m AND status IN ('validated','paid')
             ");
-            $q->execute([$year, $month]);
+            $q->execute([':y' => $year, ':m' => $month, ':cfc_rate' => $cfc_employer_rate, ':fne_rate' => $fne_rate]);
             $row = $q->fetch(PDO::FETCH_ASSOC);
             if ($row) foreach ($row as $k => $v) { $sums[$k] = (float) $v; }
         }
 
-        // Rates for employer contributions (CFC-pat 1.5 %, FNE 1 %).
-        $cfc_employer_rate = self::payrollRate($year, 'cfc_employer_rate', 0.015);
-        $fne_rate          = self::payrollRate($year, 'fne_rate', (float) (self::settings()['fne_rate'] ?? 0.01));
-
-        $cfc_employer = self::round((float) $sums['gross_total'] * $cfc_employer_rate);
-        $fne_employer = self::round((float) $sums['gross_total'] * $fne_rate);
+        $cfc_employer = self::round((float) ($sums['cfc_employer'] ?? 0));
+        $fne_employer = self::round((float) ($sums['fne_employer'] ?? 0));
 
         $irpp = self::round($sums['irpp']);
         $cac  = self::round($sums['cac']);
@@ -361,12 +367,12 @@ final class TaxEngine
                 ['line_code' => 'CAC',               'label' => "CAC (10 % de l'IRPP)",                       'amount' => $cac,           'is_credit' => 0],
                 ['line_code' => 'CFC_SALARIE',       'label' => 'CFC part salariale (1 %)',                   'amount' => $cfc_e,         'is_credit' => 0],
                 ['line_code' => 'CFC_PATRONAL',      'label' => 'CFC part patronale (1,5 %)',                 'amount' => $cfc_employer,  'is_credit' => 0,
-                    'source_ref' => 'masse_salariale × ' . ($cfc_employer_rate * 100) . '%'],
+                    'source_ref' => 'bulletins (masse_salariale × ' . ($cfc_employer_rate * 100) . '%)'],
                 ['line_code' => 'CRTV',              'label' => 'Redevance audiovisuelle (barème)',           'amount' => $crtv,          'is_credit' => 0],
                 ['line_code' => 'RAV',               'label' => 'Redevance audio-visuelle (autre)',           'amount' => $rav,           'is_credit' => 0],
                 ['line_code' => 'TDL',               'label' => 'Taxe de Développement Local',                'amount' => $tdl,           'is_credit' => 0],
                 ['line_code' => 'FNE_PATRONAL',      'label' => "FNE — Fonds National de l'Emploi (1 %)",     'amount' => $fne_employer,  'is_credit' => 0,
-                    'source_ref' => 'masse_salariale × ' . ($fne_rate * 100) . '%'],
+                    'source_ref' => 'bulletins (masse_salariale × ' . ($fne_rate * 100) . '%)'],
             ],
             'total_due' => $total,
             'credit'    => 0.0,

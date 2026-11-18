@@ -106,7 +106,7 @@
                     // this step off-books; the Décaisser button posts the
                     // Dr 421 / Cr treasury JE and decrements the till.
                     statusBadge = `<span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-[9px] font-black uppercase">Approuvé (À Décaisser)</span>`;
-                    actions = `<button onclick="openDisburseAdvanceModal(${a.id}, ${Number(a.amount)}, ${JSON.stringify(a.employee_name)})" class="text-emerald-700 hover:text-emerald-900 bg-emerald-50 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase border border-emerald-300"><i class="fas fa-money-bill-wave mr-1"></i>Décaisser</button>`;
+                    actions = LPC.html`<button type="button" data-id="${a.id}" data-amount="${Number(a.amount)}" data-name="${a.employee_name || ''}" onclick="openDisburseAdvanceModal(+this.dataset.id, +this.dataset.amount, this.dataset.name)" class="text-emerald-700 hover:text-emerald-900 bg-emerald-50 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase border border-emerald-300"><i class="fas fa-money-bill-wave mr-1"></i>Décaisser</button>`;
                 } else if(a.status === 'disbursed') {
                     statusBadge = `<span class="bg-emerald-100 text-emerald-800 px-2 py-1 rounded text-[9px] font-black uppercase">Décaissé (À Déduire)</span>`;
                 } else if(a.status === 'deducted') {
@@ -193,13 +193,22 @@
         }
 
         async function approveAdvance(id) {
-            if(!(await LPC.modal.confirm("Approuver cet acompte ?"))) return;
-            try { await jsonPost({ action: 'approve_advance', advance_id: id }); fetchTabData('advances'); } catch(e) {}
+            if(!(await LPC.modal.confirm("Approuver cet acompte ? Il sera ensuite à décaisser."))) return;
+            try {
+                const r = await jsonPost({ action: 'approve_advance', advance_id: id });
+                if (r.status !== 'success') LPC.modal.alert(r.message || 'Approbation impossible.');
+                fetchTabData('advances');
+            } catch(e) { LPC.modal.alert("Erreur réseau."); }
         }
 
         async function rejectAdvance(id) {
-            const reason = prompt("Raison du refus (optionnel) :") || '';
-            try { await jsonPost({ action: 'reject_advance', advance_id: id, reason }); fetchTabData('advances'); } catch(e) {}
+            const reason = await LPC.modal.prompt("Motif du refus :", { title: "Refuser l'acompte", placeholder: "ex: plafond du mois atteint" });
+            if (reason === null) return;
+            try {
+                const r = await jsonPost({ action: 'reject_advance', advance_id: id, reason: reason || '' });
+                if (r.status !== 'success') LPC.modal.alert(r.message || 'Refus impossible.');
+                fetchTabData('advances');
+            } catch(e) { LPC.modal.alert("Erreur réseau."); }
         }
 
         // ================= TAB 2: CONTRACTS ================= //
@@ -312,6 +321,10 @@
                     globalData.payroll_grid = result.data.grid;
                     renderPayrollGrid();
                     
+                    // « Annuler la Paie » while the month has calculated payslips not yet paid.
+                    const cancelBtn = document.getElementById('btn_cancel_payroll');
+                    if (cancelBtn) cancelBtn.classList.toggle('hidden', !globalData.payroll_grid.some(g => g.payslip_status === 'validated'));
+
                     // Enable generate button if there are employees to process
                     const btn = document.getElementById('btn_generate_payroll');
                     if (globalData.payroll_grid.some(g => !g.is_paid)) {
@@ -320,7 +333,9 @@
                     } else {
                         btn.disabled = true;
                         btn.className = "bg-gray-300 text-gray-500 px-8 py-3 rounded-xl font-black text-sm transition-all shadow-md cursor-not-allowed flex items-center gap-2";
-                        if(globalData.payroll_grid.length > 0) LPC.modal.alert("La paie pour ce mois a déjà été générée et validée.");
+                        if(globalData.payroll_grid.length > 0) LPC.modal.alert(globalData.payroll_grid.some(g => g.payslip_status === 'validated')
+                            ? "La paie de ce mois est calculée. Elle reste à payer : « Marquer Payées » quand les salaires sont versés."
+                            : "La paie de ce mois est calculée et payée.");
                     }
                 } else {
                     tbody.innerHTML = LPC.html`<tr><td colspan="16" class="py-12 text-center text-rose-500 font-bold">${result.message}</td></tr>`;
@@ -380,6 +395,11 @@
                                 <option value="bank"   ${e.default_payment === 'bank'   ? 'selected' : ''}>BANQUE</option>
                                 <option value="caisse" ${e.default_payment === 'caisse' ? 'selected' : ''}>CAISSE</option>
                             </select>
+                            ${LPC.raw(e.payslip_status === 'paid'
+                                ? '<span class="block mt-1 text-[9px] font-black uppercase tracking-widest text-emerald-700">Payé</span>'
+                                : e.payslip_status === 'validated'
+                                    ? '<span class="block mt-1 text-[9px] font-black uppercase tracking-widest text-blue-700">À payer</span>'
+                                    : '')}
                         </td>
                         <td class="py-2 px-3 text-center">${pdfLink}</td>
                     </tr>`;
@@ -445,7 +465,7 @@
         }
 
         async function submitPayroll() {
-            if(!(await LPC.modal.confirm("⚠️ La génération est irréversible. Les brouillards comptables (OD) seront postés. Confirmer ?"))) return;
+            if(!(await LPC.modal.confirm("Calculer la paie du mois ? Les bulletins seront validés et leurs écritures passées en comptabilité. Tant qu'ils ne sont pas payés, « Annuler la Paie » permet de les reprendre."))) return;
 
             const period = document.getElementById('payroll_period').value;
             const rows = document.querySelectorAll('#tbody-payroll tr[data-uid]');
@@ -471,7 +491,7 @@
 
             try {
                 const result = await jsonPost({ action: 'generate_month', period, employees });
-                LPC.modal.alert(result.message || (result.status === 'success' ? 'OK' : 'Erreur'));
+                LPC.modal.alert(result.message || (result.status === 'success' ? 'Paie calculée.' : 'Erreur'));
                 // Always restore the button label — loadPayrollGrid() only resets
                 // className + disabled, not innerHTML. Without this, the button
                 // keeps its "Traitement..." spinner even after a successful post.
@@ -486,6 +506,24 @@
             }
         }
 
+        // « Annuler la Paie »: reverses the month's calculated, unpaid payslips so it can be
+        // calculated again. A reason is required; it goes into the reversing entries.
+        async function cancelPayroll() {
+            const period = document.getElementById('payroll_period').value;
+            if (!period) return LPC.modal.alert("Veuillez choisir une période.");
+            const [yy, mm] = period.split('-');
+            const reason = await LPC.modal.prompt(`Annuler la paie de ${mm}/${yy} ? Les bulletins non payés sont annulés et leurs écritures extournées. Motif :`, {
+                title: 'Annuler la paie', placeholder: 'ex: salaire corrigé dans Données de Base', required: true,
+            });
+            if (reason === null || !String(reason).trim()) return;
+            try {
+                const r = await jsonPost({ action: 'cancel_month', period, reason: String(reason).trim() });
+                LPC.modal.alert(r.message || (r.status === 'success' ? 'Paie annulée.' : 'Annulation impossible.'));
+                if (r.status === 'success') loadPayrollGrid();
+            } catch (e) { LPC.modal.alert("Erreur réseau."); }
+        }
+        window.cancelPayroll = cancelPayroll;
+
         // ================= EMPLOYEE DETAIL MODAL ================= //
         // Fetches employee_full_detail for {user_id, current period} and paints
         // every section of #modal-payroll-detail. Uses the stored slip if the
@@ -494,7 +532,7 @@
         const REGIME_LABEL  = { standard: 'Standard', expatriate: 'Expatrié', exempt: 'Exonéré' };
         const STATUS_LABEL  = {
             paid:      { label: 'Payé',      cls: 'bg-emerald-100 text-emerald-800' },
-            validated: { label: 'Validé',    cls: 'bg-blue-100 text-blue-800'       },
+            validated: { label: 'À payer',   cls: 'bg-blue-100 text-blue-800'       },
             draft:     { label: 'Brouillon', cls: 'bg-amber-100 text-amber-800'     },
             preview:   { label: 'Aperçu',    cls: 'bg-gray-200 text-gray-700'       },
         };
@@ -549,7 +587,9 @@
             document.getElementById('pdet_name').textContent   = id.employee_name;
             document.getElementById('pdet_role').textContent   = id.role_name || '';
             document.getElementById('pdet_period').textContent = d.period;
-            document.getElementById('pdet_source').textContent = cur.source === 'payslip' ? 'bulletin validé' : 'aperçu (paie non générée)';
+            document.getElementById('pdet_source').textContent = cur.source === 'payslip'
+                ? (cur.status === 'paid' ? 'bulletin payé' : 'bulletin calculé, à payer')
+                : 'aperçu (paie non calculée)';
             const st = STATUS_LABEL[cur.status] || STATUS_LABEL.preview;
             const sb = document.getElementById('pdet_status_badge');
             sb.className = 'text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded ' + st.cls;
@@ -572,8 +612,6 @@
                 ['N° CNPS',          id.cnps_number || '—'],
                 ['Date embauche',    id.hire_date || '—'],
                 ['Ancienneté',       (id.seniority_years || 0) + ' an(s)'],
-                ['Situation',        MARITAL_LABEL[id.marital_status] || '—'],
-                ['Personnes à charge', String(id.dependents_count || 0)],
                 ['Régime fiscal',    REGIME_LABEL[id.tax_regime] || '—'],
                 ['Contrat actif',    id.is_active ? 'Oui' : 'Non'],
             ];
@@ -708,9 +746,11 @@
             // Employer charges
             const cnpsEmpRate = Number(rates.cnps_employer_rate || 0.162);
             const cfcEmpRate  = Number(rates.cfc_employer_rate  || 0.015);
+            const fneRate     = Number(rates.fne_rate || 0.01);
             const cnpsEmp = Number(comp.cnps_employer || 0);
             const cfcEmp  = Number(comp.cfc_employer  || 0);
-            const totalEmp = cnpsEmp + cfcEmp;
+            const fneEmp  = Number(comp.fne_employer  || 0);
+            const totalEmp = cnpsEmp + cfcEmp + fneEmp;
             document.querySelector('#pdet_employer_table tbody').innerHTML =
                 LPC.html`
                 <tr>
@@ -723,6 +763,11 @@
                     <td class="py-1.5 text-gray-500 text-[11px]">${fmt(gross)} × ${(cfcEmpRate*100).toFixed(1)}%</td>
                     <td class="py-1.5 text-right font-black text-purple-700">${fmt(cfcEmp)}</td>
                 </tr>
+                <tr>
+                    <td class="py-1.5 text-gray-800 font-bold">FNE (Fonds National de l'Emploi)</td>
+                    <td class="py-1.5 text-gray-500 text-[11px]">${fmt(gross)} × ${(fneRate*100).toFixed(1)}%</td>
+                    <td class="py-1.5 text-right font-black text-purple-700">${fmt(fneEmp)}</td>
+                </tr>
                 <tr class="border-t-2 border-purple-200">
                     <td colspan="2" class="pt-2 font-black uppercase tracking-widest text-[10px] text-purple-700">= Total charges patronales</td>
                     <td class="pt-2 text-right font-black text-purple-800">${fmt(totalEmp)}</td>
@@ -734,13 +779,14 @@
 
             // Journal entry (mirrors payroll_controller.php generate_month posting logic)
             const totalCnps    = cnpsEmp + Number(comp.cnps_employee || 0);
-            const totalTaxes   = Number(comp.irpp||0) + Number(comp.cac||0) + Number(comp.cfc_employee||0) + cfcEmp + Number(comp.crtv||0) + Number(comp.tdl||0);
+            const totalTaxes   = Number(comp.irpp||0) + Number(comp.cac||0) + Number(comp.cfc_employee||0) + cfcEmp + fneEmp + Number(comp.crtv||0) + Number(comp.tdl||0);
             const totalAdvance = Number(comp.advances_deducted||0) + Number(comp.driver_debt_deducted||0) + Number(comp.other_deductions||0);
             const jeLines = [
                 { acc: '661', lib: 'Rémunérations du personnel (brut ajusté)', debit: gross, credit: 0 },
-                totalEmp > 0 ? { acc: '664', lib: 'Charges patronales (CNPS + CFC)', debit: totalEmp, credit: 0 } : null,
+                cnpsEmp > 0 ? { acc: '664', lib: 'Charges patronales CNPS', debit: cnpsEmp, credit: 0 } : null,
+                (cfcEmp + fneEmp) > 0 ? { acc: '6412', lib: 'Charges fiscales sur salaires (CFC patronale, FNE)', debit: cfcEmp + fneEmp, credit: 0 } : null,
                 totalCnps > 0 ? { acc: '433', lib: 'CNPS à payer (salarié + patronal)', debit: 0, credit: totalCnps } : null,
-                totalTaxes > 0 ? { acc: '432', lib: 'Impôts et taxes (IRPP+CAC+CFC+CRTV+TDL)', debit: 0, credit: totalTaxes } : null,
+                totalTaxes > 0 ? { acc: '432', lib: 'DIPE (IRPP, CAC, CFC, CRTV, TDL, FNE)', debit: 0, credit: totalTaxes } : null,
                 totalAdvance > 0 ? { acc: '421', lib: 'Avances / dettes retenues', debit: 0, credit: totalAdvance } : null,
                 Number(comp.net||0) > 0 ? { acc: '422', lib: 'Net à payer', debit: 0, credit: Number(comp.net) } : null,
             ].filter(Boolean);

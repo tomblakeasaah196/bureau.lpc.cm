@@ -182,7 +182,7 @@ final class DataWipeMap
         'deliveries'       => ['delivery'],
         'purchase_orders'  => ['purchase_order', 'rebate_accrual', 'rebate_usage', 'purchase_order_payment'],
         'hr_advances'      => ['advance_disbursement'],
-        'hr_payslips'      => ['payroll_settlement'],
+        'hr_payslips'      => ['payslip', 'payroll_settlement'],
         'recycling_sales'  => ['recycling_sale'],
         'payments'         => ['wallet_apply'],
         'tax_declarations' => ['tax_declaration'],

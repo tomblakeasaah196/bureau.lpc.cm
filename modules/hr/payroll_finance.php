@@ -185,6 +185,14 @@ $user_role = $_SESSION['user_role'];
                                 Enabled only when at least one payslip in the
                                 current period is accrued-but-not-disbursed.
                             */ ?>
+                            <?php /* 18/11/2026 · undo the month's calculated, unpaid payslips (VIDEO_QA_FINDINGS 10.1).
+                                     Shown by loadPayrollGrid() when the month has some. */ ?>
+                            <?php if (Rbac::hasPermission('hr.payroll.generate')): ?>
+                            <button type="button" id="btn_cancel_payroll" onclick="cancelPayroll()"
+                                    class="hidden bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 px-5 py-3 rounded-xl font-black text-sm transition-all shadow-sm flex items-center gap-2">
+                                <i class="fas fa-undo"></i> Annuler la Paie
+                            </button>
+                            <?php endif; ?>
                             <button type="button" id="btn_mark_paid" onclick="openMarkPaidModal()"
                                     class="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-black text-sm transition-all shadow-md flex items-center gap-2">
                                 <i class="fas fa-money-bill-wave"></i> Marquer Payées

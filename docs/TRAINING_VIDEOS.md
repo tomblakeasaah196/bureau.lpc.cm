@@ -328,6 +328,9 @@ top of this file.
     Once per worktree: `rm -rf assets/vendor && git -c core.autocrlf=input -c core.eol=lf checkout -- assets/vendor`.
 24. **Never send requests with Playwright's `context.request`** in a probe: it resolves `bureau.lpc.cm` itself and
     reaches the live site, not the copy (only Chrome maps the host). Send them from the page (`page.evaluate(fetch)`).
+25. **Link `vendor/` in a new worktree** too (a junction to the main checkout's, like `node_modules`): the
+    PHP document tests (`payslip_onepager.test.php`…) need it, and `pdftotext` is missing on this PC, so their
+    PDF-text checks fail locally and pass in CI.
 
 ## 7 · Bugs found while filming
 
@@ -394,6 +397,15 @@ Each is fixed on the video's branch, in the screen's own code, and listed here.
 | 18/11/2026 | Stock Actuel, KPIs and badges (new) | « En Rupture » read 0 with five products at 0 (a product with no movement had no quantity); those rows wore « Alerte »; the Réceptions tab counted the waiting orders only once opened | Fixed: an unmoved product counts as 0; the row badge says « Rupture » or « Alerte » like the cards; the tab counts waiting orders on load (its « 0 » chip was the badge bug Flotte fixed in `lpc-shell.css`) |
 | 18/11/2026 | Help, Stock and Fiche articles | Twelve articles said an avarie posts nothing, the Fiche values the past at today's CUMP, the certificate opens in a new tab | Fixed: migration 135 rewrites them (FR and EN) and their assistant chunks |
 | 18/11/2026 | OPUR 10L prices (owner's answer 7) | Coût de référence 100 F, default price 1 000 F | Set by migration 134: 850 F and 1 100 F |
+| 18/11/2026 | Gestion du Personnel, « Payé » (VIDEO_QA_FINDINGS 10.1) | Calculating the month set every payslip to `paid` before any money left: the payslip PDF printed « Statut Payé » and « Marquer Payées » looked for `paid` payslips | Fixed: a calculated payslip is `validated` (« À payer »), only « Marquer Payées » makes it `paid` (« Payé le 30/11/2026 » on the payslip); migration 136 turns the 8 unpaid `paid` rows into `validated` |
+| 18/11/2026 | Gestion du Personnel, no undo (10.1) | A month's payroll could not be undone: the PAIE entries carried no source link, a second run hit the unique key and answered « Erreur serveur » | Fixed: « Annuler la Paie » (with a reason) reverses each unpaid payslip's entry by an opposite entry (`reverseSource('payslip', id)`), puts the advances back, kills the payslip link (new token, expired); a paid payslip is refused. Entries are linked (`postPayslipAccrual`, source `payslip`); migration 136 links the old ones. A second run is refused in words |
+| 18/11/2026 | Gestion du Personnel, advances (10.2) | A refused (or any) advance could be approved again; an advance approved but not paid out was already deducted from the salary; the page sent the amount to deduct | Fixed: approve and refuse need a pending request; only paid out (`disbursed`) advances are deducted, counted by the server, including one requested in an earlier month whose payroll was done |
+| 18/11/2026 | Gestion du Personnel, « Décaisser » | The button threw a SyntaxError (the employee's name, JSON-quoted, closed the `onclick` attribute): no advance could be paid out from the screen | Fixed: data attributes; refusals now show their message; « Refuser » asks its reason in the app's window, not the browser's |
+| 18/11/2026 | Gestion du Personnel, the Comptable (10.3) | The Comptable could not approve advances (owner's answer 5) | Fixed: migration 136 grants `hr.payroll.approve_advance` to `accountant` |
+| 18/11/2026 | Payroll and DIPE, FNE (10.4) | The DIPE declared the FNE (1 % of gross, employer) but the payroll never booked it: 432 short of the DIPE every month | Fixed: Cameroon's FNE is an employer tax on gross salaries declared on the DIPE, so the payroll books it with the CFC part patronale on 6412 (credit 432); each payslip stores both and the DIPE sums them: 432 = DIPE to the franc (copy, Nov. 2026: 76 727). October and November were booked before (register, owner #14) |
+| 18/11/2026 | Gestion du Personnel, family fields | The payslip and the detail window printed marital status and dependents, which Cameroon's IRPP (no family quotient) never uses | Fixed: not printed or sent; they stay on the employee's record (Données de Base) |
+| 18/11/2026 | Gestion du Personnel, salaries (10.5) | Salaries are kept in Données de Base, not here | Not a bug: the video says so; « Voir la fiche » opens the record |
+| 18/11/2026 | Help, Gestion du Personnel articles | They said the run was irreversible, that payroll never pays, deducted approved advances, and taught SQL and server logs | Fixed: migration 136 rewrites ten articles and unpublishes the two technical ones |
 
 ## 8 · Where the work stands
 

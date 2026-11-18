@@ -73,6 +73,8 @@ jobs:
         run: php scripts/tests/fleet_flow.test.php
       - name: Stock & Emballages (avarie, inventory, refusals in 31x; the Fiche de Stock)
         run: php scripts/tests/stock_flow.test.php
+      - name: Gestion du Personnel (advances, the month's payroll, undo, paying, FNE and the DIPE)
+        run: php scripts/tests/payroll_flow.test.php
 
   mail:
     # Courrier (docs/MAIL.md §9): every scripts/tests/mail/*.test.php, each blocking. PR 1's three: the engine
