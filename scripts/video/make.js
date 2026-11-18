@@ -40,6 +40,7 @@ const SAID = [
   [/\bBL\b/g, "B L"],
   [/\bBLs\b/g, "B L"],
   [/\bCRE\b/g, "C R E"],
+  [/\bPROMETAL\b/g, "Prométal"],
   [/\bFCFA\b/g, "francs CFA"],
   [/\bTVA\b/g, "T V A"],
   [/\bRH\b/g, "R H"],

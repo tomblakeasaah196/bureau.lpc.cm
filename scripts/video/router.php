@@ -71,7 +71,10 @@ foreach ($rewrites as $re => $to) {
     }
 }
 
-$run = function (string $file, string $script, array $query = []) use ($root) {
+// The page is required at the top level of this file, as Apache runs it, not inside a function:
+// a page or a component that reads $GLOBALS (signature_share_button.php reads $GLOBALS['share_type'])
+// found nothing, and « Faire signer le client » never showed on the copy.
+$run = function (string $file, string $script, array $query = []) use ($root): string {
     // Courrier and its Praxis AI never reach a real server from the copy (scripts/video/mail-fake.php).
     require_once __DIR__ . '/mail-fake.php';
     video_mail_install();
@@ -82,29 +85,28 @@ $run = function (string $file, string $script, array $query = []) use ($root) {
     $_SERVER['SCRIPT_FILENAME'] = $file;
     $_SERVER['SCRIPT_NAME'] = $_SERVER['PHP_SELF'] = $script;
     chdir(dirname($file));
-    require $file;
+    return $file;
 };
 
+$lpcVideoPage = null;
 if ($target !== null) {
     [$script, $qs] = array_pad(explode('?', $target, 2), 2, '');
     parse_str($qs, $query);
-    $run($root . $script, $script, $query);
-    return true;
-}
-
-$file = $root . '/' . $path;
-if ($path !== '' && is_file($file)) {
-    if (str_ends_with($file, '.php')) {
-        $run($file, '/' . $path);
-        return true;
+    $lpcVideoPage = $run($root . $script, $script, $query);
+} else {
+    $file = $root . '/' . $path;
+    if ($path !== '' && is_file($file)) {
+        if (!str_ends_with($file, '.php')) {
+            return false; // a static file: the built-in server sends it with its type
+        }
+        $lpcVideoPage = $run($file, '/' . $path);
+    } elseif ($path !== '' && is_dir($file) && is_file($file . '/index.php')) {
+        $lpcVideoPage = $run($file . '/index.php', '/' . trim($path, '/') . '/index.php');
+    } else {
+        // Anything else goes to the sign-in page, as Apache's last rule sends it (index.php?route=…).
+        $lpcVideoPage = $run($root . '/index.php', '/index.php', $path === '' ? [] : ['route' => $path]);
     }
-    return false; // a static file: the built-in server sends it with its type
 }
-if ($path !== '' && is_dir($file) && is_file($file . '/index.php')) {
-    $run($file . '/index.php', '/' . trim($path, '/') . '/index.php');
-    return true;
-}
-
-// Anything else goes to the sign-in page, as Apache's last rule sends it (index.php?route=…).
-$run($root . '/index.php', '/index.php', $path === '' ? [] : ['route' => $path]);
+unset($file, $script, $qs, $query);
+require $lpcVideoPage;
 return true;

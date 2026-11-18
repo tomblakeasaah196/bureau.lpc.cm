@@ -17,6 +17,7 @@ its choreography together.
 | Modules, partie 1 : Données de Base (products, client and supplier tariffs, suppliers and their 401, employees; what view-only roles see) | `donnees-de-base.js` | Made 18/11/2026, 6:33, 9 chapters, -16.0 LUFS, 15.8 MB; sent in the chat; files in `bureau_video/publish/donnees-de-base/`; to publish (§5) |
 | Modules, partie 2 : Gestion des Achats (order at the tariff, price check, remise or ristourne, two receptions, ristourne earned, payment, order detail, cancellation, the Grand Livre) | `gestion-des-achats.js` | Made 18/11/2026, 5:40, 11 chapters, -16.1 LUFS, 14.5 MB (refilmed the same day with the owner's ristourne rule; the first cut was replaced); sent in the chat; files in `bureau_video/publish/gestion-des-achats/`; to publish (§5) |
 | Modules, partie 3 : Stock & Emballages et Fiche de Stock (the KPIs and the table, an avarie, the Historique, a sealed inventory and its certificate, the Fiche in bottles and francs, 311 and 6031 in the Grand Livre) | `stock-et-emballages.js` | Made 18/11/2026 (track A), 6:04, 8 chapters, -16.1 LUFS, 16.3 MB; sent in the chat; files in `bureau_video/publish/stock-et-emballages/`; to publish (§5) |
+| Modules, partie 4 : Proposition commerciale (the client base, PROMETAL created with its real public details, its devis at Net 15 and 80 % minimum return, the proposal as the client reads it, the signing link, PROMETAL signing, what the signature carries: tariff, terms, empties minimum, Actif, the stock alert; the Studio Proposition) | `proposition-commerciale.js` | Made 18/11/2026 (track A), 6:33, 9 chapters, -16.0 LUFS, 15.8 MB; sent in the chat; files in `bureau_video/publish/proposition-commerciale/`; to publish (§5) |
 | Modules, partie 6 : Flotte (the truck, its daily assignment, fuel, a breakdown, the repair, the visite technique and a vidange, Finance validating the fuel expense) | `flotte.js` | Made 18/11/2026 (track B), 4:39, 10 chapters, -16.1 LUFS, 12.3 MB; sent in the chat; files in `bureau_video/publish/flotte/`; to publish (§5) |
 | Modules, partie 9 : Trésorerie & Dépenses (the accounts and the Grand Livre's 552, a transfer to the cash box, a fuel advance, Operations' request and fill-up, Finance validating and paying, the Carburant comparison and « Rattacher », a reconciliation, a recurring expense) | `tresorerie-depenses.js` | Made 18/11/2026 (track B), 6:05, 10 chapters, -16.1 LUFS, 18.9 MB; sent in the chat; files in `bureau_video/publish/tresorerie-depenses/`; to publish (§5) |
 | Modules, partie 10 : Salaires (an advance requested, approved and paid out; November undone, calculated again and paid; the detail, the payslip, the entries). Real pay: library audience = the payroll roles | `salaires.js` | Made 18/11/2026 (track C), 6:55, 12 chapters, -16.1 LUFS, 19.2 MB; sent in the chat; files in `bureau_video/publish/salaires/`; to publish (§5), with no `audience` (see §8) |
@@ -339,6 +340,12 @@ top of this file.
 25. **Link `vendor/` in a new worktree** too (a junction to the main checkout's, like `node_modules`): the
     PHP document tests (`payslip_onepager.test.php`…) need it, and `pdftotext` is missing on this PC, so their
     PDF-text checks fail locally and pass in CI.
+26. **`prepare` is its own step**: `make.js <scene> film` does not run it. Run `make.js <scene> prepare` before a full
+    film, or the take starts from whatever the copy holds (a first take of Proposition commerciale filmed over the
+    hand-QA state, with PROMETAL already there).
+27. **`ground.sql()` returns rows** (arrays of strings), not text: `ground.sql(q)[0][0]` for one value.
+28. **A page that reads `$GLOBALS`** found nothing on the copy before 18/11/2026: `router.php` required the page inside
+    a function. It now requires it at the top level, as Apache does (« Faire signer le client » never showed on the copy).
 
 ## 7 · Bugs found while filming
 
@@ -436,6 +443,8 @@ Each is fixed on the video's branch, in the screen's own code, and listed here.
 | 18/11/2026 | Répertoire Clients (4.7, 4.8) | « 0 FCFA » and « 0 Vides » on every row whatever the client owed; a static demo row until the list loaded; « Devis », « Nouveau Client », « Convertir » shown to roles then refused; an invalid AIR rate answered « Erreur serveur » | Fixed: each row reads its unpaid invoices and empties owed, and under the name the terms from its signed devis; buttons per permission (the Comptable sees none); the AIR rate refusal says the legal rates; CSRF checked on the client and devis writes |
 | 18/11/2026 | Product picker, everywhere (4.9) | « + consigne 200 » beside OPUR 20L: LPC sells the bottle with no deposit, and 200 F is what a recycler pays for the empty | Fixed: no « + consigne »; the policy list has no « Consigne Payée »; empties are tagged « emballage » |
 | 18/11/2026 | Help, Base Clients & Devis articles | Six articles said conversion was the only way to an active client, offered « Consigne Payée », and said nothing of what a signature does | Fixed: migration 138 rewrites them (FR and EN) and their assistant chunks |
+| 18/11/2026 | Proposition (quote.php), the toolbar | At 1536 px (a laptop at 125 %) the buttons ran past the right edge of the page | Fixed: the toolbar wraps onto a second row |
+| 18/11/2026 | The copy, `scripts/video/router.php` | Pages ran inside a function, so a component reading `$GLOBALS` saw nothing: « Faire signer le client » and « Signer côté LPC » never rendered on the copy (live, under Apache, was fine) | Fixed in the tooling: the page is required at the router's top level (§6.28) |
 
 ## 8 · Where the work stands
 
@@ -527,5 +536,18 @@ the help search, the help AI's answers and each page's « ? »), and sent in the
       example; MTN's COA link left as is (it posts to 552 by type); 9.7 and the 471 origin are owner questions 19 and 20.
       The copy is left as snapshot `after-09-tresorerie` (MTN 519 320 F, cash box 17 660 F, November fuel concordant at
       74 520 F, the visite technique and vidange requests still « à valider »).
+- [x] Modules, partie 4 · Proposition commerciale (18/11/2026, track A on copy A): QA (crawler as the four roles on
+      Base Clients & Devis and the Studio; then by hand, scripted: PROMETAL created, its devis written and signed
+      through the public link, then an order and the invoice form checked), PR #66 (§4 of VIDEO_QA_FINDINGS, all nine
+      rows, and 3.6: a client's signature carries the signed prices into its tariff, Net 15 and the 80 % minimum onto
+      the client, makes it Actif, links its orders, dates its invoices, shows the minimum in Gestion des Vides and
+      raises « Seuil Min. »; « À revoir »; « Convertir » keeps the 411; migrations 137 and 138,
+      `proposal_flow.test.php`), merged and deployed; live serves the new scripts and the client and devis APIs refuse
+      anonymous calls (migration 137 on live data not checked: needs a sign-in). The video follows the Commercial
+      (Timothée Massomba on screen, the DG, named once); PROMETAL's address and phone are its public ones, its email an
+      example; the signature is made on PROMETAL's behalf and the video says so. Decisions (register owner table 15 to
+      18): every signed price becomes the tariff; the buffer only raises « Seuil Min. »; new clients start as Prospect.
+      6:33: every step is in. The copy is left as snapshot `after-04-proposition` (PROMETAL, client 4, account 411035,
+      Actif, Net 15, 80 %; DEV-2611-00005 signed; OPUR 20L « Seuil Min. » 770, so in Alerte with 255 in stock).
 - [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
       Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.
