@@ -1223,7 +1223,7 @@ try {
             // as settled is how an order looks paid when it is not.
             $stmtInv = $db->prepare("
                 SELECT DISTINCT i.id, i.reference, i.date, i.due_date, i.total_amount, i.status,
-                       COALESCE((SELECT SUM(pay.amount) FROM payments pay
+                       COALESCE((SELECT SUM(pay.amount + COALESCE(pay.air_withheld_amount, 0)) FROM payments pay
                                   WHERE pay.invoice_id = i.id AND pay.status = 'validated'), 0) AS paid_amount
                   FROM invoices i
                   JOIN invoice_deliveries idl ON idl.invoice_id = i.id

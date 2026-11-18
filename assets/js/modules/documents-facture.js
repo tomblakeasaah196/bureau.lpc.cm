@@ -24,7 +24,7 @@
                 tot_sub: "Subtotal", tot_excise: "Excise duty", tot_grand: "TOTAL DUE",
                 tot_precompte: "Withholding on purchases", tot_air: "AIR — Income tax instalment",
                 tot_net_transfer: "Net transferable to supplier",
-                tot_paid: "Amount Paid", tot_balance: "Balance Due",
+                tot_lines: "Lines total", tot_discount: "Order discount", tot_paid: "Amount Paid", tot_credited: "Credit notes", tot_balance: "Balance Due",
                 legal_text: "This invoice is closed at the sum of:"
             },
             fr: {
@@ -37,7 +37,7 @@
                 tot_sub: "Total Hors Taxe (HT)", tot_excise: "Droit d'accises", tot_grand: "NET À PAYER (TTC)",
                 tot_precompte: "Précompte sur achats", tot_air: "AIR — Acompte d'Impôt sur le Revenu",
                 tot_net_transfer: "Net à virer au fournisseur",
-                tot_paid: "Déjà Réglé", tot_balance: "Reste à Payer",
+                tot_lines: "Total des lignes", tot_discount: "Remise sur commande", tot_paid: "Déjà Réglé", tot_credited: "Avoirs", tot_balance: "Reste à Payer",
                 legal_text: "Arrêtée la présente facture à la somme de :"
             }
         };
@@ -211,6 +211,15 @@
             // hidden when its amount is zero, so a plain exonerated water
             // invoice still reads as a clean four-line block.
             setText('dyn_subtotal', LPC.fmt.fcfa(inv.subtotal));
+            // The order's remise off the total of the lines (8.10).
+            const disc = Number(inv.discount_amount) || 0;
+            const rowDisc = document.getElementById('row_discount');
+            if (rowDisc) {
+                rowDisc.classList.toggle('hidden', !(disc > 0));
+                const gross = Number(inv.gross_subtotal) > 0 ? Number(inv.gross_subtotal) : Number(inv.subtotal) + disc;
+                setText('dyn_gross_subtotal', LPC.fmt.fcfa(gross));
+                setText('dyn_discount', '- ' + LPC.fmt.fcfa(disc));
+            }
 
             const hasExcise = Number(inv.excise_amount) > 0;
             show('row_excise', hasExcise);
@@ -244,6 +253,13 @@
             setText('dyn_net_payable', LPC.fmt.fcfa(inv.net_payable));
 
             setText('dyn_paid_amount', LPC.fmt.fcfa(inv.paid_amount));
+            // Credit notes (avoirs) apart from what was paid (8.11).
+            const credited = Number(inv.credited_amount) || 0;
+            const crRow = document.getElementById('credited_row');
+            if (crRow) {
+                crRow.classList.toggle('hidden', !(credited > 0));
+                setText('dyn_credited_amount', '- ' + LPC.fmt.fcfa(credited));
+            }
             setText('dyn_balance', LPC.fmt.fcfa(inv.balance));
 
             // -- Payment accounts ---------------------------------------------

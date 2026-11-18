@@ -250,7 +250,7 @@ try {
              i.due_date,
              GREATEST(0, DATEDIFF(CURRENT_DATE, i.due_date)) AS days_overdue,
              (i.total_amount - COALESCE((
-                SELECT SUM(pm.amount) FROM payments pm
+                SELECT SUM(pm.amount + COALESCE(pm.air_withheld_amount, 0)) FROM payments pm
                  WHERE pm.invoice_id = i.id AND pm.status = 'validated'
              ), 0)) AS balance",
             ['c.name', 'i.reference'],
@@ -450,7 +450,7 @@ try {
         SELECT COUNT(*) AS overdue_count,
                COALESCE(SUM(
                    i.total_amount - COALESCE((
-                       SELECT SUM(pm.amount) FROM payments pm
+                       SELECT SUM(pm.amount + COALESCE(pm.air_withheld_amount, 0)) FROM payments pm
                         WHERE pm.invoice_id = i.id AND pm.status = 'validated'
                    ), 0)
                ), 0) AS overdue_amount

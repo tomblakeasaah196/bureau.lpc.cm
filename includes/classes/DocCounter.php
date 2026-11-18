@@ -57,6 +57,7 @@ final class DocCounter
         'purchase'          => ['table' => 'purchase_orders',   'format' => 'PO-{YYMM}-{SEQ}',           'period' => 'pref'],
         'receipt'           => ['table' => 'payments',          'format' => 'REC-{YYMM}-{SEQ}',          'period' => 'pref'],
         'wallet'            => ['table' => 'payments',          'format' => 'WLT-{YYMM}-{SEQ}',          'period' => 'pref'],
+        'credit_note'       => ['table' => 'payments',          'format' => 'AV-{YYMM}-{SEQ}',           'period' => 'pref'],
         'expense'           => ['table' => 'expenses',          'format' => 'EX-{YYMM}-{SEQ}',           'period' => 'pref'],
         'expense_recurring' => ['table' => 'expenses',          'format' => 'EXR-{YYMM}-{SEQ}',          'period' => 'pref'],
         'cre'               => ['table' => 'cre_documents',     'format' => 'CRE-{YYYY}{MM}{DD}-{SEQ3}', 'period' => 'day'],

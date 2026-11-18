@@ -200,8 +200,13 @@ function lpc_load_document(PDO $db, string $type, string $token): ?array
                        c.type AS client_type,
                        CONCAT(u.first_name, ' ', LEFT(u.last_name, 1), '.') AS creator_name,
                        r.name AS role_name,
+                       -- What the client paid counts the AIR it withheld for
+                       -- LPC (VIDEO_QA_FINDINGS 8.3: a settled invoice showed
+                       -- its AIR as still owed); credit notes apart.
+                       (SELECT COALESCE(SUM(p.amount + COALESCE(p.air_withheld_amount, 0)), 0) FROM payments p
+                         WHERE p.invoice_id = i.id AND p.status = 'validated' AND p.payment_method <> 'avoir') AS paid_amount,
                        (SELECT COALESCE(SUM(p.amount), 0) FROM payments p
-                         WHERE p.invoice_id = i.id AND p.status = 'validated') AS paid_amount
+                         WHERE p.invoice_id = i.id AND p.status = 'validated' AND p.payment_method = 'avoir') AS credited_amount
                   FROM invoices i
                   JOIN clients c ON c.id = i.client_id
                   LEFT JOIN users u ON u.id = i.created_by
@@ -466,7 +471,12 @@ function lpc_normalize_invoice(array $r, array $lines, array $deliveries = []): 
         'items' => $items,
         'totals' => [
             'subtotal'         => $sub,
-            'discount'         => 0.0,
+            // The order's own remise (sales_orders.order_discount_amount, pro
+            // rata of the BLs billed): the lines add up to gross_subtotal, the
+            // remise comes off before the HT (VIDEO_QA_FINDINGS 8.10).
+            'discount'         => (float)($r['discount_amount'] ?? 0),
+            'gross_subtotal'   => (float)($r['gross_subtotal'] ?? 0),
+            'discount_note'    => (string)($r['discount_note'] ?? ''),
             'excise_rate'      => (float)($r['excise_rate'] ?? 0) * 100,
             'excise'           => $excise,
             'tva_rate'         => $tva_rate,
@@ -479,7 +489,8 @@ function lpc_normalize_invoice(array $r, array $lines, array $deliveries = []): 
             'grand_total'      => $grand,
             'net_payable'      => $net_payable,
             'paid'             => (float)($r['paid_amount'] ?? 0),
-            'balance'          => max(0.0, $grand - (float)($r['paid_amount'] ?? 0)),
+            'credited'         => (float)($r['credited_amount'] ?? 0),
+            'balance'          => max(0.0, $grand - (float)($r['paid_amount'] ?? 0) - (float)($r['credited_amount'] ?? 0)),
             'words'            => lpc_amount_in_words($grand),
         ],
         'notes' => $r['notes'] ?? '',
@@ -1134,6 +1145,16 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
         <td style="width: 50%;">
             <div class="card">
             <table class="ladder">
+                <?php if (($t['discount'] ?? 0) > 0): ?>
+                    <tr>
+                        <td>Total des lignes</td>
+                        <td class="num"><?= $e(lpc_fcfa($t['gross_subtotal'] > 0 ? $t['gross_subtotal'] : $t['subtotal'] + $t['discount'])) ?></td>
+                    </tr>
+                    <tr>
+                        <td>Remise sur commande</td>
+                        <td class="num">- <?= $e(lpc_fcfa($t['discount'])) ?></td>
+                    </tr>
+                <?php endif; ?>
                 <tr>
                     <td>Total Hors Taxe (HT)</td>
                     <td class="num b"><?= $e(lpc_fcfa($t['subtotal'])) ?></td>
@@ -1184,7 +1205,7 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
                     <tr><td colspan="2" style="padding-top: 2mm;">
                         <table style="background: #111827; border-radius: 1.5mm;">
                             <tr>
-                                <td class="caps xtiny" style="color: #fff; padding: 2mm 3mm;">Net à virer au fournisseur</td>
+                                <td class="caps xtiny" style="color: #fff; padding: 2mm 3mm;">Net à virer après retenue</td>
                                 <td class="num b" style="color: #fff; padding: 2mm 3mm; font-size: 9pt;">
                                     <?= $e(lpc_fcfa($t['net_payable'])) ?>
                                 </td>
@@ -1195,9 +1216,15 @@ function lpc_render_invoice_pdf_html(array $doc, array $lh, string $lhLogo, stri
 
                 <tr><td colspan="2" style="padding-top: 2.5mm; border-top: 0.5pt solid #E5E7EB;"></td></tr>
                 <tr>
-                    <td class="caps xtiny" style="color: #059669;">Déjà réglé</td>
+                    <td class="caps xtiny" style="color: #059669;">Déjà réglé<?= !empty($t['air']) ? ' (retenue comprise)' : '' ?></td>
                     <td class="num b" style="color: #059669;"><?= $e(lpc_fcfa($t['paid'])) ?></td>
                 </tr>
+                <?php if (!empty($t['credited'])): ?>
+                <tr>
+                    <td class="caps xtiny" style="color: #7C3AED;">Avoirs</td>
+                    <td class="num b" style="color: #7C3AED;">- <?= $e(lpc_fcfa($t['credited'])) ?></td>
+                </tr>
+                <?php endif; ?>
                 <tr>
                     <td class="caps tiny b" style="color: #DC2626;">Reste à payer</td>
                     <td class="num b" style="color: #DC2626; font-size: 9.5pt;"><?= $e(lpc_fcfa($t['balance'])) ?></td>

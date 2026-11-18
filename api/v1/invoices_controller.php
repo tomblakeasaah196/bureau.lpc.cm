@@ -56,6 +56,10 @@ if (empty($action)) {
     exit;
 }
 
+// Every write carries the page's token (lpc-rbac.js adds it to fetch); reads
+// are GETs (VIDEO_QA_FINDINGS 8.7).
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') Csrf::requireValid();
+
 // ==========================================
 // HELPER: NOTIFICATION ENGINE
 // ==========================================
@@ -66,20 +70,13 @@ if (empty($action)) {
 // migrations/001_rbac_seed.sql), so this has only ever reached admin +
 // accountant — left as-is to avoid changing who gets notified.
 function notifyAdminFinance($db, $title, $message, $relatedUrl = null, $type = 'info') {
-    $stmt = $db->query("
-        SELECT u.id
-        FROM users u
-        JOIN roles r ON u.role_id = r.id
-        WHERE r.name IN ('admin', 'finance', 'accountant') AND u.status = 'active'
-    ");
-    $target_users = $stmt->fetchAll(PDO::FETCH_COLUMN);
-
-    if (!empty($target_users)) {
-        $insertStmt = $db->prepare("INSERT INTO notifications (user_id, title, message, type, related_url) VALUES (?, ?, ?, ?, ?)");
-        foreach ($target_users as $uid) {
-            $insertStmt->execute([$uid, $title, $message, $type, $relatedUrl]);
-        }
-    }
+    // By permission, like the signature notices (VIDEO_QA_FINDINGS 8.9): the
+    // role names admin / finance / accountant missed the Contrôleur Financier
+    // and the DG's own role, and `finance` does not exist. Whoever may record
+    // a client payment is told about invoices and AIR.
+    lpc_notify_permission($db, 'accounting.invoices.record_payment', $title, $message,
+                          $relatedUrl ?: '/modules/accounting/invoices.php', $type,
+                          [(int) ($_SESSION['user_id'] ?? 0)]);
 }
 
 /**
@@ -224,9 +221,14 @@ try {
             $default_id = null;
             $terms_days = null;
             if ($client_id > 0) {
-                $stmt = $db->prepare("SELECT default_payment_account_id, payment_terms_days FROM clients WHERE id = ?");
+                $stmt = $db->prepare("SELECT default_payment_account_id, payment_terms_days,
+                                             COALESCE(is_withholding_agent, 0) AS is_wa, COALESCE(withholding_air_rate, 0) AS air_rate
+                                        FROM clients WHERE id = ?");
                 $stmt->execute([$client_id]);
                 $cr = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+                // The invoice preview shows the AIR the client will keep and
+                // what it actually transfers (PROMETAL: 2,2 %).
+                $air_rate = ((int) ($cr['is_wa'] ?? 0) === 1) ? (float) $cr['air_rate'] : 0.0;
                 $default_id = (int) ($cr['default_payment_account_id'] ?? 0) ?: null;
                 // The client's payment terms from its signed devis (migration
                 // 137): the invoice form dates the due date from them.
@@ -242,6 +244,7 @@ try {
                 'accounts'           => $accounts,
                 'default_account_id' => $default_id ?: ($accounts[0]['id'] ?? null),
                 'payment_terms_days' => $terms_days,
+                'air_rate'           => $air_rate ?? 0.0,
             ], JSON_UNESCAPED_UNICODE);
             break;
 
@@ -391,6 +394,20 @@ try {
                 ];
                 $responseData['top_debtors'] = $topDebtors;
 
+                // Factures en retard (8.6): what the Comptable follows up.
+                $responseData['overdue_invoices'] = safeQueryAll($db, "
+                    SELECT i.id, i.reference, i.token, i.due_date, c.name AS client_name,
+                           DATEDIFF(CURRENT_DATE(), i.due_date) AS days_late,
+                           (i.total_amount - COALESCE((SELECT SUM(p.amount + COALESCE(p.air_withheld_amount, 0))
+                                                         FROM payments p
+                                                        WHERE p.invoice_id = i.id AND p.status = 'validated'), 0)) AS balance
+                      FROM invoices i
+                      JOIN clients c ON c.id = i.client_id
+                     WHERE i.status != 'paid' AND i.due_date < CURRENT_DATE()
+                     ORDER BY i.due_date ASC
+                     LIMIT 50
+                ");
+
             } elseif ($tab === 'to_invoice') {
                 // ---------------------------------------------------------------
                 // Sprint 9 — this list was an unbounded fetchAll with a fixed
@@ -507,6 +524,11 @@ try {
                 try {
                     $page = Paginator::paginate($db, $body, $params,
                         "i.id, i.reference, i.date, i.due_date, i.total_amount, i.status, i.token, i.client_id,
+                         i.subtotal, i.tva_rate, COALESCE(i.air_rate, 0) AS air_rate,
+                         (i.total_amount - COALESCE((SELECT SUM(p.amount + COALESCE(p.air_withheld_amount, 0)) FROM payments p
+                                                      WHERE p.invoice_id = i.id AND p.status = 'validated'), 0)) AS balance,
+                         COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.invoice_id = i.id AND p.status = 'validated'
+                                      AND p.payment_method = 'avoir'), 0) AS credited,
                          c.name as client_name",
                         null, null, "invoices.read.invoices");
                     $responseData['invoices']   = $page['data'];
@@ -611,6 +633,13 @@ try {
                 SELECT id, reference, total_amount,
                        COALESCE(air_amount, 0)   AS air_amount,
                        COALESCE(net_payable, total_amount) AS net_payable,
+                       -- The AIR still to be withheld: an avoir or an earlier
+                       -- payment took its part (8.2, 8.11).
+                       GREATEST(0, COALESCE(air_amount, 0) - COALESCE((
+                           SELECT SUM(COALESCE(air_withheld_amount, 0) + COALESCE(credit_air_amount, 0))
+                             FROM payments
+                            WHERE invoice_id = invoices.id AND status = 'validated'
+                       ), 0)) AS air_open,
                        (total_amount - COALESCE((
                            SELECT SUM(amount + COALESCE(air_withheld_amount, 0))
                              FROM payments
@@ -1446,6 +1475,91 @@ try {
                 'invoice_status'  => $status,
                 'wallet_balance'  => $wallet_bal - $amount,
             ]);
+            break;
+
+        // ==========================================
+        // ACTION: CREDIT NOTE (avoir) — VIDEO_QA_FINDINGS 8.11
+        //
+        // A reduction granted AFTER the invoice: bottles refused or damaged
+        // once invoiced, a price error. It is a `payments` row like a wallet
+        // imputation (payment_method 'avoir', no money moves), so every « reste
+        // dû », the aging and the order's payment status count it; and an entry
+        // Dr 7019 RRR accordés (+ Dr 4431 its TVA) / Cr the client's 411, less
+        // the AIR the client will no longer withhold on it (Cr 4424). Limited to
+        // what the invoice still owes: a paid invoice is refunded, not credited.
+        // ==========================================
+        case 'credit_note':
+            Rbac::requirePermission('accounting.invoices.create');
+            require_once __DIR__ . '/../../includes/classes/JournalPoster.php';
+            $invoice_id = (int) ($jsonData['invoice_id'] ?? 0);
+            $amount_ht  = round((float) ($jsonData['amount_ht'] ?? 0), 0);
+            $reason     = trim((string) ($jsonData['reason'] ?? ''));
+            if ($invoice_id <= 0) throw new UserFacingException("Choisissez la facture.");
+            if ($amount_ht <= 0)  throw new UserFacingException("Indiquez le montant hors taxe de l'avoir.");
+            if ($reason === '')   throw new UserFacingException("Indiquez le motif de l'avoir (il figure sur l'écriture).");
+            if (mb_strlen($reason) > 250) $reason = mb_substr($reason, 0, 250);
+
+            $db->beginTransaction();
+            $st = $db->prepare("
+                SELECT i.id, i.reference, i.client_id, i.subtotal, i.tva_rate, i.total_amount,
+                       COALESCE(i.air_rate, 0) AS air_rate, COALESCE(i.air_amount, 0) AS air_amount,
+                       COALESCE((SELECT SUM(p.amount + COALESCE(p.air_withheld_amount, 0)) FROM payments p
+                                  WHERE p.invoice_id = i.id AND p.status = 'validated'), 0) AS settled,
+                       COALESCE((SELECT SUM(COALESCE(p.air_withheld_amount, 0) + COALESCE(p.credit_air_amount, 0)) FROM payments p
+                                  WHERE p.invoice_id = i.id AND p.status = 'validated'), 0) AS air_used,
+                       COALESCE((SELECT SUM(COALESCE(p.credit_amount_ht, 0)) FROM payments p
+                                  WHERE p.invoice_id = i.id AND p.status = 'validated' AND p.payment_method = 'avoir'), 0) AS credited_ht
+                  FROM invoices i WHERE i.id = ? FOR UPDATE
+            ");
+            $st->execute([$invoice_id]);
+            $inv = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$inv) throw new UserFacingException("Facture introuvable.");
+
+            $vat   = round($amount_ht * ((float) $inv['tva_rate'] / 100), 0);
+            $total = $amount_ht + $vat;
+            $open  = round((float) $inv['total_amount'] - (float) $inv['settled'], 0);
+            if ($amount_ht > (float) $inv['subtotal'] - (float) $inv['credited_ht'] + 0.5) {
+                throw new UserFacingException("L'avoir dépasse le montant hors taxe encore facturé ("
+                    . number_format((float) $inv['subtotal'] - (float) $inv['credited_ht'], 0, ',', ' ') . " FCFA).");
+            }
+            if ($total > $open + 0.5) {
+                throw new UserFacingException("L'avoir (" . number_format($total, 0, ',', ' ') . " FCFA) dépasse ce que la facture "
+                    . $inv['reference'] . " doit encore (" . number_format(max(0, $open), 0, ',', ' ') . " FCFA). "
+                    . "Une facture déjà réglée se rembourse : enregistrez un trop-perçu.");
+            }
+            $air_part = min(round($amount_ht * (float) $inv['air_rate'], 0),
+                            max(0, round((float) $inv['air_amount'] - (float) $inv['air_used'], 0)));
+
+            $date   = (new DateTime('now', new DateTimeZone('Africa/Douala')))->format('Y-m-d');
+            $avRef  = DocCounter::next($db, 'credit_note');
+            $db->prepare("
+                INSERT INTO payments (reference, invoice_id, client_id, amount, air_withheld_amount,
+                                      credit_amount_ht, credit_air_amount, credit_reason,
+                                      payment_method, payment_date, status, logged_by, validated_by)
+                VALUES (?, ?, ?, ?, 0, ?, ?, ?, 'avoir', ?, 'validated', ?, ?)
+            ")->execute([$avRef, $invoice_id, (int) $inv['client_id'], $total, $amount_ht, $air_part, $reason,
+                         $date, $user_id, $user_id]);
+            $payment_id = (int) $db->lastInsertId();
+
+            $newOpen = $open - $total;
+            $status  = $newOpen <= 0.5 ? 'paid' : 'partial';
+            $db->prepare("UPDATE invoices SET status = ? WHERE id = ?")->execute([$status, $invoice_id]);
+            lpc_recompute_sales_order_payment_status($db, $invoice_id);
+
+            try {
+                JournalPoster::postSalesCreditNote($invoice_id, $amount_ht, $vat, $date, $avRef, $reason, $air_part, $payment_id);
+            } catch (RuntimeException $e) {
+                throw new UserFacingException("L'avoir n'a pas pu être comptabilisé. Détail : " . $e->getMessage());
+            }
+
+            notifyAdminFinance($db, 'Avoir émis',
+                "Avoir {$avRef} sur la facture {$inv['reference']} : " . number_format($total, 0, ',', ' ')
+                . " FCFA ({$reason}).", '/modules/accounting/invoices.php', 'info');
+
+            $db->commit();
+            echo json_encode(['status' => 'success', 'reference' => $avRef, 'amount' => $total,
+                              'air' => $air_part, 'invoice_status' => $status,
+                              'open' => max(0, $newOpen)], JSON_UNESCAPED_UNICODE);
             break;
 
         default:

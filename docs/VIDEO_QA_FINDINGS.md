@@ -88,35 +88,23 @@ keeps `out_delivery` with `reference_type = 'recycling_sale'`, which every stock
 
 ## 8 · Facturation & AR
 
-1. [V] **Invoices post to the first 411 account in the chart, not the client's own** (`JournalPoster.php:294`,
-   `:1787-1801`).
-2. [V] **AIR booked twice**: the invoice posts Dr 411 net payable + Dr 4424 AIR / Cr 701x + Cr 4431; the
-   payment posts Dr 521 + Dr 4424 AIR again / Cr 411 the full TTC (`invoices_controller.php:61-194`).
-   For every PROMETAL invoice 4424 holds twice the AIR and 411 ends in credit by the AIR. Fix one side
-   (the invoice already records the withholding).
-3. [V] The PDF and the public invoice compute « Déjà réglé » from SUM(amount) without the AIR, so a fully
-   settled invoice shows the AIR as still owed (`document_pdf.php:203`, `get_invoice.php:109`).
-4. [V] Net 15 is never applied: the due date defaults to +30 days (`accounting-invoices.js:41-42`).
-5. [V] Only AIR withholding exists: accises, précompte, the exemption reason and TVA withholding
-   (`withholding_vat_agent`) are never filled. The owner says PROMETAL « withholds taxes »: confirm which.
-6. [V] No reminder feature (only the bell « N facture(s) en retard »); aging buckets current / 0-30 /
-   30-60 / 60+ and « Débiteurs critiques ».
-7. [V] No CSRF check in `invoices_controller.php` (and `tax_controller.php`).
-8. [V] The attestation is PROMETAL's: LPC records it in Déclarations Fiscales → « Retenues à la source »
-   → « Charger une attestation de retenue à la source ». The request letter (« Demander (PDF) »,
-   `_tax_attestation_letter.php:56`) selects `users.full_name/name/username`, none of which exist [V]:
-   likely an error.
-9. [V] `notifyAdminFinance` (`invoices_controller.php:73`) targets roles admin / finance / accountant by name;
-   `finance` does not exist. The signature notices moved to permissions (5.7, `lpc_notify_permission`): do the
-   same here.
-11. [V] **No credit note (avoir) exists** (was 11.2): `JournalPoster::postSalesCreditNote` has no caller and no
-   screen issues an avoir against an invoice, although Ventes tells the user « établissez un avoir dans Facturation »
-   for a signed BL. « Trop Perçus (Avoirs) » is the client's overpayment wallet, not a credit note. For Facturation:
-   an « Avoir » on an invoice (lines or amount, reason), posted Dr 7019 (or 701) + Dr 4431 / Cr the client's 411,
-   that reduces what the invoice still owes; numbered by DocCounter (the hidden `credit_note_prefix`, 15.1).
-10. [V] Ventes (5.5) now keeps the order's own remise in `sales_orders.order_discount_amount`; the invoice's
-   « Remise » takes only that, pro rata of the BLs billed. The invoice lines are billed at the price sold, the
-   line remise inside it. Check the PDF shows it that way.
+Reproduced on copy C and fixed by the « Facturation & AR » video session (track C, 18/11/2026): 8.1, 8.2, 8.3, 8.6,
+8.7, 8.8, 8.9, 8.10 and 8.11 (the credit note, was 11.2), with what the QA found (docs/TRAINING_VIDEOS.md §7). 8.4
+was done by Proposition (the due date follows the client's terms: Net 15 → 03/12/2026 for an invoice of 18/11).
+Left:
+
+5. [V] Only AIR withholding is handled: accises, précompte and TVA withholding (`withholding_vat_agent`) are never
+   filled. PROMETAL withholds AIR only (owner's answer 4), so nothing is needed for it.
+12. [V] A credit note is limited to what the invoice still owes: an invoice already paid is refunded, and no
+   screen records a refund (money going back to a client). Default: the avoir is refused with that sentence; a
+   refund screen is for later (the same need as 9.8, money coming back).
+13. [V] An invoice paid before migration 152 with AIR withheld kept its double AIR (Dr 4424 / Cr 411 a second time).
+   On 17/11 live had no payment; migration 152's header gives the query and the OD to pass if one exists.
+14. [V] The attestation form (Déclarations Fiscales → Retenues à la source) has placeholders but no labels, and
+   proposes the previous month. The « AIR en attente d'attestation » total is read by the bell, not shown on that
+   tab. Small; for Comptabilité 3.
+15. Not real (copy only): the help drawer's video poster answered 404 on copy C (the copy's videos folder does not
+   hold the file); the Responsable des Opérations gets 403 on Facturation and Déclarations Fiscales, as intended.
 
 ## 9 · Trésorerie & Banque, Gestion des Dépenses
 
@@ -154,9 +142,8 @@ what waits), 11.4 (a cancelled entry stays posted beside its mirror; migration 1
 what the QA found on the four pages (docs/TRAINING_VIDEOS.md §7). 11.2 belongs to Facturation: it is now 8.11.
 Left:
 
-3. 8.1 (invoices post to the generic « 411 Clients », not the client's own 411) and 8.2 (AIR booked twice) are
-   Facturation's; 3.1 (Stock) and 4.6 (Proposition) are done. Once 8.1 lands, the Balance des Tiers shows each
-   client; today copy C has no invoice yet.
+3. Done: 8.1 and 8.2 (Facturation session, migration 152): each client's own 411, the AIR once; the Balance des
+   Tiers shows each client. 3.1 (Stock) and 4.6 (Proposition) were done earlier.
 5. [V] Journal codes: payroll, stock entries and treasury openings post in OD, purchases in AC, payments in BQ.
    Nothing posts in VT or CA yet (invoices and cash sales are Facturation's). Fine for the books; the « Journal »
    filter shows it.

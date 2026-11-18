@@ -287,6 +287,16 @@ if (($_GET['pdf'] ?? '') === '1') {
                                  hence the separate "net à nous virer" line. Rows with a
                                  zero amount are hidden by injectData(). -->
                             <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                                <div class="hidden" id="row_discount">
+                                    <div class="flex justify-between items-center mb-2.5">
+                                        <span class="text-xs font-bold text-gray-600" data-i18n="tot_lines">Total des lignes</span>
+                                        <span class="text-sm font-bold text-gray-700" id="dyn_gross_subtotal">0 F</span>
+                                    </div>
+                                    <div class="flex justify-between items-center mb-2.5">
+                                        <span class="text-xs font-bold text-gray-600" data-i18n="tot_discount">Remise sur commande</span>
+                                        <span class="text-sm font-bold text-gray-700" id="dyn_discount">0 F</span>
+                                    </div>
+                                </div>
                                 <div class="flex justify-between items-center mb-2.5">
                                     <span class="text-xs font-bold text-gray-600" data-i18n="tot_sub">Total Hors Taxe (HT)</span>
                                     <span class="text-sm font-black text-gray-900" id="dyn_subtotal">...</span>
@@ -333,6 +343,10 @@ if (($_GET['pdf'] ?? '') === '1') {
                                     <div class="flex justify-between items-center text-emerald-600">
                                         <span class="text-[10px] font-black uppercase tracking-widest" data-i18n="tot_paid">Déjà Réglé</span>
                                         <span class="text-sm font-black" id="dyn_paid_amount">0 F</span>
+                                    </div>
+                                    <div id="credited_row" class="hidden flex justify-between items-center text-purple-700">
+                                        <span class="text-[10px] font-black uppercase tracking-widest" data-i18n="tot_credited">Avoirs</span>
+                                        <span class="text-sm font-black" id="dyn_credited_amount">0 F</span>
                                     </div>
                                     <div class="flex justify-between items-center text-red-600 bg-red-50 p-2 rounded">
                                         <span class="text-xs font-black uppercase tracking-widest" data-i18n="tot_balance">Reste à Payer</span>

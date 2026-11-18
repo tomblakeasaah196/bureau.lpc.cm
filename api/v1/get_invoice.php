@@ -106,11 +106,18 @@ try {
     $invoice_id = $invData['id'];
 
     // 3. Fetch Validated Payments to calculate Balance
-    $stmtPay = $db->prepare("SELECT COALESCE(SUM(amount), 0) FROM payments WHERE invoice_id = ? AND status = 'validated'");
+    // The AIR the client withheld for LPC counts as paid (VIDEO_QA_FINDINGS
+    // 8.3); credit notes (avoirs) are shown apart.
+    $stmtPay = $db->prepare("
+        SELECT COALESCE(SUM(CASE WHEN payment_method <> 'avoir' THEN amount + COALESCE(air_withheld_amount, 0) ELSE 0 END), 0) AS paid,
+               COALESCE(SUM(CASE WHEN payment_method = 'avoir' THEN amount ELSE 0 END), 0) AS credited
+          FROM payments WHERE invoice_id = ? AND status = 'validated'");
     $stmtPay->execute([$invoice_id]);
-    $paid_amount = (float) $stmtPay->fetchColumn();
+    $payRow = $stmtPay->fetch(PDO::FETCH_ASSOC) ?: ['paid' => 0, 'credited' => 0];
+    $paid_amount     = (float) $payRow['paid'];
+    $credited_amount = (float) $payRow['credited'];
 
-    $balance = max(0, (float)$invData['total_amount'] - $paid_amount);
+    $balance = max(0, (float)$invData['total_amount'] - $paid_amount - $credited_amount);
 
     // 4. Fetch Line Items
     $stmtItems = $db->prepare("
@@ -230,6 +237,8 @@ try {
                 'due_date'         => $invData['due_date'],
                 'currency'         => 'XAF',
                 'subtotal'         => $subtotal,
+                'gross_subtotal'   => (float) invcol($invData, 'gross_subtotal', 0),
+                'discount_amount'  => (float) invcol($invData, 'discount_amount', 0),
                 'excise_rate'      => (float) invcol($invData, 'excise_rate', 0) * 100,
                 'excise_amount'    => $excise,
                 'tva_rate'         => $tva_rate,
@@ -243,6 +252,7 @@ try {
                 'net_payable'      => $net_payable,
                 'status'           => $invData['status'],
                 'paid_amount'      => $paid_amount,
+                'credited_amount'  => $credited_amount,
                 'balance'          => $balance,
                 'notes'            => $invData['notes'],
                 'amount_in_words'  => getAmountInWords($total),

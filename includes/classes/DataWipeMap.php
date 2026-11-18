@@ -189,7 +189,7 @@ final class DataWipeMap
         'hr_advances'      => ['advance_disbursement'],
         'hr_payslips'      => ['payslip', 'payroll_settlement'],
         'recycling_sales'  => ['recycling_sale'],
-        'payments'         => ['wallet_apply'],
+        'payments'         => ['wallet_apply', 'invoice_payment'],
         'tax_declarations' => ['tax_declaration'],
         'loans'            => ['loan'],
         'loan_movements'   => ['loan_movement'],

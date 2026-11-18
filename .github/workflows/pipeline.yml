@@ -91,6 +91,8 @@ jobs:
         run: php scripts/tests/admin_settings.test.php
       - name: Comptabilité 1 (drafts waiting, reversals counted once, Écritures, Grand Livre, Bilan d'Ouverture)
         run: php scripts/tests/books_review.test.php
+      - name: Facturation & AR (each client's 411, AIR once, credit notes, CSRF, the attestation letter)
+        run: php scripts/tests/invoicing_flow.test.php
 
   mail:
     # Courrier (docs/MAIL.md §9): every scripts/tests/mail/*.test.php, each blocking. PR 1's three: the engine

@@ -53,7 +53,9 @@ $payments = $stmtP->fetchAll(PDO::FETCH_ASSOC);
 $total_air = 0.0;
 foreach ($payments as $p) $total_air += (float) $p['air_withheld_amount'];
 
-$sig = $db->prepare("SELECT COALESCE(full_name, name, username, 'Direction Financière') AS name FROM users WHERE id = ?");
+// users has first_name / last_name: full_name, name and username never
+// existed, so the letter failed (VIDEO_QA_FINDINGS 8.8).
+$sig = $db->prepare("SELECT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))), ''), 'Direction Financière') AS name FROM users WHERE id = ?");
 $sig->execute([$user_id]);
 $signatory_name = (string) ($sig->fetchColumn() ?: 'Direction Financière');
 

@@ -85,7 +85,7 @@ $user_role = $_SESSION['user_role'];
                 </button>
 
                 <button onclick="switchTab('wallets')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap transition-colors" id="tab-wallets">
-                    <i class="fas fa-wallet mr-2"></i> Trop Perçus (Avoirs)
+                    <i class="fas fa-wallet mr-2"></i> Trop Perçus
                 </button>
 
                 <!-- Empty spacer with ml-auto guarantees the divider between
@@ -172,6 +172,29 @@ $user_role = $_SESSION['user_role'];
                             </table>
                         </div>
                     </div>
+                </div>
+
+                <!-- Factures en retard: the list the Comptable follows up, each with its
+                     days late and a link to the invoice (Email / WhatsApp from there).
+                     VIDEO_QA_FINDINGS 8.6. -->
+                <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div class="px-6 py-4 border-b border-gray-100 flex flex-wrap justify-between items-center gap-2">
+                        <h3 class="font-black text-gray-800 text-sm uppercase tracking-widest"><i class="fas fa-bell mr-2 text-red-500"></i> Factures en retard</h3>
+                        <p class="text-xs text-gray-500">Échéance dépassée et reste dû. « Relancer » ouvre la facture : envoyez-la par Email ou WhatsApp.</p>
+                    </div>
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-gray-50/50 text-[10px] uppercase text-gray-400 font-black tracking-widest">
+                            <tr>
+                                <th class="py-3 px-6">Facture</th>
+                                <th class="py-3 px-6">Client</th>
+                                <th class="py-3 px-6">Échéance</th>
+                                <th class="py-3 px-6 text-right">Retard</th>
+                                <th class="py-3 px-6 text-right">Reste dû</th>
+                                <th class="py-3 px-6 text-right"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="dash-overdue-body" class="divide-y divide-gray-50"></tbody>
+                    </table>
                 </div>
             </div>
 
@@ -359,7 +382,7 @@ $user_role = $_SESSION['user_role'];
         </main>
     </div>
 
-    <div id="modal-generate-invoice" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="modal-generate-invoice" class="hidden fixed inset-0 z-[9000] flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col max-h-[90vh] animate-slide-up border border-gray-700">
             <div class="bg-gray-900 px-8 py-5 flex justify-between items-center text-white shrink-0 border-b border-gray-800">
                 <div class="flex items-center gap-4">
@@ -466,12 +489,22 @@ $user_role = $_SESSION['user_role'];
                             <div class="border-t border-gray-700 pt-3 flex justify-between items-center text-xl font-black text-white mt-2">
                                 <span class="uppercase tracking-widest text-sm"><?= htmlspecialchars(__t('ui.x.net_a_payer_ttc')) ?></span><span id="prev_grandtotal" class="text-lpc-light text-2xl">0 FCFA</span>
                             </div>
+                            <!-- A withholding client (PROMETAL) keeps the AIR and pays it to the
+                                 tax office for LPC: what it transfers is the total less the AIR. -->
+                            <div id="prev_air_block" class="hidden space-y-2 pt-2">
+                                <div class="flex justify-between items-center text-sm font-bold text-amber-300">
+                                    <span>AIR retenu par le client (<span id="prev_air_label">0</span> %)</span><span id="prev_air_amount">0 F</span>
+                                </div>
+                                <div class="flex justify-between items-center text-base font-black text-white">
+                                    <span class="uppercase tracking-widest text-xs">Net à virer par le client</span><span id="prev_net_transfer">0 FCFA</span>
+                                </div>
+                            </div>
                             
                             <div id="prev_cash_banner" class="hidden mt-4 p-3 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-xl text-xs font-bold flex items-start gap-3">
                                 <i class="fas fa-exclamation-triangle mt-0.5"></i>
                                 <div>
                                     <span class="block text-amber-300 uppercase tracking-widest text-[9px] mb-0.5"><?= htmlspecialchars(__t('ui.x.note_de_recouvrement')) ?></span>
-                                    Ce montant inclut <span id="prev_cash_amount" class="font-black text-amber-200 text-sm">0 F</span> déjà collecté physiquement par les chauffeurs sur ces BL.
+                                    Ce montant inclut <span id="prev_cash_amount" class="font-black text-amber-200 text-sm">0 F</span> déjà encaissé à la livraison de ces BL.
                                 </div>
                             </div>
                         </div>
@@ -489,8 +522,8 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
-    <div id="modal-payment" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
+    <div id="modal-payment" class="hidden fixed inset-0 z-[9000] flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[92vh] animate-slide-up">
             <div id="pay-modal-header" class="bg-gray-900 px-6 py-5 flex justify-between items-center text-white border-b border-gray-800">
                 <h3 class="font-black text-lg tracking-wide flex items-center gap-3">
                     <div class="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center border border-gray-700"><i class="fas fa-hand-holding-usd text-emerald-400"></i></div> 
@@ -499,7 +532,7 @@ $user_role = $_SESSION['user_role'];
                 <button type="button" onclick="closeModal('modal-payment')" class="text-gray-400 hover:text-white transition-colors w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-800"><i class="fas fa-times"></i></button>
             </div>
             
-            <div class="p-8 bg-slate-50">
+            <div class="p-8 bg-slate-50 overflow-y-auto">
                 <div id="pay_validation_banner" class="hidden mb-6 bg-amber-50 border border-amber-200 p-4 rounded-xl shadow-sm">
                     <p class="text-[10px] font-black text-amber-800 uppercase tracking-widest mb-1.5 flex items-center gap-1.5"><i class="fas fa-shield-alt"></i> <?= htmlspecialchars(__t('ui.x.securite_caisse')) ?></p>
                     <p class="text-sm font-bold text-amber-900 leading-tight"><?= htmlspecialchars(__t('ui.x.veuillez_confirmer_la_reception_physique')) ?></p>
@@ -586,7 +619,42 @@ $user_role = $_SESSION['user_role'];
     </div>
 
     <!-- Wallet Application Modal — "Utiliser l'avoir" -->
-    <div id="modal-wallet-apply" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <!-- Avoir (credit note) on an invoice: VIDEO_QA_FINDINGS 8.11 -->
+    <div id="modal-credit-note" class="hidden fixed inset-0 z-[9000] flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[92vh] animate-slide-up">
+            <div class="bg-purple-800 px-6 py-5 flex justify-between items-center text-white">
+                <h3 class="font-black text-lg tracking-wide flex items-center gap-3"><i class="fas fa-file-invoice"></i> Émettre un avoir</h3>
+                <button type="button" onclick="closeModal('modal-credit-note')" class="text-purple-200 hover:text-white w-8 h-8 flex items-center justify-center rounded-full" aria-label="Fermer"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-6 bg-slate-50 space-y-4 overflow-y-auto">
+                <input type="hidden" id="cn_invoice_id">
+                <div class="bg-white border border-gray-200 rounded-xl p-4 text-sm">
+                    <p class="font-black text-gray-900"><span id="cn_invoice_ref"></span> · <span id="cn_client"></span></p>
+                    <p class="text-xs text-gray-500 mt-1">Reste dû : <b id="cn_open">0 F</b> · TVA <span id="cn_tva_rate">0</span> % · AIR <span id="cn_air_rate">0</span> %</p>
+                </div>
+                <div>
+                    <label for="cn_amount_ht" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Montant de l'avoir, hors taxe (FCFA)</label>
+                    <input type="number" id="cn_amount_ht" min="1" step="1" oninput="previewCreditNote()" class="w-full bg-white border border-gray-200 rounded-xl p-3 font-black text-lg outline-none focus:ring-2 focus:ring-purple-500">
+                </div>
+                <div>
+                    <label for="cn_reason" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Motif</label>
+                    <input type="text" id="cn_reason" maxlength="250" placeholder="Ex. 4 bonbonnes percées constatées après la livraison" class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-medium outline-none focus:ring-2 focus:ring-purple-500">
+                </div>
+                <div class="bg-white border border-purple-200 rounded-xl p-4 text-sm space-y-1">
+                    <div class="flex justify-between"><span class="text-gray-500">TVA</span><b id="cn_vat">0 F</b></div>
+                    <div class="flex justify-between"><span class="text-gray-500">Le client doit en moins</span><b id="cn_total">0 F</b></div>
+                    <div class="flex justify-between"><span class="text-gray-500">dont AIR qu'il ne retiendra pas</span><b id="cn_air">0 F</b></div>
+                    <p class="text-[11px] text-gray-500 pt-2">L'écriture passe seule : débit 7019 RRR accordés (et 4431 pour la TVA), crédit le compte du client.</p>
+                </div>
+            </div>
+            <div class="bg-white px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+                <button type="button" onclick="closeModal('modal-credit-note')" class="px-5 py-2.5 text-sm font-bold text-gray-500">Annuler</button>
+                <button type="button" id="btn-submit-credit-note" onclick="submitCreditNote()" class="px-6 py-2.5 bg-purple-700 hover:bg-purple-800 text-white rounded-xl font-bold text-sm shadow-md">Émettre l'avoir</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-wallet-apply" class="hidden fixed inset-0 z-[9000] flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
             <div class="bg-purple-700 px-6 py-5 flex justify-between items-center text-white">
                 <h3 class="font-black text-lg tracking-wide flex items-center gap-3">

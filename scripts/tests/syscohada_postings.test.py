@@ -513,6 +513,40 @@ def scenario_credit_note():
     return e
 
 
+def scenario_withholding_client_cycle():
+    """
+    PROMETAL (VIDEO_QA_FINDINGS 8.1, 8.2, 8.11): 200 OPUR 20L at 2 275 F, no TVA
+    on water, AIR 2,2 % withheld; then 4 bottles credited after delivery; then
+    the transfer net of AIR.
+
+        invoice   Dr 411035 444 990   Dr 4424 10 010   Cr 7011 455 000
+        avoir     Dr 7019 9 100                        Cr 4424 200   Cr 411035 8 900
+        payment   Dr 5211 436 090                      Cr 411035 436 090
+
+    THE DEFECT: the payment booked the AIR again (Dr 4424 / Cr 411 the full
+    455 000): 4424 held 20 020 and the client's account ended 10 010 in credit.
+    The invoice already split the AIR; the payment clears what was transferred.
+    """
+    ht = Decimal("455000")
+    air = fcfa(ht * Decimal("0.022"))
+    av_ht = Decimal("9100")
+    av_air = fcfa(av_ht * Decimal("0.022"))
+    transfer = (ht - av_ht) - (air - av_air)
+
+    e = Entry("Ventes · client qui retient l'AIR : facture, avoir, virement")
+    e.debit("411035", ht - air).debit("4424", air).credit("7011", ht)
+    e.debit("7019", av_ht).credit("4424", av_air).credit("411035", av_ht - av_air)
+    e.debit("5211", transfer).credit("411035", transfer)
+
+    check_balanced(e)
+    check("withholding cycle · the client's own account ends at zero", e.net("411035"), Decimal("0"))
+    check("withholding cycle · 4424 holds the AIR withheld, once", e.net("4424"), air - av_air)
+    check("withholding cycle · the transfer is the net after avoir and AIR", transfer, Decimal("436090"))
+    check("withholding cycle · the avoir shows on 7019, 7011 untouched", (e.net("7019"), -e.net("7011")), (av_ht, ht))
+    check("withholding cycle · nothing on the generic 411", "411" in e.accounts(), False)
+    return e
+
+
 def scenario_cogs_on_dispatch():
     """
     Stock leaves on a delivery note, valued at CUMP.
@@ -584,6 +618,7 @@ def main():
         scenario_invoice_full_fiscal_stack,
         scenario_payment_with_overpayment,
         scenario_credit_note,
+        scenario_withholding_client_cycle,
         scenario_cogs_on_dispatch,
         scenario_full_cycle,
     ]
