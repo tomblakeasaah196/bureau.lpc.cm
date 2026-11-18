@@ -30,16 +30,15 @@ The « Eau » category is set to sell in packs, so the OPUR form shows « Unité
 
 ## 2 · Gestion des Achats
 
-Reproduced on the copy and fixed by the « Gestion des Achats » video session (18/11/2026): 2.2, 2.4, 2.5,
-2.6, 2.7, 2.8, 2.10 and 3.1 (docs/TRAINING_VIDEOS.md §7). Left:
+Reproduced on the copy and fixed by the « Gestion des Achats » video session (18/11/2026): 2.2, 2.4,
+2.6, 2.7, 2.8, 2.10 and 3.1 (docs/TRAINING_VIDEOS.md §7); 2.5 was not a bug (owner #9). Left:
 
-1. [V] There is no approval step: PO statuses are pending / partial / received / cancelled; `.approve` gates
-   payment and cancellation. Whether an order needs approval before it goes out is the owner's call (#10).
-3. [V] The CF holds `.approve` but not `.create_po` (owner #1: Ops orders, the CF pays; unchanged).
+1. Decided 18/11 (owner #10): no approval step before an order goes out. Nothing to change.
+3. Decided 18/11 (owner #1): Ops orders, the CF pays; the Comptable now pays too (owner #5, migration 132).
 9. [V] No supplier invoice step: the order is the payable. `supplier_invoices` is referenced by TaxEngine
    but no migration creates it (see 13.3).
-11. [V] A partially received order can only be paid once the rest arrives: there is no way to close the
-   remainder of an order the supplier will not complete (cancel cancels it all). Owner #11.
+11. Decided 18/11 (owner #11): the supplier brings the rest later; a partial order stays open until fully
+   received and is paid then.
 
 ## 3 · Stock & Emballages, Fiche de Stock
 
@@ -252,14 +251,14 @@ Grants below are from migrations; live may differ (check `role_permissions` on t
 
 | # | Question | Default used for the videos |
 | --- | --- | --- |
-| 1 | Who places supplier orders: Ops, the CF, or both? Today Ops and the Comptable can, the CF cannot. | Ops orders and receives; the CF pays. |
+| 1 | Who places supplier orders: Ops, the CF, or both? Today Ops and the Comptable can, the CF cannot. | Decided 18/11: Operations orders and receives; the Contrôleur Financier pays (unchanged). |
 | 2 | Should Ops close deliveries (`sales.deliveries.close`)? | Yes: the owner said Ops does the orders; granted by migration, listed in the PR. |
-| 3 | Stock accounting: perpetual (31x at reception) or periodic (601 then variation at closing)? | Perpetual, as the BL's 6031/31x entry already assumes. |
+| 3 | Stock accounting: perpetual (31x at reception) or periodic (601 then variation at closing)? | Decided 18/11: perpetual, as built in migration 131 (Gestion des Achats). |
 | 4 | Which taxes does PROMETAL withhold: AIR only, or TVA too? The app only handles AIR. | AIR only, at the rate set on the client. |
-| 5 | Should the Comptable approve advances and pay suppliers (`approve_advance`, `procurement.approve`), and keep `closing.run` / `reopen`? | Unchanged; the videos show the CF approving and paying. |
+| 5 | Should the Comptable approve advances and pay suppliers (`approve_advance`, `procurement.approve`), and keep `closing.run` / `reopen`? | Decided 18/11: the Comptable also pays suppliers (`inventory.procurement.approve`, migration 132, done) and approves advances (`hr.payroll.approve_advance`, for the Salaires session); closing rights unchanged. |
 | 6 | Fleet costs (fuel, repairs): post them to the ledger from Flotte, or keep typing them in Dépenses? | Post from Flotte to the same expense accounts, linked to the vehicle. |
 | 7 | OPUR 10L's « Coût de référence » reads 100 F while it sells at 1 000 F and no supplier has a 10L tariff: what does LPC pay for a 10L? (Données de Base → Produits, now editable by the DG and the CF.) | Left as it is on live; the video does not show it. |
-| 8 | The never-applied « prix de repli » (a floor for products with no default price) was removed from the screen rather than wired into sales. Want it wired? | Removed: every product has a default price, and a product without one is flagged in amber. |
-| 9 | The ristourne is now rate × purchases received as booked (no TVA, no précompte withheld), because purchases are booked without TVA. Source du Pays: is its 3 % paid on the price LPC pays, with nothing withheld? Past accruals on live were booked the old way: PO-2611-00003 1 832 in 4098 (+448 in 4452, +47 in 4473) instead of 2 775; PO-2611-00004 366 (+90, +9) instead of 555. | New rule from 18/11/2026; past entries left as booked (a correction of 943 + 189 F to 4098 / 6019 and of the 4452 / 4473 debits is the accountant's to post if confirmed). |
-| 10 | Should a purchase order be approved (DG or CF) before it goes to the supplier? | No approval step: Ops orders, the CF pays. |
-| 11 | A supplier delivers only part of an order and will not deliver the rest: how should the remainder be closed? | Not possible yet: the order waits; pay after the last reception. |
+| 8 | The never-applied « prix de repli » (a floor for products with no default price) was removed from the screen rather than wired into sales. Want it wired? | Decided 18/11: keep it removed. |
+| 9 | The ristourne: on what base, and what is withheld? | Decided 18/11 (the DG's rule of 31/07): « 3 % du montant d'achat hors taxe »; order amounts are TTC, so HT = amount ÷ 1,1925; 21,25 % withheld (19,25 % TVA to 4452, 2 % précompte to 4473), net to 4098, gross to 6019; Eau 3 % flat, other products 3/4/5 % by each order's own total. The code does this (a change of 18/11 that dropped it was reverted the same day); past accruals are correct, nothing to post. Open for the accounting sessions: should reception split the recoverable TVA (Dr 601 HT + Dr 4452 / Cr 401 TTC)? |
+| 10 | Should a purchase order be approved (DG or CF) before it goes to the supplier? | Decided 18/11: no approval before an order goes to the supplier. |
+| 11 | A supplier delivers only part of an order and will not deliver the rest: how should the remainder be closed? | Decided 18/11: the supplier brings the rest later; the order stays open until fully received. |

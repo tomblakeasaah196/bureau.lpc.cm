@@ -15,6 +15,7 @@ its choreography together.
 | Courrier (your mailbox, shared mailboxes, Praxis AI) | `courrier.js` (+ `courrier.seed.php`) | Made 18/11/2026, 6:28, 10 chapters, -16.0 LUFS, 18.0 MB; sent in the chat; to publish (§5) |
 | Introduction, partie 2 : Chacun son espace (each role's home and menu) | `intro-2-chacun-son-espace.js` | Made 18/11/2026, 4:44, 7 chapters, -16.1 LUFS, 12.7 MB; sent in the chat; to publish in the live Centre d'Aide once deployed (§5) |
 | Modules, partie 1 : Données de Base (products, client and supplier tariffs, suppliers and their 401, employees; what view-only roles see) | `donnees-de-base.js` | Made 18/11/2026, 6:33, 9 chapters, -16.0 LUFS, 15.8 MB; sent in the chat; files in `bureau_video/publish/donnees-de-base/`; to publish (§5) |
+| Modules, partie 2 : Gestion des Achats (order at the tariff, price check, remise or ristourne, two receptions, ristourne earned, payment, order detail, cancellation, the Grand Livre) | `gestion-des-achats.js` | Made 18/11/2026, 5:22, 11 chapters, -16.1 LUFS, 13.8 MB; sent in the chat; files in `bureau_video/publish/gestion-des-achats/`; to publish (§5) |
 
 ---
 
@@ -345,7 +346,7 @@ Each is fixed on the video's branch, in the screen's own code, and listed here.
 | 18/11/2026 | Stock accounting at reception (3.1) | Reception booked Dr 601 / Cr 401 only; nothing ever debited 31x, so each delivery's Dr 6031 / Cr 31x drove stock into credit and counted the bottles' cost twice | Fixed, perpetual inventory (owner default #3): each reception also books Dr 31x / Cr 6031 at cost (`JournalPoster::postStockEntry`), reversed on cancellation; migration 131 books it for earlier receptions (live 17/11: 338 500 F into 311) |
 | 18/11/2026 | Gestion des Achats, payment (2.6, 2.7) | An order could be saved « Payé » with no money moving (live: PO-2611-00005, 455 000 F, not received); its first reception, even partial, paid the whole total; « Payer Fournisseur » paid partial receptions in full; a remise taking the order to 0 broke its reception | Fixed: an order is always saved unpaid; it is paid only through « Payer Fournisseur », once fully received (the list offers only those); never at reception; a remise cannot zero an order; migration 131 sets « Payé » orders with no payment entry back to unpaid; « Dettes Fournisseurs » counts what was received and not paid |
 | 18/11/2026 | Gestion des Achats, remise (2.4) | Every typed « Remise » was booked as ristourne used (Dr 401 / Cr 4098); a remise on HOREB SARL (no ladder) failed | Fixed: for a supplier with a ladder it is « Ristourne utilisée » (as before); otherwise « Remise accordée par le fournisseur », booked net at reception in proportion; `remise_type` on the order (migration 131) |
-| 18/11/2026 | Ristourne earned (2.5) | The base was divided by 1,1925 and 19,25 % TVA plus 2 % précompte withheld, debited to 4452 / 4473, on purchases booked without TVA: 50 × 1 850 earned 1 832 instead of 2 775 | Fixed: rate × amount received as booked, Dr 4098 / Cr 6019, nothing withheld; the tax settings block is gone from Ristournes; past accruals left as they are (« For the owner » #9) |
+| 18/11/2026 | Ristourne earned (2.5) | The register asked whether a ristourne on purchases booked without TVA should withhold TVA and précompte | Not a bug: the owner confirmed the rule (« 3 % du montant d'achat hors taxe », TTC ÷ 1,1925, 21,25 % withheld). A change that dropped it was made and reverted the same day (PR #54); the Ristournes rates block and the order detail's withholding column are back |
 | 18/11/2026 | Gestion des Achats, screens (2.8, 2.10) | « Enregistrer & Valider Stock » touched no stock; cancelling sent no reason; no reception column; the pay list printed « RECEIVED »; windows sat under the sidebar handle | Fixed: « Enregistrer la commande »; a reason is required; « Réception » and real « Paiement » columns; « Reçue en totalité »; purchase and stock windows above the shell |
 | 18/11/2026 | The copy: posting any entry | « Erreur serveur » on reception: the live export carries no stored routines, so `post_journal_entry` was missing on the copy (no entry could post since the copy began) | Fixed in the tooling: `ground.routines()` recreates it from migration 004 after every load and restore (§6.22) |
 
@@ -382,5 +383,14 @@ the help search, the help AI's answers and each page's « ? »), and sent in the
       details never go on camera); HOREB SARL is saved unchanged to show its 401002 in the confirmation; no
       supplier or tariff is created on camera (none agreed in real life). The copy is left as snapshot
       `after-01-donnees-de-base` for Gestion des Achats.
+- [x] Modules, partie 2 · Gestion des Achats (18/11/2026): QA (crawler as the four roles on Achats, Ristournes, Stock,
+      order detail and Grand Livre; then the whole chain by hand, scripted), PR #53 (§2 and 3.1: Ops receives,
+      perpetual stock at reception, payment only when fully received, remise vs ristourne, migration 131;
+      the ristourne rule change was reverted in PR #54 on the owner's answer 9), merged and deployed; live serves the new script, the purchase APIs refuse
+      anonymous calls; migration 131's effect on live data not checked (needs a sign-in). Filmed on the copy after
+      a power cut mid-take (full refilm from `pre-02-film`). The copy had no `post_journal_entry` (§6.22). Decisions:
+      the video's order is PO-2611-00007 (100 OPUR 20L, 185 000 F), paid from MTN MOBILE MONEY; the HOREB remise and
+      the cancellation are shown and not saved. 5:22 rather than 6: every step is in; nothing was padded. The copy is
+      left as snapshot `after-02-gestion-des-achats` (260 OPUR 20L in stock, MTN 704 000 F).
 - [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
       Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.

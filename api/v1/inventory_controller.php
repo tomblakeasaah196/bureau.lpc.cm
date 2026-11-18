@@ -634,19 +634,26 @@ try {
                 $tier_rate      = (float) $cat_row['tier_rate'];
                 if ($tier_rate <= 0) continue; // no ladder configured for this (supplier, category)
 
-                // The ristourne is the tier rate times the purchases received as
-                // they are booked. LPC's purchases are booked without TVA
-                // (migration 124: no TVA is recovered on them), so there is no
-                // TVA to take out of the base and none to give back on the
-                // ristourne, and no précompte applies to a supplier's rebate.
-                // The old formula divided by 1,1925, then withheld 19,25 % and
-                // 2 % of that, and debited 4452 / 4473 on purchases that never
-                // carried TVA (VIDEO_QA_FINDINGS 2.5, 18/11/2026; the owner
-                // confirms in the register, « For the owner »).
-                $gross_rebate       = round($ttc_this_reception * $tier_rate, 0, PHP_ROUND_HALF_UP);
-                $vat_withheld       = 0.0;
-                $precompte_withheld = 0.0;
-                $net_rebate         = $gross_rebate;
+                // The owner's rule (the DG, 31/07/2026, confirmed 18/11/2026):
+                // « 3 % du montant d'achat hors taxe ». Order amounts are TTC,
+                // so HT = amount / (1 + TVA); the ristourne is the tier rate on
+                // that HT, and 21,25 % of it is withheld: 19,25 % TVA (4452) and
+                // 2 % précompte (4473); the net goes to 4098, the gross to 6019.
+                // A change made on 18/11 that dropped the HT step and the
+                // withholding was reverted the same day (VIDEO_QA_FINDINGS,
+                // « For the owner » #9).
+                $vat_rate       = (float) $cat_row['vat_rate_applied'];
+                $precompte_rate = (float) $cat_row['precompte_rate_applied'];
+
+                $ht_this_reception   = $ttc_this_reception / (1 + $vat_rate);
+
+                // Rounding order: each component to the whole franc, the net
+                // as the remainder, so net + TVA + précompte == gross exactly
+                // (a drifting entry is refused by post_journal_entry).
+                $gross_rebate       = round($ht_this_reception * $tier_rate, 0, PHP_ROUND_HALF_UP);
+                $vat_withheld       = round($gross_rebate * $vat_rate,       0, PHP_ROUND_HALF_UP);
+                $precompte_withheld = round($gross_rebate * $precompte_rate, 0, PHP_ROUND_HALF_UP);
+                $net_rebate         = $gross_rebate - $vat_withheld - $precompte_withheld;
 
                 if ($net_rebate > 0) {
                     $total_rebate_earned += $net_rebate;

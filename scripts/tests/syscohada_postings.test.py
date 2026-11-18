@@ -161,32 +161,47 @@ def scenario_goods_receipt_exonerated():
 
 def scenario_rebate_accrual():
     """
-    Ristourne earned at reception (VIDEO_QA_FINDINGS 2.5, 18/11/2026).
-    Source du Pays: tier 3 % on Eau. LPC's purchases are booked without TVA
-    (migration 124: no TVA is recovered on them), so the ristourne is the tier
-    rate times the purchases received as booked, and nothing is withheld:
+    Ristourne earned at reception. Category ladder tier 4 %, TVA 19,25 %,
+    précompte 2 % — all three frozen on the order.
 
-        Dr 4098 Fournisseurs, RRR à obtenir   rate x amount received
-        Cr 6019 RRR obtenus sur achats        the same
+    SYSCOHADA:
+        Dr 4098 Fournisseurs, RRR à obtenir   net (what the supplier settles)
+        Dr 4452 TVA récupérable               VAT withheld from the rebate
+        Dr 4473 Précompte subi                précompte withheld
+        Cr 6019 RRR obtenus sur achats        GROSS — the full cost reduction
 
-    THE DEFECT: the base was divided by 1,1925 and 19,25 % TVA plus 2 %
-    précompte were taken out of the ristourne and debited to 4452 / 4473, on
-    purchases that never carried any TVA. 50 x 1 850 = 92 500 earned 1 832
-    in 4098 instead of 2 775.
+    THE DEFECT: only the net was posted, to both sides. 6019 understated the
+    reduction in cost of goods, and the withheld tax — which is imputable
+    against the company's own tax — was recorded nowhere at all.
+
+    THE CONSTRAINT THAT MATTERS OPERATIONALLY: 4098 must still carry exactly
+    the net, because that is what supplier_rebate_ledger and the Ristournes SDP
+    panel track. If this fix moved 4098 the panel and the ledger would diverge
+    and every historical balance would need restating.
     """
-    received = Decimal("92500")       # 50 x OPUR 20L at 1 850
-    tier_rate = Decimal("0.03")
+    ht = Decimal("1000000")
+    tier_rate = Decimal("0.04")
+    vat_rate = Decimal("0.1925")
+    precompte_rate = Decimal("0.02")
 
-    gross = fcfa(received * tier_rate)
+    # Rounding ORDER is part of the contract: each component to the franc, then
+    # the net as the remainder. Rounding all three independently can leave a
+    # 1 FCFA residual, and post_journal_entry rejects the entry — rolling back
+    # a goods reception over a rounding artefact.
+    gross = fcfa(ht * tier_rate)
+    vat = fcfa(gross * vat_rate)
+    precompte = fcfa(gross * precompte_rate)
+    net = gross - vat - precompte
 
-    e = Entry("Achats · ristourne acquise (Eau 3 %, achats sans TVA)")
-    e.debit("4098", gross).credit("6019", gross)
+    e = Entry("Achats · ristourne acquise (palier 4%)")
+    e.debit("4098", net).debit("4452", vat).debit("4473", precompte).credit("6019", gross)
 
     check_balanced(e)
-    check("rebate · 3 % of the amount received as booked", gross, Decimal("2775"))
-    check("rebate · nothing in 4452 (purchases carry no TVA)", e.net("4452"), Decimal("0"))
-    check("rebate · nothing in 4473", e.net("4473"), Decimal("0"))
-    check("rebate · 4098 equals 6019", e.net("4098"), -e.net("6019"))
+    check("rebate · components sum to gross exactly", net + vat + precompte, gross)
+    check("rebate · 6019 credited the gross", -e.net("6019"), gross)
+    check("rebate · 4098 still carries the net (panel parity)", e.net("4098"), net)
+    check("rebate · net matches the legacy formula to the franc",
+          abs(net - fcfa(gross * (1 - (vat_rate + precompte_rate)))) <= 1, True)
     return e
 
 

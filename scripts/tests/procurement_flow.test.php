@@ -12,7 +12,8 @@
  *     Fournisseur », once fully received, and never at reception;
  *   · a remise is ristourne used only for a supplier with a ladder, else a
  *     supplier discount booked net at reception; it cannot zero an order;
- *   · the ristourne is rate x amount booked, nothing withheld;
+ *   · the ristourne is the rate on the HT amount (TTC / 1,1925), less 19,25 %
+ *     TVA and 2 % précompte withheld (the owner's rule, confirmed 18/11/2026);
  *   · each reception also enters the stock account (Dr 31x / Cr 6031), and a
  *     cancellation reverses it; a cancellation needs a reason.
  *
@@ -72,9 +73,9 @@ check('the remise kind follows the supplier (ladder: ristourne, else discount)',
 check('only a ristourne remise draws on the balance', str_contains($save, "if (\$remise_type === 'ristourne') {"));
 check('a supplier discount is booked net at reception',
       str_contains($receive, "\$net_factor") && str_contains($receive, "* \$net_factor"));
-check('the ristourne withholds nothing', str_contains($receive, "\$vat_withheld       = 0.0;")
-      && str_contains($receive, "\$precompte_withheld = 0.0;")
-      && !str_contains($receive, "/ (1 + \$vat_rate)"));
+check('the ristourne is the rate on HT (TTC / 1 + TVA), less TVA and précompte (owner, 18/11)',
+      str_contains($receive, "\$ht_this_reception   = \$ttc_this_reception / (1 + \$vat_rate);")
+      && str_contains($receive, "\$net_rebate         = \$gross_rebate - \$vat_withheld - \$precompte_withheld;"));
 
 echo "\nPerpetual inventory\n";
 check('reception posts the stock entry', str_contains($receive, 'JournalPoster::postStockEntry('));

@@ -7,9 +7,9 @@
  * specific to any one supplier (api/v1/procurement_controller.php:
  * rebate_ladder_*, rebate_tier_*, rebate_categories_list).
  *
- * No TVA / précompte any more: purchases are booked without TVA and the
- * server withholds nothing, so a ristourne is simply rate × amount received.
- * The old shared-rates block (rebate_tax_settings_get/_save) was removed.
+ * The shared TVA / précompte rates (rebate_tax_settings_get/_save): the
+ * ristourne is the rate on the HT amount (TTC / 1 + TVA), less the TVA and
+ * the précompte withheld (the owner's rule, confirmed 18/11/2026).
  *
  * Writes (add / delete a tier, toggle a category) need
  * inventory.procurement.create_po, as the server requires; without it the
@@ -19,7 +19,7 @@
  *   - A tier is (threshold_from EXCLUSIVE, threshold_to INCLUSIVE, rate).
  *     Leaving "from" blank means "starts at 0"; leaving "to" blank means
  *     "no upper bound" (the top/open tier).
- *   - Tiers are a CLIFF, not sliced: whichever tier a purchase's amount
+ *   - Tiers are a CLIFF, not sliced: whichever tier a purchase's HT amount
  *     falls into, the WHOLE amount earns that one rate.
  *   - The tier is evaluated once, on the whole purchase order's category
  *     subtotal, at order creation — not per reception.
@@ -37,7 +37,7 @@
     }
 
     document.addEventListener('DOMContentLoaded', async () => {
-        await loadSuppliers();
+        await Promise.all([loadSuppliers(), loadTaxSettings()]);
     });
 
     async function loadSuppliers() {
@@ -51,6 +51,32 @@
             });
         } catch (e) { console.error(e); }
     }
+
+    async function loadTaxSettings() {
+        try {
+            const res = await fetch('/api/v1/procurement_controller.php?action=rebate_tax_settings_get');
+            const result = await res.json();
+            if (result.status === 'success') {
+                document.getElementById('tax_vat_rate').value = (result.data.vat_rate * 100).toFixed(2);
+                document.getElementById('tax_precompte_rate').value = (result.data.precompte_rate * 100).toFixed(2);
+            }
+        } catch (e) { console.error(e); }
+    }
+
+    window.saveTaxSettings = async function () {
+        if (!canEdit()) return;
+        const vat = document.getElementById('tax_vat_rate').value;
+        const precompte = document.getElementById('tax_precompte_rate').value;
+        try {
+            const res = await fetch('/api/v1/procurement_controller.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'rebate_tax_settings_save', vat_rate_pct: vat, precompte_rate_pct: precompte })
+            });
+            const result = await res.json();
+            if (result.status !== 'success') LPC.modal.alert('Erreur: ' + result.message);
+        } catch (e) { LPC.modal.alert('Erreur système.'); }
+    };
 
     window.onSupplierChange = async function (supplierId) {
         currentSupplierId = supplierId || null;
@@ -102,8 +128,8 @@
                         <thead class="text-[10px] uppercase text-gray-400 font-black tracking-widest border-b border-gray-100">
                             <tr>
                                 <th class="py-2 pr-2">Palier</th>
-                                <th class="py-2 px-2 text-right">De (exclusif)</th>
-                                <th class="py-2 px-2 text-right">À (inclusif)</th>
+                                <th class="py-2 px-2 text-right">De (HT, exclusif)</th>
+                                <th class="py-2 px-2 text-right">À (HT, inclusif)</th>
                                 <th class="py-2 px-2 text-right">Taux</th>
                                 <th class="py-2 pl-2 w-10"></th>
                             </tr>
