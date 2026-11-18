@@ -136,8 +136,11 @@ $proposalLogos = lpc_proposal_logos();
 
 
     <nav class="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-40 shadow-sm no-print">
-        <div class="max-w-7xl mx-auto flex justify-between items-center">
-            <div class="flex items-center gap-4">
+        <!-- The actions wrap onto a second row rather than run off the screen:
+             at 1536 px (a laptop at 125 %) « Faire signer le client » and
+             « Signer côté LPC » were past the right edge, unreachable. -->
+        <div class="max-w-7xl mx-auto flex justify-between items-center gap-4">
+            <div class="flex items-center gap-4 shrink-0">
                 <img src="<?= pq('brand_logo_main') ?>" alt="<?= pq('brand_company_name') ?>" class="h-10 w-auto object-contain">
                 <div>
                     <h1 class="text-xl font-bold text-gray-900 leading-tight"><?= pq('brand_company_name') ?></h1>
@@ -145,7 +148,7 @@ $proposalLogos = lpc_proposal_logos();
                 </div>
             </div>
 
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap justify-end items-center gap-2">
                 <div class="bg-gray-100 p-1 rounded-lg border border-gray-200 flex">
                     <button onclick="setLang('fr')" id="btn-lang-fr" class="px-4 py-1.5 text-sm font-bold rounded-md bg-white shadow-sm text-lpc-dark transition-all">FR</button>
                     <button onclick="setLang('en')" id="btn-lang-en" class="px-4 py-1.5 text-sm font-bold rounded-md text-gray-500 hover:text-gray-900 transition-all">EN</button>
