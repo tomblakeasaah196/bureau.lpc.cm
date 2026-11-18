@@ -5,6 +5,7 @@
 //
 // Bootstrap loads env, DB, hardened session, CSRF, Rbac. Do not add session_start.
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/functions/dashboard_kpis.php';
 require_once __DIR__ . '/../../includes/classes/Paginator.php';
 require_once __DIR__ . '/../../includes/functions/lpc_csv.php';
 
@@ -262,7 +263,18 @@ if ($action === 'get_dashboard') {
         $cost_per_del_pm = ($del_pm_data['d'] > 0) ? ($del_pm_data['c'] / $del_pm_data['d']) : 0;
         $cost_del_trend = calcTrend($cost_per_del_cm, $cost_per_del_pm);
 
-        $empties_risk = (float)$pdo->query("SELECT COALESCE(SUM(financial_risk_fcfa), 0) FROM view_empties_liability")->fetchColumn();
+        // What the empties LPC must still recover are worth: each client's bottles
+        // under its agreed minimum, at the empty's own price (Données de Base). It
+        // read view_empties_liability: every bottle the client holds, PROMETAL's
+        // 20 % it may keep included, at prices fixed in the view (300 / 200 F).
+        $empties_risk = (float)$pdo->query("
+            SELECT COALESCE(SUM(x.to_recover * x.price), 0)
+              FROM (SELECT p.base_price AS price, " . lpc_empties_position_sql() . "
+                      FROM client_empties_ledger cel
+                      JOIN clients c  ON c.id = cel.client_id
+                      JOIN products p ON p.id = cel.product_id
+                     WHERE cel.deleted_at IS NULL) x
+        ")->fetchColumn();
 
         // ---- CHARTS ----
         $stmtFleet = $pdo->query("
@@ -280,83 +292,89 @@ if ($action === 'get_dashboard') {
             $fleet_rev[] = getPeriodicBalance($pdo, '70', $m_start, $m_end, true);
         }
 
-        $liq_caisse = getLiquidityBalance($pdo, '57');
-        $liq_banque = getLiquidityBalance($pdo, '52');
-        $liq_momo   = getLiquidityBalance($pdo, '58');
+        // The treasury accounts by kind, each from its own sub-account (14.3). It
+        // read 57, 52 and 58 by code: Mobile Money is 552, so it was always 0.
+        $liq_caisse = 0.0; $liq_banque = 0.0; $liq_momo = 0.0;
+        foreach (lpc_dash_cash_accounts($pdo) as $acc) {
+            if ($acc['type'] === 'caisse')    $liq_caisse += $acc['balance'];
+            elseif ($acc['type'] === 'momo')  $liq_momo   += $acc['balance'];
+            else                              $liq_banque += $acc['balance'];
+        }
 
-        $agingRow = $pdo->query("SELECT SUM(`0_30_days`) as d30, SUM(`31_60_days`) as d60, SUM(`61_90_days`) as d90, SUM(`over_90_days`) as d90plus FROM view_ar_aging")->fetch(PDO::FETCH_ASSOC);
+        // Receivables by days past the due date, at what each invoice still owes
+        // (14.3). view_ar_aging summed whole invoice totals by invoice date.
+        $agingRow = $pdo->query("
+            SELECT COALESCE(SUM(CASE WHEN x.late <= 30              THEN x.o END), 0) AS d30,
+                   COALESCE(SUM(CASE WHEN x.late BETWEEN 31 AND 60  THEN x.o END), 0) AS d60,
+                   COALESCE(SUM(CASE WHEN x.late BETWEEN 61 AND 90  THEN x.o END), 0) AS d90,
+                   COALESCE(SUM(CASE WHEN x.late > 90               THEN x.o END), 0) AS d90plus
+              FROM (SELECT " . lpc_dash_open_sql('i') . " AS o, DATEDIFF(CURRENT_DATE, i.due_date) AS late
+                      FROM invoices i WHERE i.status <> 'paid') x
+        ")->fetch(PDO::FETCH_ASSOC);
 
-        // ---- BUDGET VARIANCE (top-3 expenses) ----
-        $stmtExp = $pdo->prepare("
-            SELECT ca.name as category, COALESCE(SUM(jl.debit - jl.credit), 0) as actual
-            FROM journal_lines jl
-            JOIN journal_entries je ON jl.journal_entry_id = je.id
-            JOIN chart_of_accounts ca ON jl.account_id = ca.id
-            WHERE je.status = 'posted' AND ca.code LIKE '6%' AND je.date >= ? AND je.date <= ?
-            GROUP BY ca.id
-            ORDER BY actual DESC LIMIT 3
-        ");
-        $stmtExp->execute([$start_date, $today]);
-        $top_expenses = $stmtExp->fetchAll(PDO::FETCH_ASSOC);
-
+        // ---- BUDGET (top-3 charge lines) ----
+        // The three charge lines of Budgets & Performance with the most spent this
+        // year, against their own annual target. It showed the three largest
+        // accounts against « budgeted = actual × 0,90 », an invented +11,1 %.
         $budget_data = [];
-        foreach ($top_expenses as $exp) {
-            if ($exp['actual'] > 0) {
+        try {
+            require_once __DIR__ . '/../../includes/functions/budget_buckets.php';
+            $bsTop = lpc_budget_summary($pdo, (int) date('Y'), $today);
+            $lines = array_values(array_filter($bsTop['lines'], fn($l) => !$l['is_revenue'] && (float) $l['actual'] > 0));
+            usort($lines, fn($a, $b) => (float) $b['actual'] <=> (float) $a['actual']);
+            foreach (array_slice($lines, 0, 3) as $l) {
                 $budget_data[] = [
-                    'category' => $exp['category'],
-                    'actual'   => (float)$exp['actual'],
-                    'budgeted' => (float)$exp['actual'] * 0.90,
+                    'category' => $l['label'],
+                    'actual'   => (float) $l['actual'],
+                    'budgeted' => $l['planned'] !== null && (float) $l['planned'] > 0 ? (float) $l['planned'] : null,
                 ];
             }
+        } catch (Throwable $e) {
+            error_log('analytics_controller budget top: ' . $e->getMessage());
         }
 
         // ---- SPRINT 7H · Four new KPIs (marge brute top-3, ROI flotte,
         //      balance âgée > 60 j, écart budgétaire global) --------------------
 
-        // 1. Marge brute par catégorie — top 3 by contribution.
-        //    Revenue lines carry `category` on the product mapping; here we take
-        //    the OHADA category tree via account codes 70x (revenue) and 60x/61x
-        //    (COGS-ish). Values pass through a null-safe wrapper.
+        // 1. Marge brute. Goods sold (701) less what they cost: purchases (601),
+        //    the stock variation (6031) and rebates obtained (6019), which is the
+        //    cost of the bottles that left the warehouse; other sales (the
+        //    empties sold to recyclers, 707) have no purchase cost. It grouped by
+        //    account, so each revenue account had no cost and read 100 %.
         $gross_margin_top3 = [];
         try {
-            // NOTE: MySQL allows a bare alias in HAVING/ORDER BY, but not an
-            // alias used inside an arithmetic expression there — that trips
-            // error 1247 "Reference 'revenue' not supported (reference to
-            // group function)" because `revenue` is itself an aggregate
-            // (SUM(...)). `(revenue - cogs)` in ORDER BY hit exactly that.
-            // Wrapping the aggregation in a derived table materializes
-            // revenue/cogs as plain columns first, so the outer WHERE/ORDER
-            // BY can combine them freely without re-touching the aggregate.
             $stmtGm = $pdo->prepare("
-                SELECT category, revenue, cogs
-                  FROM (
-                    SELECT
-                        COALESCE(ca.name, '—') AS category,
-                        COALESCE(SUM(CASE WHEN ca.code LIKE '70%' THEN (jl.credit - jl.debit) ELSE 0 END), 0) AS revenue,
-                        COALESCE(SUM(CASE WHEN ca.code LIKE '6%'  THEN (jl.debit  - jl.credit) ELSE 0 END), 0) AS cogs
-                      FROM journal_lines jl
-                      JOIN journal_entries je ON jl.journal_entry_id = je.id
-                      JOIN chart_of_accounts ca ON jl.account_id = ca.id
-                     WHERE je.status = 'posted' AND je.date >= ? AND je.date <= ?
-                       AND (ca.code LIKE '70%' OR ca.code LIKE '6%')
-                     GROUP BY ca.id
-                  ) gm
-                 WHERE revenue > 0
-                 ORDER BY (revenue - cogs) DESC
-                 LIMIT 3
+                SELECT LEFT(ca.code, 3) AS grp,
+                       COALESCE(SUM(CASE WHEN ca.code LIKE '70%' THEN jl.credit - jl.debit ELSE 0 END), 0) AS revenue,
+                       COALESCE(SUM(CASE WHEN ca.code LIKE '60%' THEN jl.debit - jl.credit ELSE 0 END), 0) AS cogs
+                  FROM journal_lines jl
+                  JOIN journal_entries je ON jl.journal_entry_id = je.id
+                  JOIN chart_of_accounts ca ON jl.account_id = ca.id
+                 WHERE je.status = 'posted' AND je.date >= ? AND je.date <= ?
+                   AND (ca.code LIKE '70%' OR ca.code LIKE '60%')
+                 GROUP BY LEFT(ca.code, 3)
             ");
             $stmtGm->execute([$start_date, $today]);
+            $rev = []; $cogs = 0.0;
             foreach ($stmtGm->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                $rev  = (float)$row['revenue'];
-                $cogs = (float)$row['cogs'];
+                if (str_starts_with($row['grp'], '70')) $rev[$row['grp']] = (float) $row['revenue'];
+                else $cogs += (float) $row['cogs'];
+            }
+            $names = ['701' => 'Ventes de marchandises', '702' => 'Ventes de produits finis', '706' => 'Services vendus',
+                      '707' => 'Produits accessoires (vides)'];
+            foreach ($rev as $grp => $r) {
+                if (abs($r) < 0.005) continue;
+                $c = (string) $grp === '701' ? $cogs : 0.0;   // numeric keys come back as int
                 $gross_margin_top3[] = [
-                    'category'    => $row['category'],
-                    'revenue'     => $rev,
-                    'cogs'        => $cogs,
-                    'gross_pct'   => $rev > 0 ? round((($rev - $cogs) / $rev) * 100.0, 1) : null,
-                    'gross_fcfa'  => $rev - $cogs,
+                    'category'   => $names[(string) $grp] ?? ('Comptes ' . $grp),
+                    'revenue'    => $r,
+                    'cogs'       => $c,
+                    'gross_pct'  => $r > 0 ? round((($r - $c) / $r) * 100.0, 1) : null,
+                    'gross_fcfa' => $r - $c,
                 ];
             }
+            usort($gross_margin_top3, fn($a, $b) => $b['revenue'] <=> $a['revenue']);
+            $gross_margin_top3 = array_slice($gross_margin_top3, 0, 3);
         } catch (Throwable $e) {
             error_log('analytics_controller gross_margin_top3: ' . $e->getMessage());
         }
@@ -619,28 +637,35 @@ if ($action === 'drilldown_fleet_roi') {
 }
 
 // -----------------------------------------------------------------------------
-// drilldown_empties — clients holding empties (view_empties_liability).
-// Backs the "Risque Emballages (Non-rendus)" red KPI.
+// drilldown_empties — each client's empties still to recover (under its agreed
+// minimum) and what they are worth at the empty's price. Backs the « Risque
+// emballages non rendus » card.
 // -----------------------------------------------------------------------------
 if ($action === 'drilldown_empties') {
+    $p = [];
     $sql_body = "
-        FROM view_empties_liability vel
-        LEFT JOIN clients c ON c.id = vel.client_id
-        WHERE vel.financial_risk_fcfa > 0
-        ORDER BY vel.financial_risk_fcfa DESC
+        FROM (SELECT c.id AS client_id, c.name AS client_name, COALESCE(c.lpc_code, '') AS client_code,
+                     COALESCE(c.phone, '') AS client_phone, MAX(COALESCE(c.empties_return_min_pct, 100)) AS min_pct,
+                     SUM(x.to_recover) AS bottles_with_client, SUM(x.to_recover * x.price) AS financial_risk_fcfa
+                FROM (SELECT cel.client_id, p.base_price AS price, " . lpc_empties_position_sql() . "
+                        FROM client_empties_ledger cel
+                        JOIN clients c  ON c.id = cel.client_id
+                        JOIN products p ON p.id = cel.product_id
+                       WHERE cel.deleted_at IS NULL) x
+                JOIN clients c ON c.id = x.client_id
+               GROUP BY c.id, c.name, c.lpc_code, c.phone) t
+        WHERE t.bottles_with_client > 0" . lpc_dash_search(['t.client_name', 't.client_code', 't.client_phone'], $p) . "
+        ORDER BY t.financial_risk_fcfa DESC
     ";
-    $select = "vel.client_id, vel.bottles_with_client, vel.financial_risk_fcfa,
-               COALESCE(c.name, '—')     AS client_name,
-               COALESCE(c.lpc_code, '')  AS client_code,
-               COALESCE(c.phone, '')     AS client_phone,
-               COALESCE(c.type, '')      AS client_type";
+    $select = "t.client_id, t.client_code, t.client_name, t.client_phone, t.min_pct,
+               t.bottles_with_client, t.financial_risk_fcfa";
 
     analytics_run_drilldown(
-        $pdo, $sql_body, [],
+        $pdo, $sql_body, $p,
         $select,
-        ['c.name', 'c.lpc_code', 'c.phone', 'c.type'],
-        ['Code', 'Client', 'Type', 'Téléphone', 'Bouteilles non rendues', 'Risque FCFA'],
-        ['client_code', 'client_name', 'client_type', 'client_phone', 'bottles_with_client', 'financial_risk_fcfa'],
+        [],   // searched on the outer query (lpc_dash_search)
+        ['Code', 'Client', 'Téléphone', 'Minimum %', 'Vides à récupérer', 'Valeur FCFA'],
+        ['client_code', 'client_name', 'client_phone', 'min_pct', 'bottles_with_client', 'financial_risk_fcfa'],
         'empties-risk'
     );
 }
@@ -760,18 +785,18 @@ if ($action === 'drilldown_gross_margin_cat') {
         LEFT JOIN journal_entries je ON jl.journal_entry_id = je.id
             AND je.status = 'posted'
             AND je.date >= :start AND je.date <= :end
-        WHERE ca.code LIKE '70%' OR ca.code LIKE '6%'
+        WHERE ca.code LIKE '70%' OR ca.code LIKE '60%'
         GROUP BY ca.id
-        HAVING revenue > 0 OR cogs > 0
+        HAVING revenue <> 0 OR cogs <> 0
         ORDER BY (revenue - cogs) DESC
     ";
     $select = "
         COALESCE(ca.name, '—') AS category,
         ca.code AS account_code,
         COALESCE(SUM(CASE WHEN ca.code LIKE '70%' THEN (jl.credit - jl.debit) ELSE 0 END), 0) AS revenue,
-        COALESCE(SUM(CASE WHEN ca.code LIKE '6%'  THEN (jl.debit  - jl.credit) ELSE 0 END), 0) AS cogs,
+        COALESCE(SUM(CASE WHEN ca.code LIKE '60%' THEN (jl.debit  - jl.credit) ELSE 0 END), 0) AS cogs,
         (COALESCE(SUM(CASE WHEN ca.code LIKE '70%' THEN (jl.credit - jl.debit) ELSE 0 END), 0)
-         - COALESCE(SUM(CASE WHEN ca.code LIKE '6%'  THEN (jl.debit  - jl.credit) ELSE 0 END), 0))
+         - COALESCE(SUM(CASE WHEN ca.code LIKE '60%' THEN (jl.debit  - jl.credit) ELSE 0 END), 0))
          AS gross_fcfa
     ";
     analytics_run_drilldown(
@@ -792,6 +817,7 @@ if ($action === 'drilldown_ar_over60') {
         LEFT JOIN clients c ON c.id = i.client_id
         WHERE i.status <> 'paid'
           AND DATEDIFF(CURRENT_DATE, i.due_date) > 60
+          AND " . lpc_dash_open_sql('i') . " > 0
         ORDER BY DATEDIFF(CURRENT_DATE, i.due_date) DESC, i.total_amount DESC
     ";
     $select = "
@@ -801,7 +827,7 @@ if ($action === 'drilldown_ar_over60') {
         i.reference AS invoice_number,
         i.due_date,
         DATEDIFF(CURRENT_DATE, i.due_date) AS days_overdue,
-        i.total_amount AS amount
+        " . lpc_dash_open_sql('i') . " AS amount
     ";
     analytics_run_drilldown(
         $pdo, $sql_body, [],

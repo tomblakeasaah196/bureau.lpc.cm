@@ -37,7 +37,7 @@
         { id: 'ar-delivery-cost', label: 'Coût moyen / livraison',       kind: 'fcfa',    rail: 'warn',  drill: 'fleet'               },
         { id: 'ar-empties-risk',  label: 'Risque emballages non rendus', kind: 'fcfa',    rail: 'alert', drill: 'empties'             },
         // Sprint 7H additions
-        { id: 'ar-gross-margin',  label: 'Marge brute (top-3)',          kind: 'percent', rail: 'good',  drill: 'gross_margin_cat'    },
+        { id: 'ar-gross-margin',  label: 'Marge brute',          kind: 'percent', rail: 'good',  drill: 'gross_margin_cat'    },
         { id: 'ar-fleet-roi',     label: 'ROI flotte',                   kind: 'text',    rail: 'brand', drill: 'fleet_roi'           },
         { id: 'ar-ar-over60',     label: 'Balance âgée > 60 j',          kind: 'percent', rail: 'alert', drill: 'ar_over60'           },
         { id: 'ar-budget-exec',   label: 'Écart budgétaire global',      kind: 'percent', rail: 'info',  drill: 'budget_execution'    },
@@ -48,6 +48,13 @@
     // for LPC.kpi.openDrilldown. openDrillDown(key) below also reads
     // this map so the two chart-header buttons keep working.
     // ==================================================================
+    // Words the windows show for the codes the database keeps.
+    var INVOICE_STATUS = { unpaid: 'Non payée', partial: 'Payée en partie', paid: 'Payée' };
+    var PAYSLIP_STATUS = { draft: 'Brouillon', validated: 'Validé', paid: 'Payé' };
+    var ROLE_LABEL = { admin: 'Administrateur', directeur_general: 'Directeur Général', controleur_financier: 'Contrôleur Financier',
+                       accountant: 'Comptable', operations: 'Responsable des Opérations', sales: 'Commercial', driver: 'Chauffeur' };
+    var VEHICLE_TYPE = { truck: 'Camion', van: 'Fourgonnette', car: 'Voiture', motorbike: 'Moto', tricycle: 'Tricycle' };
+
     var DRILLDOWNS = {
         revenue: {
             title:  "Chiffre d'affaires — factures de la période",
@@ -57,10 +64,10 @@
             deeplink: { href: '/modules/accounting/invoices.php?from=analytics_reports', label: 'Ouvrir la facturation' },
             renderRow: function (r) {
                 return LPC.html`<tr>
-                    <td>${r.date || ''}</td>
+                    <td>${LPC.fmt.date(r.date)}</td>
                     <td>${r.reference || ''}</td>
                     <td>${r.client_name || '—'}</td>
-                    <td>${r.status || ''}</td>
+                    <td>${INVOICE_STATUS[r.status] || r.status || ''}</td>
                     <td class="text-right">${LPC.fmt.fcfa(r.total_amount || 0)}</td>
                 </tr>`;
             },
@@ -75,10 +82,10 @@
                 return LPC.html`<tr>
                     <td>${r.year}-${String(r.month).padStart(2, '0')}</td>
                     <td>${(r.last_name || '') + ' ' + (r.first_name || '')}</td>
-                    <td>${r.role_name || ''}</td>
+                    <td>${ROLE_LABEL[r.role_name] || r.role_name || ''}</td>
                     <td class="text-right">${LPC.fmt.fcfa(r.gross_salary || 0)}</td>
                     <td class="text-right">${LPC.fmt.fcfa(r.net_pay || 0)}</td>
-                    <td>${r.status || ''}</td>
+                    <td>${PAYSLIP_STATUS[r.status] || r.status || ''}</td>
                 </tr>`;
             },
         },
@@ -108,7 +115,7 @@
             renderRow: function (r) {
                 return LPC.html`<tr>
                     <td>${r.plate_number || ''}</td>
-                    <td>${r.type || ''}</td>
+                    <td>${VEHICLE_TYPE[r.type] || r.type || ''}</td>
                     <td>${r.make_model || ''}</td>
                     <td class="text-right">${LPC.fmt.fcfa(r.fuel_cost || 0)}</td>
                     <td class="text-right">${LPC.fmt.fcfa(r.maint_cost || 0)}</td>
@@ -117,17 +124,17 @@
             },
         },
         empties: {
-            title:  'Risque emballages — clients détenteurs de bouteilles',
+            title:  'Vides à récupérer — par client',
             url:    '/api/v1/analytics_controller.php?action=drilldown_empties',
-            columns:['Code', 'Client', 'Type', 'Téléphone', 'Bouteilles', 'Risque FCFA'],
+            columns:['Code', 'Client', 'Téléphone', 'Minimum', 'À récupérer', 'Valeur'],
             csv: true,
             deeplink: { href: '/modules/operations/empties_collection.php?from=analytics_reports', label: 'Voir les emballages' },
             renderRow: function (r) {
                 return LPC.html`<tr>
                     <td>${r.client_code || ''}</td>
                     <td>${r.client_name || '—'}</td>
-                    <td>${r.client_type || ''}</td>
                     <td>${r.client_phone || ''}</td>
+                    <td class="text-right">${LPC.fmt.percent(r.min_pct)}</td>
                     <td class="text-right">${LPC.fmt.int(r.bottles_with_client || 0)}</td>
                     <td class="text-right">${LPC.fmt.fcfa(r.financial_risk_fcfa || 0)}</td>
                 </tr>`;
@@ -152,7 +159,7 @@
         // ---- Sprint 7H additions -------------------------------------
 
         gross_margin_cat: {
-            title:  'Marge brute par catégorie',
+            title:  'Marge brute — ventes et coût des marchandises, par compte',
             url:    '/api/v1/analytics_controller.php?action=drilldown_gross_margin_cat',
             columns:['Catégorie', 'Compte', 'CA FCFA', 'Coût FCFA', 'Marge FCFA'],
             csv: true,
@@ -187,14 +194,13 @@
         budget_execution: {
             title:  'Exécution budgétaire — toutes les lignes',
             url:    '/api/v1/analytics_controller.php?action=drilldown_budget_execution',
-            columns:['Catégorie', 'Compte', 'Planifié', 'Réalisé', 'Écart', 'Exécution %'],
+            columns:['Ligne budgétaire', 'Objectif', 'Réalisé', 'Écart', 'Exécution %'],
             csv: true,
             deeplink: { href: '/modules/accounting/budgets.php?from=analytics_reports', label: 'Ouvrir le budget' },
             renderRow: function (r) {
                 return LPC.html`<tr>
                     <td>${r.category || ''}</td>
-                    <td>${r.account_code || ''}</td>
-                    <td class="text-right">${LPC.fmt.fcfa(r.planned || 0)}</td>
+                    <td class="text-right">${r.planned > 0 ? LPC.fmt.fcfa(r.planned) : '—'}</td>
                     <td class="text-right">${LPC.fmt.fcfa(r.actual || 0)}</td>
                     <td class="text-right">${LPC.fmt.fcfa(r.variance || 0)}</td>
                     <td class="text-right">${r.execution_pct != null ? r.execution_pct + ' %' : '—'}</td>
@@ -220,7 +226,8 @@
         document.getElementById('ar-kpi-grid').addEventListener('lpc:kpi-open', function (e) {
             e.preventDefault();
             var spec = KPI_SPECS.find(function (k) { return k.id === e.detail.id; });
-            if (spec && DRILLDOWNS[spec.drill]) LPC.kpi.openDrilldown(DRILLDOWNS[spec.drill]);
+            // Through openDrillDown: the window lists the period picked at the top.
+            if (spec && DRILLDOWNS[spec.drill]) openDrillDown(spec.drill);
         });
     }
 
@@ -315,7 +322,8 @@
         LPC.kpi.update({
             id:    'ar-payroll-ratio',
             value: kpi.payroll_ratio,
-            delta: trendDelta(kpi.payroll_trend, 'bad'),
+            // The trend of a ratio is a difference in points, not a % change.
+            delta: (function (d) { if (d && d.label) d.label = d.label.replace(' % vs', ' pts vs'); return d; })(trendDelta(kpi.payroll_trend, 'bad')),
             sub:   'Charges de personnel / CA',
         });
 
@@ -332,7 +340,7 @@
             id:    'ar-empties-risk',
             value: kpi.empties_risk,
             delta: { kind: 'none' },
-            sub:   'Valeur totale des bouteilles en circulation',
+            sub:   'Vides sous le minimum convenu, au prix du vide',
         });
 
         // ---- Sprint 7H additions ----
@@ -349,7 +357,7 @@
             empty: pctGm === null ? 'Sans CA' : null,
             delta: { kind: 'none' },
             sub:   top3.length
-                     ? 'Top: ' + top3.map(function (r) { return r.category; }).join(' · ')
+                     ? top3.map(function (r) { return r.category + (r.gross_pct === null ? '' : ' ' + String(r.gross_pct).replace('.', ',') + ' %'); }).join(' · ')
                      : 'Aucune catégorie',
         });
 
@@ -421,6 +429,15 @@
             return;
         }
         budgetData.forEach(function (b) {
+            if (!b.budgeted) {
+                tbody.insertAdjacentHTML('beforeend', LPC.html`
+                <tr class="border-b border-gray-50">
+                    <td class="py-2 px-4 text-xs font-bold text-gray-700">${b.category}</td>
+                    <td class="py-2 px-4 text-right font-black text-gray-900">${fmt(b.actual)} F</td>
+                    <td class="py-2 px-4 text-right text-[10px] text-gray-400">Sans objectif</td>
+                </tr>`);
+                return;
+            }
             var varPct   = ((b.actual - b.budgeted) / b.budgeted) * 100;
             var varColor = varPct > 0 ? 'text-rose-500 bg-rose-50' : 'text-emerald-500 bg-emerald-50';
             var icon     = varPct > 0 ? '+' : '';

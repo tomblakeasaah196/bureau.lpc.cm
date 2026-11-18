@@ -58,6 +58,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/Paginator.php';
 require_once __DIR__ . '/../../includes/functions/lpc_csv.php';
+require_once __DIR__ . '/../../includes/functions/dashboard_kpis.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -310,9 +311,10 @@ if ($__action === 'drilldown_ar') {
     $sql = "
         FROM invoices i
         LEFT JOIN clients c ON c.id = i.client_id
-        WHERE i.status <> 'paid'
+        WHERE i.status <> 'paid' AND " . lpc_dash_open_sql('i') . " > 0
         ORDER BY (DATEDIFF(CURRENT_DATE, i.due_date)) DESC, i.total_amount DESC
     ";
+    // What each open invoice still owes, not its total (VIDEO_QA_FINDINGS 14.3).
     md_run_drilldown($db, $sql, [],
         "i.id,
          COALESCE(c.name, '—') AS client_name,
@@ -320,7 +322,7 @@ if ($__action === 'drilldown_ar') {
          i.reference AS invoice_number,
          i.due_date,
          GREATEST(0, DATEDIFF(CURRENT_DATE, i.due_date)) AS days_overdue,
-         i.total_amount AS amount",
+         " . lpc_dash_open_sql('i') . " AS amount",
         ['c.name', 'c.lpc_code', 'i.reference'],
         ['Client', 'Code', 'Facture', 'Échéance', 'Retard (j)', 'Montant FCFA'],
         ['client_name', 'client_code', 'invoice_number', 'due_date', 'days_overdue', 'amount'],
@@ -359,51 +361,37 @@ if ($__action === 'drilldown_margin') {
     );
 }
 
-// drilldown_empties — per-driver empties rate for the period.
+// drilldown_empties — each client's empties: delivered, returned, the agreed
+// minimum and what is still to recover (the clients' empties ledger, 14.1).
 if ($__action === 'drilldown_empties') {
-    $sql = "
-        FROM users u
-        LEFT JOIN deliveries d ON d.driver_id = u.id AND d.date BETWEEN :s AND :e
-        LEFT JOIN delivery_items di ON di.delivery_id = d.id
-        LEFT JOIN cash_reconciliations cr ON cr.driver_id = u.id AND cr.date BETWEEN :s2 AND :e2
-        WHERE u.role_id IN (SELECT id FROM roles WHERE name = 'driver')
-        GROUP BY u.id, u.first_name, u.last_name
-        HAVING delivered > 0 OR returned > 0
-        ORDER BY delivered DESC
-    ";
-    md_run_drilldown($db, $sql,
-        ['s' => $start_date, 'e' => $end_date, 's2' => $start_date, 'e2' => $end_date],
-        "CONCAT(u.first_name, ' ', SUBSTRING(u.last_name, 1, 1), '.') AS driver_name,
-         COALESCE(SUM(di.quantity), 0) AS delivered,
-         COALESCE(SUM(cr.empties_with_cork + cr.empties_without_cork), 0) AS returned,
-         CASE WHEN COALESCE(SUM(di.quantity), 0) > 0
-              THEN ROUND((COALESCE(SUM(cr.empties_with_cork + cr.empties_without_cork), 0)
-                       / COALESCE(SUM(di.quantity), 1)) * 100, 1)
-              ELSE 0 END AS rate",
-        ['u.first_name', 'u.last_name'],
-        ['Chauffeur', 'Livrées', 'Retournées', 'Taux %'],
-        ['driver_name', 'delivered', 'returned', 'rate'],
+    $p = [];
+    [$from, $select] = lpc_dash_empties_drill($p);
+    md_run_drilldown($db, $from, $p, $select,
+        [],   // searched on the outer query (lpc_dash_search)
+        ['Client', 'Livrées', 'Rendues', 'Taux %', 'Minimum %', 'À récupérer'],
+        ['client_name', 'delivered', 'returned', 'rate', 'min_pct', 'to_recover'],
         'md-empties'
     );
 }
 
-// drilldown_cash — every cash/bank account's balance as of end_date.
+// drilldown_cash — each treasury account's ledger balance as of end_date: the
+// Trésorerie screen's accounts, Mobile Money included (14.3).
 if ($__action === 'drilldown_cash') {
+    $p = ['e' => $end_date];
     $sql = "
-        FROM chart_of_accounts coa
-        LEFT JOIN journal_lines jl ON jl.account_id = coa.id
-        LEFT JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'posted'
-        WHERE coa.type = 'asset'
-          AND (LOWER(coa.name) LIKE '%caisse%' OR LOWER(coa.name) LIKE '%banque%'
-               OR coa.code LIKE '52%' OR coa.code LIKE '57%')
-        GROUP BY coa.id, coa.name, coa.code
-        ORDER BY balance DESC
+        FROM (SELECT a.name AS account_name, c.code,
+                     COALESCE((SELECT SUM(l.debit - l.credit)
+                                 FROM journal_lines l JOIN journal_entries e ON e.id = l.journal_entry_id
+                                WHERE l.account_id = a.coa_account_id AND e.status = 'posted' AND e.date <= :e), 0) AS balance
+                FROM treasury_accounts a
+                LEFT JOIN chart_of_accounts c ON c.id = a.coa_account_id
+               WHERE a.status = 'active' AND a.deleted_at IS NULL) t
+        WHERE 1 = 1" . lpc_dash_search(['t.account_name', 't.code'], $p) . "
+        ORDER BY t.balance DESC
     ";
-    md_run_drilldown($db, $sql, [],
-        "coa.name AS account_name,
-         coa.code,
-         COALESCE(SUM(jl.debit - jl.credit), 0) AS balance",
-        ['coa.name', 'coa.code'],
+    md_run_drilldown($db, $sql, $p,
+        "t.account_name, t.code, t.balance",
+        [],
         ['Compte', 'Code', 'Solde FCFA'],
         ['account_name', 'code', 'balance'],
         'md-cash'
@@ -468,62 +456,21 @@ $q_expenses = function ($sd, $ed) use ($db): float {
     return (float) $stmt->fetch()['v'];
 };
 
-$q_ar_total = function () use ($db): float {
-    $stmt = $db->query("SELECT COALESCE(SUM(total_amount), 0) AS v FROM invoices WHERE status <> 'paid'");
-    return (float) $stmt->fetch()['v'];
+// Receivables: what the open invoices still owe, by days past due (14.3).
+$q_ar = function () use ($db): array {
+    return lpc_dash_ar($db);
 };
 
-$q_ar_aging = function () use ($db): array {
-    $stmt = $db->query("
-        SELECT
-            SUM(CASE WHEN DATEDIFF(CURRENT_DATE, due_date) <= 15                      THEN total_amount ELSE 0 END) AS c,
-            SUM(CASE WHEN DATEDIFF(CURRENT_DATE, due_date) BETWEEN 16 AND 30           THEN total_amount ELSE 0 END) AS l,
-            SUM(CASE WHEN DATEDIFF(CURRENT_DATE, due_date) > 30                        THEN total_amount ELSE 0 END) AS x
-          FROM invoices WHERE status <> 'paid'
-    ");
-    $r = $stmt->fetch();
-    return [(float)$r['c'], (float)$r['l'], (float)$r['x']];
+// Empties: the clients' ledger against each client's agreed minimum (14.1). A
+// position (like cash), not a flow: the ledger keeps totals, not dates.
+$q_empties = function () use ($db): array {
+    return lpc_dash_empties($db);
 };
 
-$q_delivered_qty = function ($sd, $ed) use ($db): int {
-    $stmt = $db->prepare("
-        SELECT COALESCE(SUM(quantity), 0) AS v
-          FROM delivery_items di
-          JOIN deliveries d ON di.delivery_id = d.id
-         WHERE d.date BETWEEN :s AND :e
-    ");
-    $stmt->execute(['s' => $sd, 'e' => $ed]);
-    return (int) $stmt->fetch()['v'];
-};
-
-$q_returned_empties = function ($sd, $ed) use ($db): int {
-    $stmt = $db->prepare("
-        SELECT COALESCE(SUM(empties_with_cork + empties_without_cork), 0) AS v
-          FROM cash_reconciliations
-         WHERE date BETWEEN :s AND :e
-    ");
-    $stmt->execute(['s' => $sd, 'e' => $ed]);
-    return (int) $stmt->fetch()['v'];
-};
-
-/**
- * Cash disponible.
- * Sum of asset accounts flagged as cash/bank. The chart_of_accounts table
- * does not carry a dedicated bucket_key column on every install, so this
- * uses a name-pattern match against 'caisse' and 'banque' as a fallback.
- * A future migration could replace this with an explicit is_cash flag.
- */
-$q_cash = function () use ($db): float {
-    $stmt = $db->query("
-        SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS v
-          FROM journal_lines jl
-          JOIN journal_entries je ON jl.journal_entry_id = je.id
-          JOIN chart_of_accounts coa ON jl.account_id = coa.id
-         WHERE coa.type = 'asset'
-           AND je.status = 'posted'
-           AND (LOWER(coa.name) LIKE '%caisse%' OR LOWER(coa.name) LIKE '%banque%' OR coa.code LIKE '52%' OR coa.code LIKE '57%')
-    ");
-    return (float) $stmt->fetch()['v'];
+// Cash: every active treasury account's own sub-account (5211, 5711, 5521…) up
+// to the end of the period (14.3). It read 52x and 57x only: never Mobile Money.
+$q_cash = function () use ($db, $end_date): float {
+    return lpc_dash_cash($db, $end_date);
 };
 
 // -----------------------------------------------------------------------------
@@ -534,12 +481,10 @@ $revenuePrev    = md_safe($q_revenue_prev);
 $revenueTarget  = md_safe($q_revenue_target);
 $expensesCur    = md_safe(function () use ($q_expenses, $start_date, $end_date) { return $q_expenses($start_date, $end_date); });
 $expensesPrev   = md_safe(function () use ($q_expenses, $prev_start, $prev_end) { return $q_expenses($prev_start, $prev_end); });
-$arTotal        = md_safe($q_ar_total);
-$arAging        = md_safe($q_ar_aging);
-$deliveredCur   = md_safe(function () use ($q_delivered_qty, $start_date, $end_date) { return $q_delivered_qty($start_date, $end_date); });
-$deliveredPrev  = md_safe(function () use ($q_delivered_qty, $prev_start, $prev_end) { return $q_delivered_qty($prev_start, $prev_end); });
-$returnedCur    = md_safe(function () use ($q_returned_empties, $start_date, $end_date) { return $q_returned_empties($start_date, $end_date); });
-$returnedPrev   = md_safe(function () use ($q_returned_empties, $prev_start, $prev_end) { return $q_returned_empties($prev_start, $prev_end); });
+$ar             = md_safe($q_ar);
+$arTotal        = $ar['ok'] ? ['ok' => true, 'value' => $ar['value']['total']] : $ar;
+$arAging        = $ar['ok'] ? ['ok' => true, 'value' => $ar['value']['buckets']] : $ar;
+$empties        = md_safe($q_empties);
 $cash           = md_safe($q_cash);
 
 // -----------------------------------------------------------------------------
@@ -570,8 +515,7 @@ if ($arTotal['ok']) {
     // Approximating with the same snapshot (invoices don't carry a historical
     // balance); we compare aging buckets over time instead — see the AR
     // aging chart. So the card shows the total + aging breakdown in the sub.
-    $aging = $arAging['ok'] ? $arAging['value'] : [0, 0, 0];
-    $overdue = $aging[1] + $aging[2];
+    $overdue = $ar['value']['overdue'];
     $overduePct = $arTotal['value'] > 0 ? ($overdue / $arTotal['value']) * 100.0 : 0.0;
     $cards[] = [
         'id'    => 'md-ar',
@@ -610,14 +554,20 @@ if ($revenue['ok'] && $expensesCur['ok'] && $revenue['value'] > 0) {
     $cards[] = ['id' => 'md-margin', 'value' => null, 'empty' => $revenue['ok'] && $revenue['value'] == 0 ? 'Sans CA' : 'Indisponible'];
 }
 
-// --- 4. Taux de récupération des emballages ------------------------------
-if ($deliveredCur['ok'] && $returnedCur['ok']) {
-    $rate = $deliveredCur['value'] > 0 ? ($returnedCur['value'] / $deliveredCur['value']) * 100.0 : 0.0;
-    $card = ['id' => 'md-empties', 'kind' => 'percent', 'value' => round($rate, 1)];
-    // Target: 80 % (from the pre-7H UI copy — "Objectif: 80 %").
-    $card['delta'] = md_delta_attainment($rate, 80.0, 'good');
-    $card['sub']   = 'Objectif ≥ 80 %';
+// --- 4. Récupération des vides ----------------------------------------
+// Bottles back over bottles delivered, against the agreed minimum (each
+// client's %, PROMETAL 80 %): the chip says how far LPC is from it, the line
+// under it what is still to recover (Gestion des Vides' « À récupérer »).
+if ($empties['ok'] && $empties['value']['rate'] !== null) {
+    $e = $empties['value'];
+    $card = ['id' => 'md-empties', 'kind' => 'percent', 'value' => $e['rate']];
+    $card['delta'] = md_delta_attainment((float) $e['in'], (float) $e['minimum'], 'good');
+    if (isset($card['delta']['label'])) $card['delta']['label'] = str_replace('de la cible', 'du minimum', $card['delta']['label']);
+    $card['sub']  = 'Minimum convenu ' . number_format((float) $e['min_pct'], 0, ',', ' ') . ' % · '
+                   . ($e['to_recover'] > 0 ? number_format($e['to_recover'], 0, ',', ' ') . ' à récupérer' : 'rien à récupérer');
     $cards[] = $card;
+} elseif ($empties['ok']) {
+    $cards[] = ['id' => 'md-empties', 'value' => null, 'empty' => 'Aucune bouteille livrée'];
 } else {
     $cards[] = ['id' => 'md-empties', 'value' => null, 'empty' => 'Indisponible'];
 }
@@ -632,7 +582,7 @@ if ($cash['ok']) {
         // "now", not "over the period", so the change chip would be misleading.
         // The sub-line spells out where it came from instead.
         'delta' => ['kind' => 'none'],
-        'sub'   => 'Comptes 52/57 (caisse & banque)',
+        'sub'   => 'Banque, caisse et Mobile Money',
     ];
 } else {
     $cards[] = ['id' => 'md-cash', 'value' => null, 'empty' => 'Indisponible'];
@@ -729,9 +679,7 @@ md_respond('success', [
         'net_margin'             => ($revenue['ok'] && $expensesCur['ok'] && $revenue['value'] > 0)
                                       ? round((($revenue['value'] - $expensesCur['value']) / $revenue['value']) * 100.0, 1)
                                       : 0,
-        'empties_recovery_rate'  => ($deliveredCur['ok'] && $returnedCur['ok'] && $deliveredCur['value'] > 0)
-                                      ? round(($returnedCur['value'] / $deliveredCur['value']) * 100.0, 1)
-                                      : 0,
+        'empties_recovery_rate'  => $empties['ok'] ? (float) ($empties['value']['rate'] ?? 0) : 0,
         'cash_available'         => $cash['ok']          ? $cash['value']          : 0,
     ],
 ]);

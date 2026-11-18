@@ -32,7 +32,11 @@ $lang = lpc_i18n_current_lang();
 // salesperson to the whole team. Rendering it is gated here so a salesperson
 // never sees a control they cannot use — and the controller re-checks the same
 // permission, because a hidden control is UX, not security (README §4.7).
-$canSeeTeam = Rbac::hasPermission('dashboard.md.view');
+// Who reads the whole team: the DG (dashboard.md.view) and Finance (the
+// Comptable's dashboard.finance.view). They see every sale by default: Ops types
+// the orders and there is no Sales login yet, so « Mes ventes » read 0 for the
+// DG (VIDEO_QA_FINDINGS 14.5). A salesperson keeps their own orders only.
+$canSeeTeam = Rbac::hasPermission('dashboard.md.view') || Rbac::hasPermission('dashboard.finance.view');
 
 $currentYear  = (int)date('Y');
 $currentMonth = (int)date('n');
@@ -64,7 +68,7 @@ $monthNames = [
 
 <?php
 $pageTitle    = lpc_nav_label('dash_sales');
-$pageSubtitle = 'Ma performance commerciale';
+$pageSubtitle = $canSeeTeam ? 'Performance commerciale' : 'Ma performance commerciale';
 require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/sidebar.php';
 require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 ?>
@@ -99,8 +103,8 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
             <span class="lpc-toolbar-sep" aria-hidden="true"></span>
             <label for="sd-scope" class="sr-only">Périmètre</label>
             <select id="sd-scope" class="lpc-control">
-                <option value="me" selected>Mes ventes</option>
-                <option value="team">Toute l'équipe</option>
+                <option value="team" selected>Toutes les ventes</option>
+                <option value="me">Mes ventes</option>
             </select>
         <?php endif; ?>
     </div>

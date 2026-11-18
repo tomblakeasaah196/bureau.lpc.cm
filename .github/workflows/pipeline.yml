@@ -97,6 +97,10 @@ jobs:
         run: php scripts/tests/go_live.test.php
       - name: Comptabilité 3 (tax payments posted, who approves and pays, the statements, the closing)
         run: php scripts/tests/tax_closing.test.php
+      - name: Tableaux de bord (cash, receivables, empties, stock alerts, drivers and statuses read from their sources)
+        run: |
+          php scripts/tests/dashboards.test.php
+          node scripts/tests/dashboard_period.test.js
 
   mail:
     # Courrier (docs/MAIL.md §9): every scripts/tests/mail/*.test.php, each blocking. PR 1's three: the engine

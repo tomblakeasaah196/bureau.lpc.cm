@@ -81,7 +81,7 @@
                 renderRow: function (r) {
                     return LPC.html`<tr>
                         <td>${r.account_name || ''}</td>
-                        <td>${r.type || ''}</td>
+                        <td>${r.type === 'revenue' ? 'Produit' : 'Charge'}</td>
                         <td class="text-right">${LPC.fmt.fcfa(r.debit)}</td>
                         <td class="text-right">${LPC.fmt.fcfa(r.credit)}</td>
                         <td class="text-right">${LPC.fmt.fcfa(r.balance)}</td>
@@ -90,20 +90,22 @@
             },
         },
         {
-            id: 'md-empties', label: "Récupération d'emballages", kind: 'percent', rail: 'good',
+            id: 'md-empties', label: "Récupération des vides", kind: 'percent', rail: 'good',
             drill: 'empties',
             drillCfg: {
-                title: "Récupération d'emballages — par chauffeur",
+                title: "Récupération des vides — par client",
                 url: '/api/v1/md_dashboard_api.php?action=drilldown_empties',
-                columns: ['Chauffeur', 'Livrées', 'Retournées', 'Taux'],
+                columns: ['Client', 'Livrées', 'Rendues', 'Taux', 'Minimum', 'À récupérer'],
                 csv: true,
-                deeplink: { href: '/modules/operations/empties_collection.php?from=dashboard_md', label: 'Voir les emballages' },
+                deeplink: { href: '/modules/operations/empties_collection.php?from=dashboard_md', label: 'Ouvrir Gestion des Vides' },
                 renderRow: function (r) {
                     return LPC.html`<tr>
-                        <td>${r.driver_name || ''}</td>
+                        <td>${r.client_name || ''}</td>
                         <td class="text-right">${LPC.fmt.int(r.delivered)}</td>
                         <td class="text-right">${LPC.fmt.int(r.returned)}</td>
-                        <td class="text-right">${LPC.fmt.percent(r.rate)}</td>
+                        <td class="text-right">${r.rate === null ? '—' : LPC.fmt.percent(r.rate)}</td>
+                        <td class="text-right">${LPC.fmt.percent(r.min_pct)}</td>
+                        <td class="text-right">${LPC.fmt.int(r.to_recover)}</td>
                     </tr>`;
                 },
             },
@@ -150,7 +152,19 @@
         if (el) el.classList.add('hidden');
     }
 
+    // The period on screen: each detail window lists the same period as its
+    // card (they had none and read « since 1 January »).
+    var currentRange = null;
+    function withPeriod(cfg) {
+        if (!currentRange) return cfg;
+        var u = new URL(cfg.url, window.location.origin);
+        u.searchParams.set('start_date', currentRange.start);
+        u.searchParams.set('end_date', currentRange.end);
+        return Object.assign({}, cfg, { url: u.pathname + u.search });
+    }
+
     function fetchDashboard(range) {
+        currentRange = range;
         hideError();
         LPC.kpi.setLoading('#md-kpi-grid', true);
 
@@ -258,7 +272,7 @@
         document.getElementById('md-kpi-grid').addEventListener('lpc:kpi-open', function (e) {
             e.preventDefault();
             var spec = KPI_SPECS.find(function (k) { return k.id === e.detail.id; });
-            if (spec && spec.drillCfg) LPC.kpi.openDrilldown(spec.drillCfg);
+            if (spec && spec.drillCfg) LPC.kpi.openDrilldown(withPeriod(spec.drillCfg));
         });
 
         // Period pill fires the initial fetch (fires lpc:period-change on mount).

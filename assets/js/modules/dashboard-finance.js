@@ -44,7 +44,7 @@
             drillCfg: {
                 title: 'Créances — factures ouvertes',
                 url:   '/api/v1/finance_dashboard_api.php?action=drilldown_ar',
-                columns: ['Client', 'Facture', 'Échéance', 'Retard (j)', 'Montant'],
+                columns: ['Client', 'Facture', 'Échéance', 'Retard (j)', 'Reste dû'],
                 csv: true,
                 deeplink: { href: '/modules/accounting/invoices.php?from=dashboard_finance', label: 'Ouvrir la facturation' },
                 renderRow: function (r) {
@@ -64,7 +64,7 @@
             drillCfg: {
                 title: 'Dettes fournisseurs — soldes par fournisseur',
                 url:   '/api/v1/finance_dashboard_api.php?action=drilldown_ap',
-                columns: ['Fournisseur', 'Facture', 'Date', 'Montant'],
+                columns: ['Fournisseur', 'Compte', 'Dernier mouvement', 'Solde'],
                 csv: true,
                 deeplink: { href: '/modules/inventory/procurement.php?from=dashboard_finance', label: 'Ouvrir les achats' },
                 renderRow: function (r) {
@@ -109,7 +109,7 @@
                 renderRow: function (r) {
                     return LPC.html`<tr>
                         <td>${r.account_name || ''}</td>
-                        <td>${r.type || ''}</td>
+                        <td>${r.type === 'revenue' ? 'Produit' : 'Charge'}</td>
                         <td class="text-right">${LPC.fmt.fcfa(r.debit)}</td>
                         <td class="text-right">${LPC.fmt.fcfa(r.credit)}</td>
                         <td class="text-right">${LPC.fmt.fcfa(r.balance)}</td>
@@ -134,7 +134,19 @@
         if (el) el.classList.add('hidden');
     }
 
+    // The period on screen: each detail window lists the same period as its
+    // card (they had none and read « since 1 January »).
+    var currentRange = null;
+    function withPeriod(cfg) {
+        if (!currentRange) return cfg;
+        var u = new URL(cfg.url, window.location.origin);
+        u.searchParams.set('start_date', currentRange.start);
+        u.searchParams.set('end_date', currentRange.end);
+        return Object.assign({}, cfg, { url: u.pathname + u.search });
+    }
+
     function fetchDashboard(range) {
+        currentRange = range;
         hideError();
         LPC.kpi.setLoading('#fin-kpi-grid', true);
 
@@ -156,7 +168,7 @@
                 (payload.cards || []).forEach(function (patch) { LPC.kpi.update(patch); });
                 renderCashflow(payload.charts && payload.charts.cashflow);
                 renderAging(payload.charts && payload.charts.ar_aging);
-                renderReconTable(payload.table || []);
+                renderAccounts(payload.table || []);
             })
             .catch(function (err) {
                 console.error('finance_dashboard fetch failed:', err);
@@ -223,38 +235,24 @@
         });
     }
 
-    function renderReconTable(rows) {
-        var tbody = document.getElementById('reconciliation-table-body');
+    var TYPE_LABEL = { bank: 'Banque', caisse: 'Caisse', momo: 'Mobile Money' };
+    function renderAccounts(rows) {
+        var tbody = document.getElementById('treasury-accounts-body');
         if (!tbody) return;
         tbody.innerHTML = '';
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-500">Aucune validation en attente.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="3" class="px-6 py-8 text-center text-sm text-gray-500">Aucun compte de trésorerie actif.</td></tr>';
             return;
         }
         rows.forEach(function (row) {
-            var varianceColor = row.variance < 0 ? 'text-red-500' : 'text-gray-500';
-            var varianceText  = row.variance < 0
-                ? 'Manquant : ' + LPC.fmt.int(Math.abs(row.variance)) + ' FCFA'
-                : 'Complet';
             tbody.insertAdjacentHTML('beforeend', LPC.html`
                 <tr class="hover:bg-gray-50 transition-colors">
                     <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="text-sm font-bold text-gray-900">${row.driver}</div>
-                        <div class="text-xs text-gray-500">${row.date}</div>
+                        <div class="text-sm font-bold text-gray-900">${row.name}</div>
+                        <div class="text-xs text-gray-500">${TYPE_LABEL[row.type] || row.type || ''}</div>
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-right font-medium text-gray-700">
-                        ${LPC.fmt.fcfa(row.expected_cash)}
-                        <div class="text-[10px] text-gray-400">Eau + Emballages</div>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-right">
-                        <div class="font-bold text-emerald-600">${LPC.fmt.fcfa(row.declared_cash)}</div>
-                        <div class="text-[10px] font-bold ${LPC.raw(varianceColor)}">${varianceText}</div>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-center">
-                        <button type="button" class="bg-lpc-dark hover:bg-green-800 text-white text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-colors">
-                            Valider
-                        </button>
-                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${row.code || '—'}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right font-bold ${LPC.raw(row.balance < 0 ? 'text-red-600' : 'text-gray-900')}">${LPC.fmt.fcfa(row.balance)}</td>
                 </tr>`);
         });
     }
@@ -269,7 +267,7 @@
         document.getElementById('fin-kpi-grid').addEventListener('lpc:kpi-open', function (e) {
             e.preventDefault();
             var spec = KPI_SPECS.find(function (k) { return k.id === e.detail.id; });
-            if (spec && spec.drillCfg) LPC.kpi.openDrilldown(spec.drillCfg);
+            if (spec && spec.drillCfg) LPC.kpi.openDrilldown(withPeriod(spec.drillCfg));
         });
 
         LPC.kpi.mountPeriodPill('#fin-period-pill', {

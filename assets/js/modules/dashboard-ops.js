@@ -37,9 +37,9 @@
             id: 'ops-low-stock', label: 'Alertes stock', kind: 'int', rail: 'warn',
             drill: 'low_stock',
             drillCfg: {
-                title: 'Produits sous le seuil critique',
+                title: 'Produits au Seuil Min. ou en rupture',
                 url:   '/api/v1/ops_dashboard_api.php?action=drilldown_low_stock',
-                columns: ['Produit', 'Catégorie', 'Stock actuel', 'Seuil'],
+                columns: ['Produit', 'Catégorie', 'Stock', 'Seuil Min.', 'État'],
                 csv: true,
                 deeplink: { href: '/modules/inventory/stock.php?from=dashboard_ops', label: 'Ouvrir le stock' },
                 renderRow: function (r) {
@@ -48,25 +48,28 @@
                         <td>${r.category || ''}</td>
                         <td class="text-right">${LPC.fmt.int(r.stock)}</td>
                         <td class="text-right">${LPC.fmt.int(r.threshold)}</td>
+                        <td>${r.state || ''}</td>
                     </tr>`;
                 },
             },
         },
         {
-            id: 'ops-empties', label: "Retour d'emballages", kind: 'percent', rail: 'good',
+            id: 'ops-empties', label: "Récupération des vides", kind: 'percent', rail: 'good',
             drill: 'empties',
             drillCfg: {
-                title: "Récupération d'emballages — par chauffeur",
+                title: "Récupération des vides — par client",
                 url:   '/api/v1/ops_dashboard_api.php?action=drilldown_empties',
-                columns: ['Chauffeur', 'Livrées', 'Retournées', 'Taux'],
+                columns: ['Client', 'Livrées', 'Rendues', 'Taux', 'Minimum', 'À récupérer'],
                 csv: true,
-                deeplink: { href: '/modules/operations/empties_collection.php?from=dashboard_ops', label: 'Voir les emballages' },
+                deeplink: { href: '/modules/operations/empties_collection.php?from=dashboard_ops', label: 'Ouvrir Gestion des Vides' },
                 renderRow: function (r) {
                     return LPC.html`<tr>
-                        <td>${r.driver_name || ''}</td>
+                        <td>${r.client_name || ''}</td>
                         <td class="text-right">${LPC.fmt.int(r.delivered)}</td>
                         <td class="text-right">${LPC.fmt.int(r.returned)}</td>
-                        <td class="text-right">${LPC.fmt.percent(r.rate)}</td>
+                        <td class="text-right">${r.rate === null ? '—' : LPC.fmt.percent(r.rate)}</td>
+                        <td class="text-right">${LPC.fmt.percent(r.min_pct)}</td>
+                        <td class="text-right">${LPC.fmt.int(r.to_recover)}</td>
                     </tr>`;
                 },
             },
@@ -78,7 +81,7 @@
             drillCfg: {
                 title: 'État de la flotte',
                 url:   '/api/v1/ops_dashboard_api.php?action=drilldown_fleet',
-                columns: ['Véhicule', 'Immatriculation', 'Chauffeur', 'Statut', 'Dernière activité'],
+                columns: ['Véhicule', 'Immatriculation', 'Dernier chauffeur', 'Statut', 'Dernière livraison'],
                 csv: true,
                 deeplink: { href: '/modules/fleet/vehicles.php?from=dashboard_ops', label: 'Ouvrir la flotte' },
                 renderRow: function (r) {
@@ -128,7 +131,19 @@
         if (el) el.classList.add('hidden');
     }
 
+    // The period on screen: each detail window lists the same period as its
+    // card (they had none and read « since 1 January »).
+    var currentRange = null;
+    function withPeriod(cfg) {
+        if (!currentRange) return cfg;
+        var u = new URL(cfg.url, window.location.origin);
+        u.searchParams.set('start_date', currentRange.start);
+        u.searchParams.set('end_date', currentRange.end);
+        return Object.assign({}, cfg, { url: u.pathname + u.search });
+    }
+
     function fetchDashboard(range) {
+        currentRange = range;
         hideError();
         LPC.kpi.setLoading('#ops-kpi-grid', true);
 
@@ -175,7 +190,7 @@
             data: {
                 labels: data.labels,
                 datasets: [
-                    { label: 'Livrés',      data: data.completed, backgroundColor: '#005A2B', borderRadius: 4 },
+                    { label: 'Clôturés',    data: data.completed, backgroundColor: '#005A2B', borderRadius: 4 },
                     { label: 'En attente',  data: data.pending,   backgroundColor: '#FBBF24', borderRadius: 4 },
                 ],
             },
@@ -196,7 +211,7 @@
         inventoryChart = new Chart(canvas.getContext('2d'), {
             type: 'doughnut',
             data: {
-                labels: ['Opur 20L', 'Supermont 10L', 'Emballages vides'],
+                labels: ['Eau 20L', 'Eau 10L', 'Emballages vides'],
                 datasets: [{ data: data, backgroundColor: ['#3B82F6', '#10B981', '#6B7280'], borderWidth: 0, hoverOffset: 4 }],
             },
             options: {
@@ -216,7 +231,8 @@
             return;
         }
         rows.forEach(function (row) {
-            var badgeColor = row.color === 'blue' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800';
+            var badgeColor = ({ blue: 'bg-blue-100 text-blue-800', amber: 'bg-amber-100 text-amber-800',
+                                emerald: 'bg-emerald-100 text-emerald-800' })[row.color] || 'bg-gray-100 text-gray-700';
             tbody.insertAdjacentHTML('beforeend', LPC.html`
                 <tr class="hover:bg-gray-50 transition-colors">
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">${row.id}</td>
@@ -240,7 +256,7 @@
         document.getElementById('ops-kpi-grid').addEventListener('lpc:kpi-open', function (e) {
             e.preventDefault();
             var spec = KPI_SPECS.find(function (k) { return k.id === e.detail.id; });
-            if (spec && spec.drillCfg) LPC.kpi.openDrilldown(spec.drillCfg);
+            if (spec && spec.drillCfg) LPC.kpi.openDrilldown(withPeriod(spec.drillCfg));
         });
 
         LPC.kpi.mountPeriodPill('#ops-period-pill', {

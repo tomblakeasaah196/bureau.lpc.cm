@@ -51,8 +51,9 @@ function check(string $label, bool $ok): void
 
 echo "11.1 · what waits for validation\n";
 check('no query looks for a journal status « pending »',
-      !preg_match("/journal_entries[^;]*status\s*=\s*'pending'/s", $fin) && !str_contains($yec, "AND status = 'pending'"));
-check('the finance card counts drafts', str_contains($fin, "FROM journal_entries      WHERE status = 'draft'"));
+      // (the Finance card also counts treasury correction requests, whose own status is « pending »)
+      !preg_match("/journal_entries\s+WHERE\s+status\s*=\s*'pending'|je\.status\s*=\s*'pending'/", $fin) && !str_contains($yec, "AND status = 'pending'"));
+check('the finance card counts drafts', (bool) preg_match("/FROM journal_entries\s+WHERE status = 'draft'/", $fin));
 check('the closing check counts drafts', str_contains($yec, "YEAR(date) = ? AND status = 'draft'"));
 
 echo "\n11.4 · a cancelled entry counts once\n";
