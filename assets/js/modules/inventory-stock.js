@@ -32,7 +32,22 @@
                 const hash = (window.location.hash || '').replace('#', '');
                 switchTab(STOCK_VALID_TABS.includes(hash) ? hash : 'stock');
             }
+            // The Réceptions tab says how many orders wait, from any tab (it
+            // only counted once opened).
+            if (currentTab !== 'receptions') {
+                fetch('/api/v1/inventory_controller.php?action=read&tab=receptions')
+                    .then(r => r.json())
+                    .then(r => { if (r.status === 'success') setReceptionsBadge((r.data.pending_pos || []).length); })
+                    .catch(() => {});
+            }
         };
+
+        function setReceptionsBadge(n) {
+            const badge = document.getElementById('badge-receptions');
+            if (!badge) return;
+            badge.innerText = n;
+            badge.classList.toggle('hidden', !n);
+        }
 
         /** Deep-link entry point: we may not have the PO's reference handy
          *  (it isn't in the URL), so fetch the detail endpoint for it first,
@@ -129,7 +144,11 @@
             const qty     = parseInt(p.current_qty);
             const min     = parseInt(p.min_stock_level);
             const isAlert = qty <= min;
-            const alertBadge = isAlert ? LPC.raw('<span class="bg-red-100 text-red-700 px-2 py-0.5 rounded text-[9px] font-black uppercase ml-2">Alerte</span>') : '';
+            // Same words as the KPI cards: nothing left is « Rupture », at or
+            // under the minimum is « Alerte ».
+            const alertBadge = qty <= 0
+                ? LPC.raw('<span class="bg-red-100 text-red-700 px-2 py-0.5 rounded text-[9px] font-black uppercase ml-2">Rupture</span>')
+                : (isAlert ? LPC.raw('<span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[9px] font-black uppercase ml-2">Alerte</span>') : '');
             const qtyClass   = isAlert ? 'text-red-600 font-black' : 'text-gray-900 font-bold';
             return LPC.html`
                 <tr class="hover:bg-gray-50 border-b border-gray-50">
@@ -208,13 +227,6 @@
         // damage-modal dropdown still lists the current page since that's
         // all the operator picks from.
         function onStockPageRendered(rows, state, raw) {
-            const selectDmg = document.getElementById('dmg_product');
-            if (selectDmg) {
-                selectDmg.innerHTML = (rows || []).map(p =>
-                    LPC.html`<option value="${p.id}">${p.name} (Stock: ${parseInt(p.current_qty)})</option>`
-                ).join('');
-            }
-
             const kpis = raw && raw.data && raw.data.kpis;
             if (kpis) {
                 setKpiNumbers(kpis);
@@ -288,32 +300,46 @@
             });
         }
 
+        // What a movement is, in the words of the work it records. The
+        // document comes from reference_type (migration 134): a bottle a
+        // client refused and an inventory gap share in_adjustment, a sale of
+        // empties to a recycler and a client delivery share out_delivery
+        // (VIDEO_QA_FINDINGS 3.5). Shared with the Fiche de Stock's detail.
+        function describeMovement(m) {
+            const ref = (label, value) => value
+                ? LPC.html` (${label} <span class="font-mono text-gray-800">${value}</span>)` : '';
+            const t = m.movement_type, rt = m.reference_type;
+            if (t === 'in_supplier')
+                return { text: LPC.html`Réception fournisseur${LPC.raw(ref('BC', m.po_ref))}`, icon: 'fa-truck-loading text-green-500' };
+            if (t === 'out_delivery' && rt === 'recycling_sale')
+                return { text: LPC.html`Vente au recycleur${LPC.raw(ref('Réf.', m.recycling_ref))}`, icon: 'fa-recycle text-emerald-600' };
+            if (t === 'out_delivery')
+                return { text: LPC.html`Livraison client${LPC.raw(ref('BL', m.bl_ref))}`, icon: 'fa-truck text-blue-500' };
+            if (t === 'in_return_emp')
+                return { text: rt === 'cre'
+                    ? LPC.html`Emballages vides rentrés (CRE)`
+                    : LPC.html`Emballages vides rentrés${LPC.raw(ref('BL', m.bl_ref))}`, icon: 'fa-undo text-amber-500' };
+            if (t === 'out_damaged')
+                return { text: m.note ? LPC.html`Avarie : ${m.note}` : LPC.html`Avarie`, icon: 'fa-trash-alt text-red-500' };
+            if (t === 'in_adjustment' && rt === 'delivery')
+                return { text: LPC.html`Refusé par le client, remis en stock${LPC.raw(ref('BL', m.bl_ref))}`, icon: 'fa-undo text-amber-500' };
+            const gap = t === 'in_adjustment' ? 'Surplus constaté à l’inventaire' : 'Manquant constaté à l’inventaire';
+            const link = m.audit_token
+                ? LPC.html` <a href="/modules/inventory/print_audit.php?token=${m.audit_token}" target="_blank" class="text-blue-600 hover:text-blue-800 font-black ml-2 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 transition-colors"><i class="fas fa-external-link-alt text-[10px] mr-1"></i>Certificat ${m.audit_ref}</a>`
+                : (m.audit_ref ? LPC.html` (${m.audit_ref})` : '');
+            return { text: LPC.html`${gap}${LPC.raw(link)}`, icon: 'fa-clipboard-check text-gray-500' };
+        }
+        window.describeMovement = describeMovement;
+
         // Sprint 5: per-row renderer for the movements paginator.
         function renderMovementRow(m) {
             const isOut = String(m.movement_type || '').startsWith('out');
             const sign  = isOut ? '-' : '+';
             const color = isOut ? (m.movement_type === 'out_damaged' ? 'text-red-600' : 'text-blue-600') : 'text-green-600';
 
-            let detailBody, iconHtml;
-            if (m.movement_type === 'in_supplier') {
-                detailBody = LPC.html`Réception Fournisseur (BC: <span class="font-mono text-gray-800">${m.po_ref || 'N/A'}</span>) par ${m.logged_by_name}`;
-                iconHtml   = LPC.raw('<i class="fas fa-truck-loading text-green-500 mr-2"></i>');
-            } else if (m.movement_type === 'out_delivery') {
-                detailBody = LPC.html`Expédition Client (BL: <span class="font-mono text-gray-800">${m.bl_ref || 'N/A'}</span>) par ${m.logged_by_name}`;
-                iconHtml   = LPC.raw('<i class="fas fa-truck text-blue-500 mr-2"></i>');
-            } else if (m.movement_type === 'in_return_emp') {
-                detailBody = LPC.html`Retour Magasin / Emballage par ${m.logged_by_name}`;
-                iconHtml   = LPC.raw('<i class="fas fa-undo text-amber-500 mr-2"></i>');
-            } else if (m.movement_type === 'out_damaged') {
-                detailBody = LPC.html`Avarie / Perte signalée par ${m.logged_by_name}`;
-                iconHtml   = LPC.raw('<i class="fas fa-trash-alt text-red-500 mr-2"></i>');
-            } else {
-                const auditLink = m.audit_token
-                    ? LPC.html` <a href="/modules/inventory/print_audit.php?token=${m.audit_token}" target="_blank" class="text-blue-600 hover:text-blue-800 font-black ml-2 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 transition-colors"><i class="fas fa-external-link-alt text-[10px] mr-1"></i>Certificat ${m.audit_ref}</a>`
-                    : '';
-                detailBody = LPC.html`Ajustement Inventaire par ${m.logged_by_name}${LPC.raw(auditLink)}`;
-                iconHtml   = LPC.raw('<i class="fas fa-clipboard-check text-gray-500 mr-2"></i>');
-            }
+            const d = describeMovement(m);
+            const detailBody = LPC.html`${LPC.raw(d.text)} <span class="text-gray-400">· ${m.logged_by_name}</span>`;
+            const iconHtml   = LPC.raw(`<i class="fas ${d.icon} mr-2"></i>`);
 
             const dateObj = new Date(m.date);
             const timeStr = dateObj.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
@@ -331,18 +357,21 @@
 
         function renderAudit(data) {
             const tbody = document.getElementById('tbody-audit');
-            tbody.innerHTML = '';
-            
-            data.forEach(p => {
-                tbody.innerHTML += LPC.html`
+            const mayCount = can('inventory.stock.audit');
+            if (!data || !data.length) {
+                tbody.innerHTML = LPC.html`<tr><td colspan="3" class="py-12 text-center text-gray-400 italic">Aucun produit à compter.</td></tr>`;
+                return;
+            }
+            // One row per product (the whole catalogue, not a page of 25). A
+            // person without inventory.stock.audit reads the sheet, counts nothing.
+            tbody.innerHTML = data.map(p => LPC.html`
                     <tr class="border-b border-gray-50 hover:bg-gray-50" data-pid="${p.id}" data-theo="${p.current_qty}">
-                        <td class="py-3 px-6 font-bold text-gray-800">${p.name} <span class="text-[9px] text-gray-400 uppercase ml-2">${p.category}</span></td>
+                        <td class="py-3 px-6 font-bold text-gray-800"><span class="audit-name">${p.name}</span> <span class="text-[9px] text-gray-400 uppercase ml-2">${p.category}</span></td>
                         <td class="py-3 px-6 text-center font-black text-gray-400 bg-gray-50/50">${p.current_qty}</td>
                         <td class="py-2 px-6 bg-blue-50/20 text-center">
-                            <input type="number" min="0" class="audit-input w-24 border border-blue-200 rounded p-1.5 text-center font-black text-blue-900 outline-none focus:ring-2 focus:ring-blue-500">
+                            <input type="number" min="0" aria-label="${'Quantité comptée : ' + p.name}" ${LPC.raw(mayCount ? '' : 'disabled')} class="audit-input w-24 border border-blue-200 rounded p-1.5 text-center font-black text-blue-900 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:border-gray-200">
                         </td>
-                    </tr>`;
-            });
+                    </tr>`).join('');
         }
 
         // ================= UTILS & ACTIONS ================= //
@@ -478,19 +507,54 @@
             }
         }
 
+        const can = (p) => !!(window.LPC && typeof LPC.can === 'function' && LPC.can(p));
+
+        // Every product that holds stock, not the stock table's current page
+        // (VIDEO_QA_FINDINGS 3.3): the same full list the count sheet reads.
+        async function loadAllProducts() {
+            const res = await fetch('/api/v1/inventory_controller.php?action=read&tab=audit');
+            const result = await res.json();
+            return (result.status === 'success' && result.data && result.data.table) || [];
+        }
+
+        async function openDamage() {
+            if (!can('inventory.stock.damage')) return;
+            const select = document.getElementById('dmg_product');
+            select.innerHTML = LPC.html`<option value="">Chargement...</option>`;
+            document.getElementById('dmg_qty').value = '';
+            document.getElementById('dmg_reason').value = '';
+            openModal('damageModal');
+            try {
+                const inStock = (await loadAllProducts()).filter(p => parseInt(p.current_qty) > 0);
+                select.innerHTML = inStock.length
+                    ? LPC.html`<option value="">Choisir un produit</option>` + inStock.map(p =>
+                        LPC.html`<option value="${p.id}">${p.name} (en stock : ${LPC.fmt.int(p.current_qty)})</option>`).join('')
+                    : LPC.html`<option value="">Aucun produit en stock</option>`;
+            } catch (e) {
+                select.innerHTML = LPC.html`<option value="">Liste indisponible</option>`;
+            }
+        }
+
         async function submitDamage() {
             const payload = {
                 action: 'log_damage',
                 product_id: document.getElementById('dmg_product').value,
                 quantity: document.getElementById('dmg_qty').value,
-                reason: document.getElementById('dmg_reason').value
+                reason: document.getElementById('dmg_reason').value.trim()
             };
+            if (!payload.product_id) return LPC.modal.alert("Choisissez le produit concerné.", { level: 'warn' });
+            if (!(parseInt(payload.quantity) > 0)) return LPC.modal.alert("Indiquez combien de bouteilles sont perdues.", { level: 'warn' });
+            if (!payload.reason) return LPC.modal.alert("Indiquez la raison de l'avarie.", { level: 'warn' });
             try {
                 const response = await fetch('/api/v1/inventory_controller.php', { method: 'POST', body: JSON.stringify(payload) });
                 const result = await response.json();
                 if (result.status === 'success') {
                     closeModal('damageModal');
                     switchTab('stock');
+                    LPC.modal.alert(
+                        `${result.quantity} × ${result.product} sortis du stock (${LPC.fmt.fcfa(result.value)} au CUMP). `
+                        + `Il en reste ${LPC.fmt.int(result.new_stock)}.`,
+                        { level: 'success', title: 'Avarie enregistrée', okLabel: 'Fermer' });
                 } else {
                     // Show the refusal (e.g. "Stock insuffisant : 0 en stock,
                     // 15 demandés.") instead of silently "accepting" the avarie.
@@ -515,15 +579,15 @@
                     const theo = parseInt(r.dataset.theo);
                     const real = parseInt(input);
                     const diff = real - theo;
-                    const productName = r.querySelector('td').innerText;
+                    const productName = r.querySelector('.audit-name').innerText;
 
                     if(theo !== real) {
                         hasChanges = true;
-                        pendingAdjustments.push({ 
-                            product_id: r.dataset.pid, 
-                            theoretical: theo,
+                        // Only what was counted: the server reads the system's
+                        // quantity itself and derives the gap (3.3).
+                        pendingAdjustments.push({
+                            product_id: r.dataset.pid,
                             physical: real,
-                            difference: diff 
                         });
 
                         let diffClass = diff > 0 ? 'text-green-600' : 'text-red-600';
@@ -583,8 +647,25 @@
                     btn.dataset.sealed = 'true';
                     // Clear the pending list so a second Certify has nothing to submit.
                     pendingAdjustments = [];
-                    window.open(`/modules/inventory/print_audit.php?token=${result.token}`, '_blank');
                     switchTab('stock');
+                    // Say what was sealed and what it did to the stock's
+                    // value; the certificate opens from here (it used to
+                    // open in a new tab without a word).
+                    const rows = (result.lines || []).map(l => LPC.html`
+                        <tr><td class="py-1 pr-3 font-bold">${l.product_name}</td>
+                            <td class="py-1 pr-3 text-center">${l.theoretical} → ${l.physical}</td>
+                            <td class="py-1 pr-3 text-center font-black">${l.difference > 0 ? '+' : ''}${l.difference}</td>
+                            <td class="py-1 text-right">${LPC.fmt.fcfa(l.value)}</td></tr>`).join('');
+                    const go = await LPC.modal.custom({
+                        title: `Inventaire ${result.reference} scellé`,
+                        bodyHtml: LPC.html`<p class="mb-3">Le stock suit maintenant le comptage. Écart total au CUMP : <strong>${LPC.fmt.fcfa(result.net_value)}</strong>.</p>
+                            <table class="w-full text-sm"><thead><tr class="text-[10px] uppercase text-gray-400"><th class="text-left">Produit</th><th>Système → Compté</th><th>Écart</th><th class="text-right">Valeur</th></tr></thead><tbody>${LPC.raw(rows)}</tbody></table>`,
+                        buttons: [
+                            { label: 'Fermer', value: false, variant: 'secondary' },
+                            { label: 'Ouvrir le certificat', value: true, primary: true },
+                        ],
+                    });
+                    if (go === true) window.location.href = `/modules/inventory/print_audit.php?token=${encodeURIComponent(result.token)}`;
                 } else if (result.code === 'duplicate_audit') {
                     LPC.modal.alert("Cet inventaire a déjà été enregistré (idempotence).");
                     closeModal('auditConfirmModal');
@@ -642,17 +723,17 @@
                 r.items.forEach(i => {
                     const diffClass = i.difference > 0 ? 'text-green-600' : (i.difference < 0 ? 'text-red-600' : 'text-gray-400');
                     const diffSign = i.difference > 0 ? '+' : '';
-                    itemsHtml += `
+                    itemsHtml += LPC.html`
                         <tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                             <td class="py-2.5 px-4 text-xs font-bold text-gray-700">${i.product_name}</td>
                             <td class="py-2.5 px-4 text-xs text-center text-gray-500">${i.theoretical_qty}</td>
-                            <td class="py-2.5 px-4 text-xs text-center font-black ${diffClass}">${diffSign}${i.difference}</td>
+                            <td class="py-2.5 px-4 text-xs text-center font-black ${LPC.raw(diffClass)}">${diffSign}${i.difference}</td>
                             <td class="py-2.5 px-4 text-xs text-center font-black text-blue-700 bg-blue-50/30">${i.physical_qty}</td>
                         </tr>
                     `;
                 });
 
-                html += `
+                html += LPC.html`
                     <div class="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm transition-all">
                         <button onclick="toggleAccordion('acc-${r.id}')" class="w-full px-5 py-4 flex justify-between items-center bg-white hover:bg-gray-50 transition-colors focus:outline-none">
                             <div class="flex items-center gap-4 text-left">
@@ -684,11 +765,11 @@
                                             <th class="py-2.5 px-4">Produit</th>
                                             <th class="py-2.5 px-4 text-center">Théorique</th>
                                             <th class="py-2.5 px-4 text-center border-x border-gray-200">Écart</th>
-                                            <th class="py-2.5 px-4 text-center text-blue-700">Stock Initial</th>
+                                            <th class="py-2.5 px-4 text-center text-blue-700">Compté</th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-gray-50">
-                                        ${itemsHtml}
+                                        ${LPC.raw(itemsHtml)}
                                     </tbody>
                                 </table>
                             </div>

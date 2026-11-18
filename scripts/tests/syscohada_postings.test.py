@@ -252,6 +252,51 @@ def scenario_perpetual_cycle():
     return e
 
 
+def scenario_stock_adjustments():
+    """
+    Perpetual stock outside a purchase or a sale (VIDEO_QA_FINDINGS 3.1, the
+    copy on 18/11/2026): 260 OPUR 20L at CUMP 2 013,46 (523 500 in 311).
+
+        avarie, 3 bottles          Dr 6031 / Cr 311    6 040
+        inventory, 2 missing       Dr 6031 / Cr 311    4 027
+        a BL of 10 at CUMP         Dr 6031 / Cr 311   20 135   (delivery, as before)
+        the client refuses 4       Dr 311  / Cr 6031   8 054   (at the cost they left at)
+        inventory, 1 surplus       Dr 311  / Cr 6031   2 013
+
+    THE DEFECT: none of the four adjustments posted anything, so 311 stayed
+    above the bottles on hand. After them, 311 must equal qty x CUMP.
+    """
+    cump = Decimal("2013.46")
+    qty = 260
+    e = Entry("Stock · avarie, inventaire, refus client")
+    e.debit("311", Decimal("523500")).credit("6031", Decimal("523500"))   # receptions
+
+    def out(n):
+        nonlocal qty
+        v = fcfa(Decimal(n) * cump); qty -= n
+        e.debit("6031", v).credit("311", v)
+
+    def back(n):
+        nonlocal qty
+        v = fcfa(Decimal(n) * cump); qty += n
+        e.debit("311", v).credit("6031", v)
+
+    out(3)      # avarie
+    out(2)      # manquant à l'inventaire
+    out(10)     # livraison
+    back(4)     # refusé par le client
+    back(1)     # surplus à l'inventaire
+
+    check_balanced(e)
+    check("stock · 260 - 3 - 2 - 10 + 4 + 1 bottles left", qty, 250)
+    check("stock · 311 holds the bottles left at CUMP (to the franc per line)",
+          abs(e.net("311") - fcfa(Decimal(qty) * cump)) <= 3, True)
+    check("stock · avarie entry is 6 040", fcfa(Decimal(3) * cump), Decimal("6040"))
+    check("stock · 6031 nets the cost of what left for good (3 + 2 + 6 - 1 = 10 bottles)",
+          abs(e.net("6031") + Decimal("523500") - fcfa(Decimal(10) * cump)) <= 3, True)
+    return e
+
+
 def scenario_supplier_remise():
     """
     A remise HOREB SARL grants on an order (no ristourne ladder, VIDEO_QA_FINDINGS
@@ -532,6 +577,7 @@ def main():
         scenario_rebate_accrual,
         scenario_stock_entry_on_reception,
         scenario_perpetual_cycle,
+        scenario_stock_adjustments,
         scenario_supplier_remise,
         scenario_purchase_line_remise,
         scenario_invoice_with_remise,

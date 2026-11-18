@@ -1,7 +1,10 @@
 <?php
 // RBAC + env bootstrap (loads .env, DB, session cookie hardening, Rbac).
 require_once __DIR__ . '/../../includes/bootstrap.php';
-Rbac::requirePermission('inventory.stock.audit');
+// Reading a sealed certificate is reading the stock: anyone who sees the
+// Historique and « Rapports Passés » (which link here) may open it. Sealing
+// one needs inventory.stock.audit (inventory_controller submit_audit).
+Rbac::requirePermission('inventory.stock.view');
 require_once __DIR__ . '/../../includes/functions/document_pdf.php';
 // The HTML report below renders by default; the condensed server-side dompdf
 // render stays available on demand via ?pdf=1.

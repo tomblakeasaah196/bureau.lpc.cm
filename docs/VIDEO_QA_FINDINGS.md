@@ -42,18 +42,12 @@ Reproduced on the copy and fixed by the « Gestion des Achats » video session (
 
 ## 3 · Stock & Emballages, Fiche de Stock
 
-1. Fixed with Gestion des Achats (perpetual inventory at reception). Still open: avaries, inventory
-   adjustments and refused bottles post nothing to 31x (`inventory_controller.php`, `signature_side_effects.php`).
-2. [V] `inventory.stock.damage` and `.audit` are never enforced: anyone with `inventory.stock.view` can
-   declare an avarie or seal an inventory.
-3. [V] Inventaire shows only the first 25 products (unpaginated read, page 25) and the server trusts the
-   browser's theoretical/difference figures (`inventory_controller.php:889`); the Avarie product list
-   shows only the current stock page.
-4. [V] Fiche de Stock has no opening, running or closing balance (not a kardex), and « Valeur (FCFA) »
-   multiplies every past movement by today's CUMP (`inventory-fiche_stock.js:87-92`).
-5. [I] Historique labels: recycling sales show as « Expédition Client (BL: …) » with an unrelated BL;
-   refused-bottle `in_adjustment` rows can link to an unrelated « Certificat INV-… » (`:328-330`).
+Rows 1 to 5 were reproduced and fixed by the « Stock & Emballages » video session (18/11/2026): see
+docs/TRAINING_VIDEOS.md §7. Left:
+
 6. [V] Nothing links a proposal's « Stock Tampon (Semaines) » to `min_stock_level` (« Seuil Min. »).
+   Not done here: it is a proposal-side setting, for the Proposition commerciale session (§4) to wire or
+   to explain. Meanwhile « Seuil Min. » is set per product in Données de Base (50 on every product).
 
 ## 4 · Proposition commerciale (Base Clients & Devis, Studio Proposition)
 
@@ -244,7 +238,7 @@ Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026):
 | 4 | Which taxes does PROMETAL withhold: AIR only, or TVA too? The app only handles AIR. | AIR only, at the rate set on the client. |
 | 5 | Should the Comptable approve advances and pay suppliers (`approve_advance`, `procurement.approve`), and keep `closing.run` / `reopen`? | Decided 18/11: the Comptable also pays suppliers (`inventory.procurement.approve`, migration 132, done) and approves advances (`hr.payroll.approve_advance`, for the Salaires session); closing rights unchanged. |
 | 6 | Fleet costs (fuel, repairs): post them to the ledger from Flotte, or keep typing them in Dépenses? | Decided 18/11: a fuel, repair or servicing cost entered in Flotte creates a linked expense request in Gestion des Dépenses, which Finance validates and pays (done, migration 133, Flotte session). The per-period comparison and its alert: Trésorerie & Dépenses session. |
-| 7 | OPUR 10L's « Coût de référence » reads 100 F while it sells at 1 000 F and no supplier has a 10L tariff: what does LPC pay for a 10L? (Données de Base → Produits, now editable by the DG and the CF.) | Left as it is on live; the video does not show it. |
+| 7 | OPUR 10L's « Coût de référence » reads 100 F while it sells at 1 000 F and no supplier has a 10L tariff: what does LPC pay for a 10L? (Données de Base → Produits, now editable by the DG and the CF.) | Decided 18/11: bought at 850 F, sold by default at 1 100 F (some clients 1 200 F, as client tariffs); migration 134 sets both. Still to verify: its empties at 100 F without cork, 200 F with cork (today one « Emballage 10L » at 100 F). |
 | 8 | The never-applied « prix de repli » (a floor for products with no default price) was removed from the screen rather than wired into sales. Want it wired? | Decided 18/11: keep it removed. |
 | 9 | The ristourne: on what base, and what is withheld? | Decided 18/11 (the DG's rule of 31/07): « 3 % du montant d'achat hors taxe »; order amounts are TTC, so HT = amount ÷ 1,1925; 21,25 % withheld (19,25 % TVA to 4452, 2 % précompte to 4473), net to 4098, gross to 6019; Eau 3 % flat, other products 3/4/5 % by each order's own total. The code does this (a change of 18/11 that dropped it was reverted the same day); past accruals are correct, nothing to post. Open for the accounting sessions: should reception split the recoverable TVA (Dr 601 HT + Dr 4452 / Cr 401 TTC)? |
 | 10 | Should a purchase order be approved (DG or CF) before it goes to the supplier? | Decided 18/11: no approval before an order goes to the supplier. |

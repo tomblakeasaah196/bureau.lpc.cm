@@ -892,7 +892,7 @@ try {
             $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
 
             $stmtDelItem = $db->prepare("INSERT INTO delivery_items (delivery_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)");
-            $stmtInvOut  = $db->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, reference_id, logged_by) VALUES (?, 'out_delivery', ?, ?, ?)");
+            $stmtInvOut  = $db->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, unit_cost, reference_id, reference_type, logged_by) VALUES (?, 'out_delivery', ?, ?, ?, 'delivery', ?)");
 
             // Sprint 12 (empties in-flight, migration 074) — the client_empties
             // _ledger.quantity_in_flight bucket. Written HERE, at dispatch,
@@ -935,7 +935,7 @@ try {
             // over-issue. The FOR UPDATE on products blocks concurrent
             // damage/audit paths that also touch the same row.
             $stmtStockLock = $db->prepare("
-                SELECT p.name,
+                SELECT p.name, p.cump,
                        COALESCE((SELECT SUM(CASE WHEN movement_type LIKE 'in_%' THEN quantity ELSE -quantity END)
                                    FROM inventory_movements WHERE product_id = p.id), 0) AS current_qty
                   FROM products p WHERE p.id = ? FOR UPDATE
@@ -950,7 +950,7 @@ try {
                 }
 
                 $stmtDelItem->execute([$delivery_id, $item['product_id'], $item['quantity'], $item['unit_price']]);
-                $stmtInvOut->execute([$item['product_id'], $item['quantity'], $delivery_id, $user_id]);
+                $stmtInvOut->execute([$item['product_id'], $item['quantity'], $prod['cump'], $delivery_id, $user_id]);
 
                 // In-flight ledger bump for consigned products only. Non-
                 // consigné SKUs (Jus 30L etc.) return no rows from the

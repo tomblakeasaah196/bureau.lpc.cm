@@ -71,6 +71,8 @@ jobs:
         run: php scripts/tests/procurement_flow.test.php
       - name: Flotte (one gate, Operations runs the fleet, costs reach Dépenses as requests)
         run: php scripts/tests/fleet_flow.test.php
+      - name: Stock & Emballages (avarie, inventory, refusals in 31x; the Fiche de Stock)
+        run: php scripts/tests/stock_flow.test.php
 
   mail:
     # Courrier (docs/MAIL.md §9): every scripts/tests/mail/*.test.php, each blocking. PR 1's three: the engine

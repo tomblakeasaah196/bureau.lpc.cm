@@ -122,7 +122,7 @@ $user_role = $_SESSION['user_role'];
                             <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
                             <input id="search-stock" type="text" placeholder="Rechercher un produit..." class="w-full pl-11 pr-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium outline-none focus:ring-2 focus:ring-lpc-dark">
                         </div>
-                        <button onclick="openModal('damageModal')" class="bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-lg font-bold text-xs border border-red-200 transition-colors">
+                        <button onclick="openDamage()" data-perm="inventory.stock.damage" class="bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-lg font-bold text-xs border border-red-200 transition-colors">
                             <i class="fas fa-trash-alt mr-1"></i> Déclarer Avarie
                         </button>
                     </div>
@@ -212,7 +212,7 @@ $user_role = $_SESSION['user_role'];
                             <button onclick="openInventoryHistory()" class="bg-gray-700 hover:bg-gray-600 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all flex items-center gap-2 border border-gray-600">
                                 <i class="fas fa-history text-gray-300"></i> Rapports Passés
                             </button>
-                            <button onclick="submitAudit()" class="bg-lpc-light hover:bg-green-500 text-lpc-dark px-5 py-2.5 rounded-xl font-black text-xs shadow-md transition-all flex items-center gap-2">
+                            <button onclick="submitAudit()" data-perm="inventory.stock.audit" class="bg-lpc-light hover:bg-green-500 text-lpc-dark px-5 py-2.5 rounded-xl font-black text-xs shadow-md transition-all flex items-center gap-2">
                                 <i class="fas fa-check-double"></i> Valider Inventaire
                             </button>
                         </div>
