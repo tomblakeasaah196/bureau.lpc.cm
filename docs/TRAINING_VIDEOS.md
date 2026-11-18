@@ -21,6 +21,9 @@ its choreography together.
 | Modules, partie 6 : Flotte (the truck, its daily assignment, fuel, a breakdown, the repair, the visite technique and a vidange, Finance validating the fuel expense) | `flotte.js` | Made 18/11/2026 (track B), 4:39, 10 chapters, -16.1 LUFS, 12.3 MB; sent in the chat; files in `bureau_video/publish/flotte/`; to publish (§5) |
 | Modules, partie 9 : Trésorerie & Dépenses (the accounts and the Grand Livre's 552, a transfer to the cash box, a fuel advance, Operations' request and fill-up, Finance validating and paying, the Carburant comparison and « Rattacher », a reconciliation, a recurring expense) | `tresorerie-depenses.js` | Made 18/11/2026 (track B), 6:05, 10 chapters, -16.1 LUFS, 18.9 MB; sent in the chat; files in `bureau_video/publish/tresorerie-depenses/`; to publish (§5) |
 | Modules, partie 10 : Salaires (an advance requested, approved and paid out; November undone, calculated again and paid; the detail, the payslip, the entries). Real pay: library audience = the payroll roles | `salaires.js` | Made 18/11/2026 (track C), 6:55, 12 chapters, -16.1 LUFS, 19.2 MB; sent in the chat; files in `bureau_video/publish/salaires/`; to publish (§5), with no `audience` (see §8) |
+| Administration, partie 1 : Identité & Paramètres (Identité de l'Entreprise, the Préférences, a preference changed and put back, the Journal d'audit and its « Détail », the Sessions) | `admin-identite-parametres.js` | Made 18/11/2026 (track C), 3:49, 7 chapters, -16.1 LUFS, 12.6 MB; sent in the chat; files in `bureau_video/publish/admin-1/`; to publish (§5), audience the admin roles (Paramètres pages only) |
+| Administration, partie 2 : Utilisateurs, Rôles & Permissions (the five accounts, « Provisionner » and « Inviter par email », edit and lock, the roles and their home page, a « Responsable Commercial » role created, granted and deleted) | `admin-utilisateurs-roles.js` | Made 18/11/2026 (track C), 3:59, 8 chapters, -15.9 LUFS, 11.3 MB; sent in the chat; files in `bureau_video/publish/admin-2/`; to publish (§5), audience the admin roles |
+| Administration, partie 3 : Centre d'Aide & Journal d'Erreurs (an article written and kept as a draft, the Salaires video uploaded, an error group copied and marked fixed) | `admin-aide-erreurs.js` | Made 18/11/2026 (track C), 3:05, 6 chapters, -16.1 LUFS, 9.1 MB; sent in the chat; files in `bureau_video/publish/admin-3/`; to publish (§5), audience the admin roles |
 
 ---
 
@@ -575,5 +578,19 @@ the help search, the help AI's answers and each page's « ? »), and sent in the
       18): every signed price becomes the tariff; the buffer only raises « Seuil Min. »; new clients start as Prospect.
       6:33: every step is in. The copy is left as snapshot `after-04-proposition` (PROMETAL, client 4, account 411035,
       Actif, Net 15, 80 %; DEV-2611-00005 signed; OPUR 20L « Seuil Min. » 770, so in Alerte with 255 in stock).
+- [x] Administration, parties 1 to 3 (18/11/2026, track C on copy C, the last of track C): QA (the crawler as JBS
+      Praxis Support and the DG on every admin page; then by hand, scripted: a setting changed and put back, a role
+      created, granted and deleted, an account locked while its owner was signed in, a session closed, an article draft
+      published and deleted, a video uploaded, an error group marked fixed), PR #70 (VIDEO_QA_FINDINGS §15: Paramètres
+      reads without a token so « Provisionner un compte » works, sessions that really end on « Déconnecter », a lock or a
+      password change, a readable Journal d'audit, French roles and preferences, the help list's publish toggle, migration
+      141 with ten help articles, `admin_settings.test.php`) and PR #71 (found rehearsing: the edited role stays
+      selected, the videos list fits; the three scenes), both merged and deployed; live serves the new scripts and the
+      settings API refuses anonymous calls (migration 141 on live data not checked: needs a sign-in). Copy C is served
+      on port 8143 (8142 still held by the Salaires worktree's server); copy-only preparation: live's AI keys blanked, the
+      two uploaded logos drawn from the repo's logo, the DG's avatar blanked, nine delivered videos imported
+      (VIDEO_QA_FINDINGS 15.8). Rehearsing every shot's actions first (a light driver using `film.js`'s `hands`) caught
+      the role bug and the list's width. `make.js <scene> prepare` is its own step: run it before `film`. Owner
+      questions 21 to 23. The copy is left as snapshot `after-15-admin`. Track C ends here.
 - [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
       Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.

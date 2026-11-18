@@ -33,7 +33,7 @@ module.exports = {
   library: {
     slug: "admin-3-aide-erreurs",
     title: "Centre d'Aide & Journal d'Erreurs",
-    subtitle: "Écrire un article, publier une vidéo de formation, suivre les erreurs du serveur",
+    subtitle: "Un article d’aide, une vidéo de formation, les erreurs du serveur",
     series: "Administration",
     part: 3,
     parts: 3,
@@ -42,7 +42,7 @@ module.exports = {
   opening: {
     eyebrow: "Formation LPC ERP · Administration, partie 3",
     title: "Centre d'Aide & Journal d'Erreurs",
-    subtitle: "Écrire un article, publier une vidéo de formation, suivre les erreurs du serveur",
+    subtitle: "Un article d’aide, une vidéo de formation, les erreurs du serveur",
     left: "bureau.lpc.cm",
   },
   closing: {
