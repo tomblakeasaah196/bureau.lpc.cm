@@ -176,7 +176,7 @@ $user_role = $_SESSION['user_role'];
                             <i class="fas fa-cogs text-4xl text-gray-300"></i>
                         </div>
                         <h4 class="font-black text-gray-700 text-lg"><?= htmlspecialchars(__t('ui.x.automatisation_comptable')) ?></h4>
-                        <p class="text-xs font-medium text-gray-500 mt-2"><?= htmlspecialchars(__t('ui.x.en_cliquant_sur_executer_le_systeme_va_c')) ?> <strong><?= htmlspecialchars(__t('ui.x.brouillard_od')) ?></strong> contenant les écritures de Dotations (Débit 68xx / Crédit 28xx) pour le mois sélectionné. Vous pourrez le valider dans l'onglet Saisie des Journaux.</p>
+                        <p class="text-xs font-medium text-gray-500 mt-2">« Exécuter » passe au Grand Livre une écriture de dotations (débit 68, crédit 28) pour le mois choisi. Un mois ne se passe qu'une fois par actif : un actif ajouté ensuite reçoit sa propre écriture. À la clôture, seuls les mois jamais passés sont complétés.</p>
                     </div>
                 </div>
             </div>
@@ -184,7 +184,7 @@ $user_role = $_SESSION['user_role'];
         </main>
     </div>
 
-    <div id="modal-capitalize" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="modal-capitalize" class="hidden fixed inset-0 z-[9000] flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col animate-slide-up">
             <div class="bg-asset-dark px-6 py-5 flex justify-between items-center text-white border-b border-teal-800 shrink-0">
                 <h3 class="font-black text-lg tracking-wide flex items-center gap-3"><i class="fas fa-file-invoice-dollar"></i> <?= htmlspecialchars(__t('ui.x.capitaliser_un_actif')) ?></h3>
@@ -242,10 +242,31 @@ $user_role = $_SESSION['user_role'];
                     </div>
 
                     <div class="bg-white p-4 border border-gray-200 rounded-xl space-y-4 shadow-sm">
-                        <h4 class="text-xs font-black text-gray-800 uppercase tracking-widest border-b border-gray-100 pb-2"><?= htmlspecialchars(__t('ui.x.affectation_comptable_lpc')) ?></h4>
+                        <h4 class="text-xs font-black text-gray-800 uppercase tracking-widest border-b border-gray-100 pb-2">Acquisition</h4>
+                        <div>
+                            <label for="cap_funding" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Comment l'actif a été acquis</label>
+                            <select id="cap_funding" required onchange="onFundingChange()" class="w-full bg-gray-50 border border-gray-200 rounded p-2.5 text-xs font-bold outline-none">
+                                <option value="supplier">À payer au fournisseur (4812 Fournisseurs d'immobilisations)</option>
+                                <option value="treasury">Payé par un compte de trésorerie</option>
+                                <option value="existing">Déjà au bilan (aucune écriture)</option>
+                            </select>
+                        </div>
+                        <div id="cap_supplier_div">
+                            <label for="cap_supplier" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Fournisseur (facultatif)</label>
+                            <input type="text" id="cap_supplier" maxlength="150" class="w-full bg-gray-50 border border-gray-200 rounded p-2.5 text-xs font-bold outline-none">
+                        </div>
+                        <div id="cap_treasury_div" class="hidden">
+                            <label for="cap_treasury" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Compte de trésorerie</label>
+                            <select id="cap_treasury" class="w-full bg-gray-50 border border-gray-200 rounded p-2.5 text-xs font-bold outline-none"></select>
+                        </div>
+                        <p id="cap_entry_hint" class="text-[10px] font-bold text-asset-dark bg-asset-highlight/10 rounded p-2"></p>
+                    </div>
+
+                    <div class="bg-white p-4 border border-gray-200 rounded-xl space-y-4 shadow-sm">
+                        <h4 class="text-xs font-black text-gray-800 uppercase tracking-widest border-b border-gray-100 pb-2">Comptes</h4>
                         <div>
                             <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5"><?= htmlspecialchars(__t('ui.x.1_compte_d_actif_classe_2')) ?></label>
-                            <select id="cap_acc_asset" required class="w-full bg-gray-50 border border-gray-200 rounded p-2.5 text-xs font-bold outline-none"></select>
+                            <select id="cap_acc_asset" required onchange="onFundingChange()" class="w-full bg-gray-50 border border-gray-200 rounded p-2.5 text-xs font-bold outline-none"></select>
                         </div>
                         <div>
                             <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5"><?= htmlspecialchars(__t('ui.x.2_compte_d_amortissement_classe_28')) ?></label>
@@ -267,7 +288,7 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
 
-    <div id="modal-cession" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="modal-cession" class="hidden fixed inset-0 z-[9000] flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up border border-rose-500">
             <div class="bg-rose-500 px-6 py-5 flex justify-between items-center text-white">
                 <h3 class="font-black text-lg tracking-wide flex items-center gap-3"><i class="fas fa-handshake"></i> <?= htmlspecialchars(__t('ui.x.cession_mise_au_rebut')) ?></h3>

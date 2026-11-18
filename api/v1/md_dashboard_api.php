@@ -446,16 +446,12 @@ $q_revenue_prev = function () use ($db, $prev_start, $prev_end): float {
 };
 
 $q_revenue_target = function () use ($db, $fiscal_year): ?float {
-    $stmt = $db->prepare("
-        SELECT COALESCE(SUM(bl.annual_amount), 0) AS v
-          FROM budgets b
-          JOIN budget_lines bl ON bl.budget_id = b.id
-          JOIN ohada_accounts oa ON bl.ohada_account_id = oa.id
-         WHERE oa.type = 'revenue' AND b.fiscal_year = :y AND b.status = 'active'
-    ");
-    $stmt->execute(['y' => $fiscal_year]);
-    $v = (float) $stmt->fetch()['v'];
-    return $v > 0 ? $v : null;
+    // The « Chiffre d'affaires » line's annual target in Budgets & Performance. It read
+    // `budgets` / `budget_lines`, which nothing has written since migration 091: the
+    // card never had a target (VIDEO_QA_FINDINGS 12.3).
+    require_once __DIR__ . '/../../includes/functions/budget_buckets.php';
+    $v = lpc_budget_summary($db, (int) $fiscal_year)['revenue_target'];
+    return ($v !== null && $v > 0) ? (float) $v : null;
 };
 
 $q_expenses = function ($sd, $ed) use ($db): float {

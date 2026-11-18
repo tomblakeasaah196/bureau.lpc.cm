@@ -151,25 +151,27 @@ class YearEndClosing
             'detail'=> $pending === 0 ? 'OK' : "$pending brouillard(s) à valider ou supprimer",
         ];
 
-        // 3. All fixed assets have monthly depreciation run for every month of year
+        // 3. Every month of the year depreciated for every asset in service (a monthly
+        //    run or the closing's depreciation phase). One month logged used to pass.
         $st = $this->pdo->prepare(
-            "SELECT COUNT(*) FROM fixed_assets
-              WHERE status = 'active' AND acquisition_date <= LAST_DAY(CONCAT(?,'-12-31'))
+            "SELECT * FROM fixed_assets
+              WHERE status = 'active'
+                AND COALESCE(service_start_date, acquisition_date) <= CONCAT(?,'-12-31')
                 AND (disposal_date IS NULL OR disposal_date > CONCAT(?,'-12-31'))"
         );
         $st->execute([$year, $year]);
-        $activeAssets = (int)$st->fetchColumn();
-        $st = $this->pdo->prepare(
-            "SELECT COUNT(DISTINCT fixed_asset_id) FROM depreciation_logs
-              WHERE year = ? AND status = 'posted'"
-        );
-        $st->execute([$year]);
-        $depredAssets = (int)$st->fetchColumn();
+        $activeAssets = 0; $missingMonths = 0;
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $a) {
+            $activeAssets++;
+            $missingMonths += count(self::missingDepreciationMonths($this->pdo, $a, $year));
+        }
         $checks[] = [
             'key' => 'depreciation_up_to_date',
             'label' => 'Dotations aux amortissements calculées',
-            'ok'    => $activeAssets === 0 || $depredAssets >= $activeAssets,
-            'detail'=> "$depredAssets / $activeAssets immobilisations amorties",
+            'ok'    => $missingMonths === 0,
+            'detail'=> $missingMonths === 0
+                ? "$activeAssets immobilisation(s), tous les mois passés"
+                : "$missingMonths mois non passés sur $activeAssets immobilisation(s)",
         ];
 
         // 4. AIR certificates reconciled (attestations available for withheld AIR)
@@ -201,52 +203,101 @@ class YearEndClosing
     // Automatic adjustments — each returns count of JEs created
     // -------------------------------------------------------------------
 
-    /** Depreciation: for each active fixed_asset, one 12-month OD if missing. */
+    /**
+     * Depreciation at the closing: complete the year, never double it
+     * (VIDEO_QA_FINDINGS 12.2). The monthly runs (Immobilisations → Dotations
+     * Mensuelles) log each asset's month in depreciation_logs. This phase books
+     * only the months of the year no run has logged, each computed as the monthly
+     * run would (Depreciation::monthly: first month pro rata, capped at the
+     * depreciable base), as one entry per asset, and logs those months so the
+     * register and a later run see them. A year whose months were all run books
+     * nothing here. It used to book « monthly_dotation × months since acquisition »
+     * on top of the monthly runs: the year's depreciation counted twice.
+     */
     public function runDepreciation(int $year): int
     {
+        require_once __DIR__ . '/Depreciation.php';
         $created = 0;
         $st = $this->pdo->prepare(
-            "SELECT fa.*, coa_ch.id AS charge_id, coa_dp.id AS depr_id
+            "SELECT fa.*
                FROM fixed_assets fa
-               JOIN chart_of_accounts coa_ch ON coa_ch.id = fa.expense_account_id
-               JOIN chart_of_accounts coa_dp ON coa_dp.id = fa.depr_account_id
               WHERE fa.status = 'active'
-                AND fa.acquisition_date <= CONCAT(?,'-12-31')
+                AND COALESCE(fa.service_start_date, fa.acquisition_date) <= CONCAT(?,'-12-31')
                 AND (fa.disposal_date IS NULL OR fa.disposal_date > CONCAT(?,'-12-31'))"
         );
         $st->execute([$year, $year]);
         $assets = $st->fetchAll(PDO::FETCH_ASSOC);
 
+        $log = $this->pdo->prepare(
+            "INSERT INTO depreciation_logs
+                (fixed_asset_id, month, year, amount, proration_days, amount_calculation, status, run_by, journal_entry_id)
+             VALUES (?, ?, ?, ?, ?, ?, 'posted', ?, ?)"
+        );
         foreach ($assets as $a) {
-            $months = 12;
-            // Prorate for acquisitions inside the year
-            $acqYear = (int)date('Y', strtotime($a['acquisition_date']));
-            $acqMonth = (int)date('n', strtotime($a['acquisition_date']));
-            if ($acqYear === $year) $months = 13 - $acqMonth;
-            $months = max(0, min(12, $months));
-            $amount = round((float)$a['monthly_dotation'] * $months, 2);
-            if ($amount <= 0) continue;
-
             $target = 'fixed_asset:' . $a['id'];
-            // Skip if already booked
             $chk = $this->pdo->prepare(
                 "SELECT id FROM year_end_adjustments WHERE fiscal_year = ? AND kind = 'depreciation' AND target_ref = ?"
             );
             $chk->execute([$year, $target]);
             if ($chk->fetchColumn()) continue;
 
-            $desc = "Dotation aux amortissements — {$a['name']} ($months mois)";
+            $missing = self::missingDepreciationMonths($this->pdo, $a, $year);
+            $amount  = array_sum(array_column($missing, 'amount'));
+            if ($amount <= 0) continue;
+            if (empty($a['expense_account_id']) || empty($a['depr_account_id'])) {
+                throw new RuntimeException("Immobilisation « {$a['name']} » : comptes 68x / 28x non renseignés.");
+            }
+
+            $months = array_column($missing, 'month');
+            $desc = "Dotation aux amortissements · {$a['name']} (mois non passés : "
+                  . implode(', ', array_map(fn ($m) => sprintf('%02d', $m), $months)) . "/$year)";
             $jeId = $this->postJournal($year, $desc, [
                 ['account_id' => (int)$a['expense_account_id'], 'debit' => $amount, 'credit' => 0],
                 ['account_id' => (int)$a['depr_account_id'],    'debit' => 0,       'credit' => $amount],
             ]);
+            foreach ($missing as $mm) {
+                $log->execute([$a['id'], $mm['month'], $year, $mm['amount'], $mm['proration_days'],
+                               json_encode($mm['calculation'], JSON_UNESCAPED_UNICODE), $this->userId, $jeId]);
+            }
             $this->recordAdjustment($year, 'depreciation', $target, $jeId, $amount, $desc, [
-                'monthly_dotation' => (float)$a['monthly_dotation'],
-                'months'           => $months,
+                'months'   => $months,
+                'by_month' => array_combine($months, array_column($missing, 'amount')),
             ]);
             $created++;
         }
         return $created;
+    }
+
+    /**
+     * The months of $year an asset has no depreciation_logs row for, each with
+     * what the monthly run would book: [['month','amount','proration_days',
+     * 'calculation'], …], in calendar order. Months worth nothing (not yet in
+     * service, fully depreciated) are left out.
+     */
+    public static function missingDepreciationMonths(PDO $pdo, array $asset, int $year): array
+    {
+        require_once __DIR__ . '/Depreciation.php';
+        $logs = $pdo->prepare("SELECT year, month, amount FROM depreciation_logs WHERE fixed_asset_id = ?");
+        $logs->execute([(int) $asset['id']]);
+        $accumulated = 0.0;   // booked before this year: counts towards the cap
+        $thisYear = [];       // month => amount already logged this year
+        foreach ($logs->fetchAll(PDO::FETCH_ASSOC) as $l) {
+            if ((int) $l['year'] < $year)   $accumulated += (float) $l['amount'];
+            if ((int) $l['year'] === $year) $thisYear[(int) $l['month']] = (float) $l['amount'];
+        }
+
+        $out = [];
+        for ($m = 1; $m <= 12; $m++) {
+            if (array_key_exists($m, $thisYear)) { $accumulated += $thisYear[$m]; continue; }
+            $row = $asset;
+            $row['accumulated'] = $accumulated;
+            $r = Depreciation::monthly($row, new DateTimeImmutable(sprintf('%04d-%02d-01', $year, $m)));
+            $amt = (float) $r['amount'];
+            if ($amt <= 0) continue;
+            $out[] = ['month' => $m, 'amount' => $amt, 'proration_days' => (int) $r['proration_days'], 'calculation' => $r['calculation']];
+            $accumulated += $amt;
+        }
+        return $out;
     }
 
     /** Incorporate the year's net result into 131 (profit) or 139 (loss). */
@@ -384,11 +435,14 @@ class YearEndClosing
     {
         $date = $date ?: "$year-12-31";
         $ref = 'INV-' . $year . '-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
+        // Draft, lines, then post_journal_entry (balance check, status 'posted'), as
+        // every other posting does. It inserted status 'approved', which migration 039
+        // removed from the column: the entries never reached the ledger as posted.
         $st = $this->pdo->prepare(
             "INSERT INTO journal_entries (reference, journal_code, date, description, status, created_by, approved_by)
-             VALUES (?, 'OD', ?, ?, 'approved', ?, ?)"
+             VALUES (?, 'OD', ?, ?, 'draft', ?, ?)"
         );
-        $st->execute([$ref, $date, $description, $this->userId, $this->userId]);
+        $st->execute([$ref, $date, mb_substr($description, 0, 255), $this->userId, $this->userId]);
         $jeId = (int)$this->pdo->lastInsertId();
 
         $ln = $this->pdo->prepare(
@@ -402,6 +456,7 @@ class YearEndClosing
         if (round($sumD - $sumC, 2) !== 0.00) {
             throw new RuntimeException(sprintf('Écriture non équilibrée: D=%.2f C=%.2f', $sumD, $sumC));
         }
+        $this->pdo->prepare("CALL post_journal_entry(?, ?)")->execute([$jeId, $this->userId]);
         return $jeId;
     }
 

@@ -205,8 +205,11 @@ final class Depreciation
         //   Credit cost (2xx) cost
         //   Credit plus-value (82x) if any
         //   Credit TVA facturée (4431) if TTC
-        $cost_account_id      = (int) ($asset['cost_account_id']             ?? $asset['asset_account_id'] ?? 0);
-        $depr_account_id      = (int) ($asset['accumulated_depr_account_id'] ?? $asset['depr_account_id']  ?? 0);
+        // The chart accounts the asset was capitalised with. cost_account_id and
+        // accumulated_depr_account_id hold OHADA ids (fk to ohada_accounts), not chart
+        // ids: they are only a fallback for a row that has no chart account.
+        $cost_account_id      = (int) (($asset['asset_account_id'] ?? 0) ?: ($asset['cost_account_id']             ?? 0));
+        $depr_account_id      = (int) (($asset['depr_account_id']  ?? 0) ?: ($asset['accumulated_depr_account_id'] ?? 0));
         // Per-asset override wins; otherwise use the company-default preference
         // ID the caller resolved from app_preferences. Zero-fallback stays zero
         // so the controller can surface a clean "configure 81/82" error.

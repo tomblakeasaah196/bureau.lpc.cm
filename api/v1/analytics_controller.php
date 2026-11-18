@@ -394,35 +394,19 @@ if ($action === 'get_dashboard') {
             error_log('analytics_controller ar_over60: ' . $e->getMessage());
         }
 
-        // 4. Écart budgétaire global — sum(actuals) / sum(planned) across
-        //    every budget line in the active budget for the current year.
+        // 4. Écart budgétaire global: the year's charges in the ledger to date against
+        //    the annual targets of the charge lines in Budgets & Performance. The planned
+        //    side read `budgets` / `budget_lines`, which nothing has written since
+        //    migration 091 (VIDEO_QA_FINDINGS 12.3).
         $budget_execution_pct    = null;
         $budget_execution_actual = 0.0;
         $budget_execution_planned = 0.0;
         try {
+            require_once __DIR__ . '/../../includes/functions/budget_buckets.php';
             $y = (int)date('Y', strtotime($today));
-            $stmtBe = $pdo->prepare("
-                SELECT COALESCE(SUM(bl.annual_amount), 0) AS planned
-                  FROM budgets b
-                  JOIN budget_lines bl ON bl.budget_id = b.id
-                 WHERE b.fiscal_year = ? AND b.status = 'active'
-            ");
-            $stmtBe->execute([$y]);
-            $planned = (float)$stmtBe->fetchColumn();
-
-            // Actuals = every approved journal_line hitting an expense account
-            // during the fiscal year to date.
-            $stmtBa = $pdo->prepare("
-                SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS actual
-                  FROM journal_lines jl
-                  JOIN journal_entries je ON jl.journal_entry_id = je.id
-                  JOIN chart_of_accounts ca ON jl.account_id = ca.id
-                 WHERE je.status = 'posted'
-                   AND ca.type = 'expense'
-                   AND je.date >= ? AND je.date <= ?
-            ");
-            $stmtBa->execute([$y . '-01-01', $today]);
-            $actual = (float)$stmtBa->fetchColumn();
+            $bs = lpc_budget_summary($pdo, $y, $today);
+            $planned = (float) ($bs['expense_target'] ?? 0);
+            $actual  = (float) $bs['expense_actual'];
 
             $budget_execution_planned = $planned;
             $budget_execution_actual  = $actual;
@@ -833,42 +817,42 @@ if ($action === 'drilldown_ar_over60') {
 if ($action === 'drilldown_budget_execution') {
     $y = (int)($_GET['year'] ?? date('Y'));
     if ($y < 2000 || $y > 2999) $y = (int)date('Y');
+    // The charge lines of Budgets & Performance (migration 091) with their annual target and
+    // what the ledger holds for the year (includes/functions/budget_buckets.php). It read
+    // `budgets` / `budget_lines`, which nothing has written since 091 (VIDEO_QA_FINDINGS 12.3).
+    // The lines are computed in PHP, then handed to the drill-down as a derived table.
+    require_once __DIR__ . '/../../includes/functions/budget_buckets.php';
+    $bs = lpc_budget_summary($pdo, $y);
+    $parts = [];
+    foreach ($bs['lines'] as $l) {
+        if ($l['is_revenue']) continue;
+        $parts[] = sprintf('SELECT %s AS label, %s AS bkey, %s AS planned, %s AS actual',
+            $pdo->quote($l['label']), $pdo->quote($l['key']),
+            $l['planned'] === null ? 'NULL' : (string) round((float) $l['planned'], 2),
+            (string) round((float) $l['actual'], 2));
+    }
+    if (!$parts) $parts[] = "SELECT '' AS label, '' AS bkey, NULL AS planned, 0 AS actual FROM DUAL WHERE 1 = 0";
     $sql_body = "
-        FROM budget_lines bl
-        JOIN budgets b ON b.id = bl.budget_id
-        LEFT JOIN ohada_accounts oa ON bl.ohada_account_id = oa.id
-        LEFT JOIN (
-            -- Actuals per OHADA account, through each chart account's own link to it. The join used
-            -- oa.code, a column ohada_accounts does not have (it is account_number): the detail of
-            -- « Exécution budgétaire » in Rapports Consolidés failed with SQLSTATE 42S22.
-            SELECT ca.ohada_account_id AS oid, SUM(jl.debit - jl.credit) AS actual
-              FROM journal_lines jl
-              JOIN journal_entries je ON jl.journal_entry_id = je.id
-              JOIN chart_of_accounts ca ON jl.account_id = ca.id
-             WHERE je.status = 'posted'
-               AND ca.type = 'expense'
-               AND je.date >= :year_start AND je.date <= :year_end
-             GROUP BY ca.ohada_account_id
-        ) act ON act.oid = oa.id
-        WHERE b.fiscal_year = :y AND b.status = 'active'
-        ORDER BY (COALESCE(act.actual, 0) - bl.annual_amount) DESC
+        FROM (" . implode(' UNION ALL ', $parts) . ") bl
+        WHERE :y > 0
+        ORDER BY (bl.actual - COALESCE(bl.planned, 0)) DESC
     ";
     $select = "
-        COALESCE(oa.name, '—') AS category,
-        oa.account_number AS account_code,
-        bl.annual_amount AS planned,
-        COALESCE(act.actual, 0) AS actual,
-        (COALESCE(act.actual, 0) - bl.annual_amount) AS variance,
-        CASE WHEN bl.annual_amount > 0
-             THEN ROUND((COALESCE(act.actual, 0) / bl.annual_amount) * 100.0, 1)
+        bl.label AS category,
+        bl.bkey AS account_code,
+        COALESCE(bl.planned, 0) AS planned,
+        bl.actual AS actual,
+        (bl.actual - COALESCE(bl.planned, 0)) AS variance,
+        CASE WHEN bl.planned > 0
+             THEN ROUND((bl.actual / bl.planned) * 100.0, 1)
              ELSE NULL END AS execution_pct
     ";
     analytics_run_drilldown(
         $pdo, $sql_body,
-        ['y' => $y, 'year_start' => $y . '-01-01', 'year_end' => $y . '-12-31'],
+        ['y' => $y],
         $select,
-        ['oa.name', 'oa.account_number'],
-        ['Catégorie', 'Compte', 'Planifié FCFA', 'Réalisé FCFA', 'Écart FCFA', 'Exécution %'],
+        ['bl.label'],
+        ['Ligne budgétaire', 'Code', 'Objectif FCFA', 'Réalisé FCFA', 'Écart FCFA', 'Exécution %'],
         ['category', 'account_code', 'planned', 'actual', 'variance', 'execution_pct'],
         'budget-execution'
     );
