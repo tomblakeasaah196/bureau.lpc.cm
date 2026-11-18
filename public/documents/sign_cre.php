@@ -42,7 +42,7 @@ if (empty($token)) {
 
         // 1. Fetch CRE Document Details
         $stmt = $pdo->prepare("
-            SELECT d.*, c.name as client_name, s.name as site_name, u.first_name as op_name
+            SELECT d.*, c.name as client_name, c.phone as client_phone, s.name as site_name, u.first_name as op_name
             FROM cre_documents d
             JOIN clients c ON d.client_id = c.id
             LEFT JOIN client_sites s ON d.site_id = s.id
@@ -209,7 +209,7 @@ if (empty($token)) {
                 <h3 class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Identification du Signataire</h3>
                 <input type="text" id="sig_name"  placeholder="Votre Nom & Prénom *"    required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-lpc-dark focus:bg-white">
                 <input type="text" id="sig_role"  placeholder="Votre Fonction / Poste *" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-lpc-dark focus:bg-white">
-                <input type="tel"  id="sig_phone" placeholder="Numéro de Téléphone *"    required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-lpc-dark focus:bg-white">
+                <input type="tel"  id="sig_phone" value="<?php echo htmlspecialchars((string) ($cre['client_phone'] ?? '')); ?>" placeholder="Numéro de Téléphone *"    required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-lpc-dark focus:bg-white">
             </div>
 
             <div>

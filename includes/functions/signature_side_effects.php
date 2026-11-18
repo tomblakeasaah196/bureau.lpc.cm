@@ -47,6 +47,7 @@ if (basename($_SERVER['PHP_SELF'] ?? '') === basename(__FILE__)) {
 }
 
 require_once __DIR__ . '/stock.php';
+require_once __DIR__ . '/empties.php';
 require_once __DIR__ . '/proposal_terms.php';
 require_once __DIR__ . '/notify.php';
 require_once __DIR__ . '/../classes/JournalPoster.php';
@@ -199,54 +200,87 @@ function lpc_signature_side_effects_cre(PDO $db, int $creId): void
     // shape the old sign_cre action ran; nothing about ledger math changed
     // when we unified signatures.
     $items = $db->prepare(
-        "SELECT product_id, quantity
+        "SELECT id, product_id, quantity
            FROM cre_items
           WHERE cre_document_id = ? AND quantity > 0"
     );
     $items->execute([$creId]);
     $rows = $items->fetchAll(PDO::FETCH_ASSOC);
 
-    $insertLedger = $db->prepare(
-        "INSERT IGNORE INTO client_empties_ledger
-             (client_id, site_id, product_id, total_in, quantity_owed)
-         VALUES (?, ?, ?, 0, 0)"
-    );
+    // The client's debt for that bottle size, whatever cork and whatever site
+    // the CRE names (VIDEO_QA_FINDINGS 7.4): see includes/functions/empties.php.
+    // Each line keeps the row it reduced and by how much, so a client's
+    // contest before it signs can undo exactly that (7.3).
+    $owedOf = $db->prepare("SELECT quantity_owed FROM client_empties_ledger WHERE id = ?");
     $updateLedger = $db->prepare(
         "UPDATE client_empties_ledger
-            SET total_in = total_in + ?,
-                quantity_owed = GREATEST(0, quantity_owed - ?)
-          WHERE client_id = ?
-            AND (site_id = ? OR (? IS NULL AND site_id IS NULL))
-            AND product_id = ?"
+            SET total_in = total_in + ?, quantity_owed = quantity_owed - ?
+          WHERE id = ?"
     );
-    // reference_id stays empty (DataWipeMap finds these by time and
-    // operator); reference_type says a CRE brought them (migration 134).
-    $stockMove = $db->prepare(
-        "INSERT INTO inventory_movements
-             (product_id, movement_type, quantity, unit_cost, reference_type, logged_by)
-         VALUES (?, 'in_return_emp', ?, (SELECT cump FROM products WHERE id = ?), 'cre', ?)"
-    );
+    $keep = $db->prepare("UPDATE cre_items SET ledger_id = ?, owed_applied = ? WHERE id = ?");
 
     foreach ($rows as $it) {
         $pid = (int) $it['product_id'];
-        if ($pid <= 0) continue;
+        $qty = (int) $it['quantity'];
+        if ($pid <= 0 || $qty <= 0) continue;
 
-        $insertLedger->execute([$cre['client_id'], $cre['site_id'], $pid]);
-        $updateLedger->execute([
-            $it['quantity'], $it['quantity'],
-            $cre['client_id'], $cre['site_id'], $cre['site_id'], $pid,
-        ]);
-        // Put empties physically back into stock (driver's hand).
-        $stockMove->execute([$pid, $it['quantity'], $pid, $cre['operator_id']]);
+        $ledgerId = lpc_empties_target_row($db, (int) $cre['client_id'], $pid);
+        $owedOf->execute([$ledgerId]);
+        $applied = min($qty, max(0, (int) $owedOf->fetchColumn()));
+        $updateLedger->execute([$qty, $applied, $ledgerId]);
+        $keep->execute([$ledgerId, $applied, (int) $it['id']]);
+
+        // The empties are in LPC's hands: into stock, at the product's CUMP.
+        $prod = lpc_stock_lock($db, $pid);
+        lpc_stock_move($db, $pid, 'in_return_emp', $qty, 'cre', $creId,
+                       (int) $cre['operator_id'], $prod ? $prod['cump'] : null);
     }
 
     lpc_signature_notify_admin(
         $db,
-        'CRE Signé & Scellé',
-        "Le bon de retour {$cre['reference']} a été signé électroniquement.",
+        'Retour de vides enregistré',
+        "Le CRE {$cre['reference']} est signé : les vides sont rentrés en stock et déduits de ce que doit le client.",
         '/modules/operations/empties_collection.php',
-        'info'
+        'info',
+        ['operations.empties.create_cre', 'operations.recycling.view']
     );
+}
+
+/**
+ * The client contests a CRE LPC has already counted and signed, before
+ * signing it themself (VIDEO_QA_FINDINGS 7.3): what LPC's signature booked
+ * is undone, line by line as it was booked, and the CRE is refused. The
+ * Responsable des Opérations recounts and issues a new one.
+ *
+ * @throws UserFacingException when the empties have left the stock since
+ */
+function lpc_cre_undo_count(PDO $db, int $creId, int $userId): void
+{
+    $items = $db->prepare(
+        "SELECT ci.id, ci.product_id, ci.quantity, ci.ledger_id, ci.owed_applied, p.name
+           FROM cre_items ci JOIN products p ON p.id = ci.product_id
+          WHERE ci.cre_document_id = ? AND ci.quantity > 0"
+    );
+    $items->execute([$creId]);
+    $undoLedger = $db->prepare(
+        "UPDATE client_empties_ledger
+            SET total_in = GREATEST(0, total_in - ?), quantity_owed = quantity_owed + ?
+          WHERE id = ?"
+    );
+    foreach ($items->fetchAll(PDO::FETCH_ASSOC) as $it) {
+        $pid = (int) $it['product_id'];
+        $qty = (int) $it['quantity'];
+        $prod = lpc_stock_lock($db, $pid);
+        if (!$prod || $prod['qty'] < $qty) {
+            throw new UserFacingException("Les vides de ce retour ({$it['name']}) ont déjà quitté le stock : "
+                . "le Responsable des Opérations doit corriger le retour avec vous.");
+        }
+        lpc_stock_move($db, $pid, 'out_adjustment', $qty, 'cre_contested', $creId, $userId, $prod['cump'],
+                       'Retour contesté par le client');
+        if (!empty($it['ledger_id'])) {
+            $undoLedger->execute([$qty, (int) $it['owed_applied'], (int) $it['ledger_id']]);
+        }
+    }
 }
 
 // ============================================================================

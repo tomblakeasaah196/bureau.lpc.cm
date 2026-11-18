@@ -7,6 +7,10 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/Paginator.php';   // Sprint 5
 require_once __DIR__ . '/../../includes/classes/JournalPoster.php'; // PR-2, migration 094
+require_once __DIR__ . '/../../includes/functions/notify.php';
+require_once __DIR__ . '/../../includes/functions/stock.php';
+require_once __DIR__ . '/../../includes/functions/empties.php';
+require_once __DIR__ . '/../../includes/functions/signature_side_effects.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 
@@ -25,19 +29,11 @@ function sendResponse($status, $message, $data = null) {
     exit;
 }
 
-// Sprint 9: added $relatedUrl/$type so these rows are actually clickable and
-// colour-coded once surfaced (see api/v1/notifications_controller.php, which
-// as of Sprint 9 finally reads the `notifications` table instead of nobody).
-// 'finance' is not a real seeded role (migrations/001_rbac_seed.sql only
-// seeds admin/accountant/operations/driver) so this has only ever reached
-// admins in practice — kept as-is to avoid changing who gets notified.
-function notifyAdmin($pdo, $title, $message, $relatedUrl = null, $type = 'info') {
-    $stmt = $pdo->query("SELECT u.id FROM users u JOIN roles r ON u.role_id = r.id WHERE r.name IN ('admin', 'finance') AND u.status = 'active'");
-    $admins = $stmt->fetchAll(PDO::FETCH_COLUMN);
-    if (!empty($admins)) {
-        $insert = $pdo->prepare("INSERT INTO notifications (user_id, title, message, type, related_url) VALUES (?, ?, ?, ?, ?)");
-        foreach ($admins as $uid) { $insert->execute([$uid, $title, $message, $type, $relatedUrl]); }
-    }
+// Who is told, by permission (VIDEO_QA_FINDINGS 7.6): it named the roles
+// 'admin' and 'finance', and 'finance' does not exist. A CRE concerns who
+// collects empties; a recycler sale also concerns who follows its money.
+function notifyAdmin($pdo, $title, $message, $relatedUrl = null, $type = 'info', array $perms = ['operations.empties.create_cre']) {
+    lpc_notify_permission($pdo, $perms, $title, $message, $relatedUrl, $type, [(int) ($_SESSION['user_id'] ?? 0)]);
 }
 
 /**
@@ -77,7 +73,8 @@ function getProductIdForBottleType($pdo, $bottle_type) {
 function getEmptyProductsCatalog($pdo) {
     $stmt = $pdo->query("
         SELECT id, name, base_price, bottle_size, has_cork,
-               CONCAT(bottle_size, IF(has_cork, '_cork', '_nocork')) AS type_key
+               CONCAT(bottle_size, IF(has_cork, '_cork', '_nocork')) AS type_key,
+               " . lpc_stock_qty_sql('products.id') . " AS stock_qty
           FROM products
          WHERE is_empty = 1
            AND bottle_size IS NOT NULL
@@ -286,21 +283,37 @@ if ($action === 'sign_cre' || $action === 'reject_cre') {
     try {
         $pdo->beginTransaction();
 
-        $stmt = $pdo->prepare("SELECT id, reference FROM cre_documents WHERE token = ? AND status = 'en_transit' FOR UPDATE");
+        // The client may contest until it has signed itself, also after LPC
+        // has counted and signed the return (VIDEO_QA_FINDINGS 7.3: it was
+        // refused « déjà traité » as soon as LPC signed, i.e. always).
+        $stmt = $pdo->prepare("SELECT id, reference, status, operator_id FROM cre_documents WHERE token = ? AND status IN ('en_transit', 'signed') FOR UPDATE");
         $stmt->execute([$token]);
         $cre = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$cre) throw new Exception("Document introuvable ou déjà traité.");
+        $ext = $pdo->prepare("SELECT COUNT(*) FROM document_signatures WHERE document_type = 'cre' AND document_id = ? AND party = 'external' AND revoked_at IS NULL");
+        $ext->execute([(int) $cre['id']]);
+        if ((int) $ext->fetchColumn() > 0) throw new Exception("Vous avez déjà signé ce retour.");
 
         $reason = trim($payload['reason'] ?? '');
         if ($reason === '') throw new Exception("Motif du refus requis.");
+        if ($cre['status'] === 'signed') {
+            // LPC's count had booked the empties: undo exactly that.
+            lpc_cre_undo_count($pdo, (int) $cre['id'], (int) $cre['operator_id']);
+        }
         $pdo->prepare("UPDATE cre_documents SET status = 'rejected', rejection_reason = ? WHERE id = ?")
-            ->execute([$reason, $cre['id']]);
-        notifyAdmin($pdo, "CRE Refusé", "Le client a refusé le bon de retour " . $cre['reference'] . ".\nRaison: " . $reason,
+            ->execute([mb_substr($reason, 0, 255), $cre['id']]);
+        notifyAdmin($pdo, "Retour de vides contesté", "Le client conteste le CRE " . $cre['reference'] . " : " . $reason
+            . ($cre['status'] === 'signed' ? "\nLe comptage de LPC est annulé : refaites le retour avec lui." : ''),
             '/modules/operations/empties_collection.php', 'warning');
         $pdo->commit();
-        sendResponse('success', 'Document refusé et annulé.');
-    } catch (Exception $e) {
+        sendResponse('success', 'Votre contestation est transmise à La Petite Cour.');
+    } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
+        // A public page: a rule the client can act on reaches it, nothing else.
+        if ($e instanceof PDOException || $e instanceof Error) {
+            error_log('cre_controller reject_cre: ' . $e->getMessage());
+            sendResponse('error', 'Erreur serveur. Veuillez réessayer.');
+        }
         sendResponse('error', $e->getMessage());
     }
 }
@@ -337,7 +350,7 @@ if ($method === 'GET') {
                         s.id as site_id, s.name as site_name,
                         p.id as product_id, p.name as product_name,
                         cel.total_out, cel.total_in, cel.quantity_owed,
-                        cel.quantity_in_flight
+                        cel.quantity_in_flight, " . lpc_empties_position_sql() . "
                     FROM client_empties_ledger cel
                     JOIN clients c ON cel.client_id = c.id
                     LEFT JOIN client_sites s ON cel.site_id = s.id
@@ -355,13 +368,13 @@ if ($method === 'GET') {
                         s.id as site_id, s.name as site_name,
                         p.id as product_id, p.name as product_name,
                         cel.total_out, cel.total_in, cel.quantity_owed,
-                        cel.quantity_in_flight
+                        cel.quantity_in_flight, " . lpc_empties_position_sql() . "
                     FROM client_empties_ledger cel
                     JOIN clients c ON cel.client_id = c.id
                     LEFT JOIN client_sites s ON cel.site_id = s.id
                     JOIN products p ON cel.product_id = p.id
                     WHERE cel.quantity_owed > 0 OR cel.quantity_in_flight > 0
-                    ORDER BY c.name ASC, s.name ASC
+                    ORDER BY to_recover DESC, c.name ASC, s.name ASC
                 ");
             }
             sendResponse('success', 'OK', $stmt->fetchAll(PDO::FETCH_ASSOC));
@@ -383,9 +396,16 @@ if ($method === 'GET') {
             $totalOwed = (int) $pdo->query(
                 "SELECT COALESCE(SUM(quantity_owed), 0) FROM client_empties_ledger WHERE quantity_owed > 0"
             )->fetchColumn();
-            $clientsWithDebt = (int) $pdo->query(
-                "SELECT COUNT(DISTINCT client_id) FROM client_empties_ledger WHERE quantity_owed > 0"
-            )->fetchColumn();
+            // What LPC must still recover: each client's agreed minimum less
+            // what came back (VIDEO_QA_FINDINGS 7.1). The bottles beyond it
+            // are the client's to keep, not a debt.
+            $pos = $pdo->query("
+                SELECT COALESCE(SUM(x.to_recover), 0) AS to_recover,
+                       COUNT(DISTINCT CASE WHEN x.to_recover > 0 THEN x.client_id END) AS clients_short
+                  FROM (SELECT cel.client_id, " . lpc_empties_position_sql() . "
+                          FROM client_empties_ledger cel JOIN clients c ON c.id = cel.client_id) x
+            ")->fetch(PDO::FETCH_ASSOC);
+            $clientsWithDebt = (int) $pos['clients_short'];
             // Sprint 12 (migration 074) — empties dispatched on open BLs
             // but not yet reconciled by signature. Reported alongside the
             // confirmed dues so a supervisor sees BOTH: what we're sure of
@@ -415,6 +435,7 @@ if ($method === 'GET') {
             )->fetchColumn();
             sendResponse('success', 'OK', [
                 'total_owed'            => $totalOwed,
+                'total_to_recover'      => (int) $pos['to_recover'],
                 'clients_with_debt'     => $clientsWithDebt,
                 'total_in_flight'       => $totalInFlight,
                 'clients_in_flight'     => $clientsInFlight,
@@ -452,9 +473,12 @@ if ($method === 'GET') {
             $body   = "
                 FROM cre_documents d
                 JOIN clients c ON d.client_id = c.id
-                WHERE d.operator_id = ?
+                LEFT JOIN users u ON u.id = d.operator_id
+                WHERE 1 = 1
             ";
-            $params = [$user_id];
+            // Every CRE, for whoever may see the empties (VIDEO_QA_FINDINGS
+            // 7.7: it listed the signed-in user's own only).
+            $params = [];
             if ($lpc_q !== '') {
                 [$body, $params] = Paginator::addWhere(
                     $body, $params, $lpc_q,
@@ -463,8 +487,9 @@ if ($method === 'GET') {
             }
             $body .= " ORDER BY d.id DESC";
             $page = Paginator::paginate($pdo, $body, $params,
-                "d.*, c.name as client_name, c.phone as client_phone",
-                null, null, "cre.get_history:$user_id");
+                "d.*, c.name as client_name, c.phone as client_phone,
+                 CONCAT(u.first_name, ' ', u.last_name) AS operator_name",
+                null, null, "cre.get_history");
             $history = $page['data'];
 
             // Sprint-4-Batch-B: replaced strpos classifier with bottle_size + has_cork columns.
@@ -535,7 +560,8 @@ if ($method === 'GET') {
             // Sprint-4-Batch-B: filter by is_empty=1 instead of IN (901,902,903,904).
             $stmt = $pdo->query("
                 SELECT id, name, base_price, bottle_size, has_cork,
-                       CONCAT(bottle_size, IF(has_cork, '_cork', '_nocork')) AS type_key
+                       CONCAT(bottle_size, IF(has_cork, '_cork', '_nocork')) AS type_key,
+                       " . lpc_stock_qty_sql('products.id') . " AS stock_qty
                 FROM products
                 WHERE is_empty = 1 AND bottle_size IS NOT NULL
                 ORDER BY bottle_size DESC, has_cork DESC
@@ -544,10 +570,10 @@ if ($method === 'GET') {
         } catch (Exception $e) { sendResponse('error', 'Erreur DB: ' . $e->getMessage()); }
     }
     
+    // Gated by operations.recycling.view in $ACTION_PERMS (VIDEO_QA_FINDINGS
+    // 7.6: it also required the roles admin / finance / accountant, so the
+    // Responsable des Opérations, who makes the sales, met « Accès refusé »).
     if ($action === 'get_recycling_revenue') {
-        if (!in_array($_SESSION['user_role'], ['admin', 'finance', 'accountant'])) {
-            sendResponse('error', 'Accès refusé.');
-        }
 
         try {
             // Period picker → date range. Empty $start/$end means "all history".
@@ -643,9 +669,6 @@ if ($method === 'GET') {
     // table so a supervisor comparing "cash reçu" against "prix négociés" over
     // Q1 sees consistent scoping in both panes.
     if ($action === 'get_price_overrides') {
-        if (!in_array($_SESSION['user_role'], ['admin', 'finance', 'accountant'])) {
-            sendResponse('error', 'Accès refusé.');
-        }
         try {
             [$startDate, $endDate] = lpcResolvePeriod(
                 $_GET['period'] ?? null, $_GET['start'] ?? null, $_GET['end'] ?? null);
@@ -794,14 +817,10 @@ if ($method === 'POST') {
                 throw new Exception('Ce CRE n\'est plus en attente et ne peut plus être annulé.');
             }
 
-            // Operator gate: an ops user can only kill their own CRE. Admin /
-            // finance / accountant can kill anyone's — needed when the
-            // original operator is off site and the client is on the phone.
-            $role = $_SESSION['user_role'] ?? '';
-            $isElevated = in_array($role, ['admin', 'finance', 'accountant'], true);
-            if (!$isElevated && (int) $cre['operator_id'] !== (int) $user_id) {
-                throw new Exception('Vous ne pouvez annuler que vos propres CRE.');
-            }
+            // Whoever may issue CREs may withdraw a pending one (the gate is
+            // operations.empties.create_cre): the colleague who issued it may
+            // be on the road while the client calls (VIDEO_QA_FINDINGS 7.6:
+            // this named the roles admin / finance / accountant).
 
             // We store the reason in rejection_reason to reuse the existing
             // column (added by the CRE schema). The status enum already
@@ -835,8 +854,8 @@ if ($method === 'POST') {
             $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             $pdo->beginTransaction();
 
-            $location = trim($payload['location']);
-            $items = $payload['items'];
+            $location = trim((string) ($payload['location'] ?? ''));
+            $items = is_array($payload['items'] ?? null) ? $payload['items'] : [];
 
             if (empty($location)) throw new Exception("Lieu de recyclage requis.");
 
@@ -920,8 +939,7 @@ if ($method === 'POST') {
             // reference_type says the reference is a recycling sale, not a BL:
             // the Historique showed these as a client delivery with whatever
             // BL had the same id (VIDEO_QA_FINDINGS 3.5, migration 134).
-            $stmtMove = $pdo->prepare("INSERT INTO inventory_movements (product_id, movement_type, quantity, unit_cost, reference_id, reference_type, logged_by) VALUES (?, 'out_delivery', ?, (SELECT cump FROM products WHERE id = ?), ?, 'recycling_sale', ?)");
-            $stmtPrice = $pdo->prepare("SELECT base_price, name FROM products WHERE id = ?");
+            $stmtPrice = $pdo->prepare("SELECT base_price, name FROM products WHERE id = ? AND is_empty = 1");
 
             $client_ip  = substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
             $client_ua  = substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255);
@@ -938,7 +956,13 @@ if ($method === 'POST') {
                 if ($qty > 0) {
                     $stmtPrice->execute([$pid]);
                     $prod = $stmtPrice->fetch(PDO::FETCH_ASSOC);
-                    if (!$prod) throw new Exception("Produit invalide.");
+                    if (!$prod) throw new Exception("Produit invalide : seuls les emballages vides se vendent au recycleur.");
+                    // Only what is in stock leaves (VIDEO_QA_FINDINGS 7.5:
+                    // any quantity went, the stock of empties went negative).
+                    $lock = lpc_stock_lock($pdo, $pid);
+                    if (!$lock || $lock['qty'] < $qty) {
+                        throw new Exception("Stock insuffisant pour {$prod['name']} : " . ($lock ? $lock['qty'] : 0) . " en stock, $qty demandé(s).");
+                    }
 
                     $base_price = (float)$prod['base_price'];
 
@@ -990,8 +1014,10 @@ if ($method === 'POST') {
                             . "\n  Motif : " . $override_reason;
                     }
 
-                    // Deduct from physical stock (Driver selling empties out of stock)
-                    $stmtMove->execute([$pid, $qty, $pid, $sale_id, $user_id]);
+                    // Out of the stock of empties. Same movement type as a
+                    // delivery; reference_type says it is a recycler sale, and
+                    // that is what every stock screen reads (3.5).
+                    lpc_stock_move($pdo, $pid, 'out_delivery', $qty, 'recycling_sale', (int) $sale_id, (int) $user_id, $lock['cump']);
 
                     $details_notif[] = "$qty x {$prod['name']}"
                         . ($is_override ? ' (prix négocié)' : '');
@@ -1047,7 +1073,8 @@ if ($method === 'POST') {
                       . implode("\n", $override_notif);
             }
             notifyAdmin($pdo, $override_count > 0 ? "Vente Recyclage (Prix négocié)" : "Vente Recyclage (Cash)", $msg,
-                '/modules/operations/empties_collection.php', $override_count > 0 ? 'warning' : 'info');
+                '/modules/operations/empties_collection.php', $override_count > 0 ? 'warning' : 'info',
+                ['operations.recycling.view']);
 
             $pdo->commit();
             sendResponse('success', 'Vente enregistrée avec succès.', [
@@ -1059,7 +1086,13 @@ if ($method === 'POST') {
         } catch (Throwable $e) { 
             // Using Throwable instead of Exception catches PHP Fatal Errors (like missing tables)
             if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
-            sendResponse('error', "Erreur Serveur : " . $e->getMessage());
+            // A rule the seller can act on (stock, price, account) is said as is;
+            // anything else is logged, not shown.
+            if ($e instanceof PDOException || $e instanceof Error) {
+                error_log('cre_controller sell_to_recycler: ' . $e->getMessage());
+                sendResponse('error', 'Erreur serveur. Veuillez réessayer.');
+            }
+            sendResponse('error', $e->getMessage());
         }
     }
 }

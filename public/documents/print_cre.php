@@ -222,7 +222,7 @@ $labels = [
             <table class="w-full text-left border-collapse border border-gray-800">
                 <thead class="bg-gray-100 border-b border-gray-800">
                     <tr>
-                        <th class="py-3 px-4 text-xs font-black uppercase text-gray-800 border-r border-gray-800">Type d'Emballage Consigné</th>
+                        <th class="py-3 px-4 text-xs font-black uppercase text-gray-800 border-r border-gray-800">Emballage vide</th>
                         <th class="py-3 px-4 text-xs font-black uppercase text-gray-800 text-center w-48">Quantité (Unités)</th>
                     </tr>
                 </thead>
@@ -297,7 +297,7 @@ $labels = [
         </div>
 
         <div class="absolute bottom-10 left-0 right-0 text-center">
-            <p class="text-[9px] font-bold text-gray-400">Document généré automatiquement par LPC ERP - Ce document fait foi de bon de retour pour la mise à jour des soldes de consignes.</p>
+            <p class="text-[9px] font-bold text-gray-400">Document généré automatiquement par LPC ERP - Ce document fait foi de bon de retour pour la mise à jour des emballages dus par le client.</p>
         </div>
 
     </div>

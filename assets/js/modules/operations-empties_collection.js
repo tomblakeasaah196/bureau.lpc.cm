@@ -78,7 +78,8 @@
         // form. Fire-and-forget: if it fails, the picker shows the loader
         // and the driver sees the network error on submit — matches how
         // loadClients / loadEmptyCatalog handle their own failures.
-        loadTreasuryAccountsForRecycling();
+        // Only for who may sell: the Comptable met a 403 on every visit.
+        if (canSellRecycler) loadTreasuryAccountsForRecycling();
         // Toolbar déclutter (Sprint 9) — le sélecteur de période vit
         // maintenant dans l'onglet Revenus, donc plus rien à masquer/afficher
         // côté toolbar au chargement.
@@ -224,13 +225,16 @@
              // drill-down (openKpiModal). Le type identifie le jeu de données
              // à charger côté client (voir openKpiModal ci-dessous).
             box.innerHTML = '';
+            // What LPC must still recover: each client's agreed minimum less
+            // what came back (VIDEO_QA_FINDINGS 7.1). The bottles the
+            // client may keep beyond it are not a debt.
             box.appendChild(kpiCard({
                 type: 'owed',
                 icon: 'fas fa-balance-scale',
                 accent: 'rose',
-                label: LPC.t ? LPC.t('ui.x.solde_du_total') : 'Solde dû total',
-                value: fmt(k.total_owed) + ' u.',
-                sub:   (k.clients_with_debt || 0) + ' ' + (LPC.t ? LPC.t('ui.x.clients_avec_dette') : 'clients avec dette'),
+                label: 'À récupérer',
+                value: fmt(k.total_to_recover || 0) + ' u.',
+                sub:   (k.clients_with_debt || 0) + ' client(s) sous leur minimum · ' + fmt(k.total_owed || 0) + ' chez les clients',
             }));
             /* Sprint 12 (migration 074) — the in-flight KPI. Sits between
                Solde dû (confirmed) and CRE en attente (paperwork open) so
@@ -363,24 +367,26 @@
         const byClient = {};
         rows.forEach(function (r) {
             const key = r.client_name + (r.site_name ? ' · ' + r.site_name : '');
-            if (!byClient[key]) byClient[key] = { client_id: r.client_id, site_id: r.site_id, name: key, total: 0, lines: [] };
+            if (!byClient[key]) byClient[key] = { client_id: r.client_id, site_id: r.site_id, name: key, total: 0, recover: 0, lines: [] };
             byClient[key].total += Number(r.quantity_owed) || 0;
+            byClient[key].recover += Number(r.to_recover) || 0;
             byClient[key].lines.push(r);
         });
-        const groups = Object.values(byClient).sort(function (a, b) { return b.total - a.total; });
+        const groups = Object.values(byClient).filter(function (g) { return g.recover > 0; })
+            .sort(function (a, b) { return b.recover - a.recover; });
         if (!groups.length) {
-            body.innerHTML = '<p class="text-center py-8 text-gray-400 font-bold text-sm">Aucun solde dû. 🎉</p>';
+            body.innerHTML = '<p class="text-center py-8 text-gray-400 font-bold text-sm">Chaque client a rendu son minimum.</p>';
             cta.href = '#'; cta.classList.add('pointer-events-none', 'opacity-50');
             return;
         }
         let html = '<table class="w-full text-sm">'
                  + '<thead class="text-[10px] font-black text-gray-500 uppercase tracking-wider">'
-                 + '  <tr><th class="text-left py-2">Client / Site</th><th class="text-right py-2">Solde dû (u.)</th><th class="text-right py-2">Action</th></tr>'
+                 + '  <tr><th class="text-left py-2">Client / Site</th><th class="text-right py-2">À récupérer (u.)</th><th class="text-right py-2">Action</th></tr>'
                  + '</thead><tbody class="divide-y divide-gray-100">';
         groups.forEach(function (g) {
             html += '<tr>'
                   + '  <td class="py-2 font-black text-gray-900">' + LPC.escapeHtml(g.name) + '</td>'
-                  + '  <td class="py-2 text-right font-black text-rose-600">' + fmt(g.total) + '</td>'
+                  + '  <td class="py-2 text-right font-black text-rose-600">' + fmt(g.recover) + '</td>'
                   + '  <td class="py-2 text-right"><button type="button" class="text-xs font-bold text-lpc-dark hover:text-black" data-kpi-collect="' + g.client_id + '" data-kpi-site="' + (g.site_id || '') + '"><i class="fas fa-hand-holding-water mr-1"></i>Collecter</button></td>'
                   + '</tr>';
         });
@@ -544,7 +550,7 @@
             renderOwedRows(owedRowsCache);
             renderFilterChip(cid, owedRowsCache);
         } catch (e) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-red-500 font-bold">'
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center py-8 text-red-500 font-bold">'
                             + (LPC.t ? LPC.t('ui.x.erreur_reseau') : 'Erreur réseau.') + '</td></tr>';
         }
     }
@@ -574,7 +580,7 @@
         const tbody = document.getElementById('tbody-owed');
         tbody.innerHTML = '';
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-gray-400 font-bold">'
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center py-8 text-gray-400 font-bold">'
                             + (LPC.t ? LPC.t('ui.x.aucun_solde_du') : 'Aucun solde dû.') + '</td></tr>';
             return;
         }
@@ -592,23 +598,33 @@
                 ? LPC.raw(LPC.html`<span class="font-black text-amber-700">${inFlight}</span>`)
                 : LPC.raw('<span class="text-gray-300">—</span>');
             /* The minimum return the client signed (its devis' « Politique des
-               emballages », migration 137): what LPC must recover of the
-               bottles delivered, and what is still short of it. */
-            const minPct = row.empties_return_min_pct === null || row.empties_return_min_pct === undefined
-                ? null : Number(row.empties_return_min_pct);
-            let minLine = '';
-            if (minPct !== null) {
-                const expected = Math.ceil(Number(row.total_out || 0) * minPct / 100);
-                const short = Math.max(0, expected - Number(row.total_in || 0));
-                minLine = LPC.html`<span class="block text-[10px] font-bold ${short > 0 ? 'text-rose-600' : 'text-green-700'} mt-0.5">Retour minimum ${minPct} % · ${short > 0 ? 'encore ' + short + ' à récupérer' : 'atteint'}</span>`;
-            }
+               emballages », migration 137; 100 % without one), computed by the
+               server (includes/functions/empties.php, VIDEO_QA_FINDINGS 7.1):
+               the return rate against it, what LPC must still recover, and the
+               bottles the client may keep. */
+            const minPct  = Number(row.min_pct ?? 100);
+            const rate    = row.return_rate === null || row.return_rate === undefined ? null : Number(row.return_rate);
+            const recover = Number(row.to_recover || 0);
+            const kept    = Number(row.tolerated || 0);
+            const minLine = LPC.html`<span class="block text-[10px] font-bold ${recover > 0 ? 'text-rose-600' : 'text-green-700'} mt-0.5">Retour minimum ${minPct} % · ${recover > 0 ? 'minimum non atteint' : 'minimum atteint'}</span>`;
+            const rateCell = rate === null
+                ? LPC.raw('<span class="text-gray-300">·</span>')
+                : LPC.raw(LPC.html`<span class="font-black ${rate >= minPct ? 'text-green-700' : 'text-amber-700'}">${rate.toLocaleString('fr-FR')} %</span><span class="block text-[9px] font-bold text-gray-400">sur ${minPct} %</span>`);
+            const recoverCell = recover > 0
+                ? LPC.raw(LPC.html`<span class="font-black text-rose-600">${recover}</span>`)
+                : LPC.raw('<span class="font-black text-green-700"><i class="fas fa-check"></i></span>');
+            const keptCell = kept > 0
+                ? LPC.raw(LPC.html`<span class="font-bold text-gray-500">${kept}</span>`)
+                : LPC.raw('<span class="text-gray-300">·</span>');
             tbody.insertAdjacentHTML('beforeend', LPC.html`
                 <tr class="hover:bg-gray-50 transition-colors">
                     <td class="py-3 px-4 font-black text-gray-900">${row.client_name} ${siteName}${LPC.raw(minLine)}</td>
                     <td class="py-3 px-4 text-xs font-bold text-gray-600">${row.product_name}</td>
                     <td class="py-3 px-4 text-center font-black text-blue-600">${row.total_out}</td>
                     <td class="py-3 px-4 text-center font-black text-green-600">${row.total_in}</td>
-                    <td class="py-3 px-4 text-center font-black text-rose-600 bg-rose-50/50">${row.quantity_owed}</td>
+                    <td class="py-3 px-4 text-center">${rateCell}</td>
+                    <td class="py-3 px-4 text-center bg-rose-50/50">${recoverCell}</td>
+                    <td class="py-3 px-4 text-center">${keptCell}</td>
                     <td class="py-3 px-4 text-center bg-amber-50/40">${inFlightCell}</td>
                     <td class="py-3 px-4 text-right">
                         <button type="button" onclick="prefillCollection(${row.client_id}, ${row.site_id || 'null'})"
@@ -708,7 +724,7 @@
             const card = document.createElement('div');
             card.className = 'bg-gray-50 p-3 rounded-xl border border-gray-200';
             let inner = '<p class="text-xs font-black text-gray-800 text-center mb-2">'
-                      + LPC.escapeHtml(g.size + ' — ' + (LPC.t ? LPC.t('ui.x.bouteilles') : 'bouteilles')) + '</p>'
+                      + LPC.escapeHtml('Bouteilles ' + g.size) + '</p>'
                       + '<div class="space-y-3">';
             g.items.forEach(function (p) {
                 const isNoCork = !p.has_cork;
@@ -749,7 +765,7 @@
         const clientId = document.getElementById('client_id').value;
         const siteSel = document.getElementById('site_id');
         const siteContainer = document.getElementById('site_container');
-        siteSel.innerHTML = '<option value="">-- ' + (LPC.t ? LPC.t('ui.x.siege_principal') : 'Siège Principal') + ' --</option>';
+        siteSel.innerHTML = '<option value="">Sans site précis</option>';
         const phoneInput = document.getElementById('client_phone');
         if (phoneInput) phoneInput.value = '';
 
@@ -975,7 +991,7 @@
             const card = document.createElement('div');
             card.className = 'bg-gray-50 p-3 rounded-xl border border-gray-200';
             let inner = '<p class="text-xs font-black text-gray-800 text-center mb-2">'
-                      + LPC.escapeHtml(g.size + ' — ' + (LPC.t ? LPC.t('ui.x.bouteilles') : 'bouteilles')) + '</p>'
+                      + LPC.escapeHtml('Bouteilles ' + g.size) + '</p>'
                       + '<div class="space-y-3">';
             g.items.forEach(function (p) {
                 const isNoCork = !p.has_cork;
@@ -996,8 +1012,9 @@
                         : '')
                     + '    </span>'
                     + '  </div>'
-                    + '  <input type="number" id="rec_' + p.id + '" data-empty-id="' + p.id + '" min="0" value="0" oninput="calcRecycleTotal()"'
+                    + '  <input type="number" id="rec_' + p.id + '" data-empty-id="' + p.id + '" min="0" max="' + (Number(p.stock_qty) || 0) + '" value="0" oninput="calcRecycleTotal()"'
                     + '         class="w-full border ' + bordCls + ' rounded-lg p-2 outline-none focus:border-amber-500">'
+                    + '  <p class="text-[10px] font-bold text-gray-400 mt-1">' + fmt(Number(p.stock_qty) || 0) + ' en stock</p>'
                     + '</div>';
             });
             inner += '</div>';
@@ -1248,11 +1265,12 @@
             const result = await res.json();
             if (result.status === 'success') {
                 const note = result.data.override_count > 0
-                    ? ' — ' + result.data.override_count + ' prix négocié(s) enregistré(s) à votre nom.'
+                    ? ', ' + result.data.override_count + ' prix négocié(s) enregistré(s) à votre nom.'
                     : '';
                 LPC.modal.alert('Vente validée ! Montant attendu en caisse : ' + fmt(result.data.total_amount) + ' FCFA' + note);
                 document.getElementById('form-recycle').reset();
                 priceOverrides = {};
+                await loadEmptyCatalog();
                 renderRecyclingGrid();
                 calcRecycleTotal();
                 loadEmptiesKPIs();
@@ -1325,10 +1343,10 @@
         const dateStr = isNaN(d.getTime()) ? '' : d.toLocaleDateString('fr-FR');
         const detail  = '~' + ((cre.qty_20c || 0) + (cre.qty_20n || 0) + (cre.qty_10c || 0) + (cre.qty_10n || 0)) + ' u.';
         const statusBadge = LPC.raw(
-            cre.status === 'en_transit'   ? '<span class="bg-amber-100 text-amber-700 px-2 py-1 rounded text-[9px] font-black uppercase"><i class="fas fa-clock"></i> En Attente</span>' :
-            cre.status === 'signed'       ? '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-[9px] font-black uppercase"><i class="fas fa-check-double"></i> Signé</span>' :
+            cre.status === 'en_transit'   ? '<span class="bg-amber-100 text-amber-700 px-2 py-1 rounded text-[9px] font-black uppercase"><i class="fas fa-clock"></i> À signer par LPC</span>' :
+            cre.status === 'signed'       ? '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-[9px] font-black uppercase"><i class="fas fa-check-double"></i> Compté</span>' :
             cre.status === 'cancelled'    ? '<span class="bg-gray-200 text-gray-700 px-2 py-1 rounded text-[9px] font-black uppercase"><i class="fas fa-ban"></i> Annulé</span>' :
-                                            '<span class="bg-rose-100 text-rose-700 px-2 py-1 rounded text-[9px] font-black uppercase"><i class="fas fa-times"></i> Refusé</span>'
+                                            '<span class="bg-rose-100 text-rose-700 px-2 py-1 rounded text-[9px] font-black uppercase" title="' + LPC.escapeHtml(cre.rejection_reason || '') + '"><i class="fas fa-times"></i> Contesté</span>'
         );
 
         let actionBtn = LPC.raw('');
@@ -1344,6 +1362,10 @@
                 </button>`);
         } else if (cre.status === 'signed') {
             actionBtn = LPC.raw(LPC.html`
+                <button type="button" class="js-cre-reshare text-lpc-dark font-black text-xs bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-lg border border-green-200 mr-2"
+                        data-ref="${cre.reference}" data-token="${cre.token}" data-phone="${cre.client_phone || ''}">
+                    <i class="fas fa-share-alt mr-1"></i> Lien client
+                </button>
                 <a href="/print_cre.php?token=${cre.token}" target="_blank" class="text-gray-700 font-black text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg border border-gray-300">
                     <i class="fas fa-file-pdf text-red-500 mr-1"></i> PDF
                 </a>`);
@@ -1352,7 +1374,7 @@
         return LPC.html`
             <tr class="hover:bg-gray-50 transition-colors">
                 <td class="py-3 px-4 text-xs font-bold text-gray-500">${dateStr}<br><span class="text-[10px] font-black text-lpc-dark">${cre.reference}</span></td>
-                <td class="py-3 px-4 font-black text-gray-900">${cre.client_name}<br><span class="text-[10px] font-bold text-gray-400">${cre.client_phone || ''}</span></td>
+                <td class="py-3 px-4 font-black text-gray-900">${cre.client_name}<br><span class="text-[10px] font-bold text-gray-400">${cre.operator_name ? 'Collecté par ' + cre.operator_name : (cre.client_phone || '')}</span></td>
                 <td class="py-3 px-4 text-center text-xs font-bold text-gray-600">${detail}</td>
                 <td class="py-3 px-4 text-center">${statusBadge}</td>
                 <td class="py-3 px-4 text-right whitespace-nowrap">${actionBtn}</td>

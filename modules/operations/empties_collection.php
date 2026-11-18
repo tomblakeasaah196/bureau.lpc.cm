@@ -137,7 +137,7 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
             ?>
         </div>
 
-        <main role="main" id="main" class="lpc-page lpc-page-col">
+        <main role="main" id="main" class="lpc-page lpc-page-col pb-28">
 
             <h2 class="text-lg font-black text-gray-800 mb-4"><?= htmlspecialchars(__t('ui.x.indicateurs_cles_kpis')) ?></h2>
             <?php /* Sprint 12 — grid widened from 4 to 5 to accommodate the
@@ -193,7 +193,12 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                                     <th class="py-3 px-4"><?= htmlspecialchars(__t('ui.x.type_bouteille')) ?></th>
                                     <th class="py-3 px-4 text-center text-blue-500" title="<?= htmlspecialchars(__t('ui.x.total_livre')) ?>"><?= htmlspecialchars(__t('ui.x.livres_out')) ?></th>
                                     <th class="py-3 px-4 text-center text-green-500" title="<?= htmlspecialchars(__t('ui.x.total_rendu')) ?>"><?= htmlspecialchars(__t('ui.x.rendus_in')) ?></th>
-                                    <th class="py-3 px-4 text-center text-rose-500 bg-rose-50" title="<?= htmlspecialchars(__t('ui.x.actuellement_du')) ?>"><?= htmlspecialchars(__t('ui.x.solde_du')) ?></th>
+                                    <?php /* VIDEO_QA_FINDINGS 7.1: the return rate against the client's
+                                             minimum, what LPC must still recover, and the bottles the client
+                                             may keep (includes/functions/empties.php). */ ?>
+                                    <th class="py-3 px-4 text-center" title="Rendus sur livrés, face au minimum signé par le client">Taux de retour</th>
+                                    <th class="py-3 px-4 text-center text-rose-500 bg-rose-50" title="Ce que LPC doit encore récupérer pour atteindre le minimum">À récupérer</th>
+                                    <th class="py-3 px-4 text-center text-gray-400" title="Bouteilles que le client peut garder au-delà de son minimum">Toléré</th>
                                     <?php /* Sprint 12 (migration 074) — the in-flight column.
                                              Amber background, tight tooltip: "Empties on open
                                              BLs (dispatched/driver_confirmed) not yet
@@ -205,7 +210,7 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                                 </tr>
                             </thead>
                             <tbody id="tbody-owed" class="divide-y divide-gray-100 text-sm">
-                                <tr><td colspan="7" class="text-center py-8 text-gray-400 font-bold"><i class="fas fa-spinner fa-spin"></i> <?= htmlspecialchars(__t('ui.x.chargement')) ?></td></tr>
+                                <tr><td colspan="9" class="text-center py-8 text-gray-400 font-bold"><i class="fas fa-spinner fa-spin"></i> <?= htmlspecialchars(__t('ui.x.chargement')) ?></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -215,7 +220,7 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                 <div id="owed-view-history" class="hidden bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[400px]">
                     <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 shrink-0">
                         <h3 class="text-sm font-black text-gray-800 uppercase tracking-widest shrink-0">
-                            <?= htmlspecialchars(__t('ui.x.vos_collectes_recentes')) ?>
+                            Collectes de vides (CRE)
                         </h3>
                         <div class="relative w-full max-w-sm">
                             <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
@@ -440,7 +445,7 @@ $editPriceLabel   = __t('ui.x.modifier_le_prix');
                             <thead class="bg-gray-50 text-[10px] uppercase text-gray-400 font-black tracking-widest border-b border-gray-200">
                                 <tr>
                                     <th class="py-3 px-4"><?= htmlspecialchars(__t('ui.x.date_reference')) ?></th>
-                                    <th class="py-3 px-4"><?= htmlspecialchars(__t('ui.x.chauffeur_agent')) ?></th>
+                                    <th class="py-3 px-4">Vendu par</th>
                                     <th class="py-3 px-4"><?= htmlspecialchars(__t('ui.x.centre_de_recyclage')) ?></th>
                                     <th class="py-3 px-4 text-right"><?= htmlspecialchars(__t('ui.x.montant_encaisse')) ?></th>
                                 </tr>

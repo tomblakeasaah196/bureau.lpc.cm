@@ -158,8 +158,12 @@ final class DataWipeBalances
             }
             if (!empty($del['cre_documents'])) {
                 foreach ($this->chunks($del['cre_documents']) as $in) {
-                    foreach ($this->db->query("SELECT c.client_id, c.site_id, ci.product_id, SUM(ci.quantity) AS q FROM cre_items ci JOIN cre_documents c ON c.id = ci.cre_document_id
-                                                WHERE c.id IN ({$in}) AND c.status = 'signed' AND ci.quantity > 0 GROUP BY c.client_id, c.site_id, ci.product_id") as $r) {
+                    // The row each line reduced (cre_items.ledger_id, migration 150), else the CRE's own site and product.
+                    foreach ($this->db->query("SELECT c.client_id, IF(l.id IS NULL, c.site_id, l.site_id) AS site_id, COALESCE(l.product_id, ci.product_id) AS product_id, SUM(ci.quantity) AS q
+                                                 FROM cre_items ci JOIN cre_documents c ON c.id = ci.cre_document_id
+                                                 LEFT JOIN client_empties_ledger l ON l.id = ci.ledger_id
+                                                WHERE c.id IN ({$in}) AND c.status = 'signed' AND ci.quantity > 0
+                                                GROUP BY c.client_id, IF(l.id IS NULL, c.site_id, l.site_id), COALESCE(l.product_id, ci.product_id)") as $r) {
                         if (!isset($del['clients'][(int) $r['client_id']])) {
                             $p['empties_cre'][] = ['client' => (int) $r['client_id'], 'site' => $r['site_id'] === null ? null : (int) $r['site_id'],
                                                    'product' => (int) $r['product_id'], 'in' => (int) $r['q']];
