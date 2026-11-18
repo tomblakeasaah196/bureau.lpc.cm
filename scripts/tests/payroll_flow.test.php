@@ -125,8 +125,8 @@ check('the DIPE sums the CFC patronale and FNE each payslip booked',
       str_contains($te, 'SUM(COALESCE(fne_employer, ROUND(gross_salary * :fne_rate)))')
       && str_contains($te, 'SUM(COALESCE(cfc_employer, ROUND(gross_salary * :cfc_rate)))'));
 
-echo "\nEmployees without a login (VIDEO_QA_FINDINGS 10.6, migration 144)\n";
-$m144 = (string) @file_get_contents($root . '/migrations/144_payroll_by_employee.sql');
+echo "\nEmployees without a login (VIDEO_QA_FINDINGS 10.6, migration 146)\n";
+$m144 = (string) @file_get_contents($root . '/migrations/146_payroll_by_employee.sql');
 check('payslips and advances carry the employee, the login is optional',
       str_contains($m144, 'ALTER TABLE hr_payslips ADD COLUMN employee_id') && str_contains($m144, 'ALTER TABLE hr_advances ADD COLUMN employee_id')
       && str_contains($m144, 'MODIFY COLUMN user_id INT NULL'));

@@ -1,5 +1,5 @@
 -- =============================================================================
--- 144 · Payroll keyed on the employee, not on the login (VIDEO_QA_FINDINGS 10.6)
+-- 146 · Payroll keyed on the employee, not on the login (VIDEO_QA_FINDINGS 10.6)
 -- -----------------------------------------------------------------------------
 -- The payroll grid joined `users`, and payslips and advances were keyed on
 -- `users.id`: an employee without a login (LPC's drivers, owner's answer 12;
