@@ -83,7 +83,7 @@ $user_role = $_SESSION['user_role'];
                 <i class="fas fa-stream mr-2"></i> Balance Générale (Arbre)
             </button>
             <button onclick="switchTab('tiers')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-tiers">
-                <i class="fas fa-users mr-2"></i> Balance des Tiers (401/411)
+                <i class="fas fa-users mr-2"></i> Balance des Tiers
             </button>
             <button onclick="switchTab('grandlivre')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-grandlivre">
                 <i class="fas fa-book mr-2"></i> Grand Livre & Lettrage

@@ -107,8 +107,9 @@
                 const cls = data[classNum];
 
                 // Class header + class subtotal row
+                const clsZero = [cls.ouv_d, cls.ouv_c, cls.mvt_d, cls.mvt_c].every(v => Number(v) === 0);
                 tbody.innerHTML += LPC.html`
-                    <tr class="row-class">
+                    <tr class="row-class ${clsZero ? 'zero-row' : ''}">
                         <td class="py-2 px-4">CLASSE ${classNum}</td>
                         <td class="py-2 px-4 text-right text-[10px]">${fmt(cls.ouv_d)}</td>
                         <td class="py-2 px-4 text-right text-[10px]">${fmt(cls.ouv_c)}</td>
@@ -121,8 +122,9 @@
                 Object.keys(cls.masters).forEach(masterCode => {
                     const master = cls.masters[masterCode];
 
+                    const masterZero = [master.ouv_d, master.ouv_c, master.mvt_d, master.mvt_c].every(v => Number(v) === 0);
                     tbody.innerHTML += LPC.html`
-                        <tr class="row-master">
+                        <tr class="row-master ${masterZero ? 'zero-row' : ''}">
                             <td class="py-2 px-4 pl-8">${masterCode} - ${master.name}</td>
                             <td class="py-2 px-4 text-right text-[10px]">${fmt(master.ouv_d)}</td>
                             <td class="py-2 px-4 text-right text-[10px]">${fmt(master.ouv_c)}</td>
@@ -254,8 +256,13 @@
         function populateGLDropdown(accounts) {
             const sel = document.getElementById('gl_account_select');
             accounts.forEach(a => {
-                sel.innerHTML += LPC.html`<option value="${a.id}">[${a.code}] ${a.name}</option>`;
+                sel.innerHTML += LPC.html`<option value="${a.id}" data-code="${a.code}">[${a.code}] ${a.name}</option>`;
             });
+            const want = new URLSearchParams(window.location.search).get('account');
+            if (want) {
+                const opt = Array.from(sel.options).find(o => o.dataset.code === want);
+                if (opt) { sel.value = opt.value; fetchGrandLivre(); }
+            }
         }
 
         async function fetchGrandLivre() {
@@ -318,10 +325,10 @@
 
                         tbody.innerHTML += LPC.html`
                             <tr class="hover:bg-gray-50 border-b border-gray-100">
-                                <td class="py-2 px-4">${l.date}</td>
+                                <td class="py-2 px-4 whitespace-nowrap">${LPC.fmt.date(l.date)}</td>
                                 <td class="py-2 px-4 font-black text-gray-400">${l.journal_code}</td>
-                                <td class="py-2 px-4 text-[10px]">${LPC.raw(refHtml)}</td>
-                                <td class="py-2 px-4 truncate max-w-[200px] text-gray-600" title="${l.description}">${l.description}</td>
+                                <td class="py-2 px-4 text-[10px] break-all">${LPC.raw(refHtml)}</td>
+                                <td class="py-2 px-4 truncate max-w-[260px] text-gray-600" title="${l.description}">${l.description}${l.reversed_by_entry_id ? LPC.raw(' <span class="text-[9px] font-black text-rose-600 uppercase">annulée</span>') : ''}</td>
                                 <td class="py-2 px-4 text-center">
                                     <input type="text" maxlength="3" value="${l.lettrage || ''}" onchange="saveLettrage(${l.id}, this.value)" class="lettrage-input bg-amber-50 border border-amber-200 rounded text-amber-800 outline-none focus:ring-1 focus:ring-amber-500">
                                 </td>
@@ -369,7 +376,7 @@
             try {
                 const res = await fetch('/api/v1/review_controller.php', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json', 'X-CSRF-Token': LPC.csrf ? LPC.csrf.token() : ''},
+                    headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ action: 'save_lettrage', line_id: lineId, lettrage: (letter || '').toUpperCase() })
                 });
                 const result = await res.json();
@@ -388,20 +395,22 @@
             if (!accId) { LPC.modal.alert('Choisissez d\'abord un compte.'); return; }
 
             const confirmed = await LPC.modal.confirm(
-                'Lettrage automatique',
-                'Le module va rechercher des paires débit/crédit de même montant sur ce compte et leur assigner une lettre. Continuer ?'
+                'Chaque débit non lettré de ce compte reçoit une lettre avec un crédit du même montant. Les autres lignes restent à lettrer à la main.',
+                { title: 'Lettrage automatique', confirmLabel: 'Lettrer' }
             );
             if (!confirmed) return;
 
             try {
                 const res = await fetch('/api/v1/review_controller.php', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json', 'X-CSRF-Token': LPC.csrf ? LPC.csrf.token() : ''},
+                    headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ action: 'auto_lettrage', account_id: Number(accId), year: Number(year) })
                 });
                 const result = await res.json();
                 if (result.status === 'success') {
-                    LPC.modal.alert(`Lettrage terminé : ${result.data.count} paire(s) trouvée(s).`);
+                    LPC.modal.alert(result.data.count
+                        ? `Lettrage terminé : ${result.data.count} paire(s) lettrée(s).`
+                        : 'Aucune paire de même montant à lettrer sur ce compte.');
                     fetchGrandLivre();
                 } else {
                     LPC.modal.alert(result.message || 'Lettrage impossible.');

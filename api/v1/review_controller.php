@@ -81,6 +81,7 @@ const TIERS_PREFIXES = [
     '421','422','423','425','426','427','428', // Personnel
     '431','432','433','437','438',            // Organismes sociaux
     '441','442','443','444','445','446','447','448','449', // État
+    '461','462','463','465','466','467','471',  // Associés, groupe (Smart Logistics), divers, compte d'attente
 ];
 
 /**
@@ -127,7 +128,10 @@ if ($method === 'GET') {
         // Shared Helper: Fetch all active LPC accounts for dropdowns
         if ($tab === 'grandlivre' || $tab === 'balance') {
             $stmtAcc = $pdo->query(
-                "SELECT id, code, name FROM chart_of_accounts WHERE is_active = 1 ORDER BY code ASC"
+                "SELECT c.id, c.code, c.name FROM chart_of_accounts c
+                  WHERE c.is_active = 1
+                     OR EXISTS (SELECT 1 FROM journal_lines x WHERE x.account_id = c.id)
+                  ORDER BY c.code ASC"
             );
             $response_data['accounts'] = $stmtAcc->fetchAll();
         }
@@ -136,7 +140,8 @@ if ($method === 'GET') {
             case 'balance':
                 // THE MASTER BALANCE QUERY
                 // Dynamically calculates Opening (Years < filter), Movements
-                // (Year == filter). Strictly ignores draft/reversed entries.
+                // (Year == filter). Drafts are left out. A cancelled entry stays
+                // posted next to its mirror, so the two net to zero (11.4).
                 $sql = "
                     SELECT
                         ca.id as aux_id, ca.code as aux_code, ca.name as aux_name,
@@ -151,6 +156,8 @@ if ($method === 'GET') {
                     LEFT JOIN journal_lines jl ON ca.id = jl.account_id
                     LEFT JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'posted'
                     WHERE ca.is_active = 1
+                       OR EXISTS (SELECT 1 FROM journal_lines x JOIN journal_entries y ON y.id = x.journal_entry_id
+                                   WHERE x.account_id = ca.id AND y.status = 'posted')
                     GROUP BY ca.id
                     ORDER BY ca.code ASC
                 ";
@@ -287,7 +294,7 @@ if ($method === 'GET') {
                     JOIN ohada_accounts oa ON ca.ohada_account_id = oa.id
                     LEFT JOIN journal_lines jl ON ca.id = jl.account_id
                     LEFT JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'posted'
-                    WHERE ca.is_active = 1 AND oa.account_number IN ($placeholders)
+                    WHERE (ca.is_active = 1 OR jl.id IS NOT NULL) AND oa.account_number IN ($placeholders)
                     GROUP BY ca.id
                     ORDER BY oa.account_number ASC, ca.code ASC
                 ";
@@ -361,7 +368,7 @@ if ($method === 'GET') {
 
             $stmtMvt = $pdo->prepare("
                 SELECT jl.id, je.date, je.journal_code, je.reference, je.description,
-                       je.source_type, je.source_id,
+                       je.source_type, je.source_id, je.reversed_by_entry_id,
                        jl.lettrage, jl.debit, jl.credit
                   FROM journal_lines jl
                   JOIN journal_entries je ON jl.journal_entry_id = je.id

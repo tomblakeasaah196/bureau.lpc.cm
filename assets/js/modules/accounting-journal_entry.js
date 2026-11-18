@@ -9,7 +9,7 @@
  * -----------------------------------------------------------------------------
  */
         let currentTab = 'wizard'; // Default to wizard for testing
-        let globalData = { accounts: [], ohada_masters: [], queue: [], autoPostThreshold: 90 };
+        let globalData = { accounts: [], ohada_masters: [], queue: [], autoPostThreshold: 90, userId: 0, canApprove: false };
         const selectedIds = new Set();
 
         const fmt = (num) => LPC.fmt.int(num || 0);
@@ -26,13 +26,19 @@
         }
 
         // Deep-link support: /modules/accounting/journal_entry.php#wizard
-        const JE_VALID_TABS = ['queue', 'wizard', 'chart'];
+        const JE_VALID_TABS = ['queue', 'wizard', 'journal'];
+
+        // Today in Douala (the browser's UTC date is a day early after 23:00).
+        function doualaToday() {
+            return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala' }).format(new Date());
+        }
 
         window.onload = () => {
-            // Initialize Wizard with 2 empty lines
-            document.getElementById('wiz_date').valueAsDate = new Date();
-            resetWizard();
             const hash = (window.location.hash || '').replace('#', '');
+            // The chart has its own page (Plan Comptable) since decision 14.
+            if (hash === 'chart') { window.location.href = '/modules/admin/chart_of_accounts.php'; return; }
+            resetWizard();
+            document.getElementById('jr_month').value = doualaToday().slice(0, 7);
             switchTab(JE_VALID_TABS.includes(hash) ? hash : 'queue');
         };
 
@@ -50,7 +56,9 @@
 
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.getElementById(`content-${tab}`).classList.add('active');
+            if (history.replaceState) history.replaceState(null, '', '#' + tab);
 
+            if (tab === 'journal') return fetchJournal();
             await fetchTabData(tab);
         }
 
@@ -62,15 +70,16 @@
                 const result = await res.json();
 
                 if (result.status === 'success') {
-                    if(tab === 'chart' || tab === 'wizard') {
+                    if(tab === 'wizard') {
                         globalData.accounts = result.data.lpc_accounts;
                         globalData.ohada_masters = result.data.ohada_masters;
-                        if(tab === 'chart') renderChart();
-                        if(tab === 'wizard') populateWizardAccounts();
+                        populateWizardAccounts();
                     }
                     if(tab === 'queue') {
                         globalData.queue = result.data.queue;
                         globalData.autoPostThreshold = result.data.auto_post_threshold ?? 90;
+                        globalData.userId = result.data.user_id || 0;
+                        globalData.canApprove = !!result.data.can_approve;
                         const lbl = document.getElementById('threshold-label');
                         if (lbl) lbl.innerText = globalData.autoPostThreshold;
                         selectedIds.clear();
@@ -83,62 +92,6 @@
 
         // ================= RENDERS ================= //
         
-        function renderChart() {
-            const container = document.getElementById('chart-container');
-            container.innerHTML = '';
-            
-            globalData.ohada_masters.forEach(master => {
-                // Find children
-                const children = globalData.accounts.filter(a => a.ohada_account_id === master.id);
-                
-                let childrenHtml = '';
-                if(children.length === 0) {
-                    childrenHtml = `<p class="text-xs text-gray-400 italic py-2 pl-4">Aucun compte auxiliaire configuré.</p>`;
-                } else {
-                    children.forEach(c => {
-                        childrenHtml += LPC.html`
-                            <div class="flex items-center justify-between py-2 pl-4 border-l-2 border-gray-200 ml-2 hover:bg-blue-50/50 rounded-r-lg group">
-                                <div class="flex items-center gap-3">
-                                    <span class="font-mono text-sm font-black text-acc-highlight bg-blue-100 px-2 py-0.5 rounded">${c.code}</span>
-                                    <span class="text-xs font-bold text-gray-700">${c.name}</span>
-                                </div>
-                                <span class="text-[9px] text-gray-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">Actif</span>
-                            </div>`;
-                    });
-                }
-
-                container.innerHTML += LPC.html`
-                    <div class="bg-white border border-gray-200 rounded-xl overflow-hidden chart-row" data-search="${master.account_number} ${master.name.toLowerCase()}">
-                        <div class="bg-gray-50/80 p-4 flex items-center gap-4 border-b border-gray-100">
-                            <div class="w-12 h-10 bg-acc-dark text-white rounded-lg flex items-center justify-center font-black text-lg shadow-inner">
-                                ${master.account_number}
-                            </div>
-                            <div>
-                                <h4 class="font-black text-gray-800 text-sm uppercase tracking-wider">${master.name}</h4>
-                                <p class="text-[10px] text-gray-500 font-bold uppercase">${master.type}</p>
-                            </div>
-                        </div>
-                        <div class="p-2">
-                            ${LPC.raw(childrenHtml)}
-                        </div>
-                    </div>`;
-            });
-        }
-
-        function filterChart(query) {
-            const q = query.toLowerCase();
-            const rows = document.querySelectorAll('.chart-row');
-            rows.forEach(r => {
-                if(r.getAttribute('data-search').includes(q)) {
-                    r.style.display = 'block';
-                } else {
-                    // Check if a child matches
-                    if(r.innerText.toLowerCase().includes(q)) r.style.display = 'block';
-                    else r.style.display = 'none';
-                }
-            });
-        }
-
         function renderQueue() {
             const tbody = document.getElementById('table-body-queue');
             tbody.innerHTML = '';
@@ -164,7 +117,7 @@
                 let linesHtml = '';
                 entry.lines.forEach(l => {
                     linesHtml += LPC.html`<div class="flex justify-between text-[10px] border-b border-gray-50 py-1 last:border-0">
-                        <span class="w-32 font-mono text-gray-500">${l.account_code}</span>
+                        <span class="w-32 font-mono text-gray-500" title="${l.account_name || ''}">${l.account_code}</span>
                         <span class="w-24 text-right ${l.debit > 0 ? 'text-emerald-600 font-black' : 'text-gray-300'}">${l.debit > 0 ? fmt(l.debit) : '-'}</span>
                         <span class="w-24 text-right ${l.credit > 0 ? 'text-rose-600 font-black' : 'text-gray-300'}">${l.credit > 0 ? fmt(l.credit) : '-'}</span>
                     </div>`;
@@ -185,7 +138,7 @@
                             <input type="checkbox" class="je-row-check w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" data-id="${entry.id}" ${isSelected ? 'checked' : ''} onclick="toggleRow(${entry.id}, this.checked)">
                         </td>
                         <td class="py-4 px-6 font-black text-acc-dark">${entry.journal_code}</td>
-                        <td class="py-4 px-6 text-xs text-gray-600 font-bold">${entry.date}<br><span class="text-[10px] text-acc-highlight">${entry.reference}</span></td>
+                        <td class="py-4 px-6 text-xs text-gray-600 font-bold">${LPC.fmt.date(entry.date)}<br><span class="text-[10px] text-acc-highlight">${entry.reference}</span></td>
                         <td class="py-4 px-6 text-xs font-bold text-gray-800 max-w-[200px] truncate">${entry.description}</td>
                         <td class="py-4 px-6 bg-gray-50/50">
                             ${LPC.raw(linesHtml)}
@@ -195,10 +148,9 @@
                                 ${style.label}
                             </span>
                         </td>
-                        <td class="py-4 px-6 text-right">
-                            <button onclick="approveEntry(${entry.id})" class="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase shadow-md transition-all">
-                                Valider
-                            </button>
+                        <td class="py-4 px-6 text-right whitespace-nowrap">
+                            ${globalData.canApprove ? LPC.raw(`<button onclick="approveEntry(${Number(entry.id)})" class="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase shadow-md transition-all">Valider</button>`) : ''}
+                            ${(globalData.canApprove || Number(entry.created_by) === Number(globalData.userId)) ? LPC.raw(`<button onclick="deleteDraft(${Number(entry.id)})" class="ml-2 text-gray-400 hover:text-rose-600 px-2 py-2 text-[10px] font-black uppercase" title="Supprimer ce brouillard">Supprimer</button>`) : ''}
                         </td>
                     </tr>`;
             });
@@ -353,6 +305,8 @@
 
         function resetWizard() {
             document.getElementById('form-wizard').reset();
+            // reset() empties the date: put today's back (Douala).
+            document.getElementById('wiz_date').value = doualaToday();
             document.getElementById('wizard-lines-container').innerHTML = '';
             lineCounter = 0;
             addWizardLine(); // At least 2 lines for double entry
@@ -488,76 +442,19 @@
                 });
                 const result = await res.json();
                 if (result.status === 'success') {
-                    LPC.modal.alert(targetStatus === 'draft'
-                        ? "Brouillard sauvegardé dans la file d'attente."
-                        : "Écriture validée au Grand Livre !");
+                    await LPC.modal.alert(targetStatus === 'draft'
+                        ? "Brouillard sauvegardé dans la file d'attente : il attend sa validation."
+                        : "Écriture postée au Grand Livre.");
                     resetWizard();
-                    fetchTabData(targetStatus === 'draft' ? 'wizard' : 'queue');
+                    switchTab(targetStatus === 'draft' ? 'queue' : 'journal');
                 } else {
                     LPC.modal.alert(result.message || "Erreur lors de l'enregistrement.");
                 }
             } catch(e) { LPC.modal.alert("Erreur Serveur : " + e.message); }
         }
 
-        // ================= CHART LOGIC ================= //
-        function openAccountModal() {
-            const sel = document.getElementById('new_acc_parent');
-            sel.innerHTML = '<option value="">-- Sélectionner le compte OHADA --</option>';
-            globalData.ohada_masters.forEach(m => {
-                sel.innerHTML += LPC.html`<option value="${m.id}" data-code="${m.account_number}">[${m.account_number}] ${m.name}</option>`;
-            });
-            openModal('modal-add-account');
-        }
-
-        // Enforce LPC numbering rule (Answer 1A)
-        document.getElementById('new_acc_parent').addEventListener('change', function() {
-            const codeInput = document.getElementById('new_acc_code');
-            if(this.value) {
-                const baseCode = this.options[this.selectedIndex].getAttribute('data-code');
-                codeInput.value = baseCode; // Pre-fill
-            } else {
-                codeInput.value = '';
-            }
-        });
-
-        async function submitAccount() {
-            if(!document.getElementById('form-account').checkValidity()) return document.getElementById('form-account').reportValidity();
-            
-            const parentSel = document.getElementById('new_acc_parent');
-            const baseCode = parentSel.options[parentSel.selectedIndex].getAttribute('data-code');
-            const newCode = document.getElementById('new_acc_code').value;
-
-            if(!newCode.startsWith(baseCode)) {
-                return LPC.modal.alert(`Le code LPC doit impérativement commencer par la racine OHADA (${baseCode}).`);
-            }
-
-            const payload = {
-                action: 'create_lpc_account',
-                ohada_account_id: parentSel.value,
-                code: newCode,
-                name: document.getElementById('new_acc_name').value
-            };
-
-            try {
-                const res = await fetch('/api/v1/accounting_controller.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const result = await res.json();
-                if (result.status === 'success') {
-                    LPC.modal.alert("Nouveau compte auxiliaire créé !");
-                    closeModal('modal-add-account');
-                    document.getElementById('form-account').reset();
-                    fetchTabData('chart');
-                } else {
-                    LPC.modal.alert(result.message || "Erreur lors de la création du compte.");
-                }
-            } catch(e) { LPC.modal.alert("Erreur Serveur : " + e.message); }
-        }
-
         async function approveEntry(id) {
-            if(!(await LPC.modal.confirm("Valider définitivement ce brouillard au Grand Livre ? L'action est irréversible."))) return;
+            if(!(await LPC.modal.confirm("Poster ce brouillard au Grand Livre ? Une écriture postée ne se modifie plus : une erreur se corrige par une écriture inverse.", { title: 'Valider le brouillard', confirmLabel: 'Poster au Grand Livre' }))) return;
             
             try {
                 const res = await fetch('/api/v1/accounting_controller.php', { 
@@ -578,4 +475,78 @@
             }
         }
 
-    
+        async function deleteDraft(id) {
+            const entry = globalData.queue.find(e => e.id === id);
+            const ref = entry ? entry.reference : '';
+            if (!(await LPC.modal.confirm(`Supprimer le brouillard ${ref} ? Il n'a jamais été posté : rien ne change au Grand Livre.`, { title: 'Supprimer le brouillard', confirmLabel: 'Supprimer', danger: true }))) return;
+            try {
+                const res = await fetch('/api/v1/accounting_controller.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'delete_draft', id })
+                });
+                const result = await res.json();
+                LPC.modal.alert(result.message || 'Terminé.');
+                if (result.status === 'success') { selectedIds.delete(id); fetchTabData('queue'); }
+            } catch (e) { LPC.modal.alert('Erreur Serveur : ' + e.message); }
+        }
+
+        // ================= JOURNAL DES ÉCRITURES ================= //
+        // Every posted entry of a month: what the modules booked by themselves
+        // and what was typed here.
+        let journalTimer = null;
+        function debouncedJournal() { clearTimeout(journalTimer); journalTimer = setTimeout(fetchJournal, 300); }
+
+        function journalLine(l) {
+            const d = Number(l.debit) > 0, c = Number(l.credit) > 0;
+            return LPC.html`<div class="grid grid-cols-[1fr_auto_auto] gap-4 text-[11px] py-0.5 ${c ? 'pl-6' : ''}">
+                <span class="text-gray-600 truncate" title="${l.account_name}"><span class="font-mono text-gray-500 mr-1">${l.account_code}</span>${l.account_name}</span>
+                <span class="w-20 text-right tabular-nums font-black text-emerald-700">${d ? fmt(l.debit) : ''}</span>
+                <span class="w-20 text-right tabular-nums font-black text-rose-700">${c ? fmt(l.credit) : ''}</span>
+            </div>`;
+        }
+
+        async function fetchJournal() {
+            const tbody = document.getElementById('table-body-journal');
+            const params = new URLSearchParams({
+                action: 'read', tab: 'journal',
+                month: document.getElementById('jr_month').value || doualaToday().slice(0, 7),
+                journal: document.getElementById('jr_journal').value,
+                origin: document.getElementById('jr_origin').value,
+                q: document.getElementById('jr_q').value.trim(),
+            });
+            tbody.innerHTML = LPC.html`<tr><td colspan="5" class="py-10 text-center text-gray-400 font-bold">Chargement…</td></tr>`;
+            try {
+                const res = await fetch('/api/v1/accounting_controller.php?' + params.toString());
+                const result = await res.json();
+                if (result.status !== 'success') {
+                    tbody.innerHTML = LPC.html`<tr><td colspan="5" class="py-10 text-center text-rose-600 font-bold">${result.message || 'Erreur.'}</td></tr>`;
+                    return;
+                }
+                const d = result.data;
+                document.getElementById('jr_counts').innerText =
+                    `${d.entries.length} écriture(s) : ${d.count_auto} des modules, ${d.count_manual} à la main`;
+                if (!d.entries.length) {
+                    tbody.innerHTML = LPC.html`<tr><td colspan="5" class="py-12 text-center text-gray-400 font-bold italic">Aucune écriture postée pour ce filtre.</td></tr>`;
+                    return;
+                }
+                tbody.innerHTML = d.entries.map(e => {
+                    const origin = e.manual
+                        ? LPC.html`<span class="inline-block px-2 py-1 rounded-md text-[10px] font-black bg-amber-50 text-amber-800 ring-1 ring-amber-200">Saisie manuelle</span><div class="text-[10px] text-gray-400 mt-1">${e.author || ''}</div>`
+                        : LPC.html`<span class="inline-block px-2 py-1 rounded-md text-[10px] font-black bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200">${e.origin}</span>`;
+                    return LPC.html`<tr class="align-top hover:bg-gray-50/60">
+                        <td class="py-3 px-4 text-xs font-bold text-gray-700 whitespace-nowrap">${LPC.fmt.date(e.date)}</td>
+                        <td class="py-3 px-4 font-black text-acc-dark">${e.journal_code}</td>
+                        <td class="py-3 px-4 max-w-[340px]">
+                            <div class="font-mono text-[10px] text-acc-highlight break-all">${e.reference}</div>
+                            <div class="text-xs font-bold text-gray-800">${e.description}</div>
+                            ${e.reversed ? LPC.raw('<div class="text-[10px] font-black text-rose-600 mt-1">Annulée par une écriture inverse</div>') : ''}
+                        </td>
+                        <td class="py-3 px-4">${LPC.raw(origin)}</td>
+                        <td class="py-3 px-4 bg-gray-50/50 min-w-[380px]">${LPC.raw(e.lines.map(journalLine).join(''))}</td>
+                    </tr>`;
+                }).join('');
+            } catch (e) {
+                tbody.innerHTML = LPC.html`<tr><td colspan="5" class="py-10 text-center text-rose-600 font-bold">Erreur de chargement.</td></tr>`;
+            }
+        }

@@ -744,7 +744,9 @@ try {
                        ->execute([$revId, $l['account_id'], (float)$l['credit'], (float)$l['debit']]);
                 }
                 $db->prepare("CALL post_journal_entry(?, ?)")->execute([$revId, $user_id]);
-                $db->prepare("UPDATE journal_entries SET status='reversed', reversed_by_entry_id=? WHERE id=?")
+                // The original stays posted and points at its mirror: the two
+                // net to zero in every report (VIDEO_QA_FINDINGS 11.4).
+                $db->prepare("UPDATE journal_entries SET reversed_by_entry_id=? WHERE id=?")
                    ->execute([$revId, $exp['journal_entry_id']]);
 
                 // Refund treasury.

@@ -209,7 +209,48 @@ if ($method === 'GET' && $action === 'load') {
         ];
     }, $rows);
 
+    // What waits in the suspense account 471: opening balances entered in
+    // Trésorerie (« Nouveau Compte ») whose origin is not booked yet, and any
+    // other amount left there. Cleared by an OD (Dr 471 / Cr the right
+    // account) or, for money lent to LPC, by a loan the DG approves.
+    $suspense = ['balance' => 0.0, 'items' => []];
+    try {
+        $suspense['balance'] = (float) $pdo->query("
+            SELECT COALESCE(SUM(jl.credit - jl.debit), 0)
+              FROM journal_lines jl
+              JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
+              JOIN chart_of_accounts c ON c.id = jl.account_id
+              JOIN ohada_accounts o ON o.id = c.ohada_account_id
+             WHERE o.account_number = '471'
+        ")->fetchColumn();
+        $hasLoans = (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'loans'")->fetchColumn() > 0;
+        $items = $pdo->query("
+            SELECT je.id, je.reference, je.date, je.description, jl.credit AS amount"
+            . ($hasLoans ? ", (SELECT lo.reference FROM loans lo WHERE lo.opening_entry_id = je.id AND lo.status <> 'rejected' ORDER BY lo.id DESC LIMIT 1) AS loan_reference,
+                             (SELECT lo.status FROM loans lo WHERE lo.opening_entry_id = je.id AND lo.status <> 'rejected' ORDER BY lo.id DESC LIMIT 1) AS loan_status" : ", NULL AS loan_reference, NULL AS loan_status") . "
+              FROM journal_entries je
+              JOIN journal_lines jl ON jl.journal_entry_id = je.id AND jl.credit > 0
+              JOIN chart_of_accounts c ON c.id = jl.account_id
+              JOIN ohada_accounts o ON o.id = c.ohada_account_id AND o.account_number = '471'
+             WHERE je.status = 'posted' AND je.source_type = 'treasury_opening'
+             ORDER BY je.date, je.id
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($items as $it) {
+            $suspense['items'][] = [
+                'reference'      => $it['reference'],
+                'date'           => $it['date'],
+                'description'    => $it['description'],
+                'amount'         => (float) $it['amount'],
+                'loan_reference' => $it['loan_reference'],
+                'loan_status'    => $it['loan_status'],
+            ];
+        }
+    } catch (Throwable $e) {
+        error_log('opening_balance_controller suspense: ' . $e->getMessage());
+    }
+
     jr('success', 'Chargé.', [
+        'suspense'     => $suspense,
         'year'         => $year,
         'existing'     => $existing,
         'editable'     => $editability['editable'],
@@ -224,6 +265,7 @@ if ($method === 'GET' && $action === 'load') {
 // ----------------------------------------------------------------------------
 if ($method === 'POST' && $action === 'save') {
     Rbac::requirePermission('accounting.opening_balance.enter');
+    Csrf::requireValid();
 
     $raw = json_decode(file_get_contents('php://input'), true) ?: [];
     $year  = (int) ($raw['year'] ?? 0);
@@ -475,7 +517,7 @@ if ($method === 'POST' && $action === 'save') {
         if ($pdo->inTransaction()) $pdo->rollBack();
         error_log('opening_balance_controller: ' . $e->getMessage()
             . ' @ ' . $e->getFile() . ':' . $e->getLine());
-        jr('error', 'Erreur base de données : ' . $e->getMessage());
+        jr('error', "Erreur serveur : le bilan d'ouverture n'a pas été enregistré. Réessayez ; si cela se reproduit, signalez-le au support.");
     }
 }
 

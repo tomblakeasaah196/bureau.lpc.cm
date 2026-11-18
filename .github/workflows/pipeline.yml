@@ -85,6 +85,8 @@ jobs:
         run: php scripts/tests/loans_chart.test.php
       - name: Administration (settings reads and writes, sessions that end, the audit trail, roles)
         run: php scripts/tests/admin_settings.test.php
+      - name: Comptabilité 1 (drafts waiting, reversals counted once, Écritures, Grand Livre, Bilan d'Ouverture)
+        run: php scripts/tests/books_review.test.php
 
   mail:
     # Courrier (docs/MAIL.md §9): every scripts/tests/mail/*.test.php, each blocking. PR 1's three: the engine
