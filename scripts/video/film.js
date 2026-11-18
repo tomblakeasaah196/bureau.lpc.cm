@@ -306,4 +306,4 @@ async function film(plan, out, opts) {
   }
 }
 
-module.exports = { film, settle, clearOffers, signIn, named, browserFor, localFonts, GAP, LEAD, TAIL, UA };
+module.exports = { film, settle, clearOffers, signIn, named, hands, browserFor, localFonts, GAP, LEAD, TAIL, UA };

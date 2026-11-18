@@ -455,6 +455,8 @@ Each is fixed on the video's branch, in the screen's own code, and listed here.
 | 18/11/2026 | Journal d'Erreurs, Centre d'Aide (vidéos) | The Journal d'Erreurs had an empty top bar; on Centre d'Aide (vidéos) no menu item was lit | Fixed: title and subtitle; a menu item can name pages outside the menu that belong to it (`also` in `nav.php`) |
 | 18/11/2026 | `qa.js --selects` | It tried every option of Rôles' « Page d'accueil par défaut », which saves on change: each run changed the Comptable's home page on the copy | Fixed: selects marked `data-autosave`, or whose `onchange` saves or sets, are skipped |
 | 18/11/2026 | Help, admin articles | Ten articles described Kill Session, « Nouvel Utilisateur », technical role names, a lock that leaves sessions open, defaults that are not live's; the Journal d'Erreurs in developer terms | Fixed: migration 141 rewrites them in French with their assistant copy (the other error-monitor articles and the English bodies: VIDEO_QA_FINDINGS 15.6) |
+| 18/11/2026 | Paramètres · Rôles (rehearsal) | After « Enregistrer les permissions » or « Nouveau rôle » the screen went back to the first role (Comptable): a home page chosen next went to the Comptable | Fixed: the role being edited (or just created) stays selected; the audit names a home page (« Ventes ») and leaves out « n° 0 » for a preference |
+| 18/11/2026 | Centre d'Aide (vidéos), the list (rehearsal) | A long title ran into the « Série » column; permission codes under each page made the list wider than the page (« Supprimer » cut off); ISO dates | Fixed: the title cell keeps its width, « Vue par qui ouvre » lists the pages by name (codes in the tooltip), « Mise à jour le 18/11/2026 13:25 » |
 
 ## 8 · Where the work stands
 
