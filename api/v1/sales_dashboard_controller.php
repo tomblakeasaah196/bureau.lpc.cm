@@ -150,8 +150,9 @@ try {
         http_response_code(401);
         lpc_sd_respond('error', 'Session invalide.');
     }
-    $__canSeeTeam = Rbac::hasPermission('dashboard.md.view');
-    $__scope      = (($_GET['scope'] ?? 'me') === 'team' && $__canSeeTeam) ? 'team' : 'me';
+    // The DG and Finance read every sale unless they ask for their own (14.5).
+    $__canSeeTeam = Rbac::hasPermission('dashboard.md.view') || Rbac::hasPermission('dashboard.finance.view');
+    $__scope      = ($__canSeeTeam && ($_GET['scope'] ?? 'team') !== 'me') ? 'team' : 'me';
     $__scopeIsMe  = ($__scope === 'me');
     // owner predicate + parameter binding — same pattern as the overview block.
     $__ownerPred  = $__scopeIsMe ? 'so.created_by = :uid' : '1 = 1';
@@ -284,8 +285,10 @@ try {
     // management view, so it is gated on the management dashboard permission
     // rather than being freely switchable — a salesperson must not be able to
     // read a colleague's book by editing a query string.
-    $canSeeTeam = Rbac::hasPermission('dashboard.md.view');
-    $scope      = (($_GET['scope'] ?? 'me') === 'team' && $canSeeTeam) ? 'team' : 'me';
+    // The DG and Finance (the Comptable) read every sale unless they ask for
+    // their own: Ops types the orders and there is no Sales login yet (14.5).
+    $canSeeTeam = Rbac::hasPermission('dashboard.md.view') || Rbac::hasPermission('dashboard.finance.view');
+    $scope      = ($canSeeTeam && ($_GET['scope'] ?? 'team') !== 'me') ? 'team' : 'me';
     $scopeIsMe  = ($scope === 'me');
 
     // Database.php sets PDO::ATTR_EMULATE_PREPARES => false, so real server-side

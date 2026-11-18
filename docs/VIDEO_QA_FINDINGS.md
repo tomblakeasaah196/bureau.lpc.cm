@@ -184,23 +184,54 @@ the line). Live: on 17/11 no declaration was marked paid, and live data is test 
 
 ## 14 · Tableaux de bord & Rapports Consolidés
 
-1. [V] Empties KPIs (MD « Récupération d'emballages », Ops « Retour d'emballages ») read
-   `cash_reconciliations`, which nothing inserts into: always 0 %. Should read `client_empties_ledger`
-   (and, once 7.1 lands, compare to each client's agreed minimum).
-2. [V] Ops delivery KPIs filter delivery status `delivered` / `invoiced`, which do not exist (draft,
-   dispatched, driver_confirmed, completed, cancelled): always 0.
-3. [V] Cash KPIs leave out Mobile Money (552); AR KPIs count partly paid invoices at their full amount.
-   Confirmed by the Trésorerie session (18/11/2026): `finance_dashboard_api.php` (lines 188, 342, 356, 546) and
-   `md_dashboard_api.php` (398, 528) read 52x and 57x only. This, not MTN's missing COA link, is why the
-   dashboards' cash reads 0 F: MTN posts to 552 by its type, and since migration 139 its 552 balance equals the
-   treasury screen (654 320 F on the copy).
-4. [V] « Alertes stock » flags any product under 100 units, not its « Seuil Min. ».
-5. [V] Vue Ventes reads orders created by the signed-in user: with Ops entering orders and no Sales login,
-   the DG sees 0 (the sales role will see only their own).
-6. [V] The Ops dashboard's driver columns (`ops_dashboard_api.php:176, 219, 257, 279, 536`) and the MD's
-   (`md_dashboard_api.php:366`) join `deliveries.driver_id` to users. Since migration 142 an LPC delivery names
-   its driver in `deliveries.driver_employee_id` (an employee, no login): those columns read empty. Join
-   employees as `sales_controller.php` does (`COALESCE(employee, user)`).
+Fixed 18/11/2026 (track C, copy C; `includes/functions/dashboard_kpis.php` holds the figures the dashboards share,
+`scripts/tests/dashboards.test.php`, `scripts/tests/dashboard_period.test.js`, help migration 159):
+
+1. [V] [Fixed] Empties KPIs (MD « Récupération d'emballages », Ops « Retour d'emballages ») read
+   `cash_reconciliations`, which nothing inserts into: always 0 %. Now the clients' empties ledger against each
+   client's agreed minimum, as Gestion des Vides: copy C, PROMETAL 200 out, 130 back: « 65 % · 81 % du minimum ·
+   30 à récupérer »; the detail is by client, not by driver.
+2. [V] [Fixed] Ops delivery KPIs filtered statuses `delivered` / `invoiced`, which do not exist (draft,
+   dispatched, driver_confirmed, completed, cancelled): always 0. Waiting = draft + dispatched (any date); closed
+   today = driver_confirmed or completed, by the time it was closed or signed.
+3. [V] [Fixed] Cash KPIs left out Mobile Money (552); AR KPIs counted invoices at their full amount. Cash is now each
+   active treasury account's own sub-account, as Trésorerie (copy C: 1 160 090 F = CCA Bank 436 090 + Caisse 20 000
+   + MTN 704 000; it read 456 090); AR is what each open invoice still owes (TTC − payments, AIR withheld, avoirs),
+   aging by days past due.
+4. [V] [Fixed] « Alertes stock » flagged any product under 100 units (and summed movements without their sign, so
+   OPUR 20L read 465 for 55 in stock). Now each product's « Seuil Min. », alert and rupture as Stock & Emballages.
+5. [V] [Fixed] Vue Ventes read orders created by the signed-in user: with Ops entering orders and no Sales login,
+   the DG saw 0. The DG and Finance (the Comptable) now see every sale by default (« Mes ventes » still narrows); a
+   salesperson keeps their own.
+6. [V] [Fixed] The Ops dashboard's driver columns and the MD's joined `deliveries.driver_id` to users (the dispatch
+   table with an inner join: empty). They read the employee on the BL, else the user.
+7. [V] [Fixed] **Every dashboard's period ended yesterday** in Cameroon: `lpc-kpi.js` set « today » to local midnight
+   and formatted it with `toISOString()` (UTC, 23:00 the day before). Today's sales never showed (copy C: the
+   Exécutif read 0 F for the year), « Aujourd'hui » showed yesterday. Local dates now.
+8. [V] [Fixed] The detail windows had no period: they read « since 1 January » whatever the screen showed (all four
+   dashboards and the eight cards of Rapports Consolidés). They take the period on screen.
+9. [V] [Fixed] Vue Finance: « Dettes fournisseurs » counted 4098 (rebates LPC is owed) as a debt (221 636 for
+   227 500) and its detail listed journal lines with the entry's text as « Fournisseur »; its line read « Dû à
+   sources du pays, etc. »; « Validations en attente » counted drivers' cash returns; the table « Retours Caisse à
+   Valider » listed them with a « Valider » button that did nothing. Now 401 per supplier; drafts, expenses to pay
+   and treasury correction requests; the table shows each treasury account and its balance.
+10. [V] [Fixed] Vue Opérations: the « Stock Entrepôt » chart looked for a category `water` (the catalogue says
+    « Eau »): always empty; « Supermont 10L »; the dispatch table's statuses « En route / Livré », « Facturé ».
+11. [V] [Fixed] Rapports Consolidés: the budget table invented its target (« budgeted = actual × 0,90 »: +11,1 % on
+    every line); « Marge brute » grouped by account, so every sales account had no cost (100 %; now 13 %: water
+    9,1 %, empties sold 100 %); Mobile Money read account 58 (0 F); « Risque emballages » counted every bottle a
+    client holds, its tolerated 20 % included, at prices fixed in a view (21 000 F; now 30 × 200 = 6 000 F); aging
+    at invoice totals by invoice date; the payroll ratio's change printed « % » for points; raw codes in the
+    windows (paid, validated, operations, truck, the budget keys).
+12. [V] [Fixed] Vue Ventes printed order statuses in English and « Mon CA du mois », « Factures échues de mes
+    clients » for the whole team.
+13. [Not real] Every « Aide sur cette page » on copy C asked for a training video's poster: 404. The videos were
+    uploaded on another copy; the files are not on copy C.
+14. [Open, follow-up] Other pages also take « today » from `toISOString()` (`accounting-loans.js`,
+    `inventory-procurement.js`, the PDF file name of Rapports Consolidés): wrong only between midnight and 1 a.m.
+    in Cameroon.
+15. [Copy] Copy C's OPUR 20L « Seuil Min. » was 770, raised by a signed devis (the bug migration 155 fixed). Reset to
+    50 on the copy for the video; live data is wiped before go-live (decision 16).
 
 ## 15 · Administration (Paramètres, Utilisateurs, Rôles, Centre d'Aide, Journal d'Erreurs)
 

@@ -71,22 +71,22 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
         <div class="bg-lpc-surface shadow-sm rounded-2xl border border-gray-100 overflow-hidden">
             <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                 <div>
-                    <h3 class="text-lg font-bold text-gray-900"><?php echo __t('ui.retours_caisse_valider'); ?></h3>
-                    <p class="text-xs text-gray-500 mt-1"><?php echo __t('ui.v_rifiez_le_physique_avec_les_d_claratio'); ?></p>
+                    <h3 class="text-lg font-bold text-gray-900">Comptes de trésorerie</h3>
+                    <p class="text-xs text-gray-500 mt-1">Solde comptable de chaque compte à la fin de la période</p>
                 </div>
+                <a href="/modules/accounting/cashflow.php?from=dashboard_finance" class="text-xs font-bold text-lpc-dark hover:underline">Ouvrir la trésorerie</a>
             </div>
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-left  text-xs font-bold text-gray-500 uppercase tracking-wider"><?= htmlspecialchars(__t('ui.x.date_chauffeur')) ?></th>
-                            <th class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider"><?= htmlspecialchars(__t('ui.x.cash_attendu_systeme')) ?></th>
-                            <th class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider"><?= htmlspecialchars(__t('ui.x.cash_declare_chauffeur')) ?></th>
-                            <th class="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Action OHADA</th>
+                            <th class="px-6 py-3 text-left  text-xs font-bold text-gray-500 uppercase tracking-wider">Compte</th>
+                            <th class="px-6 py-3 text-left  text-xs font-bold text-gray-500 uppercase tracking-wider">Sous-compte</th>
+                            <th class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Solde</th>
                         </tr>
                     </thead>
-                    <tbody id="reconciliation-table-body" class="bg-white divide-y divide-gray-200">
-                        <tr><td colspan="4" class="px-6 py-8 text-center text-gray-400 text-sm">Chargement…</td></tr>
+                    <tbody id="treasury-accounts-body" class="bg-white divide-y divide-gray-200">
+                        <tr><td colspan="3" class="px-6 py-8 text-center text-gray-400 text-sm">Chargement…</td></tr>
                     </tbody>
                 </table>
             </div>

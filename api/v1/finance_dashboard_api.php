@@ -31,6 +31,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/classes/Paginator.php';
 require_once __DIR__ . '/../../includes/functions/lpc_csv.php';
+require_once __DIR__ . '/../../includes/functions/dashboard_kpis.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -179,13 +180,17 @@ function fd_run_drilldown(
 
 $__action = (string)($_GET['action'] ?? '');
 
+// The ledger sub-accounts of the treasury accounts (5211, 5711, 5521…): cash in
+// and out is what moved on them (VIDEO_QA_FINDINGS 14.3: 52x and 57x only, never
+// Mobile Money). Integers from the database, joined into the SQL.
+$__cashIds = implode(',', lpc_dash_cash_account_ids($db) ?: [0]);
+
 if ($__action === 'drilldown_cash') {
     $sql = "
         FROM journal_lines jl
         JOIN journal_entries je ON jl.journal_entry_id = je.id
         JOIN chart_of_accounts coa ON jl.account_id = coa.id
-        WHERE coa.ohada_account_id IN (SELECT id FROM ohada_accounts
-                                     WHERE account_number LIKE '52%' OR account_number LIKE '57%')
+        WHERE jl.account_id IN ($__cashIds)
           AND je.status = 'posted'
           AND je.date BETWEEN :s AND :e
         ORDER BY je.date DESC, je.id DESC
@@ -201,10 +206,11 @@ if ($__action === 'drilldown_cash') {
 }
 
 if ($__action === 'drilldown_ar') {
+    // What each open invoice still owes, not its total (14.3).
     $sql = "
         FROM invoices i
         LEFT JOIN clients c ON c.id = i.client_id
-        WHERE i.status <> 'paid'
+        WHERE i.status <> 'paid' AND " . lpc_dash_open_sql('i') . " > 0
         ORDER BY (DATEDIFF(CURRENT_DATE, i.due_date)) DESC, i.total_amount DESC
     ";
     fd_run_drilldown($db, $sql, [],
@@ -213,73 +219,83 @@ if ($__action === 'drilldown_ar') {
          i.reference AS invoice_number,
          i.due_date,
          GREATEST(0, DATEDIFF(CURRENT_DATE, i.due_date)) AS days_overdue,
-         i.total_amount AS amount",
+         " . lpc_dash_open_sql('i') . " AS amount",
         ['c.name', 'i.reference'],
-        ['Client', 'Facture', 'Échéance', 'Retard (j)', 'Montant FCFA'],
+        ['Client', 'Facture', 'Échéance', 'Retard (j)', 'Reste dû FCFA'],
         ['client_name', 'invoice_number', 'due_date', 'days_overdue', 'amount'],
         'fin-ar'
     );
 }
 
 if ($__action === 'drilldown_ap') {
-    // Supplier balances as of end_date. supplier_invoices is the source of truth
-    // where it exists; falls back to journal_lines against 40x otherwise.
+    $p = ['e' => $end_date];
+    // What LPC owes each supplier as of end_date: the balance of its own 401
+    // sub-account. It listed every 40x journal line with the entry's
+    // description as « Fournisseur », and counted 4098 (rebates LPC is owed).
     $sql = "
-        FROM journal_lines jl
-        JOIN journal_entries je ON jl.journal_entry_id = je.id
-        JOIN chart_of_accounts coa ON jl.account_id = coa.id
-        WHERE coa.ohada_account_id IN (SELECT id FROM ohada_accounts
-                                     WHERE account_number LIKE '40%')
-          AND je.status = 'posted'
-          AND je.date <= :e
-        ORDER BY je.date DESC
+        FROM (SELECT coa.name AS supplier_name, coa.code AS reference, MAX(je.date) AS date,
+                     SUM(jl.credit - jl.debit) AS amount
+                FROM journal_lines jl
+                JOIN journal_entries je ON jl.journal_entry_id = je.id
+                JOIN chart_of_accounts coa ON jl.account_id = coa.id
+               WHERE coa.ohada_account_id IN (SELECT id FROM ohada_accounts WHERE account_number LIKE '401%')
+                 AND je.status = 'posted'
+                 AND je.date <= :e
+               GROUP BY coa.id, coa.name, coa.code) t
+        WHERE ROUND(t.amount, 2) <> 0" . lpc_dash_search(['t.supplier_name', 't.reference'], $p) . "
+        ORDER BY t.amount DESC
     ";
     fd_run_drilldown($db, $sql,
-        ['e' => $end_date],
-        "je.date,
-         je.reference,
-         COALESCE(je.description, '') AS supplier_name,
-         (jl.credit - jl.debit) AS amount",
-        ['je.reference', 'je.description'],
-        ['Date', 'Référence', 'Fournisseur', 'Montant FCFA'],
-        ['date', 'reference', 'supplier_name', 'amount'],
-        'fin-ap',
-        function ($r) {
-            // Match the client's expected `reference` field.
-            $r['reference'] = $r['reference'] ?? '';
-            return $r;
-        }
+        $p,
+        "t.supplier_name, t.reference, t.date, t.amount",
+        [],   // searched on the outer query (lpc_dash_search)
+        ['Fournisseur', 'Compte', 'Dernier mouvement', 'Solde FCFA'],
+        ['supplier_name', 'reference', 'date', 'amount'],
+        'fin-ap'
     );
 }
 
 if ($__action === 'drilldown_pending') {
-    // UNION so a single drilldown lists both the reconciliations and the
-    // journal entries awaiting validation, colour-coded by kind.
+    $p = [];
+    // What waits on Finance: entries still in draft, expenses not yet paid, and
+    // correction requests on a treasury movement. It counted drivers' cash
+    // returns (cash_reconciliations), which nothing writes: LPC's drivers
+    // carry no cash.
     $sql = "
         FROM (
-            SELECT 'Caisse chauffeur' AS kind,
-                   cr.date,
-                   CONCAT('#', cr.id) AS reference,
-                   CONCAT(u.first_name, ' ', SUBSTRING(u.last_name, 1, 1), '.') AS author,
-                   cr.reported_cash AS amount
-              FROM cash_reconciliations cr
-              JOIN users u ON u.id = cr.driver_id
-             WHERE cr.status = 'pending_accountant'
-             UNION ALL
-            SELECT 'Brouillard à valider' AS kind,
+            SELECT 'Écriture en brouillon' AS kind,
                    je.date,
                    je.reference,
-                   COALESCE(uu.first_name, '—') AS author,
+                   COALESCE(CONCAT(uu.first_name, ' ', uu.last_name), '—') AS author,
                    (SELECT COALESCE(SUM(jl.debit), 0) FROM journal_lines jl WHERE jl.journal_entry_id = je.id) AS amount
               FROM journal_entries je
               LEFT JOIN users uu ON uu.id = je.created_by
              WHERE je.status = 'draft'
+             UNION ALL
+            SELECT 'Dépense à payer' AS kind,
+                   ex.expense_date AS date,
+                   COALESCE(ex.reference, ex.title) AS reference,
+                   COALESCE(CONCAT(ue.first_name, ' ', ue.last_name), '—') AS author,
+                   ex.amount
+              FROM expenses ex
+              LEFT JOIN users ue ON ue.id = ex.created_by
+             WHERE ex.payment_status = 'unpaid'
+             UNION ALL
+            SELECT 'Correction de trésorerie' AS kind,
+                   DATE(tr.created_at) AS date,
+                   CONCAT('#', tr.transaction_id) AS reference,
+                   COALESCE(CONCAT(ur.first_name, ' ', ur.last_name), '—') AS author,
+                   NULL AS amount
+              FROM treasury_edit_requests tr
+              LEFT JOIN users ur ON ur.id = tr.requested_by
+             WHERE tr.status = 'pending'
         ) t
+        WHERE 1 = 1" . lpc_dash_search(['t.reference', 't.author', 't.kind'], $p) . "
         ORDER BY t.date DESC
     ";
-    fd_run_drilldown($db, $sql, [],
+    fd_run_drilldown($db, $sql, $p,
         "t.kind, t.date, t.reference, t.author, t.amount",
-        ['t.reference', 't.author', 't.kind'],
+        [],   // searched on the outer query (lpc_dash_search)
         ['Type', 'Date', 'Référence', 'Auteur', 'Montant FCFA'],
         ['kind', 'date', 'reference', 'author', 'amount'],
         'fin-pending'
@@ -330,40 +346,20 @@ if ($__action === 'drilldown_margin') {
 // break the dashboard) while covering every cash and bank account that
 // exists, whatever its code.
 // -----------------------------------------------------------------------------
+// Cash: every active treasury account's own sub-account, Mobile Money
+// included, up to the end of each period (14.3).
 $q_cash = function () use ($db, $end_date): float {
-    // Cumulative balance up to end_date — cash disponible is a stock KPI,
-    // not a flow. Debit increases, credit decreases for asset accounts.
-    $stmt = $db->prepare("
-        SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS v
-          FROM journal_lines jl
-          JOIN journal_entries je ON jl.journal_entry_id = je.id
-          JOIN chart_of_accounts coa ON jl.account_id = coa.id
-         WHERE coa.ohada_account_id IN (SELECT id FROM ohada_accounts
-                                     WHERE account_number LIKE '52%' OR account_number LIKE '57%')
-           AND je.status = 'posted'
-           AND je.date <= :e
-    ");
-    $stmt->execute(['e' => $end_date]);
-    return (float) $stmt->fetch()['v'];
+    return lpc_dash_cash($db, $end_date);
 };
 $q_cash_prev = function () use ($db, $prev_end): float {
-    $stmt = $db->prepare("
-        SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS v
-          FROM journal_lines jl
-          JOIN journal_entries je ON jl.journal_entry_id = je.id
-          JOIN chart_of_accounts coa ON jl.account_id = coa.id
-         WHERE coa.ohada_account_id IN (SELECT id FROM ohada_accounts
-                                     WHERE account_number LIKE '52%' OR account_number LIKE '57%')
-           AND je.status = 'posted'
-           AND je.date <= :e
-    ");
-    $stmt->execute(['e' => $prev_end]);
-    return (float) $stmt->fetch()['v'];
+    return lpc_dash_cash($db, $prev_end);
 };
 
-$q_ar_total = function () use ($db): float {
-    $stmt = $db->query("SELECT COALESCE(SUM(total_amount), 0) AS v FROM invoices WHERE status <> 'paid'");
-    return (float) $stmt->fetch()['v'];
+// Receivables: what the open invoices still owe (14.3), and by days past due.
+$__ar = null;
+$q_ar_total = function () use ($db, &$__ar): float {
+    $__ar = lpc_dash_ar($db);
+    return $__ar['total'];
 };
 
 $q_ap_total = function () use ($db, $end_date): float {
@@ -374,7 +370,7 @@ $q_ap_total = function () use ($db, $end_date): float {
           JOIN journal_entries je ON jl.journal_entry_id = je.id
           JOIN chart_of_accounts coa ON jl.account_id = coa.id
          WHERE coa.ohada_account_id IN (SELECT id FROM ohada_accounts
-                                     WHERE account_number LIKE '40%')
+                                     WHERE account_number LIKE '401%')
            AND je.status = 'posted'
            AND je.date <= :e
     ");
@@ -388,7 +384,7 @@ $q_ap_prev = function () use ($db, $prev_end): float {
           JOIN journal_entries je ON jl.journal_entry_id = je.id
           JOIN chart_of_accounts coa ON jl.account_id = coa.id
          WHERE coa.ohada_account_id IN (SELECT id FROM ohada_accounts
-                                     WHERE account_number LIKE '40%')
+                                     WHERE account_number LIKE '401%')
            AND je.status = 'posted'
            AND je.date <= :e
     ");
@@ -399,8 +395,9 @@ $q_ap_prev = function () use ($db, $prev_end): float {
 $q_pending = function () use ($db): int {
     $stmt = $db->query("
         SELECT
-            (SELECT COUNT(*) FROM cash_reconciliations WHERE status = 'pending_accountant') +
-            (SELECT COUNT(*) FROM journal_entries      WHERE status = 'draft') AS v
+            (SELECT COUNT(*) FROM journal_entries        WHERE status = 'draft') +
+            (SELECT COUNT(*) FROM expenses               WHERE payment_status = 'unpaid') +
+            (SELECT COUNT(*) FROM treasury_edit_requests WHERE status = 'pending') AS v
     ");
     return (int) $stmt->fetch()['v'];
 };
@@ -458,7 +455,7 @@ if ($cash['ok']) {
         'kind'  => 'fcfa',
         'value' => $cash['value'],
         'delta' => $cashPrev['ok'] ? fd_delta_change((float)$cash['value'], (float)$cashPrev['value'], 'good') : ['kind' => 'none'],
-        'sub'   => 'Comptes 52/57 (caisse & banque)',
+        'sub'   => 'Banque, caisse et Mobile Money',
     ];
 } else {
     $cards[] = ['id' => 'fin-cash', 'value' => null, 'empty' => 'Indisponible'];
@@ -471,7 +468,9 @@ if ($arTotal['ok']) {
         'kind'  => 'fcfa',
         'value' => $arTotal['value'],
         'delta' => ['kind' => 'none'],   // AR is a snapshot; overdue % lives in the aging chart.
-        'sub'   => 'Factures non payées',
+        'sub'   => $__ar && $__ar['count'] > 0
+            ? $__ar['count'] . ' facture' . ($__ar['count'] > 1 ? 's' : '') . ' ouverte' . ($__ar['count'] > 1 ? 's' : '') . ' · reste dû'
+            : 'Aucune facture ouverte',
     ];
 } else {
     $cards[] = ['id' => 'fin-ar', 'value' => null, 'empty' => 'Indisponible'];
@@ -484,7 +483,7 @@ if ($apTotal['ok']) {
         'kind'  => 'fcfa',
         'value' => $apTotal['value'],
         'delta' => $apPrev['ok'] ? fd_delta_change((float)$apTotal['value'], (float)$apPrev['value'], 'bad') : ['kind' => 'none'],
-        'sub'   => 'Dû à sources du pays, etc.',
+        'sub'   => 'Soldes des comptes fournisseurs (401)',
     ];
 } else {
     $cards[] = ['id' => 'fin-ap', 'value' => null, 'empty' => 'Indisponible'];
@@ -499,7 +498,7 @@ if ($pending['ok']) {
         'delta' => $pending['value'] > 0
             ? ['kind' => 'change', 'value' => null, 'label' => 'Action requise', 'sentiment' => 'bad', 'direction' => null]
             : ['kind' => 'change', 'value' => null, 'label' => 'Rien en attente',   'sentiment' => 'good', 'direction' => null],
-        'sub'   => 'Caisses & journaux comptables',
+        'sub'   => 'Brouillons, dépenses à payer, corrections',
     ];
 } else {
     $cards[] = ['id' => 'fin-pending', 'value' => null, 'empty' => 'Indisponible'];
@@ -542,8 +541,7 @@ try {
           FROM journal_lines jl
           JOIN journal_entries je ON jl.journal_entry_id = je.id
           JOIN chart_of_accounts coa ON jl.account_id = coa.id
-         WHERE coa.ohada_account_id IN (SELECT id FROM ohada_accounts
-                                     WHERE account_number LIKE '52%' OR account_number LIKE '57%')
+         WHERE jl.account_id IN ($__cashIds)
            AND je.status = 'posted'
            AND je.date BETWEEN :s AND :e
          GROUP BY je.date
@@ -566,61 +564,21 @@ try {
     error_log('finance_dashboard: cashflow chart failed: ' . $e->getMessage());
 }
 
-try {
-    $stmt = $db->query("
-        SELECT
-            SUM(CASE WHEN DATEDIFF(CURRENT_DATE, due_date) <= 15                THEN total_amount ELSE 0 END) AS c,
-            SUM(CASE WHEN DATEDIFF(CURRENT_DATE, due_date) BETWEEN 16 AND 30    THEN total_amount ELSE 0 END) AS l,
-            SUM(CASE WHEN DATEDIFF(CURRENT_DATE, due_date) > 30                  THEN total_amount ELSE 0 END) AS x
-          FROM invoices WHERE status <> 'paid'
-    ");
-    $r = $stmt->fetch();
-    $charts['ar_aging'] = [(float)$r['c'], (float)$r['l'], (float)$r['x']];
-} catch (Throwable $e) {
-    error_log('finance_dashboard: aging chart failed: ' . $e->getMessage());
-}
+// Receivables by days past due, at what each invoice still owes (14.3).
+if ($__ar) $charts['ar_aging'] = $__ar['buckets'];
 
 // -----------------------------------------------------------------------------
-// Reconciliation queue — same rule as the pre-7H version:
-//   expected_cash = simulated_water_sales + empties_value
-// (water_sales stays 0 until the delivery_items payment link lands; that is
-// documented in the pre-7H comment and kept here verbatim so anyone chasing
-// the missing calculation grep-matches the same string.)
+// The treasury accounts and their balance at the end of the period, in place of
+// the drivers' cash returns (cash_reconciliations: nothing writes them, LPC's
+// drivers carry no cash).
 // -----------------------------------------------------------------------------
 $table = [];
 try {
-    $prices = [];
-    $stmt = $db->query("SELECT category, base_price FROM products WHERE category IN ('empty_with_cork', 'empty_without_cork')");
-    while ($row = $stmt->fetch()) { $prices[$row['category']] = (float)$row['base_price']; }
-    $priceWithCork    = $prices['empty_with_cork']    ?? 2500;
-    $priceWithoutCork = $prices['empty_without_cork'] ?? 2000;
-
-    $stmt = $db->query("
-        SELECT cr.id, cr.date, cr.reported_cash, cr.empties_with_cork, cr.empties_without_cork,
-               u.first_name, u.last_name
-          FROM cash_reconciliations cr
-          JOIN users u ON cr.driver_id = u.id
-         WHERE cr.status = 'pending_accountant'
-         ORDER BY cr.date DESC
-         LIMIT 10
-    ");
-    while ($row = $stmt->fetch()) {
-        $driverName    = $row['first_name'] . ' ' . substr($row['last_name'], 0, 1) . '.';
-        $formattedDate = date('d/m/Y', strtotime($row['date']));
-        $emptiesValue  = ($row['empties_with_cork'] * $priceWithCork) + ($row['empties_without_cork'] * $priceWithoutCork);
-        $expectedCash  = 0 + $emptiesValue;   // 0 = simulated_water_sales (see docblock)
-        $declaredCash  = (float) $row['reported_cash'];
-        $table[] = [
-            'id'            => (int) $row['id'],
-            'driver'        => $driverName,
-            'date'          => $formattedDate,
-            'expected_cash' => $expectedCash,
-            'declared_cash' => $declaredCash,
-            'variance'      => $declaredCash - $expectedCash,
-        ];
+    foreach (lpc_dash_cash_accounts($db, $end_date) as $a) {
+        $table[] = ['name' => $a['name'], 'type' => $a['type'], 'code' => $a['code'], 'balance' => $a['balance']];
     }
 } catch (Throwable $e) {
-    error_log('finance_dashboard: reconciliation queue failed: ' . $e->getMessage());
+    error_log('finance_dashboard: treasury accounts failed: ' . $e->getMessage());
 }
 
 // -----------------------------------------------------------------------------

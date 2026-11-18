@@ -467,7 +467,13 @@
     // ------------------------------------------------------------------
     // Preset -> (start, end, previousStart, previousEnd, label) helpers.
     // All dates returned as YYYY-MM-DD strings for the controllers.
-    function iso(d) { return d.toISOString().slice(0, 10); }
+    // The local calendar date. toISOString() gave the UTC one: in Cameroon (UTC+1)
+    // local midnight is 23:00 the day before, so every period ended yesterday
+    // and today's sales never showed (VIDEO_QA_FINDINGS 14.7).
+    function iso(d) {
+        var m = d.getMonth() + 1, day = d.getDate();
+        return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
+    }
     function dayShift(d, days) { var x = new Date(d); x.setDate(x.getDate() + days); return x; }
     function startOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
     function startOfQuarter(d) {

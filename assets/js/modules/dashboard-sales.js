@@ -32,6 +32,10 @@
     var monthlyChart = null;
     var segmentChart = null;
 
+    // An order's status as Ventes names it.
+    var ORDER_STATUS = { pending: 'En attente', partial_dispatch: 'En partie expédiée', dispatched: 'En transit',
+                         delivered: 'Livré', cancelled: 'Annulé' };
+
     var MONTHS_SHORT = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin',
                         'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
 
@@ -40,7 +44,7 @@
     // -------------------------------------------------------------------------
     var KPI_SPECS = [
         {
-            id: 'sd-revenue', label: 'Mon CA du mois', kind: 'fcfa', rail: 'brand',
+            id: 'sd-revenue', label: 'CA du mois', kind: 'fcfa', rail: 'brand',
             drill: 'revenue',
             drillCfg: {
                 title: 'Chiffre d\'affaires — commandes de la période',
@@ -53,7 +57,7 @@
                         <td>${LPC.fmt.date(r.date)}</td>
                         <td>${r.reference || ''}</td>
                         <td>${r.client_name || ''}</td>
-                        <td>${r.status || ''}</td>
+                        <td>${ORDER_STATUS[r.status] || r.status || ''}</td>
                         <td class="text-right">${LPC.fmt.fcfa(r.total_amount)}</td>
                     </tr>`;
                 },
@@ -110,7 +114,7 @@
                         <td>${r.reference || ''}</td>
                         <td>${r.client_name || ''}</td>
                         <td class="text-right">${LPC.fmt.fcfa(r.total_amount)}</td>
-                        <td>${r.status || ''}</td>
+                        <td>${ORDER_STATUS[r.status] || r.status || ''}</td>
                     </tr>`;
                 },
             },
@@ -119,7 +123,7 @@
             id: 'sd-overdue', label: 'Encours en retard', kind: 'fcfa', rail: 'alert',
             drill: 'overdue',
             drillCfg: {
-                title: 'Factures échues de mes clients',
+                title: 'Factures échues',
                 url:   ENDPOINT + '?action=drilldown_overdue',
                 columns: ['Client', 'Facture', 'Échéance', 'Retard (j)', 'Solde'],
                 csv: true,
