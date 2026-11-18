@@ -23,7 +23,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: mbstring, pdo_mysql, gd, dom, xml
+          extensions: mbstring, pdo_mysql, pdo_sqlite, gd, dom, xml
           coverage: none
       - uses: actions/setup-node@v4
         with:
@@ -77,6 +77,8 @@ jobs:
         run: php scripts/tests/proposal_flow.test.php
       - name: Gestion du Personnel (advances, the month's payroll, undo, paying, FNE and the DIPE)
         run: php scripts/tests/payroll_flow.test.php
+      - name: Trésorerie & Dépenses (one gate, who pays, opening balances, the fuel check)
+        run: php scripts/tests/treasury_expenses.test.php
 
   mail:
     # Courrier (docs/MAIL.md §9): every scripts/tests/mail/*.test.php, each blocking. PR 1's three: the engine

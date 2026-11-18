@@ -30,6 +30,15 @@
  *   POST action=save_recurring / toggle_recurring / delete_recurring
  *   POST action=upload_attachment   — multipart
  *   POST action=delete_attachment
+ *   GET  action=fuel_check&kind=month|quarter|year&year=YYYY&n=N
+ *   POST action=attach_fuel         — a fleet fill-up paid with a fuel advance
+ *
+ * WHO PAYS (VIDEO_QA_FINDINGS 9.4, the owner's answers 1 and 6): anyone with
+ * accounting.expenses.create may REQUEST an expense (unpaid, the treasury
+ * account optional: Finance picks it when paying). Saving it « Payé », the
+ * « Sortie de Caisse » and « Valider & comptabiliser » move money, so they need
+ * accounting.expenses.mark_paid. Operations used to book paid expenses from MTN
+ * MOBILE MONEY with expenses.create alone.
  *
  * All state-changing actions are wrapped in a single transaction and, where
  * they touch treasury, also update treasury_accounts.balance +
@@ -43,6 +52,8 @@ require_once __DIR__ . '/../../includes/classes/JournalPoster.php';
 require_once __DIR__ . '/../../includes/classes/Paginator.php';
 require_once __DIR__ . '/../../includes/classes/Uploads.php';
 require_once __DIR__ . '/../../includes/functions/notify.php';
+require_once __DIR__ . '/../../includes/classes/FuelReconciliation.php';
+require_once __DIR__ . '/../../includes/classes/RecurringExpenses.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -122,6 +133,13 @@ try {
     // GET — reads
     // ========================================================================
     if ($method === 'GET') {
+
+        // The month's recurring drafts, once their day has come (no cron did it
+        // on live). Cheap when nothing is due; never blocks the page.
+        if (in_array($action, ['dashboard', 'list', 'recurring'], true)) {
+            try { RecurringExpenses::generateDue($db); }
+            catch (Throwable $e) { error_log('expenses_controller recurring: ' . $e->getMessage()); }
+        }
 
         // ---- DASHBOARD --------------------------------------------------
         if ($action === 'dashboard') {
@@ -377,6 +395,34 @@ try {
             ]);
         }
 
+        // ---- FUEL: FINANCE AGAINST OPERATIONS, PER PERIOD (owner #6) ---
+        if ($action === 'fuel_check') {
+            $kind = in_array($_GET['kind'] ?? 'month', ['month', 'quarter', 'year'], true) ? $_GET['kind'] : 'month';
+            $year = (int) ($_GET['year'] ?? date('Y'));
+            if ($year < 2000 || $year > 2100) $year = (int) date('Y');
+            $n    = (int) ($_GET['n'] ?? ($kind === 'quarter' ? ceil(date('n') / 3) : date('n')));
+            [$start, $end, $label] = FuelReconciliation::period($kind, $year, $n);
+            $sum = FuelReconciliation::summary($db, $start, $end);
+            $sum['label'] = $label;
+            $sum['kind']  = $kind;
+            // Advances not yet attached to a fill-up, any month of the year, for « Rattacher ».
+            $adv = $db->prepare("
+                SELECT e.id, e.reference, e.title, e.amount, e.expense_date
+                  FROM expenses e JOIN expense_categories c ON c.id = e.category_id
+                 WHERE e.payment_status = 'paid' AND c.slug = ? AND e.source_type IS NULL
+                   AND YEAR(e.expense_date) = ?
+                 ORDER BY e.expense_date DESC, e.id DESC
+            ");
+            $adv->execute([FuelReconciliation::CATEGORY_SLUG, $year]);
+            jr('success', '', [
+                'summary'    => $sum,
+                'table'      => FuelReconciliation::year($db, $year, $kind === 'quarter' ? 'quarter' : 'month'),
+                'advances'   => $adv->fetchAll(PDO::FETCH_ASSOC),
+                'can_attach' => Rbac::hasPermission('accounting.expenses.mark_paid'),
+                'year'       => $year,
+            ]);
+        }
+
         jr('error', "Action inconnue: $action");
     }
 
@@ -407,9 +453,15 @@ try {
             // which the old /^\d{4}-\d{2}-\d{2}$/ check let through to MySQL.
             if ($expense_date === null) jr('error', 'Date invalide.');
 
-            // Answer #8: payment source is required on every expense — even
-            // draft. Enforced here rather than DB so the message is friendly.
-            if (!$treasury_id) jr('error', 'Compte de trésorerie requis (même pour une dépense non-payée).');
+            // Saving it « Payé » moves money: Finance only (9.4). Anyone who may
+            // create an expense may request one; Finance validates and pays it.
+            $canPay = Rbac::hasPermission('accounting.expenses.mark_paid');
+            if ($payment_status === 'paid' && !$canPay) {
+                jr('error', "Vous pouvez demander cette dépense : enregistrez-la « En attente ». La Finance la valide et la paie.");
+            }
+            // The account the money leaves from: needed to pay; for a request it
+            // is optional (Finance picks it when paying, as for Flotte requests).
+            if ($payment_status === 'paid' && !$treasury_id) jr('error', 'Choisissez le compte de trésorerie qui paie.');
 
             // If marked paid, settle it on the day the charge was incurred
             // rather than on "today", so the ledger month matches the budget
@@ -508,19 +560,24 @@ try {
             $db->commit();
 
             // Only on genuine creation — re-saving an existing draft (id > 0)
-            // is routine editing, not an event worth a notification.
+            // is routine editing, not an event worth a notification. A request
+            // goes to those who validate and pay it.
             if ($id <= 0) {
+                $isRequest = ($payment_status !== 'paid');
                 lpc_notify_permission(
                     $db,
-                    'accounting.expenses.view',
-                    'Nouvelle dépense enregistrée',
-                    ($_SESSION['user_name'] ?? 'Un opérateur') . " a enregistré la dépense $reference ($title) — "
-                        . number_format($amount, 0, ',', ' ') . " FCFA"
-                        . ($payment_status === 'paid' ? ' (payée immédiatement).' : ' (non payée).'),
+                    $isRequest ? 'accounting.expenses.mark_paid' : 'accounting.expenses.view',
+                    $isRequest ? 'Dépense à valider' : 'Nouvelle dépense enregistrée',
+                    ($_SESSION['user_name'] ?? 'Un opérateur') . ($isRequest ? " demande la dépense " : " a enregistré la dépense ")
+                        . "$reference ($title) : " . number_format($amount, 0, ',', ' ') . " FCFA"
+                        . ($isRequest ? '. À valider et payer dans Gestion des Dépenses.' : ', payée et comptabilisée.'),
                     '/modules/accounting/expenses.php',
                     'info',
                     [$user_id]
                 );
+            }
+            if ($payment_status === 'paid' && !$wasPaid && FuelReconciliation::isFuel($db, $category_id, null)) {
+                FuelReconciliation::afterChange($db, $expense_date, 'finance', $user_id);
             }
 
             jr('success', 'Dépense enregistrée.', ['id' => $expense_id]);
@@ -574,13 +631,24 @@ try {
                 'info',
                 [$user_id]
             );
+            // A Flotte request paid: tell whoever asked for it.
+            if (!empty($exp['source_type']) && str_starts_with((string) $exp['source_type'], 'fleet_') && (int) $exp['created_by'] > 0) {
+                lpc_notify_user($db, (int) $exp['created_by'], 'Demande Flotte payée',
+                    "La Finance a validé et payé {$exp['reference']} ({$exp['title']}) : "
+                        . number_format((float) $exp['amount'], 0, ',', ' ') . ' FCFA.',
+                    '/modules/fleet/vehicles.php', 'success');
+            }
+            if (FuelReconciliation::isFuel($db, (int) $exp['category_id'], $exp['source_type'] ?? null)) {
+                FuelReconciliation::afterChange($db, (string) $exp['expense_date'], 'finance', $user_id);
+            }
 
             jr('success', 'Dépense marquée payée et comptabilisée.', ['journal_entry_id' => $je_id]);
         }
 
         // ---- QUICK ENTRY (fed by the cashflow.php Sortie de Caisse form) -
         if ($action === 'quick_entry') {
-            Rbac::requirePermission('accounting.expenses.create');
+            // Paid on the spot: Finance's right (9.4).
+            Rbac::requirePermission('accounting.expenses.mark_paid');
             // Accepts $_POST rather than JSON — cashflow.js sends it as a form.
             $treasury_id = (int)   ($_POST['account_id']   ?? 0);
             $amount      = (float) ($_POST['amount']       ?? 0);
@@ -630,6 +698,9 @@ try {
                ->execute([$je_id, $expense_id]);
 
             $db->commit();
+            if (FuelReconciliation::isFuel($db, $category_id, null)) {
+                FuelReconciliation::afterChange($db, date('Y-m-d'), 'finance', $user_id);
+            }
             jr('success', 'Dépense enregistrée.', [
                 'id' => $expense_id, 'journal_entry_id' => $je_id, 'reference' => $ref,
             ]);
@@ -643,7 +714,8 @@ try {
             if ($id <= 0) jr('error', 'ID manquant.');
 
             $db->beginTransaction();
-            $stmt = $db->prepare("SELECT reference, payment_status, journal_entry_id, amount, treasury_account_id
+            $stmt = $db->prepare("SELECT reference, title, payment_status, journal_entry_id, amount, treasury_account_id,
+                                         category_id, source_type, expense_date, created_by
                                     FROM expenses WHERE id = ? FOR UPDATE");
             $stmt->execute([$id]);
             $exp = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -725,8 +797,73 @@ try {
                 'warning',
                 [$user_id]
             );
+            // An unpaid Flotte request deleted is a request Finance refused:
+            // the fleet record stays (its link is cleared by the foreign key).
+            $fromFleet = !empty($exp['source_type']) && str_starts_with((string) $exp['source_type'], 'fleet_');
+            if ($fromFleet && $exp['payment_status'] !== 'paid' && (int) $exp['created_by'] > 0) {
+                lpc_notify_user($db, (int) $exp['created_by'], 'Demande Flotte refusée',
+                    "La Finance a refusé la demande {$exp['reference']} ({$exp['title']}). Le relevé reste dans Flotte, sans paiement.",
+                    '/modules/fleet/vehicles.php', 'warning');
+            }
+            if (FuelReconciliation::isFuel($db, (int) $exp['category_id'], $exp['source_type'] ?? null)) {
+                FuelReconciliation::afterChange($db, (string) $exp['expense_date'], 'finance', $user_id);
+            }
 
-            jr('success', 'Dépense supprimée.');
+            jr('success', $fromFleet && $exp['payment_status'] !== 'paid' ? 'Demande refusée.' : 'Dépense supprimée.');
+        }
+
+        // ---- ATTACH A FLEET FILL-UP TO A FUEL ADVANCE ----------------------
+        // Finance gave money for fuel before the fill-up (an advance, saved in
+        // « Carburant & Transport »); Operations then logged the fill-up in
+        // Flotte, which created a request. Paying that request would pay the
+        // fuel twice: « Rattacher » links the fill-up to the advance instead and
+        // removes the request (unpaid, nothing posted). Any difference between
+        // the advance and the fill-up stays in the fuel comparison.
+        if ($action === 'attach_fuel') {
+            Rbac::requirePermission('accounting.expenses.mark_paid');
+            $j = json_body();
+            $request_id = (int) ($j['request_id'] ?? 0);
+            $advance_id = (int) ($j['advance_id'] ?? 0);
+            if ($request_id <= 0 || $advance_id <= 0) jr('error', 'Choisissez la demande et l\'avance.');
+
+            $db->beginTransaction();
+            $get = $db->prepare("SELECT e.*, c.slug FROM expenses e JOIN expense_categories c ON c.id = e.category_id WHERE e.id = ? FOR UPDATE");
+            $get->execute([$request_id]);
+            $req = $get->fetch(PDO::FETCH_ASSOC);
+            $get->execute([$advance_id]);
+            $adv = $get->fetch(PDO::FETCH_ASSOC);
+            if (!$req || $req['source_type'] !== 'fleet_fuel' || $req['payment_status'] === 'paid') {
+                throw new RuntimeException('Cette demande n\'est pas un plein Flotte en attente.');
+            }
+            if (!$adv || $adv['payment_status'] !== 'paid' || $adv['slug'] !== FuelReconciliation::CATEGORY_SLUG || !empty($adv['source_type'])) {
+                throw new RuntimeException('Choisissez une avance carburant payée, pas encore rattachée.');
+            }
+
+            $note = "Rattachée au plein " . ($req['title'] ?? '') . " (demande {$req['reference']}, "
+                  . number_format((float) $req['amount'], 0, ',', ' ') . ' F).';
+            $db->prepare("UPDATE expenses SET source_type = 'fleet_fuel', source_id = ?, vehicle_id = ?,
+                                 description = TRIM(CONCAT(COALESCE(description, ''), ' ', ?)) WHERE id = ?")
+               ->execute([(int) $req['source_id'], $req['vehicle_id'], $note, $advance_id]);
+            $db->prepare("UPDATE fuel_logs SET expense_id = ? WHERE id = ?")->execute([$advance_id, (int) $req['source_id']]);
+            $db->prepare("UPDATE expense_attachments SET expense_id = ? WHERE expense_id = ?")->execute([$advance_id, $request_id]);
+            $db->prepare("DELETE FROM expenses WHERE id = ?")->execute([$request_id]);
+            $db->commit();
+
+            if ((int) $req['created_by'] > 0) {
+                lpc_notify_user($db, (int) $req['created_by'], 'Plein rattaché à une avance',
+                    "Le plein {$req['title']} est rattaché à l'avance {$adv['reference']} ("
+                        . number_format((float) $adv['amount'], 0, ',', ' ') . ' F) : il ne sera pas payé une seconde fois.',
+                    '/modules/accounting/expenses.php#fuel', 'info');
+            }
+            FuelReconciliation::afterChange($db, (string) $adv['expense_date'], 'finance', $user_id);
+            if (substr((string) $req['expense_date'], 0, 7) !== substr((string) $adv['expense_date'], 0, 7)) {
+                FuelReconciliation::afterChange($db, (string) $req['expense_date'], 'finance', $user_id);
+            }
+            $gap = (float) $adv['amount'] - (float) $req['amount'];
+            $msg = $gap == 0.0
+                ? "Plein rattaché à l'avance {$adv['reference']}. Les montants concordent."
+                : "Plein rattaché à l'avance {$adv['reference']}. Écart : " . number_format($gap, 0, ',', ' ') . ' F, à régulariser.';
+            jr('success', $msg, ['message' => $msg, 'gap' => $gap]);
         }
 
         // ---- CATEGORIES : save --------------------------------------------

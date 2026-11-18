@@ -90,11 +90,6 @@ Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026):
 
 8. [V] Capitalising a vehicle (Immobilisations « À Capitaliser (Flotte) ») posts no acquisition entry: the same as
    12.1, for the Comptabilité 2 session. Seen on the copy: the truck LT 742 KL waits in the queue.
-9. For the Trésorerie & Dépenses session (owner #6, second half): Finance's fuel money against Operations' fuel
-   logs, per period, and the alert when they differ. The link it builds on: `expenses.source_type`
-   ('fleet_fuel' | 'fleet_maintenance'), `source_id`, `vehicle_id`; `fuel_logs.expense_id`,
-   `vehicle_maintenance.expense_id` (migration 133).
-
 10. [V] A visite technique has no type of its own: « Régler » on its alert files it as « Vidange / Révision » (the
    only type that renews the date), so its expense reads « Vidange / Révision LT 742 KL · Centre de visite
    technique ». Small: a « Visite technique » type renewing `technical_visit_expiry`, on the « Visite technique »
@@ -144,25 +139,15 @@ Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026):
 
 ## 9 · Trésorerie & Banque, Gestion des Dépenses
 
-1. [V] Treasury actions (transfers, expenses, reconciliation, opening balances) check only
-   `accounting.cashflow.view`; the treasury, tax, closing, journal, budget and opening-balance APIs have
-   no CSRF check.
-2. [V] An account's opening balance (« Solde Initial Ouverture ») posts no journal entry
-   (`treasury_controller.php:157-160`): with MTN MOBILE MONEY's missing COA link (§7 of the runbook), the
-   ledger cash and the treasury screen disagree.
-3. [V] Recycling cash shows as money going out: `in_recycling_sale` is missing from the « in » types
-   (`treasury_controller.php:88`).
-4. [V] Expenses have no approval: a « Payé » save posts the entry with only `expenses.create`, so Ops can
-   book paid expenses without `mark_paid`.
-5. [V] Rapprochement: « Demande de correction » → « Soumettre à l'Admin » creates a request no endpoint
-   ever approves (`:411-416`).
-6. [V] « Retour de Tournée »: wrong join for the expected cash, fake 350 000 F « simulation » data on
-   error, validating does not mark invoices paid (`:48-101, 289`). A driver screen: likely goes with the
-   driver removal.
-7. [V] Any payment may take a treasury account below zero: on the copy, paying an advance from « Caisse
-   Principale » (0 F) left it at −30 000, and « Marquer Payées » for a month from « CCA Bank » (0 F) at
-   −460 944. No screen warns. Partly the missing opening balances (9.2); decide whether a payment beyond
-   the balance is refused or only warned (found by the Salaires session, 18/11/2026).
+9.1 to 9.6 and the owner's answer 6 (the fuel comparison, register 6.9) were reproduced on copy B and fixed by the
+« Trésorerie & Dépenses » video session (18/11/2026): docs/TRAINING_VIDEOS.md §7. Left:
+
+7. [V] Payroll and advances may take a treasury account below zero: on the copy, paying an advance from « Caisse
+   Principale » (0 F) left it at −30 000, and « Marquer Payées » for a month from « CCA Bank » (0 F) at −460 944
+   (found by the Salaires session). Transfers, expenses and supplier payments already refuse « Fonds
+   insuffisants ». **Default decided:** refuse the same way in Gestion du Personnel, but only once CCA Bank and
+   Caisse Principale carry their real balances on live (owner #20): until then refusing would block the real
+   November payroll. For the Comptabilité 2 or the admin series session; nothing changed yet.
 
 ## 10 · Gestion du Personnel (salaires)
 
@@ -220,6 +205,10 @@ Rows 1 to 5 done by the Salaires session (18/11/2026, PR #59): see docs/TRAINING
 2. [V] Ops delivery KPIs filter delivery status `delivered` / `invoiced`, which do not exist (draft,
    dispatched, driver_confirmed, completed, cancelled): always 0.
 3. [V] Cash KPIs leave out Mobile Money (552); AR KPIs count partly paid invoices at their full amount.
+   Confirmed by the Trésorerie session (18/11/2026): `finance_dashboard_api.php` (lines 188, 342, 356, 546) and
+   `md_dashboard_api.php` (398, 528) read 52x and 57x only. This, not MTN's missing COA link, is why the
+   dashboards' cash reads 0 F: MTN posts to 552 by its type, and since migration 139 its 552 balance equals the
+   treasury screen (654 320 F on the copy).
 4. [V] « Alertes stock » flags any product under 100 units, not its « Seuil Min. ».
 5. [V] Vue Ventes reads orders created by the signed-in user: with Ops entering orders and no Sales login,
    the DG sees 0 (the sales role will see only their own).
@@ -235,7 +224,7 @@ Rows 1 to 5 done by the Salaires session (18/11/2026, PR #59): see docs/TRAINING
 | 3 | Stock accounting: perpetual (31x at reception) or periodic (601 then variation at closing)? | Decided 18/11: perpetual, as built in migration 131 (Gestion des Achats). |
 | 4 | Which taxes does PROMETAL withhold: AIR only, or TVA too? The app only handles AIR. | AIR only, at the rate set on the client. |
 | 5 | Should the Comptable approve advances and pay suppliers (`approve_advance`, `procurement.approve`), and keep `closing.run` / `reopen`? | Decided 18/11: the Comptable also pays suppliers (`inventory.procurement.approve`, migration 132, done) and approves advances (`hr.payroll.approve_advance`, for the Salaires session); closing rights unchanged. |
-| 6 | Fleet costs (fuel, repairs): post them to the ledger from Flotte, or keep typing them in Dépenses? | Decided 18/11: a fuel, repair or servicing cost entered in Flotte creates a linked expense request in Gestion des Dépenses, which Finance validates and pays (done, migration 133, Flotte session). The per-period comparison and its alert: Trésorerie & Dépenses session. |
+| 6 | Fleet costs (fuel, repairs): post them to the ledger from Flotte, or keep typing them in Dépenses? | Decided 18/11: a fuel, repair or servicing cost entered in Flotte creates a linked expense request in Gestion des Dépenses, which Finance validates and pays (done, migration 133, Flotte session). The per-period comparison and its alert: done (Gestion des Dépenses → Carburant, migration 139, Trésorerie & Dépenses session). |
 | 7 | OPUR 10L's « Coût de référence » reads 100 F while it sells at 1 000 F and no supplier has a 10L tariff: what does LPC pay for a 10L? (Données de Base → Produits, now editable by the DG and the CF.) | Decided 18/11: bought at 850 F, sold by default at 1 100 F (some clients 1 200 F, as client tariffs); migration 134 sets both. Still to verify: its empties at 100 F without cork, 200 F with cork (today one « Emballage 10L » at 100 F). |
 | 8 | The never-applied « prix de repli » (a floor for products with no default price) was removed from the screen rather than wired into sales. Want it wired? | Decided 18/11: keep it removed. |
 | 9 | The ristourne: on what base, and what is withheld? | Decided 18/11 (the DG's rule of 31/07): « 3 % du montant d'achat hors taxe »; order amounts are TTC, so HT = amount ÷ 1,1925; 21,25 % withheld (19,25 % TVA to 4452, 2 % précompte to 4473), net to 4098, gross to 6019; Eau 3 % flat, other products 3/4/5 % by each order's own total. The code does this (a change of 18/11 that dropped it was reverted the same day); past accruals are correct, nothing to post. Open for the accounting sessions: should reception split the recoverable TVA (Dr 601 HT + Dr 4452 / Cr 401 TTC)? |
@@ -248,3 +237,5 @@ Rows 1 to 5 done by the Salaires session (18/11/2026, PR #59): see docs/TRAINING
 | 16 | The buffer a signed devis promises raises the product's « Seuil Min. » (1 667 a month × 2 weeks = 770 for PROMETAL). It never lowers it. Keep? | Yes: the stock alert fires before LPC runs short of what it promised. Lower it by hand in Données de Base when a contract ends. |
 | 17 | Should a new client start as Prospect? | Yes: a client is a prospect until it signs a devis (then Actif by itself) or someone presses « Convertir ». |
 | 18 | SMART LOGISTICS and BOULANGERIE SAKER signed devis before this change (Net 30, 1 pour 1). | Migration 137 carries their terms onto them (Net 30, 100 %), not their prices: orders may have moved the prices since. |
+| 19 | **Where did MTN MOBILE MONEY's 1 000 000 F come from?** It was entered on 03/11/2026 as the account's opening balance and posted nothing. Migration 139 posts it (Dr 552 / Cr 471 « Compte d'attente », dated 03/11) so the ledger matches the screen; 471 now waits to be cleared to its real origin: share capital (101), an associate's current account (4561, the DG's money?), a loan, another bank. | 1 000 000 F stays in 471 until the owner says; the Comptable then passes one OD (Dr 471 / Cr the right account). The MTN account's COA link was not changed: it posts to 552 by its type already. |
+| 20 | **CCA Bank and Caisse Principale - Maison read 0 F** on live although LPC surely has money in them. What were their balances on the day the app started, and on what date? (9.7 waits on this: payments beyond the balance cannot be refused while the balances are not real.) | Nothing entered. Once known, the CF enters each as a correction (or the DG through Bilan d'Ouverture if the year allows), and Gestion du Personnel starts refusing payments beyond the balance like the other modules. |

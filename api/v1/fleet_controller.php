@@ -13,6 +13,7 @@
  */
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/functions/notify.php';
+require_once __DIR__ . '/../../includes/classes/FuelReconciliation.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 
@@ -481,6 +482,9 @@ try {
 
         $pdo->commit();
         fleet_notify_request($pdo, $exp['reference'], $title, $total, $user_id);
+        // Finance's fuel money against this month's fill-ups (owner #6): Finance is
+        // told when they differ, e.g. a fill-up paid with an advance not yet attached.
+        FuelReconciliation::afterChange($pdo, date('Y-m-d'), 'operations', $user_id);
         sendResponse('success',
             "Plein enregistré. Demande de dépense {$exp['reference']} envoyée à la Finance." . ($odo_warning ? " $odo_warning" : ''),
             ['odometer_warning' => $odo_warning, 'expense_reference' => $exp['reference']]);
