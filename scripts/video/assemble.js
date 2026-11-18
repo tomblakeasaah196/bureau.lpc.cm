@@ -51,7 +51,7 @@ function cardTake(shot) {
 }
 
 function takeOf(shot, out) {
-  if (shot.kind === "card") return cardTake(shot);
+  if (shot.kind === "card" || shot.kind === "map") return cardTake(shot);
   const f = path.join(out, "shots", shot.id, "take.json");
   if (!fs.existsSync(f)) throw new Error(`${shot.id} has not been filmed: run the film step (docs/TRAINING_VIDEOS.md §4.4).`);
   return JSON.parse(fs.readFileSync(f, "utf8"));
@@ -97,13 +97,56 @@ async function assemble(plan, out, { audioDir, python }) {
     const closing = await shooter.shoot(style.card({ ...plan.closing, closing: true }), path.join(work, "closing.png"), style.SIZE.picture);
     const rim = await shooter.shoot(style.phoneRim(), path.join(work, "phone-rim.png"), style.SIZE.picture);
     const barCache = new Map();
-    const barOf = async (shot, caption) => {
-      const key = `${shot.chapter}|${caption}`;
+    // A story names the role acting (style.ROLES) on the bar's right; the first shot a role acts in
+    // also says who holds it today (plan.holders), once in the video (docs/TRAINING_VIDEOS.md §2).
+    const firstShot = new Map();
+    const roleOf = (shot) => {
+      if (!shot.role) return {};
+      if (!firstShot.has(shot.role)) firstShot.set(shot.role, shot.id);
+      return { role: shot.role, holder: firstShot.get(shot.role) === shot.id ? (plan.holders || {})[shot.role] || null : null };
+    };
+    const barOf = async (shot, caption, who) => {
+      const key = `${shot.chapter}|${caption}|${who.role || ""}|${who.holder || ""}`;
       if (!barCache.has(key))
         barCache.set(key, await shooter.shoot(
-          style.bar({ number: shot.chapter, total: plan.chapters, chapter: shot.chapterName, caption }),
+          style.bar({ number: shot.chapter, total: plan.chapters, chapter: shot.chapterName, caption, ...who }),
           path.join(work, `bar-${String(barCache.size + 1).padStart(4, "0")}.png`), style.SIZE.bar));
       return barCache.get(key);
+    };
+    // A map shot's pictures: the journey (style.journey) in each line's state, the bottle travelling
+    // between two stations over TRAVEL seconds when a line moves it on.
+    const mapCache = new Map();
+    const mapOf = async (state) => {
+      const key = JSON.stringify(state);
+      if (!mapCache.has(key))
+        mapCache.set(key, await shooter.shoot(style.journey({ ...plan.journey, ...state }), path.join(work, `map-${String(mapCache.size + 1).padStart(4, "0")}.png`), style.SIZE.picture));
+      return mapCache.get(key);
+    };
+    const TRAVEL = 1.2;
+    const mapFrames = async (shot, take) => {
+      const frames = [];
+      let state = { at: -1, ...(shot.map || {}) };
+      let from = state.from;
+      delete state.from;
+      for (const [i, line] of take.lines.entries()) {
+        const spec = shot.lines.find((l) => l.id === line.id);
+        const next = { ...state, ...(spec.map || {}) };
+        const t0 = i === 0 ? 0 : line.at - take.start;
+        const start = i === 0 && from !== undefined ? from : state.at;
+        if (next.at !== start && next.at >= 0 && start !== undefined && start >= 0 && next.pos === undefined) {
+          const steps = Math.round(TRAVEL * 15);
+          for (let k = 0; k <= steps; k++) {
+            const f = k / steps;
+            const ease = f < 0.5 ? 2 * f * f : 1 - Math.pow(-2 * f + 2, 2) / 2;
+            frames.push({ file: await mapOf({ ...next, at: k === steps ? next.at : start, pos: start + (next.at - start) * ease }), t: t0 + f * TRAVEL });
+          }
+        } else {
+          frames.push({ file: await mapOf(next), t: t0 });
+        }
+        state = next;
+        from = undefined;
+      }
+      return frames;
     };
 
     for (const [k, shot] of plan.shots.entries()) {
@@ -121,9 +164,10 @@ async function assemble(plan, out, { audioDir, python }) {
         const parts = captionParts(spec.say);
         const total = parts.reduce((n, p) => n + p.length, 0);
         let at = line.at - take.start;
+        const who = roleOf(shot);
         for (const p of parts) {
           const span = (spec.duration * p.length) / total;
-          bars.push({ file: await barOf(shot, p), t: i === 0 && bars.length === 0 ? 0 : at });
+          bars.push({ file: await barOf(shot, p, who), t: i === 0 && bars.length === 0 ? 0 : at });
           captions.push({ from: offset + at, to: offset + at + span, text: p });
           at += span;
         }
@@ -142,7 +186,7 @@ async function assemble(plan, out, { audioDir, python }) {
           "-filter_complex", `[1:v]fps=${FPS},scale=1920:120[b];[0:v][b]vstack=inputs=2,format=yuv420p[v]`, "-map", "[v]", ...enc]);
       } else {
         const shotDir = path.join(out, "shots", shot.id);
-        const frames = take.frames.map((f) => ({ file: path.join(shotDir, f.file), t: f.t - take.start }));
+        const frames = shot.kind === "map" ? await mapFrames(shot, take) : take.frames.map((f) => ({ file: path.join(shotDir, f.file), t: f.t - take.start }));
         const frameList = path.join(work, `frames-${shot.id}.txt`);
         concatList(frameList, frames, 0, length);
         if (shot.kind === "phone") {

@@ -126,18 +126,145 @@ function phoneRim() {
   return page(SIZE.picture, css, `<div class="hole"></div>`);
 }
 
-/** The caption bar: "CHAPITRE 2 SUR 9" and the chapter's name on the left, the spoken line centred. 1920 × 120. */
-function bar({ number, total, chapter, caption }) {
+/**
+ * The roles a story names (the owner, 18/11/2026: the narration names the role, not the person), each
+ * with its own colour, so a viewer finds "their" colour along the journey map and in the caption bar.
+ */
+const ROLES = Object.freeze({
+  dg: { label: "Directeur Général", short: "Direction", colour: "#F2C94C" },
+  commercial: { label: "Commercial", short: "Commercial", colour: "#FF9E7A" },
+  operations: { label: "Responsable des Opérations", short: "Opérations", colour: "#6FD3F7" },
+  comptable: { label: "Comptable", short: "Comptable", colour: "#B5E36B" },
+  controleur: { label: "Contrôleur Financier", short: "Contrôleur", colour: "#C9B2FF" },
+});
+
+/**
+ * The caption bar: "CHAPITRE 2 SUR 9" and the chapter's name on the left, the spoken line centred,
+ * and, when a role acts (`role`, a key of ROLES), the role in its colour on the right with today's
+ * holder under it (`holder`, once per role in a video). 1920 × 120.
+ */
+function bar({ number, total, chapter, caption, role, holder }) {
+  const r = role ? ROLES[role] : null;
+  if (role && !r) throw new Error(`Unknown role "${role}" (style.js ROLES).`);
   const css = `
 .bar{position:absolute;inset:0;background:${COLOUR.bar};border-top:3px solid ${COLOUR.lime}}
 .chapter{position:absolute;left:40px;top:0;bottom:0;width:300px;display:flex;flex-direction:column;justify-content:center}
 .chapter .n{font:700 15px "Inter";letter-spacing:.14em;color:${COLOUR.lime};text-transform:uppercase}
 .chapter .t{margin-top:7px;font:700 20px/1.2 "Inter";color:${COLOUR.ink}}
 .caption{position:absolute;left:350px;right:350px;top:0;bottom:0;display:flex;align-items:center;justify-content:center;text-align:center;
-  font:400 28px/1.3 "Inter";color:#f3f7f2}`;
+  font:400 28px/1.3 "Inter";color:#f3f7f2}
+.role{position:absolute;right:32px;top:0;bottom:0;width:310px;display:flex;flex-direction:column;justify-content:center;align-items:flex-end;text-align:right}
+.role .k{display:flex;align-items:center;gap:9px;font:700 14px/1.25 "Inter";letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+.role .k i{width:12px;height:12px;border-radius:6px;flex:none}
+.role .h{margin-top:7px;font:500 17px/1.2 "Inter";color:${COLOUR.soft}}`;
   return page(SIZE.bar, css, `<div class="bar"></div>
 <div class="chapter"><div class="n">Chapitre ${number} sur ${total}</div><div class="t">${esc(chapter)}</div></div>
-<div class="caption">${esc(caption)}</div>`);
+<div class="caption">${esc(caption)}</div>
+${r ? `<div class="role"><div class="k" style="color:${r.colour}"><i style="background:${r.colour}"></i>${esc(r.label)}</div>${holder ? `<div class="h">Aujourd'hui : ${esc(holder)}</div>` : ""}</div>` : ""}`);
 }
 
-module.exports = { ROOT, SIZE, DESKTOP, PHONE, COLOUR, card, titleSize, phoneGround, phoneRim, bar, esc };
+/**
+ * The journey map of a story video: the stations on a winding road (two rows, the second running back
+ * right to left), a 20L bottle on the road, each station with its roles' colours. 1920 × 960.
+ *
+ *   stations   [{ name, roles: ["operations", …] }]   (up to 12, six a row)
+ *   at         the station the story is at (0-based), lit; the ones before it are done; -1 for none
+ *   pos        where the bottle stands on the road, as a station index (fractions travel between two);
+ *              defaults to `at`; null hides it
+ *   lit        role keys whose stations glow (the closing "where do you come in"); the others dim
+ */
+const ROAD = Object.freeze({ left: 230, right: 1690, rows: [372, 704], turn: 166 });
+
+function roadPoint(stations, s) {
+  const perRow = Math.ceil(stations / 2);
+  const step = (ROAD.right - ROAD.left) / (perRow - 1);
+  const node = (i) => {
+    const row = i < perRow ? 0 : 1;
+    const k = row === 0 ? i : perRow - 1 - (i - perRow);
+    return { x: ROAD.left + k * step, y: ROAD.rows[row] };
+  };
+  const a = Math.max(0, Math.min(stations - 1, Math.floor(s)));
+  const b = Math.min(stations - 1, a + 1);
+  const f = s - a;
+  if (f <= 0 || a === b) return node(a);
+  if (a === perRow - 1) {
+    // The turn at the right end: half a circle from the first row down to the second.
+    const cx = ROAD.right;
+    const cy = (ROAD.rows[0] + ROAD.rows[1]) / 2;
+    const rad = (ROAD.rows[1] - ROAD.rows[0]) / 2;
+    const ang = -Math.PI / 2 + f * Math.PI;
+    return { x: cx + Math.cos(ang) * Math.max(rad, ROAD.turn) * 0.9, y: cy + Math.sin(ang) * rad };
+  }
+  const p = node(a);
+  const q = node(b);
+  return { x: p.x + (q.x - p.x) * f, y: p.y + (q.y - p.y) * f };
+}
+
+const BOTTLE = `<svg width="62" height="92" viewBox="0 0 62 92" xmlns="http://www.w3.org/2000/svg">
+<rect x="21" y="2" width="20" height="9" rx="2.5" fill="#1f7ae0"/>
+<path d="M24 11h14v7c0 3 9 5 12 9 2.6 3.4 3 7 3 11v42c0 5-4 8-8 8H17c-4 0-8-3-8-8V38c0-4 .4-7.6 3-11 3-4 12-6 12-9z" fill="#dff1ff" stroke="#ffffff" stroke-width="2.5"/>
+<path d="M11 50h40v30c0 4-3 6-6 6H17c-3 0-6-2-6-6z" fill="#7cc4ff" opacity=".85"/>
+<rect x="15" y="40" width="5" height="34" rx="2.5" fill="#fff" opacity=".7"/>
+<text x="31" y="66" text-anchor="middle" font-family="Inter" font-weight="800" font-size="11" fill="#0b4a8c">OPUR</text>
+</svg>`;
+
+function journey({ eyebrow, title, stations, at = -1, pos, lit = null }) {
+  const n = stations.length;
+  const perRow = Math.ceil(n / 2);
+  const pts = stations.map((_, i) => roadPoint(n, i));
+  const here = pos === null ? null : roadPoint(n, pos === undefined ? Math.max(at, 0) : pos);
+  const litSet = lit ? new Set(lit) : null;
+  const glow = (st) => !litSet || st.roles.some((r) => litSet.has(r));
+  // The road: its whole length faint, and lime as far as the story has come.
+  const road = (to) => {
+    const parts = [];
+    const steps = Math.max(1, Math.round(to * 24));
+    for (let k = 0; k <= steps; k++) { const p = roadPoint(n, (to * k) / steps); parts.push(`${k ? "L" : "M"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`); }
+    return parts.join(" ");
+  };
+  const travelled = at > 0 ? (pos !== undefined && pos !== null ? Math.max(pos, 0) : at) : 0;
+  const nodes = stations.map((st, i) => {
+    const p = pts[i];
+    const state = i === at ? "now" : at >= 0 && i < at ? "done" : "next";
+    const dim = !glow(st);
+    const below = i < perRow ? 62 : 62;
+    const chips = st.roles.map((r) => `<span class="chip" style="--c:${ROLES[r].colour}"><i></i>${esc(ROLES[r].short)}</span>`).join("");
+    return `<div class="node ${state}${dim ? " dim" : ""}${litSet && !dim ? " lit" : ""}" style="left:${p.x}px;top:${p.y}px">
+  <div class="dot">${i + 1}</div>
+  <div class="label" style="top:${below}px"><div class="name">${esc(st.name)}</div><div class="roles">${chips}</div></div>
+</div>`;
+  }).join("");
+  const css = `
+.head{position:absolute;left:96px;top:58px}
+.head .eyebrow{font:700 22px "Inter";letter-spacing:.16em;color:${COLOUR.lime};text-transform:uppercase}
+.head h1{margin-top:10px;font:800 54px/1.05 "Inter";letter-spacing:-.02em}
+svg.road{position:absolute;inset:0}
+.node{position:absolute;width:0;height:0}
+.node .dot{position:absolute;left:-34px;top:-34px;width:68px;height:68px;border-radius:50%;display:grid;place-items:center;
+  font:800 26px "Inter";color:${COLOUR.soft};background:rgba(0,40,20,.85);border:3px solid rgba(255,255,255,.35)}
+.node.done .dot{background:${COLOUR.lime};border-color:${COLOUR.lime};color:${COLOUR.deep}}
+.node.now .dot{left:-44px;top:-44px;width:88px;height:88px;font-size:32px;background:#fff;border:5px solid ${COLOUR.lime};color:${COLOUR.green};
+  box-shadow:0 0 0 12px rgba(140,198,63,.28),0 0 46px rgba(140,198,63,.65)}
+.node.lit .dot{border-color:#fff;box-shadow:0 0 0 10px rgba(255,255,255,.16),0 0 34px rgba(255,255,255,.35)}
+.node.dim{opacity:.28}
+.node .label{position:absolute;left:-150px;width:300px;text-align:center}
+.node .name{font:700 22px/1.2 "Inter";color:#fff}
+.node.next .name{color:${COLOUR.soft}}
+.node.now .name{font-size:25px;color:#fff}
+.node.now .label{top:74px !important}
+.node .roles{margin-top:8px;display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 8px;border-radius:999px;font:700 13px/1.2 "Inter";letter-spacing:.02em;
+  color:var(--c);background:rgba(0,30,15,.72);border:1.5px solid var(--c)}
+.chip i{width:8px;height:8px;border-radius:4px;background:var(--c)}
+.bottle{position:absolute;width:62px;height:92px;filter:drop-shadow(0 10px 14px rgba(0,0,0,.45))}`;
+  const svg = `<svg class="road" width="${SIZE.width}" height="${SIZE.picture}" viewBox="0 0 ${SIZE.width} ${SIZE.picture}">
+<path d="${road(n - 1)}" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="10" stroke-linecap="round" stroke-dasharray="2 18"/>
+${travelled > 0 ? `<path d="${road(travelled)}" fill="none" stroke="${COLOUR.lime}" stroke-width="10" stroke-linecap="round"/>` : ""}
+</svg>`;
+  const bottle = here ? `<div class="bottle" style="left:${(here.x - 31).toFixed(1)}px;top:${(here.y - 138).toFixed(1)}px">${BOTTLE}</div>` : "";
+  return page(SIZE.picture, css, `<div class="ground"></div><div class="leaf"></div>
+<div class="head"><div class="eyebrow">${esc(eyebrow)}</div><h1>${esc(title)}</h1></div>
+${svg}${nodes}${bottle}`);
+}
+
+module.exports = { ROOT, SIZE, DESKTOP, PHONE, COLOUR, ROLES, card, titleSize, phoneGround, phoneRim, bar, journey, roadPoint, esc };

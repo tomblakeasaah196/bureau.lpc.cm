@@ -39,6 +39,20 @@ Everything below is on the owner's PC already (17/11/2026). A new machine needs 
    Fonts, which the app's pages load.
 6. **The owner's rule**: at most 5 agents at once on this PC, all chats together. Filming is a
    foreground job; say how long a step takes before starting it.
+7. **A video session is QA, then fixes, then the video** (the owner, 18/11/2026). The introduction
+   filmed the Tableau de Bord Exécutif without opening its KPI cards; one card's detail failed on live
+   and the owner was the one who found it. Before writing a line of script, on the copy:
+   - run the crawler on every page the video will show, as each role that will use it
+     (`MSYS_NO_PATHCONV=1 node scripts/video/qa.js bertin /modules/inventory/stock.php --selects`): it
+     opens every tab, KPI card, detail, « Voir » and section, tries each filter, and reports console
+     errors, HTTP 4xx/5xx, JSON `status: error`, PHP warnings on the page, error messages shown in a
+     window or a toast, and new lines in the copy's PHP log. It never presses a button that writes;
+   - then do the module's real work by hand in the scene's order (create, edit, validate, pay…), the way
+     the video will, and look at what each step leaves behind: the stock, the journal entries, the
+     dashboards, the Journal d'Erreurs;
+   - fix what breaks on the video's branch, list it in §7, and only then write the script and film.
+   The crawler proved itself on 18/11/2026: with the old `Paginator.php` put back it reports the
+   « Récupération d'emballages » detail (HTTP 500, « Erreur de chargement », the PHP fatal).
 
 ## 2 · The pattern (decided with the owner, 17/11/2026; do not change without a new decision)
 
@@ -76,7 +90,12 @@ word on screen is read (LPC, ERP, BL, FCFA, Ctrl…): the caption keeps what the
 and fields are named exactly as the screen reads them, between « and » in the caption when it helps.
 
 **The script.** Present tense, "vous" to the viewer, plain words, one fact a sentence, about 20 words
-at most. It follows named people doing real work ("Daniel Massomba, le comptable, ouvre…"). It says who
+at most. The introduction and Courrier follow named people doing real work ("Daniel Massomba, le
+comptable, ouvre…"). **From the story video on, the narration names the role, not the person** (the
+owner, 18/11/2026): « le Comptable », « le Responsable des Opérations », so the next accountant or the
+next sales manager still feels the video is about them. The holder's name appears once, the first time
+the role does something, in a small caption (« Aujourd'hui : Daniel Massomba »). On screen the real
+accounts still sign in, so the top bar shows the real person. It says who
 may do what and the rules a person meets; it never explains how the system is built. Chapter 1 is
 Bienvenue: what the video covers and whom it follows. The last is Pour conclure and names the next
 video. **No dash (— or –) in anything a viewer reads**: `make.js` refuses a line that has one.
@@ -97,6 +116,19 @@ scene, so the next video meets the same colleagues.
 
 - **No Sales login exists yet** (17/11/2026): the owner expects one. Add it to `cast.js` once LPC
   creates it on live and a new export is loaded (§4.1).
+- **Sales is split for now** (the owner, 18/11/2026): the Directeur Général does the leads and the
+  proposition commerciale (« Base Clients & Devis », « Studio Proposition »); the Responsable des
+  Opérations does the orders (« Ventes & Commandes »). A Sales manager left recently and the next one
+  takes the DG's part over. Narrate those steps as the Commercial role (« le Commercial, aujourd'hui le
+  Directeur Général »), so the next Sales manager connects directly.
+- **How LPC trades** (the owner, 18/11/2026), which every story and module video must respect:
+  - suppliers (Source du Pays, HOREB SARL) sell LPC full bottles and never take empties back;
+  - the bottle is sold to the client, no deposit; each proposal's « Politique des emballages » sets a
+    minimum return (100, 90, 80 or 70 %) that LPC must then recover;
+  - empties are a separate income line: LPC resells what it collects to recyclers (« Vente Recyclage »);
+  - PROMETAL, the client the story follows: about 20 000 × 20L a year spread over the months, 80 %
+    minimum return, Net 15, paid by transfer after withholding tax at source, with a withholding
+    attestation.
 - **No drivers.** The owner will not use driver accounts and plans to take the driver screens out.
   Videos never show the driver pages; "Vue Chauffeur" still shows in some menus until that work lands.
 - **Clients and suppliers** on screen are real Cameroonian companies, as LPC deals with them (the owner
@@ -193,6 +225,7 @@ The copy never reaches mail.lpc.cm or Google, whatever a scene does (`scripts/vi
 ### 4.3 · The commands
 
 ```bash
+MSYS_NO_PATHCONV=1 node scripts/video/qa.js <who> <page> [<page>…] [--selects]   # QA first (§1.7); report in VIDEO_HOME/qa/
 node scripts/video/make.js <scene> script      # read it, with its length
 node scripts/video/make.js <scene> narrate     # the voice, cached by words: only changed lines are spoken again
 node scripts/video/make.js <scene> film        # or --only=c03s01,c04s02 to refilm some shots
