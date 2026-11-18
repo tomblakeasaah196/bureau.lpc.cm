@@ -24,21 +24,9 @@ and deliveries, the Comptable invoices and books, the CF approves and pays and o
 
 ## 1 · Données de Base
 
-1. [V] `api/v1/mdm_controller.php:15` refuses every role but `admin` (401 « Accès Refusé »), under an
-   RBAC check that already allows `admin.master_data.view`. CF holds `.view` and `.edit`, Cpt and Ops
-   `.view`: for them the page stays on « Chargement des données... » [I]. Only 3 of the write actions
-   (`save_default_price`, `save_fallback`, `delete_supplier_price`) check `.edit`; `save`, `save_category`,
-   `toggle_status` relied on the admin gate. Fix: drop the gate, require `.edit` on every write.
-2. [V] Prix de repli and « Ligne à prix nul » (pricing panel) are stored but nothing in sales reads them
-   (`price_fallback_*` only in mdm_controller): either wire them into `includes/functions/pricing.php` or
-   stop showing them as policy.
-3. [V] « Coût de référence » (`cost_price`) cannot be edited anywhere; at creation it copies `base_price`,
-   the selling price (`mdm_controller.php:1210-1213`). Live OPUR 20L has cost 2 275 = its price.
-4. [V] Saving a product clears its per-product account overrides: the form never sends
-   `revenue_account_id`, `stock_account_id`, `cogs_account_id` (`:1149-1151, 1178`).
-5. [V] A supplier with no 401 account: the error says « re-save the supplier », but the update path never
-   creates one (`JournalPoster.php:1643`, `mdm_controller.php:1326-1329`).
-6. [V] Client tariffs have no delete and no history.
+All six rows were reproduced and fixed by the « Données de Base » video session (18/11/2026): see
+docs/TRAINING_VIDEOS.md §7. Data seen on the copy, for the owner (table below): OPUR 10L's reference cost.
+The « Eau » category is set to sell in packs, so the OPUR form shows « Unités par pack » (harmless, 1).
 
 ## 2 · Gestion des Achats
 
@@ -283,3 +271,5 @@ Grants below are from migrations; live may differ (check `role_permissions` on t
 | 4 | Which taxes does PROMETAL withhold: AIR only, or TVA too? The app only handles AIR. | AIR only, at the rate set on the client. |
 | 5 | Should the Comptable approve advances and pay suppliers (`approve_advance`, `procurement.approve`), and keep `closing.run` / `reopen`? | Unchanged; the videos show the CF approving and paying. |
 | 6 | Fleet costs (fuel, repairs): post them to the ledger from Flotte, or keep typing them in Dépenses? | Post from Flotte to the same expense accounts, linked to the vehicle. |
+| 7 | OPUR 10L's « Coût de référence » reads 100 F while it sells at 1 000 F and no supplier has a 10L tariff: what does LPC pay for a 10L? (Données de Base → Produits, now editable by the DG and the CF.) | Left as it is on live; the video does not show it. |
+| 8 | The never-applied « prix de repli » (a floor for products with no default price) was removed from the screen rather than wired into sales. Want it wired? | Removed: every product has a default price, and a product without one is flagged in amber. |
