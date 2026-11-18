@@ -149,6 +149,9 @@ async function main() {
     l.duration = durations[l.id];
   }
 
+  // Filming and assembling are the heavy steps: one at a time on this machine, whatever the copy.
+  if (steps.includes("film") || steps.includes("assemble")) await takeFilmingTurn(`${plan.id} ${steps.filter((s) => s !== "narrate").join("+")}`);
+
   if (steps.includes("film")) {
     const cast = require("./cast");
     ground.guard();
@@ -176,6 +179,42 @@ async function main() {
   }
 }
 
-module.exports = { speechOf, planOf, SAID };
+/**
+ * One filming turn at a time on this machine (docs/TRAINING_VIDEOS.md §1.8). Two module sessions may run
+ * at once, each on its own copy, but filming (Chrome capturing back to back) and assembling (ffmpeg on
+ * every core) are what overheated the owner's laptop (18/11/2026): they take turns. The turn is a file
+ * created exclusively, holding who has it; it goes when this process exits, and a turn whose process is
+ * gone (a crash, a reboot) or that is older than VIDEO_LOCK_HOURS (default 4) is taken over.
+ */
+const LOCK = process.env.VIDEO_LOCK || path.join(os.homedir(), ".lpc-video-filming.lock");
+async function takeFilmingTurn(what) {
+  const me = { pid: process.pid, what, home: process.env.VIDEO_HOME || "", since: new Date().toISOString() };
+  const maxAge = Number(process.env.VIDEO_LOCK_HOURS || 4) * 3600 * 1000;
+  let told = false;
+  for (;;) {
+    try {
+      fs.writeFileSync(LOCK, JSON.stringify(me), { flag: "wx" });
+      process.on("exit", () => {
+        try { if (JSON.parse(fs.readFileSync(LOCK, "utf8")).pid === process.pid) fs.unlinkSync(LOCK); } catch { /* already gone */ }
+      });
+      for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => process.exit(130));
+      if (told) console.warn("filming turn taken");
+      return;
+    } catch (err) {
+      if (err.code !== "EEXIST") throw err;
+    }
+    let holder = null;
+    try { holder = JSON.parse(fs.readFileSync(LOCK, "utf8")); } catch { /* being written or removed: look again */ }
+    const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; } };
+    if (holder && (!alive(holder.pid) || Date.now() - Date.parse(holder.since) > maxAge)) {
+      try { fs.unlinkSync(LOCK); } catch { /* someone else took it over */ }
+      continue;
+    }
+    if (!told && holder) { console.warn(`waiting for the filming turn: ${holder.what} has it since ${holder.since} (${LOCK})`); told = true; }
+    await new Promise((r) => setTimeout(r, 20000));
+  }
+}
+
+module.exports = { speechOf, planOf, SAID, takeFilmingTurn, LOCK };
 
 if (require.main === module) main().then(() => process.exit(0), (err) => { console.error(err.stack || err.message); process.exit(1); });
