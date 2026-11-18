@@ -305,8 +305,7 @@
     function onAnnualInput(bucketId) {
         const el = document.querySelector(`[data-annual-for="${bucketId}"]`);
         if (!el) return;
-        const v = parseFloat(el.value || '0') || 0;
-        editState[bucketId].annual  = v;
+        editState[bucketId].annual  = el.value === '' ? null : (parseFloat(el.value) || 0);
         editState[bucketId].monthly = null;  // let server auto-split
     }
     window.onAnnualInput = onAnnualInput;
@@ -315,11 +314,20 @@
         if (!flags.canEditTargets) return;
 
         const year = document.getElementById('global_year_filter').value;
-        const rows = Object.keys(editState).map(id => ({
-            bucket_id: Number(id),
-            annual:    Number(editState[id].annual || 0),
-            monthly:   editState[id].monthly     // null OR 12 numbers
-        }));
+        // A line left blank keeps « Objectif non défini »: it used to be saved at 0, so
+        // typing four targets reported « 9 objectif(s) enregistré(s) ».
+        const rows = Object.keys(editState)
+            .filter(id => editState[id].annual !== null && editState[id].annual !== undefined)
+            .map(id => ({
+                bucket_id: Number(id),
+                annual:    Number(editState[id].annual || 0),
+                monthly:   editState[id].monthly     // null OR 12 numbers
+            }));
+        if (!rows.length) {
+            const fb0 = document.getElementById('targets-feedback');
+            fb0.textContent = t('Saisissez au moins un objectif.', 'Enter at least one target.');
+            return;
+        }
 
         const btn = document.getElementById('targets-save-btn');
         const fb  = document.getElementById('targets-feedback');

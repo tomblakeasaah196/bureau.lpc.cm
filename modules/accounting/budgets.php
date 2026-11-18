@@ -193,7 +193,7 @@ $year = (int)($_GET['year'] ?? date('Y'));
                 </div>
 
                 <?php // What « Réalisé » reads, said on the screen (VIDEO_QA_FINDINGS 12.3). ?>
-                <p class="text-xs font-bold text-gray-500 -mt-2 shrink-0" id="budget-source-note"
+                <p class="text-xs font-bold text-gray-500 shrink-0 bg-white border border-gray-200 rounded-xl px-4 py-2" id="budget-source-note"
                    data-i18n-fr="Réalisé : les écritures passées au Grand Livre cette année (charges, classe 6 ; chiffre d'affaires, classe 70), à leur date. Une demande de dépense non payée n'y est pas encore."
                    data-i18n-en="Actual: the entries posted to the general ledger this year (charges, class 6; revenue, class 70), at their date. An unpaid expense request is not in it yet.">
                     Réalisé : les écritures passées au Grand Livre cette année (charges, classe 6 ; chiffre d'affaires, classe 70), à leur date. Une demande de dépense non payée n'y est pas encore.

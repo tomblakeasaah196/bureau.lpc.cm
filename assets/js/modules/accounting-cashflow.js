@@ -33,6 +33,7 @@
             in_loan_repayment:    'Remboursement reçu',
             out_loan:             'Prêt accordé',
             out_loan_repayment:   'Remboursement d\'emprunt',
+            out_asset_purchase:   'Achat d\'immobilisation',
             out_expense:          'Dépense',
             out_supplier_payment: 'Paiement fournisseur',
             out_payroll:          'Salaires',
