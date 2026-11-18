@@ -16,6 +16,7 @@ its choreography together.
 | Introduction, partie 2 : Chacun son espace (each role's home and menu) | `intro-2-chacun-son-espace.js` | Made 18/11/2026, 4:44, 7 chapters, -16.1 LUFS, 12.7 MB; sent in the chat; to publish in the live Centre d'Aide once deployed (§5) |
 | Modules, partie 1 : Données de Base (products, client and supplier tariffs, suppliers and their 401, employees; what view-only roles see) | `donnees-de-base.js` | Made 18/11/2026, 6:33, 9 chapters, -16.0 LUFS, 15.8 MB; sent in the chat; files in `bureau_video/publish/donnees-de-base/`; to publish (§5) |
 | Modules, partie 2 : Gestion des Achats (order at the tariff, price check, remise or ristourne, two receptions, ristourne earned, payment, order detail, cancellation, the Grand Livre) | `gestion-des-achats.js` | Made 18/11/2026, 5:40, 11 chapters, -16.1 LUFS, 14.5 MB (refilmed the same day with the owner's ristourne rule; the first cut was replaced); sent in the chat; files in `bureau_video/publish/gestion-des-achats/`; to publish (§5) |
+| Modules, partie 6 : Flotte (the truck, its daily assignment, fuel, a breakdown, the repair, the visite technique and a vidange, Finance validating the fuel expense) | `flotte.js` | Made 18/11/2026 (track B), 4:39, 10 chapters, -16.1 LUFS, 12.3 MB; sent in the chat; files in `bureau_video/publish/flotte/`; to publish (§5) |
 
 ---
 
@@ -449,5 +450,15 @@ the help search, the help AI's answers and each page's « ? »), and sent in the
       the video's order is PO-2611-00007 (100 OPUR 20L, 185 000 F), paid from MTN MOBILE MONEY; the HOREB remise and
       the cancellation are shown and not saved. 5:40 rather than 6: every step is in; nothing was padded. The copy is
       left as snapshot `after-02-gestion-des-achats` (260 OPUR 20L in stock, MTN 704 000 F).
+- [x] Modules, partie 6 · Flotte (18/11/2026, track B on copy B): QA (crawler as the four roles on the three fleet
+      pages, Dépenses and Immobilisations; the whole flow by hand, scripted), PR #57 (§6 of VIDEO_QA_FINDINGS: the
+      security gate, Operations runs the fleet, employees as drivers, breakdown status, fleet costs as expense requests
+      per the owner's answer 6, migration 133, `fleet_flow.test.php`), merged and deployed; live serves the new scripts
+      and the fleet API refuses anonymous calls (migration 133 on live data not checked: needs a sign-in). Decisions:
+      the truck is an example (LT 742 KL, Toyota Dyna; owner question 12); the driver is Nelson Tanyu, added on copy B
+      with name and post only, as the owner allowed (the owner adds the drivers on live); the Contrôleur Financier pays
+      the fuel request from MTN MOBILE MONEY, the repair, visite technique and vidange stay « à valider ». 4:39 rather
+      than 6: every step is in, nothing was padded. The copy is left as snapshot `after-06-flotte`; the hand-over for
+      Trésorerie & Dépenses (the per-period comparison) is in the sessions' shared notes and register §6.9.
 - [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
       Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.
