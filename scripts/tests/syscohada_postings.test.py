@@ -604,6 +604,159 @@ def scenario_full_cycle():
 
 
 # ===========================================================================
+# DÉCLARATIONS: a payment clears the accounts the month booked (Comptabilité 3)
+# ===========================================================================
+def scenario_dipe_payment():
+    """
+    November 2026 on the filming copy (VIDEO_QA_FINDINGS 13.1, 13.2): five
+    payslips credited 432 with 57 246 F (IRPP, CAC, CFC, CRTV, TDL, the employer
+    CFC). The DIPE declares 63 546 F: the same plus the FNE (1 % of 630 000), which
+    payslips calculated before migration 136 never accrued.
+
+        Dr 432   57 246   what the payslips booked
+        Dr 6412   6 300   the FNE not accrued: a charge of the month it is paid
+        Cr 5211  63 546   CCA Bank
+
+    THE DEFECT: the payment debited « 447 » (nothing credits it) through a query on
+    columns that do not exist; the error was swallowed and the declaration turned
+    « payée » with no entry and no money out of the bank.
+    """
+    booked_432 = Decimal("57246")
+    gross = Decimal("630000")
+    fne = fcfa(gross * Decimal("0.01"))
+    declared = booked_432 + fne
+
+    e = Entry("Déclarations · paiement de la DIPE")
+    e.debit("432", booked_432).debit("6412", declared - booked_432).credit("5211", declared)
+
+    check_balanced(e)
+    check("DIPE · declared amount", declared, Decimal("63546"))
+    check("DIPE · 432 cleared by what the payslips booked", e.net("432"), booked_432)
+    check("DIPE · the un-accrued FNE is a charge", e.net("6412"), fne)
+    check("DIPE · nothing on 447 or 431", ("447" in e.accounts(), "431" in e.accounts()), (False, False))
+    return e
+
+
+def scenario_cnps_payment():
+    """
+    CNPS November 2026: 4,2 % employee + 16,2 % employer on 630 000 = 128 520 F,
+    exactly what the payslips credited to 433.
+
+        Dr 433   128 520
+        Cr 5211  128 520
+    """
+    base = Decimal("630000")
+    employee = fcfa(base * Decimal("0.042"))
+    employer = fcfa(base * Decimal("0.162"))
+    total = employee + employer
+
+    e = Entry("Déclarations · paiement de la CNPS")
+    e.debit("433", total).credit("5211", total)
+
+    check_balanced(e)
+    check("CNPS · total is the payslips' own", total, Decimal("128520"))
+    # The breakdown on the declaration adds up to it: PVID 4,2 + 4,2, PF 7 %, and
+    # the accident du travail is the rest of the payroll's employer rate (5 %).
+    pvid_pat = fcfa(base * Decimal("0.042"))
+    pf = fcfa(base * Decimal("0.07"))
+    at = employer - pvid_pat - pf
+    check("CNPS · AT is the rest of the payroll's employer part", at, Decimal("31500"))
+    check("CNPS · breakdown adds up", employee + pvid_pat + pf + at, total)
+    return e
+
+
+def scenario_air_settled_by_attestation():
+    """
+    AIR November 2026: turnover 455 000 less the 9 100 avoir = 445 900; 2,2 % =
+    9 810, exactly what PROMETAL withheld and attested. Nothing leaves the bank:
+
+        Dr 4471  9 810   acompte d'IS (the year's minimum de perception)
+        Cr 4424  9 810   the AIR the client withheld, now used
+
+    It used to compute on 455 000 (credit notes ignored): 200 F « à payer ».
+    """
+    turnover = Decimal("455000") - Decimal("9100")
+    gross = fcfa(turnover * Decimal("0.022"))
+    withheld = Decimal("9810")
+    net = max(Decimal(0), gross - withheld)
+
+    e = Entry("Déclarations · AIR couverte par l'attestation")
+    e.debit("4471", gross).credit("4424", min(gross, withheld))
+
+    check_balanced(e)
+    check("AIR · gross on turnover net of credit notes", gross, Decimal("9810"))
+    check("AIR · nothing to pay", net, Decimal("0"))
+    check("AIR · 4424 emptied", e.net("4424"), -withheld)
+    return e
+
+
+def scenario_tva_month():
+    """
+    TVA when LPC is liable (« LPC assujetti à la TVA »): collectée on 4431, the
+    reception's recoverable TVA on 4452, last month's credit on 4449.
+
+        collectée 192 500, déductible 120 000, crédit reporté 30 000
+        Dr 4431 192 500 / Cr 4452 120 000 / Cr 4449 30 000 / Cr 5211 42 500
+
+    A credit month (déductible > collectée) nets to zero and carries the rest:
+        collectée 50 000, déductible 80 000
+        Dr 4431 50 000 / Dr 4449 30 000 / Cr 4452 80 000   (no money)
+
+    THE DEFECT: the deductible part read a `supplier_invoices` table that does not
+    exist (always 0), there was no carry-over, and the payment debited 4432.
+    """
+    col, ded, rep = Decimal("192500"), Decimal("120000"), Decimal("30000")
+    net = max(Decimal(0), col - ded - rep)
+    e = Entry("Déclarations · TVA du mois payée")
+    e.debit("4431", col).credit("4452", ded).credit("4449", rep).credit("5211", net)
+    check_balanced(e)
+    check("TVA · net to pay", net, Decimal("42500"))
+    check("TVA · 4431 cleared, never 4432", (e.net("4431"), "4432" in e.accounts()), (col, False))
+
+    col2, ded2 = Decimal("50000"), Decimal("80000")
+    carry = max(Decimal(0), ded2 - col2)
+    c = Entry("Déclarations · mois de crédit de TVA")
+    c.debit("4431", col2).debit("4449", carry).credit("4452", ded2)
+    check_balanced(c)
+    check("TVA credit month · carried to 4449", c.net("4449"), Decimal("30000"))
+    check("TVA credit month · no treasury line", any(a.startswith("5") for a in c.accounts()), False)
+    return e
+
+
+def scenario_year_opening():
+    """
+    Clôture définitive (13.5): the À-nouveaux of 01/01 N+1 carry every class 1 to
+    5 balance and the result on 131 / 139, and balance by construction because the
+    year's entries do. Copy A, closing 2026 as a test (one IS provision on 89):
+
+        result = −1 331 033 − 9 810 = −1 340 843  → Dr 139
+    The old closing summed every entry ever (a second year doubled the first),
+    left class 8 out of the result and could post the result twice (Dr 12 /
+    Cr 131 at the « Affectation » phase, then again in the À-nouveaux).
+    """
+    balances = {  # class 1 to 5 at 31/12/2026 (debit +, credit −)
+        "311": Decimal("110741"), "4098": Decimal("5864"), "4424": Decimal("9810"),
+        "4452": Decimal("1433"), "4473": Decimal("149"), "5211": Decimal("372544"), "5521": Decimal("704000"),
+        "401002": Decimal("-227500"), "422": Decimal("-1016688"), "432": Decimal("-54746"),
+        "433": Decimal("-236640"), "471": Decimal("-1000000"), "4472": Decimal("-9810"),
+    }
+    # The result (credit − debit on classes 6 to 8) equals the net debit balance of
+    # classes 1 to 5, since every entry balances.
+    result = sum(balances.values())
+    e = Entry("Clôture · À-nouveaux du 01/01/2027")
+    for acc, v in balances.items():
+        if v > 0: e.debit(acc, v)
+        else: e.credit(acc, -v)
+    if result >= 0: e.credit("131", result)
+    else: e.debit("139", -result)
+    check_balanced(e)
+    check("À-nouveaux · the year's result (class 8 included)", result, Decimal("-1340843"))
+    check("À-nouveaux · a loss goes to 139", e.net("139"), Decimal("1340843"))
+    check("À-nouveaux · nothing on 12x", any(a.startswith("12") for a in e.accounts()), False)
+    return e
+
+
+# ===========================================================================
 def main():
     scenarios = [
         scenario_goods_receipt,
@@ -621,6 +774,11 @@ def main():
         scenario_withholding_client_cycle,
         scenario_cogs_on_dispatch,
         scenario_full_cycle,
+        scenario_dipe_payment,
+        scenario_cnps_payment,
+        scenario_air_settled_by_attestation,
+        scenario_tva_month,
+        scenario_year_opening,
     ]
 
     print("SYSCOHADA posting rules — achats / ventes")

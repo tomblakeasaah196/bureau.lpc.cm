@@ -32,6 +32,8 @@
  * -----------------------------------------------------------------------------
  */
 
+require_once __DIR__ . '/../functions/books_period.php';
+
 class YearEndClosing
 {
     /** @var PDO */ private $pdo;
@@ -58,7 +60,8 @@ class YearEndClosing
             'locked'             => ['adjustments','final_closed'],
             'final_closed'       => [], // terminal
         ];
-        $this->pdo->beginTransaction();
+        $own = !$this->pdo->inTransaction();
+        if ($own) $this->pdo->beginTransaction();
         try {
             // Ensure the row exists
             $this->pdo->prepare("INSERT IGNORE INTO financial_years (year, status, state) VALUES (?, 'open', 'open')")
@@ -95,10 +98,10 @@ class YearEndClosing
             $sql = 'UPDATE financial_years SET ' . implode(', ', $cols) . ' WHERE year = ?';
             $this->pdo->prepare($sql)->execute($vals);
 
-            $this->pdo->commit();
+            if ($own) $this->pdo->commit();
             return $to;
         } catch (Throwable $e) {
-            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            if ($own && $this->pdo->inTransaction()) $this->pdo->rollBack();
             throw $e;
         }
     }
@@ -177,12 +180,15 @@ class YearEndClosing
         // 4. AIR certificates reconciled (attestations available for withheld AIR)
         //    Best-effort — only counts if the table exists.
         try {
+            // The payment points at its attestation (payments.withholding_certificate_id);
+            // the check looked for a withholding_certificates.payment_id that does
+            // not exist, failed, and was silently skipped.
             $st = $this->pdo->prepare(
                 "SELECT COUNT(*) FROM payments p
                   WHERE YEAR(p.payment_date) = ?
                     AND COALESCE(p.air_withheld_amount, 0) > 0
-                    AND NOT EXISTS (SELECT 1 FROM withholding_certificates c
-                                     WHERE c.payment_id = p.id)"
+                    AND p.status = 'validated'
+                    AND p.withholding_certificate_id IS NULL"
             );
             $st->execute([$year]);
             $missing = (int)$st->fetchColumn();
@@ -190,7 +196,24 @@ class YearEndClosing
                 'key' => 'air_certificates',
                 'label' => 'Attestations de retenue à la source (AIR) reçues',
                 'ok'    => $missing === 0,
-                'detail'=> "$missing paiements sans attestation",
+                'detail'=> $missing === 0 ? 'OK' : "$missing paiement(s) sans attestation",
+            ];
+        } catch (Throwable $e) { /* table absent → skip */ }
+
+        // 5. The year's tax and social declarations, approved and paid. Unpaid
+        //    ones are debts the Bilan shows; the check says which.
+        try {
+            $st = $this->pdo->prepare(
+                "SELECT COUNT(*) FROM tax_declarations
+                  WHERE period_year = ? AND status <> 'paid' AND net_to_pay > 0"
+            );
+            $st->execute([$year]);
+            $open = (int) $st->fetchColumn();
+            $checks[] = [
+                'key' => 'tax_declarations_paid',
+                'label' => 'Déclarations fiscales et sociales de l\'année payées',
+                'ok'    => $open === 0,
+                'detail'=> $open === 0 ? 'OK' : "$open déclaration(s) approuvée(s) ou calculée(s) non payée(s)",
             ];
         } catch (Throwable $e) { /* table absent → skip */ }
 
@@ -300,66 +323,114 @@ class YearEndClosing
         return $out;
     }
 
-    /** Incorporate the year's net result into 131 (profit) or 139 (loss). */
-    public function runProfitIncorporation(int $year): int
+    /**
+     * The year's result: classes 7 and 8 against classes 6 and 8, over the
+     * entries the year's balances count (VIDEO_QA_FINDINGS 13.5). Positive is a
+     * profit. Class 8 (HAO, the IS provision on 89x) used to be left out.
+     */
+    public function yearResult(int $year): float
     {
-        // Compute net result from class 7 - class 6
+        [$where, $params] = lpc_books_cumulative_where($this->pdo, $year, 'je');
         $st = $this->pdo->prepare(
-            "SELECT SUBSTRING(ca.code,1,1) AS klass,
-                    COALESCE(SUM(jl.credit - jl.debit), 0) AS bal
+            "SELECT COALESCE(SUM(jl.credit - jl.debit), 0)
                FROM journal_lines jl
                JOIN chart_of_accounts ca ON ca.id = jl.account_id
-               JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status='posted'
-              WHERE YEAR(je.date) = ? AND SUBSTRING(ca.code,1,1) IN ('6','7')
-              GROUP BY SUBSTRING(ca.code,1,1)"
+               JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
+              WHERE SUBSTRING(ca.code, 1, 1) IN ('6','7','8') AND $where"
         );
-        $st->execute([$year]);
-        $rows = $st->fetchAll(PDO::FETCH_ASSOC);
-        $rev = 0.0; $exp = 0.0;
-        foreach ($rows as $r) {
-            if ($r['klass'] === '7') $rev += (float)$r['bal'];
-            if ($r['klass'] === '6') $exp += -(float)$r['bal']; // class 6 debit-normal
-        }
-        $net = round($rev - $exp, 2);
-        if (abs($net) < 0.01) return 0;
+        $st->execute($params);
+        return round((float) $st->fetchColumn(), 2);
+    }
 
-        $target = 'result:' . $year;
-        $chk = $this->pdo->prepare(
-            "SELECT id FROM year_end_adjustments WHERE fiscal_year = ? AND kind = 'profit_incorporation' AND target_ref = ?"
+    /**
+     * « Affectation du résultat », the third phase. It posted Dr 12x / Cr 131 on
+     * 31/12, which the Bilan then counted on top of the year's result (and the
+     * À-nouveaux a third time). The result now reaches 131 (bénéfice) or 139
+     * (perte) once, in the À-nouveaux of 01/01 N+1 that « Clôture définitive »
+     * posts; this phase says what it will be.
+     */
+    public function resultSummary(int $year): array
+    {
+        $r = $this->yearResult($year);
+        $acc = $r >= 0 ? '131' : '139';
+        $what = $r >= 0 ? 'bénéfice' : 'perte';
+        $msg = sprintf("Résultat %d : %s de %s F. Il passera en %s (%s) dans les À-nouveaux du 01/01/%d, à la clôture définitive. Aucune écriture au 31/12.",
+            $year, $what, number_format(abs($r), 0, ',', ' '), $acc, $r >= 0 ? 'Résultat net : bénéfice' : 'Résultat net : perte', $year + 1);
+        return ['result' => $r, 'account' => $acc, 'message' => $msg];
+    }
+
+    /**
+     * « Clôture définitive »: the À-nouveaux of $year + 1 and the state
+     * final_closed, in one transaction. The year must be provisionally closed
+     * (or locked) first. The À-nouveaux (reference AN-YYYY, 01/01 N+1) carry
+     * every class 1 to 5 account's balance at the end of $year and the year's
+     * result on 131 / 139; from then on the statements of later years count
+     * from it (lpc_books_start_year), never the history again.
+     */
+    public function closeDefinitively(int $year): array
+    {
+        if ($year < 2000) throw new RuntimeException('Exercice invalide.');
+        $state = (string) ($this->getState($year)['state'] ?? 'open');
+        if ($state === 'final_closed') throw new RuntimeException("L'exercice $year est déjà clôturé définitivement.");
+        if (!in_array($state, ['provisional_closed', 'locked'], true)) {
+            throw new RuntimeException("Passez d'abord l'exercice $year en « Clôture provisoire » (état actuel : $state).");
+        }
+        $next = $year + 1;
+        $ref  = "AN-$next";
+        $dup = $this->pdo->prepare("SELECT COUNT(*) FROM journal_entries WHERE reference = ?");
+        $dup->execute([$ref]);
+        if ((int) $dup->fetchColumn() > 0) throw new RuntimeException("Les À-nouveaux $ref existent déjà.");
+
+        [$where, $params] = lpc_books_cumulative_where($this->pdo, $year, 'je');
+        $st = $this->pdo->prepare(
+            "SELECT ca.id, ca.code, SUM(jl.debit - jl.credit) AS net
+               FROM journal_lines jl
+               JOIN chart_of_accounts ca ON ca.id = jl.account_id
+               JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
+              WHERE SUBSTRING(ca.code, 1, 1) IN ('1','2','3','4','5') AND $where
+              GROUP BY ca.id, ca.code
+             HAVING ABS(net) >= 0.005"
         );
-        $chk->execute([$year, $target]);
-        if ($chk->fetchColumn()) return 0;
+        $st->execute($params);
+        $balances = $st->fetchAll(PDO::FETCH_ASSOC);
 
-        // Find the "résultat" account (131 profit, 139 loss)
-        $code = $net >= 0 ? '131' : '139';
-        $acc = $this->pdo->prepare("SELECT id FROM chart_of_accounts WHERE code LIKE ? ORDER BY code ASC LIMIT 1");
-        $acc->execute([$code . '%']);
-        $accId = (int)$acc->fetchColumn();
-        if (!$accId) {
-            throw new RuntimeException("Compte $code introuvable — vérifier le plan comptable.");
-        }
+        $result = $this->yearResult($year);
+        $resAcc = lpc_books_account($this->pdo, $result >= 0 ? '131' : '139');
+        if (!$resAcc) throw new RuntimeException('Comptes 131 / 139 introuvables : vérifier le plan OHADA.');
 
-        // Class 6 and 7 accounts to zero out at year-end (Solde de gestion → 12)
-        // The bilan already reflects the residual via cumulative logic. Here we
-        // simply post the net result to 131/139 on 31/12.
-        $desc = "Incorporation du résultat de l'exercice $year";
-        $lines = [];
-        if ($net >= 0) {
-            // Bénéfice: 12X (Résultat en instance d'affectation) débité contre 131 crédité
-            $acc12 = $this->firstAccountLike('12');
-            if (!$acc12) throw new RuntimeException('Compte 12x (Résultat en instance) introuvable.');
-            $lines[] = ['account_id' => $acc12, 'debit' => $net, 'credit' => 0];
-            $lines[] = ['account_id' => $accId, 'debit' => 0,    'credit' => $net];
-        } else {
-            $loss = abs($net);
-            $lines[] = ['account_id' => $accId,               'debit' => $loss, 'credit' => 0];
-            $lines[] = ['account_id' => $this->firstAccountLike('12'), 'debit' => 0, 'credit' => $loss];
+        $this->pdo->beginTransaction();
+        try {
+            $this->pdo->prepare(
+                "INSERT INTO journal_entries (reference, journal_code, date, description, status, created_by, source_type, source_id)
+                 VALUES (?, 'OD', ?, ?, 'draft', ?, 'year_opening', ?)"
+            )->execute([$ref, "$next-01-01", "À-nouveaux (ouverture de l'exercice $next)", $this->userId, $next]);
+            $anId = (int) $this->pdo->lastInsertId();
+            $ln = $this->pdo->prepare("INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit) VALUES (?, ?, ?, ?)");
+            foreach ($balances as $b) {
+                $net = round((float) $b['net'], 2);
+                $ln->execute([$anId, (int) $b['id'], $net > 0 ? $net : 0, $net < 0 ? -$net : 0]);
+            }
+            if (abs($result) >= 0.005) {
+                $ln->execute([$anId, $resAcc, $result < 0 ? -$result : 0, $result > 0 ? $result : 0]);
+            }
+            $this->pdo->prepare("CALL post_journal_entry(?, ?)")->execute([$anId, $this->userId]);
+
+            // The À-nouveaux are the NEXT year's opening entry (Bilan
+            // d'Ouverture reads them there); the closed year keeps its own.
+            $this->pdo->prepare("INSERT INTO financial_years (year, status, state, opening_balance_journal_id) VALUES (?, 'open', 'open', ?)
+                                 ON DUPLICATE KEY UPDATE opening_balance_journal_id = VALUES(opening_balance_journal_id)")
+                      ->execute([$next, $anId]);
+            $this->pdo->prepare("UPDATE financial_years SET net_result_snapshot = ?, locked_by = COALESCE(locked_by, ?),
+                                        locked_at = COALESCE(locked_at, CURRENT_TIMESTAMP) WHERE year = ?")
+                      ->execute([$result, $this->userId, $year]);
+            $this->transition($year, 'final_closed', "À-nouveaux $ref");
+            $this->pdo->commit();
+        } catch (Throwable $e) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            throw $e;
         }
-        $jeId = $this->postJournal($year, $desc, $lines);
-        $this->recordAdjustment($year, 'profit_incorporation', $target, $jeId, $net, $desc, [
-            'revenue' => $rev, 'expense' => $exp, 'net' => $net,
-        ]);
-        return 1;
+        return ['an_entry_id' => $anId, 'result' => $result, 'result_account' => $result >= 0 ? '131' : '139',
+                'accounts' => count($balances)];
     }
 
     /** Provision IS: charge 891 vs 4472 (impôt à payer) using dynamic rate. */
@@ -367,8 +438,8 @@ class YearEndClosing
     {
         require_once __DIR__ . '/../functions/tax_simulation.php';
         $ts = build_tax_simulation($this->pdo, $year, []);
-        $due = (float)$ts['is_due'];
-        if ($due < 0.01) return 0;
+        $due = round((float)$ts['is_due'], 0);   // FCFA: whole francs (9 809,8 became 9 809,80 in 4472)
+        if ($due < 1) return 0;
 
         $target = 'is:' . $year;
         $chk = $this->pdo->prepare(
@@ -377,10 +448,10 @@ class YearEndClosing
         $chk->execute([$year, $target]);
         if ($chk->fetchColumn()) return 0;
 
-        $accCharge = $this->firstAccountLike('891') ?: $this->firstAccountLike('871');
-        $accPay    = $this->firstAccountLike('4472');
+        $accCharge = lpc_books_first_account($this->pdo, ['891', '89']);
+        $accPay    = lpc_books_account($this->pdo, '4472');
         if (!$accCharge || !$accPay) {
-            throw new RuntimeException('Comptes IS introuvables (891 charge, 4472 dette).');
+            throw new RuntimeException('Comptes IS introuvables (89 charge, 4472 dette) dans le plan OHADA.');
         }
         $desc = "Provision IS $year — " . $ts['label'];
         $jeId = $this->postJournal($year, $desc, [
@@ -425,6 +496,12 @@ class YearEndClosing
         $this->pdo->prepare(
             "UPDATE year_end_adjustments SET reversal_journal_entry_id = ?, status = 'reversed' WHERE id = ?"
         )->execute([$revId, $adjustmentId]);
+        // A reversed closing depreciation leaves its months to depreciate again
+        // (VIDEO_QA_FINDINGS 12.7): they stayed logged, so no run booked them.
+        if ($adj['kind'] === 'depreciation') {
+            $this->pdo->prepare("DELETE FROM depreciation_logs WHERE journal_entry_id = ?")
+                      ->execute([(int) $adj['journal_entry_id']]);
+        }
         return $revId;
     }
 
@@ -469,13 +546,5 @@ class YearEndClosing
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'posted')"
         );
         $st->execute([$year, $kind, $target, $jeId, $amount, $desc, json_encode($calc, JSON_UNESCAPED_UNICODE), $this->userId]);
-    }
-
-    private function firstAccountLike(string $prefix): ?int
-    {
-        $st = $this->pdo->prepare("SELECT id FROM chart_of_accounts WHERE code LIKE ? ORDER BY code ASC LIMIT 1");
-        $st->execute([$prefix . '%']);
-        $id = $st->fetchColumn();
-        return $id ? (int)$id : null;
     }
 }

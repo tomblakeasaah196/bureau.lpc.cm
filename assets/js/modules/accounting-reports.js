@@ -176,6 +176,14 @@
 
             let currentSig = '';
             let sigTotals  = { N: 0, N_1: 0 };
+            // SYSCOHADA's soldes are a cascade: Marge brute, then Valeur ajoutée =
+            // marge − services, EBE = VA − impôts − personnel, Résultat
+            // d'exploitation = EBE − dotations. The résultat financier and the HAO
+            // stand on their own. Lines arrive signed (products +, charges −).
+            const CASCADE = ['MARGE_BRUTE', 'VALEUR_AJOUTEE', 'EBE', 'RES_EXPLOIT'];
+            const SIG_NAME = { MARGE_BRUTE: 'Marge brute', VALEUR_AJOUTEE: 'Valeur ajoutée', EBE: 'Excédent brut d\'exploitation (EBE)',
+                               RES_EXPLOIT: 'Résultat d\'exploitation', RES_FINANCIER: 'Résultat financier' };
+            let running = { N: 0, N_1: 0 };
 
             // Render Income Statement respecting SIG Cascade (OHADA SYSCOHADA)
             //
@@ -192,8 +200,13 @@
 
                 // Section transition: render the CURRENT section's subtotal, then reset.
                 if (lineCat !== currentSig && currentSig !== '') {
-                    renderSigRow(tbody, currentSig, sigTotals.N, sigTotals.N_1);
-                    sigTotals = { N: 0, N_1: 0 };   // ← reset per section (bug fix)
+                    if (CASCADE.includes(currentSig)) {
+                        running = { N: running.N + sigTotals.N, N_1: running.N_1 + sigTotals.N_1 };
+                        renderSigRow(tbody, SIG_NAME[currentSig], running.N, running.N_1);
+                    } else if (SIG_NAME[currentSig]) {
+                        renderSigRow(tbody, SIG_NAME[currentSig], sigTotals.N, sigTotals.N_1);
+                    }
+                    sigTotals = { N: 0, N_1: 0 };
                 }
                 currentSig = lineCat;
 
@@ -205,7 +218,7 @@
                 }
 
                 const codeParams = `'${line.code}', '${line.name}'`;
-                const sign = line.operator === '-' ? '(-)' : '(+)';
+                const sign = (line.net_N < 0 || (line.net_N == 0 && line.operator === '-')) ? '(-)' : '(+)';
 
                 tbody.innerHTML += LPC.html`
                     <tr class="clickable-row hover:bg-gray-50" onclick="openDrillDown(${codeParams})">
@@ -215,14 +228,16 @@
                         <td class="py-2 px-6 text-right text-[10px] font-black ${varColor}">${varPct === 0 ? '-' : (varPct > 0 ? '+'+varPct.toFixed(1) : varPct.toFixed(1))}%</td>
                     </tr>`;
 
-                // Accumulate line into the CURRENT section's subtotal.
-                if (line.operator === '+') { sigTotals.N += line.net_N; sigTotals.N_1 += line.net_N_1; }
-                else                       { sigTotals.N -= line.net_N; sigTotals.N_1 -= line.net_N_1; }
+                // Lines are already signed (products +, charges −).
+                sigTotals.N += line.net_N; sigTotals.N_1 += line.net_N_1;
             });
 
-            // Render the LAST section's subtotal (loop only fires on transitions).
-            if (currentSig !== '') {
-                renderSigRow(tbody, currentSig, sigTotals.N, sigTotals.N_1);
+            // The last section (RES_NET: impôt, HAO, non mappés) leads to the net result below.
+            if (currentSig !== '' && CASCADE.includes(currentSig)) {
+                running = { N: running.N + sigTotals.N, N_1: running.N_1 + sigTotals.N_1 };
+                renderSigRow(tbody, SIG_NAME[currentSig], running.N, running.N_1);
+            } else if (SIG_NAME[currentSig]) {
+                renderSigRow(tbody, SIG_NAME[currentSig], sigTotals.N, sigTotals.N_1);
             }
 
             // Final line: net result for the year (already computed server-side).
@@ -266,9 +281,9 @@
 
                 let totalNet = 0;
                 result.data.forEach(acc => {
-                    let net = parseFloat(acc.debit) - parseFloat(acc.credit);
-                    // Adjust sign based on OHADA rules (e.g. revenue accounts carry credit balance)
-                    if(acc.account_code.startsWith('7') || acc.account_code.startsWith('40') || acc.account_code.startsWith('1')) net = -net;
+                    // The server sends what the account adds to the line (the Bilan's
+                    // cumulative balance, the Résultat's year), signed as the line reads.
+                    let net = parseFloat(acc.net);
                     
                     totalNet += net;
 
@@ -341,6 +356,10 @@
 
         // ================= CLÔTURE (Answer 10B) ================= //
         async function initiateClosure() {
+            // One closing path (13.5): the assistant, whose « Clôture définitive »
+            // checks the state and posts the À-nouveaux. This button used to close
+            // the year on its own, skipping the phases.
+            if (typeof switchTab === 'function' && document.getElementById('tab-cloture')) { switchTab('cloture'); return; }
             const year = document.getElementById('report_year').value;
             
             // UI Check: Is the Bilan balanced?
@@ -712,7 +731,7 @@
                     adjEl.innerHTML = LPC.html`<tr><td colspan="6" class="py-4 px-3 text-center italic text-gray-400">Aucune écriture d'inventaire enregistrée.</td></tr>`;
                 } else {
                     d.adjustments.forEach(a => {
-                        const canRev = a.status === 'posted' && !a.reversal_journal_entry_id;
+                        const canRev = a.status === 'posted' && a.journal_entry_id && !a.reversal_journal_entry_id;
                         adjEl.innerHTML += LPC.html`
                             <tr class="border-t border-gray-100">
                                 <td class="py-2 px-3 font-bold uppercase text-[10px] text-gray-500">${a.kind}</td>
@@ -733,7 +752,7 @@
 
         async function runClosingPhase(phase) {
             const year = document.getElementById('report_year').value;
-            if (!(await LPC.modal.confirm(`Lancer la phase « ${phase} » pour l'exercice ${year} ?\n\nLes écritures OD sont horodatées au 31/12 et postées avec statut « approved ». Chaque phase est idempotente (unique par année/nature/cible) — vous pouvez la rejouer sans doublon.`))) return;
+            if (!(await LPC.modal.confirm(`Lancer la phase « ${phase} » pour l'exercice ${year} ?\n\nLes écritures OD sont datées du 31/12 et passées au Grand Livre. Chaque phase est idempotente : la rejouer ne crée pas de doublon.`))) return;
             try {
                 const res = await fetch('/api/v1/financials_controller.php', {
                     method: 'POST', headers: {'Content-Type':'application/json'},

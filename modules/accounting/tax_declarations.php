@@ -21,7 +21,7 @@
  * review, approve, and generate the audit trail.
  */
 require_once __DIR__ . '/../../includes/bootstrap.php';
-Rbac::requirePermission('accounting.invoices.view');
+Rbac::requirePermission('accounting.tax.view');
 require_once __DIR__ . '/../../includes/classes/TaxEngine.php';
 require_once __DIR__ . '/../../includes/functions/help.php';
 $lang      = lpc_i18n_current_lang();
@@ -256,13 +256,20 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
                 <h3 class="font-black text-gray-900 mb-2"><?= htmlspecialchars(__t('ui.x.charger_une_attestation_de_retenue_a_la')) ?></h3>
                 <p class="text-xs text-gray-500 mb-4">Prometal, SONARA, PMUC et autres clients habilités DGI vous délivrent chaque mois une attestation prouvant qu'ils ont reversé la retenue AIR (2.2 % ou 5.5 %) à l'État. Cette attestation est <strong><?= htmlspecialchars(__t('ui.x.obligatoire')) ?></strong> <?= htmlspecialchars(__t('ui.x.pour_qu_on_impute_cette_retenue_en_credi')) ?></p>
                 <form id="cert-form" onsubmit="uploadCertificate(event)" enctype="multipart/form-data" class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <select name="client_id" id="wc_client" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold col-span-1"><option value=""><?= htmlspecialchars(__t('ui.x.client_2')) ?></option></select>
-                    <input name="certificate_ref" type="text" placeholder="N° attestation" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold">
-                    <input name="issue_date" type="date" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold">
-                    <input name="period_year" type="number" value="<?= date('Y') ?>" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold">
-                    <input name="period_month" type="number" min="1" max="12" value="<?= (int) date('n') - 1 ?: 12 ?>" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold">
-                    <input name="total_amount" type="number" step="1" placeholder="Montant AIR (FCFA)" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold">
-                    <input name="file" type="file" accept="application/pdf,image/*" class="col-span-2">
+                    <label class="flex flex-col gap-1 text-xs font-bold text-gray-600">Client
+                        <select name="client_id" id="wc_client" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold text-sm text-gray-900"><option value=""><?= htmlspecialchars(__t('ui.x.client_2')) ?></option></select></label>
+                    <label class="flex flex-col gap-1 text-xs font-bold text-gray-600">N° de l'attestation
+                        <input name="certificate_ref" type="text" placeholder="Ex. ATT-PROMETAL-2611" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold text-sm text-gray-900"></label>
+                    <label class="flex flex-col gap-1 text-xs font-bold text-gray-600">Date de l'attestation
+                        <input name="issue_date" type="date" value="<?= date('Y-m-d') ?>" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold text-sm text-gray-900"></label>
+                    <label class="flex flex-col gap-1 text-xs font-bold text-gray-600">Année des paiements retenus
+                        <input name="period_year" type="number" value="<?= date('Y') ?>" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold text-sm text-gray-900"></label>
+                    <label class="flex flex-col gap-1 text-xs font-bold text-gray-600">Mois des paiements retenus (1 à 12)
+                        <input name="period_month" type="number" min="1" max="12" value="<?= (int) date('n') ?>" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold text-sm text-gray-900"></label>
+                    <label class="flex flex-col gap-1 text-xs font-bold text-gray-600">Montant AIR attesté (FCFA)
+                        <input name="total_amount" type="number" step="1" placeholder="Ex. 9810" required class="border border-gray-300 rounded-lg px-3 py-2 font-semibold text-sm text-gray-900"></label>
+                    <label class="flex flex-col gap-1 text-xs font-bold text-gray-600 col-span-2">Copie de l'attestation (PDF ou image)
+                        <input name="file" type="file" accept="application/pdf,image/*"></label>
                     <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm uppercase tracking-wider rounded-lg px-4 py-2"><i class="fas fa-upload mr-2"></i><?= htmlspecialchars(__t('ui.x.enregistrer')) ?></button>
                 </form>
             </div>
@@ -397,6 +404,12 @@ require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
     'commune_monthly'  => (float) ($settings['commune_monthly'] ?? 0),
     'filing_day'       => (int)   ($settings['filing_day'] ?? 15),
     'niu'              => htmlspecialchars($settings['niu'] ?? '—'),
+    // Which buttons this person gets (migration 157); the API checks again.
+    'can'              => [
+        'prepare' => Rbac::hasPermission('accounting.tax.prepare'),
+        'approve' => Rbac::hasPermission('accounting.tax.approve'),
+        'pay'     => Rbac::hasPermission('accounting.tax.pay'),
+    ],
 ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) ?></script>
 <script src="<?= lpc_asset('/assets/js/modules/accounting-tax_declarations.js') ?>" defer></script>
 </body>

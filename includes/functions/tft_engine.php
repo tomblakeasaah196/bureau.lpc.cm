@@ -26,52 +26,108 @@
 if (defined('LPC_TFT_LOADED')) { return; }
 define('LPC_TFT_LOADED', true);
 
+/*
+ * Comptabilité 3 (VIDEO_QA_FINDINGS 13, copy A, 18/11/2026). The first version
+ * computed the result as products PLUS charges (class 7 − (−class 6)), took the
+ * interest accounts 67 / 77 for asset disposals (SYSCOHADA puts disposals in
+ * HAO: 81 / 82), counted a depreciation's credit on 28x as a disposal, split
+ * receivables from debts by two-digit prefix rather than by account, and read
+ * the year's opening entry (Bilan d'Ouverture or À-nouveaux) as a flow of the
+ * year. Every figure is now a sum of the year's movements (D − C, the opening
+ * entry left out) over a set of accounts, and the sets cover every account
+ * outside class 5 exactly once, so the control reconciles to the franc:
+ *
+ *   CAFG        = résultat net + M(68, 69, 85, 78, 79, 86) + M(81, 82)
+ *   ΔBFR        = M(class 3), class 4 split by each account's balance
+ *   Investissement = −M(class 2) − (the same non-cash add-backs as CAFG)
+ *   Financement = −M(class 1)
+ *   Variation de trésorerie = Trésorerie fin − Trésorerie début (class 5)
+ */
 function build_tft(PDO $pdo, int $year): array
 {
-    // 1. Load canonical rubric list
-    $lines = $pdo->query("SELECT * FROM tft_lines ORDER BY display_order ASC")
-                 ->fetchAll(PDO::FETCH_ASSOC);
-    $out = [];
+    require_once __DIR__ . '/books_period.php';
+    $lines = $pdo->query("SELECT * FROM tft_lines ORDER BY display_order ASC")->fetchAll(PDO::FETCH_ASSOC);
 
-    // 2. Trésorerie N-1 (opening) and N (closing) — sum of class 5 balances
-    $treso_open  = _tft_class_balance($pdo, '5', $year - 1);
-    $treso_close = _tft_class_balance($pdo, '5', $year);
+    // The year's opening entry: its À-nouveaux, or the Bilan d'Ouverture.
+    $open = [];
+    $q = $pdo->prepare("SELECT id FROM journal_entries WHERE status = 'posted' AND reference = ? AND date = ?");
+    $q->execute(["AN-$year", "$year-01-01"]);
+    $anId = (int) $q->fetchColumn();
+    if ($anId) $open[] = $anId;
+    $q = $pdo->prepare("SELECT opening_balance_journal_id FROM financial_years WHERE year = ?");
+    $q->execute([$year]);
+    $ob = (int) $q->fetchColumn();
+    if ($ob && !in_array($ob, $open, true)) $open[] = $ob;
+    $notOpen = $open ? ' AND je.id NOT IN (' . implode(',', array_map('intval', $open)) . ')' : '';
 
-    // 3. Net result (class 7 - class 6, period)
-    $net = _tft_period_diff($pdo, ['7'], $year) - _tft_period_diff($pdo, ['6'], $year);
+    // Per-account movements of the year (opening entry excluded), opening and closing balances.
+    [$cumEnd, $pEnd] = lpc_books_cumulative_where($pdo, $year);
+    [$cumPrev, $pPrev] = lpc_books_cumulative_where($pdo, $year - 1);
+    $openCase = $anId
+        ? "je.id = $anId"
+        : "(($cumPrev)" . ($ob ? " OR je.id = $ob" : '') . ")";
+    $st = $pdo->prepare("
+        SELECT ca.code,
+               SUM(CASE WHEN YEAR(je.date) = ? $notOpen THEN jl.debit - jl.credit ELSE 0 END) AS mov,
+               SUM(CASE WHEN YEAR(je.date) = ? $notOpen THEN jl.debit ELSE 0 END)             AS deb,
+               SUM(CASE WHEN $openCase THEN jl.debit - jl.credit ELSE 0 END)                  AS bal_open,
+               SUM(CASE WHEN $cumEnd THEN jl.debit - jl.credit ELSE 0 END)                    AS bal_end
+          FROM journal_lines jl
+          JOIN chart_of_accounts ca ON ca.id = jl.account_id
+          JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
+         GROUP BY ca.id, ca.code
+    ");
+    $st->execute(array_merge([$year, $year], $anId ? [] : $pPrev, $pEnd));
+    $acc = $st->fetchAll(PDO::FETCH_ASSOC);
 
-    // 4. CAFG = Net + Dotations amortissements/provisions - Reprises - Plus-value cession + Moins-value cession
-    //    Dotations: comptes 68 (débit)  ;  Reprises: comptes 78 (crédit)
-    //    Plus-values: 77 (résultat sur cession) ; Moins-values: 67 (idem, débit).
-    $dotations   = _tft_period_debit($pdo, '68', $year);
-    $reprises    = _tft_period_credit($pdo, '78', $year);
-    $val_cess    = _tft_period_credit($pdo, '77', $year);   // Produits de cession
-    $vnc_cess    = _tft_period_debit($pdo, '67', $year);    // Valeur nette comptable des cessions
-    $cafg = $net + $dotations - $reprises - $val_cess + $vnc_cess;
+    $M = function (array $prefixes) use ($acc): float {
+        $sum = 0.0;
+        foreach ($acc as $a) {
+            foreach ($prefixes as $p) {
+                if (strpos((string) $a['code'], (string) $p) === 0) { $sum += (float) $a['mov']; break; }
+            }
+        }
+        return $sum;
+    };
+    $bal = function (string $col, string $cls, int $sign) use ($acc): float {
+        $sum = 0.0;
+        foreach ($acc as $a) {
+            if (substr((string) $a['code'], 0, 1) !== $cls) continue;
+            $v = (float) $a[$col];
+            if ($sign > 0) $sum += max(0.0, $v); elseif ($sign < 0) $sum += max(0.0, -$v); else $sum += $v;
+        }
+        return $sum;
+    };
 
-    // 5. BFR variations (year-end N - year-end N-1)
-    //    Stocks (class 3), Créances (class 4* débitrices), Dettes (class 4* créditrices)
-    $var_stocks   = _tft_bilan_delta($pdo, ['31','32','33','34','35','36','37','38'], $year);
-    $var_creances = _tft_bilan_delta($pdo, ['40','41','42','43','44','45','46','47','48'], $year, 'debit');
-    $var_dettes   = _tft_bilan_delta($pdo, ['40','41','42','43','44','45','46','47','48'], $year, 'credit');
-    $var_hao      = 0.0; // stub — HAO variation reserved for future refinement
+    $treso_open  = $bal('bal_open', '5', 0);
+    $treso_close = $bal('bal_end',  '5', 0);
 
+    $net      = -$M(['6', '7', '8']);
+    $addbacks = $M(['68', '69', '85', '78', '79', '86']) + $M(['81', '82']);
+    $cafg     = $net + $addbacks;
+
+    $var_stocks   = $M(['3']);
+    $var_creances = $bal('bal_end', '4',  1) - $bal('bal_open', '4',  1);
+    $var_dettes   = $bal('bal_end', '4', -1) - $bal('bal_open', '4', -1);
+    $var_hao      = 0.0;
     $flux_ops = $cafg - $var_stocks - $var_creances + $var_dettes - $var_hao;
 
-    // 6. Investing (class 2 movements: acquisitions - cessions cash)
-    $acq_immo = _tft_period_debit($pdo, '2', $year);
-    $ces_immo = _tft_period_credit($pdo, '2', $year);
-    $flux_inv = -$acq_immo + $ces_immo;
+    $acq_immo = 0.0;
+    foreach ($acc as $a) {
+        $c = (string) $a['code'];
+        if ($c[0] === '2' && strpos($c, '28') !== 0 && strpos($c, '29') !== 0) $acq_immo += (float) $a['deb'];
+    }
+    $flux_inv = -$M(['2']) - $addbacks;
+    $ces_immo = $flux_inv + $acq_immo;   // what came in from disposals, net
 
-    // 7. Financing (class 1: capital, emprunts, dividendes)
-    $capital_in  = _tft_period_credit($pdo, '10', $year);
-    $capital_out = _tft_period_debit($pdo,  '10', $year);
-    $dividends   = _tft_period_debit($pdo,  '465', $year); // dividendes à payer débit = versement
-    $loans_in    = _tft_period_credit($pdo, '16', $year);
-    $loans_out   = _tft_period_debit($pdo,  '16', $year);
-    $flux_fin = $capital_in - $capital_out - $dividends + $loans_in - $loans_out;
+    $capital_in  = -min(0.0, $M(['10'])) ;
+    $capital_out = max(0.0, $M(['10']));
+    $loans_in    = -min(0.0, $M(['16', '17']));
+    $loans_out   = max(0.0, $M(['16', '17']));
+    $dividends   = 0.0;
+    $flux_fin    = -$M(['1']);
 
-    $var_treso = $flux_ops + $flux_inv + $flux_fin;
+    $var_treso   = $flux_ops + $flux_inv + $flux_fin;
     $treso_check = $treso_close - $treso_open;
 
     $values = [
@@ -99,6 +155,7 @@ function build_tft(PDO $pdo, int $year): array
     foreach ($lines as &$l) {
         $l['value'] = round((float)($values[$l['formula']] ?? 0), 2);
     }
+    unset($l);
 
     return [
         'year'        => $year,
@@ -109,76 +166,4 @@ function build_tft(PDO $pdo, int $year): array
         'reconciled'  => abs($var_treso - $treso_check) < 1.0,
         'delta'       => round($var_treso - $treso_check, 2),
     ];
-}
-
-// -------- helpers --------
-
-function _tft_class_balance(PDO $pdo, string $prefix, int $year): float
-{
-    // Cumulative balance (bilan-style).
-    // NOTE: uses ? positional placeholders — with PDO::ATTR_EMULATE_PREPARES=false
-    // (production default), MySQL refuses a named placeholder used more than once.
-    $st = $pdo->prepare(
-        "SELECT COALESCE(SUM(jl.debit - jl.credit),0)
-           FROM journal_lines jl
-           JOIN chart_of_accounts ca ON ca.id = jl.account_id
-           JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status='posted'
-          WHERE SUBSTRING(ca.code,1,LENGTH(?)) = ?
-            AND YEAR(je.date) <= ?"
-    );
-    $st->execute([$prefix, $prefix, $year]);
-    return (float)$st->fetchColumn();
-}
-
-function _tft_period_diff(PDO $pdo, array $prefixes, int $year): float
-{
-    $sum = 0.0;
-    foreach ($prefixes as $p) {
-        $sum += _tft_period_credit($pdo, $p, $year) - _tft_period_debit($pdo, $p, $year);
-    }
-    return $sum;
-}
-
-function _tft_period_debit(PDO $pdo, string $prefix, int $year): float
-{
-    $st = $pdo->prepare(
-        "SELECT COALESCE(SUM(jl.debit),0)
-           FROM journal_lines jl
-           JOIN chart_of_accounts ca ON ca.id = jl.account_id
-           JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status='posted'
-          WHERE ca.code LIKE :pref AND YEAR(je.date) = :yr"
-    );
-    $st->execute(['pref' => $prefix . '%', 'yr' => $year]);
-    return (float)$st->fetchColumn();
-}
-function _tft_period_credit(PDO $pdo, string $prefix, int $year): float
-{
-    $st = $pdo->prepare(
-        "SELECT COALESCE(SUM(jl.credit),0)
-           FROM journal_lines jl
-           JOIN chart_of_accounts ca ON ca.id = jl.account_id
-           JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status='posted'
-          WHERE ca.code LIKE :pref AND YEAR(je.date) = :yr"
-    );
-    $st->execute(['pref' => $prefix . '%', 'yr' => $year]);
-    return (float)$st->fetchColumn();
-}
-
-/**
- * Bilan-delta: closing balance year N minus year N-1, filtered by sign.
- *   $side = 'both'   → net balance
- *          'debit'   → only positive (asset-side) balances
- *          'credit'  → only negative (liability-side) balances, returned positive
- */
-function _tft_bilan_delta(PDO $pdo, array $prefixes, int $year, string $side = 'both'): float
-{
-    $delta = 0.0;
-    foreach ($prefixes as $p) {
-        $bN   = _tft_class_balance($pdo, $p, $year);
-        $bN_1 = _tft_class_balance($pdo, $p, $year - 1);
-        if ($side === 'debit')  { $bN = max(0, $bN);  $bN_1 = max(0, $bN_1); }
-        if ($side === 'credit') { $bN = max(0, -$bN); $bN_1 = max(0, -$bN_1); }
-        $delta += ($bN - $bN_1);
-    }
-    return round($delta, 2);
 }

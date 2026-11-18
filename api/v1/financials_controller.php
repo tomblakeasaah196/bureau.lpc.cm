@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/functions/executive_summary_data.php';   // Sprint 7A D2
 require_once __DIR__ . '/../../includes/functions/lpc_csv.php';                  // Sprint 7A D3
+require_once __DIR__ . '/../../includes/functions/books_period.php';              // Comptabilité 3 (13.5)
 header('X-Content-Type-Options: nosniff');
 Rbac::requirePermission('accounting.reports.view');
 /**
@@ -42,121 +43,150 @@ $action = $_REQUEST['action'] ?? null;
 // ==========================================
 // HELPER: Core Aggregation Engine
 // ==========================================
+/**
+ * Bilan and Compte de Résultat from the ledger (VIDEO_QA_FINDINGS 13, QA on
+ * copy A, 18/11/2026). What it used to get wrong, and does no more:
+ *   · `$b = &$buckets[...]` followed by `foreach ($buckets as … => $b)`: the
+ *     reference made every later loop overwrite a bucket, so every account ended
+ *     in « Anomalies/Non-mappés » and the Bilan never balanced;
+ *   · the first mapping in table order won, not the longest prefix (89 vs 8);
+ *   · a client, supplier or State account (class 4) sat on the side its prefix
+ *     said, whatever its balance: 4424 « AIR à récupérer » and 4452 counted as
+ *     debts. SYSCOHADA classes a third-party account by its balance;
+ *   · an unmapped revenue was added as a charge (abs());
+ *   · a balance « at the end of N » summed every entry up to N, so once a year
+ *     was closed its À-nouveaux counted the history twice (lpc_books_start_year);
+ *   · the result of an earlier year never closed was missing from the Bilan.
+ * Every account lands in exactly one line, so Actif = Passif + Résultat to the
+ * franc. $out['by_line'] lists the accounts behind each line (the drill-down).
+ */
 function getFinancialAggregates($pdo, $year) {
-    // 1. Fetch all report lines and mappings
     $lines = $pdo->query("SELECT * FROM financial_report_lines ORDER BY display_order ASC")->fetchAll(PDO::FETCH_ASSOC);
-    $mappings = $pdo->query("SELECT * FROM financial_mappings")->fetchAll(PDO::FETCH_ASSOC);
+    $mappings = $pdo->query("SELECT fm.*, frl.code AS line_code FROM financial_mappings fm
+                               JOIN financial_report_lines frl ON frl.id = fm.report_line_id
+                              WHERE fm.deleted_at IS NULL
+                              ORDER BY LENGTH(fm.account_prefix) DESC, fm.account_prefix ASC")->fetchAll(PDO::FETCH_ASSOC);
 
-    // 2. We need cumulative balances for the Bilan (Class 1-5) and periodic for Résultat (Class 6-8)
-    // To optimize, we pull ALL approved journal lines for the relevant years into PHP memory for rapid sorting.
-    // ? positional placeholders — the earlier :yr_n / :yr_n1 named form was
-    // rejected by MySQL under real prepared statements (SQLSTATE HY093) because
-    // each name appeared four times. Positional placeholders can be bound
-    // repeatedly, so we bind the same year value in the order the query needs it.
+    [$cumN,  $pN]  = lpc_books_cumulative_where($pdo, (int) $year);
+    [$cumN1, $pN1] = lpc_books_cumulative_where($pdo, (int) $year - 1);
     $stmt = $pdo->prepare("
-        SELECT
-            ca.code as account_code,
-            SUBSTRING(ca.code, 1, 1) as class,
-            SUM(CASE WHEN YEAR(je.date) <= ? THEN jl.debit ELSE 0 END) as cum_debit_n,
-            SUM(CASE WHEN YEAR(je.date) <= ? THEN jl.credit ELSE 0 END) as cum_credit_n,
-            SUM(CASE WHEN YEAR(je.date) = ?  THEN jl.debit ELSE 0 END) as per_debit_n,
-            SUM(CASE WHEN YEAR(je.date) = ?  THEN jl.credit ELSE 0 END) as per_credit_n,
-            SUM(CASE WHEN YEAR(je.date) <= ? THEN jl.debit ELSE 0 END) as cum_debit_n1,
-            SUM(CASE WHEN YEAR(je.date) <= ? THEN jl.credit ELSE 0 END) as cum_credit_n1,
-            SUM(CASE WHEN YEAR(je.date) = ?  THEN jl.debit ELSE 0 END) as per_debit_n1,
-            SUM(CASE WHEN YEAR(je.date) = ?  THEN jl.credit ELSE 0 END) as per_credit_n1
-        FROM chart_of_accounts ca
-        JOIN journal_lines jl ON ca.id = jl.account_id
-        JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'posted'
-        GROUP BY ca.id
+        SELECT ca.code AS account_code, ca.name AS account_name, SUBSTRING(ca.code, 1, 1) AS class,
+               SUM(CASE WHEN $cumN  THEN jl.debit - jl.credit ELSE 0 END) AS cum_n,
+               SUM(CASE WHEN YEAR(je.date) = ? THEN jl.debit - jl.credit ELSE 0 END) AS per_n,
+               SUM(CASE WHEN $cumN1 THEN jl.debit - jl.credit ELSE 0 END) AS cum_n1,
+               SUM(CASE WHEN YEAR(je.date) = ? THEN jl.debit - jl.credit ELSE 0 END) AS per_n1,
+               SUM(CASE WHEN $cumN  AND YEAR(je.date) < ? THEN jl.debit - jl.credit ELSE 0 END) AS prior_n,
+               SUM(CASE WHEN $cumN1 AND YEAR(je.date) < ? THEN jl.debit - jl.credit ELSE 0 END) AS prior_n1
+          FROM chart_of_accounts ca
+          JOIN journal_lines jl ON ca.id = jl.account_id
+          JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'posted'
+         GROUP BY ca.id, ca.code, ca.name
     ");
-    $yn  = $year;
-    $yn1 = $year - 1;
-    $stmt->execute([$yn, $yn, $yn, $yn, $yn1, $yn1, $yn1, $yn1]);
+    $stmt->execute(array_merge($pN, [(int) $year], $pN1, [(int) $year - 1], $pN, [(int) $year], $pN1, [(int) $year - 1]));
     $accounts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // 3. Initialize the Result Structure
-    $results = ['bilan_actif' => [], 'bilan_passif' => [], 'resultat' => []];
-    $unmapped = [];
-    
-    // Setup empty line buckets
     $buckets = [];
     foreach ($lines as $line) {
         $buckets[$line['code']] = [
-            'id' => $line['id'], 'code' => $line['code'], 'name' => $line['name'], 
+            'id' => $line['id'], 'code' => $line['code'], 'name' => $line['name'],
             'type' => $line['report_type'], 'sig_category' => $line['sig_category'],
-            'brut_N' => 0, 'amort_N' => 0, 'net_N' => 0, 'net_N_1' => 0
+            'brut_N' => 0, 'amort_N' => 0, 'net_N' => 0, 'net_N_1' => 0, 'operator' => '+',
         ];
     }
+    // A line's nature for the « (+) / (-) » column: a charge line reads (-).
+    foreach ($mappings as $m) {
+        if (isset($buckets[$m['line_code']]) && $buckets[$m['line_code']]['type'] === 'resultat' && $m['account_prefix'][0] === '6') {
+            $buckets[$m['line_code']]['operator'] = '-';
+        }
+    }
+    $byLine = [];
 
-    // 4. The Sorting Hat (Map Accounts to Buckets)
+    // Which line an account goes to for one period, given its (debit − credit).
+    $place = function (array $acc, float $net) use ($mappings): array {
+        $code = (string) $acc['account_code'];
+        $map = null;
+        foreach ($mappings as $m) {
+            if (strpos($code, (string) $m['account_prefix']) === 0) { $map = $m; break; }
+        }
+        $cls = $acc['class'];
+        if ($cls === '4' && strpos($code, '49') !== 0) {
+            return [$net >= 0 ? 'CREANCES' : 'PAS_CIRC', '+'];
+        }
+        if ($map) return [$map['line_code'], $map['operator']];
+        if (in_array($cls, ['1', '2', '3', '4', '5'], true)) return [$net >= 0 ? 'AUT_ACT' : 'AUT_PAS', '+'];
+        return ['AUT_CH', '+'];
+    };
+    $add = function (string $lineCode, string $op, float $net, string $col) use (&$buckets) {
+        if (!isset($buckets[$lineCode])) return;
+        $b = $buckets[$lineCode];
+        if ($b['type'] === 'bilan_actif') {
+            if ($col === 'N') {
+                if ($op === '+') $b['brut_N'] += $net; else $b['amort_N'] += -$net;
+                $b['net_N'] = $b['brut_N'] - $b['amort_N'];
+            } else {
+                $b['net_N_1'] += $net;
+            }
+        } else {
+            // Passif: credit balances count positive. Résultat: products
+            // positive, charges negative, whatever the mapping's operator.
+            if ($col === 'N') $b['net_N'] += -$net; else $b['net_N_1'] += -$net;
+        }
+        $buckets[$lineCode] = $b;
+    };
+
+    $priorResult = ['N' => 0.0, 'N_1' => 0.0];
     foreach ($accounts as $acc) {
-        $matched = false;
-        foreach ($mappings as $map) {
-            if (strpos($acc['account_code'], $map['account_prefix']) === 0) {
-                // Find the target bucket
-                $line_code = null;
-                foreach ($buckets as $code => $b) {
-                    if ($b['id'] == $map['report_line_id']) { $line_code = $code; break; }
-                }
-                
-                if ($line_code) {
-                    $matched = true;
-                    $b = &$buckets[$line_code];
-                    $is_bilan = in_array($acc['class'], ['1','2','3','4','5']);
-                    
-                    // Logic: Bilan uses Cumulative (cum_), Resultat uses Periodic (per_)
-                    $deb_n = $is_bilan ? $acc['cum_debit_n'] : $acc['per_debit_n'];
-                    $cre_n = $is_bilan ? $acc['cum_credit_n'] : $acc['per_credit_n'];
-                    $deb_n1 = $is_bilan ? $acc['cum_debit_n1'] : $acc['per_debit_n1'];
-                    $cre_n1 = $is_bilan ? $acc['cum_credit_n1'] : $acc['per_credit_n1'];
-
-                    $net_n = $deb_n - $cre_n;
-                    $net_n1 = $deb_n1 - $cre_n1;
-
-                    // OHADA Signs adjustment
-                    if ($b['type'] == 'bilan_passif' || ($b['type'] == 'resultat' && $acc['class'] == '7')) {
-                        $net_n = -$net_n; $net_n1 = -$net_n1;
-                    }
-
-                    // For Actif: 3-Column logic (Answer 7A)
-                    if ($b['type'] == 'bilan_actif') {
-                        if ($map['operator'] == '+') { $b['brut_N'] += $net_n; } 
-                        else { $b['amort_N'] += abs($net_n); } // Amortissements are shown positive in the Amort column
-                        $b['net_N'] = $b['brut_N'] - $b['amort_N'];
-                        
-                        // N-1 Net approximation for Actif
-                        if ($map['operator'] == '+') { $b['net_N_1'] += $net_n1; } else { $b['net_N_1'] -= abs($net_n1); }
-                    } else {
-                        // Passif and Resultat
-                        if ($map['operator'] == '+') { $b['net_N'] += $net_n; $b['net_N_1'] += $net_n1; } 
-                        else { $b['net_N'] -= $net_n; $b['net_N_1'] -= $net_n1; }
-                    }
-                    break; // Move to next account once mapped
-                }
-            }
+        $isBilan = in_array($acc['class'], ['1', '2', '3', '4', '5'], true);
+        $netN  = round((float) ($isBilan ? $acc['cum_n']  : $acc['per_n']), 2);
+        $netN1 = round((float) ($isBilan ? $acc['cum_n1'] : $acc['per_n1']), 2);
+        if (!$isBilan) {
+            // A result account's movements of earlier years still open (never
+            // closed into À-nouveaux) are the « résultats antérieurs » in equity.
+            $priorResult['N']   += (float) $acc['prior_n'];
+            $priorResult['N_1'] += (float) $acc['prior_n1'];
         }
-        
-        // Unmapped Anomaly Catching (Answer 4B)
-        if (!$matched) {
-            $is_bilan = in_array($acc['class'], ['1','2','3','4','5']);
-            $net_n = $is_bilan ? ($acc['cum_debit_n'] - $acc['cum_credit_n']) : ($acc['per_debit_n'] - $acc['per_credit_n']);
-            if (abs($net_n) > 0) {
-                if ($acc['class'] == '1' || $acc['class'] == '4' && $net_n < 0) { $buckets['AUT_PAS']['net_N'] += abs($net_n); }
-                else if ($is_bilan) { $buckets['AUT_ACT']['brut_N'] += $net_n; $buckets['AUT_ACT']['net_N'] += $net_n; }
-                else { $buckets['AUT_CH']['net_N'] += abs($net_n); }
-            }
+        if (abs($netN) >= 0.005) {
+            [$lc, $op] = $place($acc, $netN);
+            $add($lc, $op, $netN, 'N');
+            $byLine[$lc][] = ['account_code' => $acc['account_code'], 'account_name' => $acc['account_name'],
+                              'debit' => $netN > 0 ? $netN : 0, 'credit' => $netN < 0 ? -$netN : 0,
+                              'net' => $buckets[$lc]['type'] === 'bilan_actif' ? $netN : -$netN];
+        }
+        if (abs($netN1) >= 0.005) {
+            [$lc1, $op1] = $place($acc, $netN1);
+            $add($lc1, $op1, $netN1, 'N_1');
         }
     }
+    foreach (['N' => 'net_N', 'N_1' => 'net_N_1'] as $k => $col) {
+        if (abs($priorResult[$k]) >= 0.005 && isset($buckets['CAP_PROP'])) {
+            $buckets['CAP_PROP'][$col] += -$priorResult[$k];
+        }
+    }
+    if (abs($priorResult['N']) >= 0.005) {
+        $byLine['CAP_PROP'][] = ['account_code' => '13x', 'account_name' => 'Résultats des exercices antérieurs non clôturés',
+                                 'debit' => $priorResult['N'] > 0 ? $priorResult['N'] : 0,
+                                 'credit' => $priorResult['N'] < 0 ? -$priorResult['N'] : 0, 'net' => -$priorResult['N']];
+    }
 
-    // 5. Structure Final Arrays
-    foreach ($buckets as $code => $b) {
-        if ($b['type'] == 'bilan_actif') $results['bilan_actif'][] = $b;
+    $results = ['bilan_actif' => [], 'bilan_passif' => [], 'resultat' => [], 'by_line' => $byLine];
+    foreach ($buckets as $b) {
+        foreach (['brut_N', 'amort_N', 'net_N', 'net_N_1'] as $k) $b[$k] = round((float) $b[$k], 2);
+        if ($b['type'] == 'bilan_actif')  $results['bilan_actif'][]  = $b;
         if ($b['type'] == 'bilan_passif') $results['bilan_passif'][] = $b;
-        if ($b['type'] == 'resultat') $results['resultat'][] = $b;
+        if ($b['type'] == 'resultat')     $results['resultat'][]     = $b;
     }
-
     return $results;
+}
+
+/** The years the statements can show: every year with entries, plus this one. */
+function lpc_report_years(PDO $pdo): array
+{
+    $years = array_map('intval', $pdo->query("SELECT DISTINCT YEAR(date) FROM journal_entries WHERE status = 'posted'")->fetchAll(PDO::FETCH_COLUMN));
+    $years = array_merge($years, array_map('intval', $pdo->query("SELECT year FROM financial_years")->fetchAll(PDO::FETCH_COLUMN)));
+    $years[] = (int) date('Y');
+    $years = array_values(array_unique(array_filter($years)));
+    rsort($years);
+    return $years;
 }
 
 
@@ -175,6 +205,7 @@ if ($method === 'GET') {
 
             // 2. Get Aggregates
             $data = getFinancialAggregates($pdo, $year);
+            unset($data['by_line']);
 
             // 3. Calculate Net Result dynamically
             $total_produits_N = 0; $total_charges_N = 0;
@@ -223,53 +254,23 @@ if ($method === 'GET') {
     }
 
     if ($action === 'drilldown') {
-        $code = $_GET['code'];
-        $year = (int)$_GET['year'];
-
+        $code = (string) ($_GET['code'] ?? '');
+        $year = (int) ($_GET['year'] ?? date('Y'));
         try {
-            // Get mappings for this line code
-            $stmtM = $pdo->prepare("SELECT account_prefix FROM financial_mappings fm JOIN financial_report_lines frl ON fm.report_line_id = frl.id WHERE frl.code = ?");
-            $stmtM->execute([$code]);
-            $prefixes = $stmtM->fetchAll(PDO::FETCH_COLUMN);
-
-            if (empty($prefixes)) sendResponse('success', '', []);
-
-            // Build LIKE query
-            $likes = []; $params = [];
-            foreach ($prefixes as $p) {
-                $likes[] = "ca.code LIKE ?";
-                $params[] = $p . "%";
-            }
-            $wherePrefix = "(" . implode(" OR ", $likes) . ")";
-            
-            // Determine if Bilan or Resultat to decide Cumulative vs Periodic
-            $stmtT = $pdo->prepare("SELECT report_type FROM financial_report_lines WHERE code = ?");
-            $stmtT->execute([$code]);
-            $type = $stmtT->fetchColumn();
-            
-            $dateClause = ($type === 'resultat') ? "YEAR(je.date) = ?" : "YEAR(je.date) <= ?";
-            $params[] = $year;
-
-            $sql = "
-                SELECT ca.code as account_code, ca.name as account_name, 
-                       SUM(jl.debit) as debit, SUM(jl.credit) as credit
-                FROM chart_of_accounts ca
-                JOIN journal_lines jl ON ca.id = jl.account_id
-                JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'posted'
-                WHERE $wherePrefix AND $dateClause
-                GROUP BY ca.id
-                HAVING debit > 0 OR credit > 0
-                ORDER BY ca.code ASC
-            ";
-            
-            $stmt = $pdo->prepare($sql);
-            $stmt->execute($params);
-            
-            sendResponse('success', 'Drilldown data', $stmt->fetchAll(PDO::FETCH_ASSOC));
-
+            // The very accounts the statement put on this line, with the balance
+            // it used (cumulative for the Bilan, the year for the Résultat).
+            $agg = getFinancialAggregates($pdo, $year);
+            $rows = $agg['by_line'][$code] ?? [];
+            usort($rows, fn ($a, $b) => strcmp((string) $a['account_code'], (string) $b['account_code']));
+            sendResponse('success', 'Drilldown data', $rows);
         } catch (Exception $e) {
-            sendResponse('error', $e->getMessage());
+            error_log('drilldown: ' . $e->getMessage());
+            sendResponse('error', 'Erreur de lecture du Grand Livre.');
         }
+    }
+
+    if ($action === 'years') {
+        sendResponse('success', 'years', ['years' => lpc_report_years($pdo)]);
     }
 
     // ------------------------------------------------------------------
@@ -473,6 +474,8 @@ if ($method === 'GET' && $action === 'export_notes_xlsx') {
 // [POST] WRITE OPERATIONS (CLÔTURE)
 // ==========================================
 if ($method === 'POST') {
+    // Every closing action changes the books: the page's token first (13.4).
+    Csrf::requireValid();
     $payload = json_decode(file_get_contents('php://input'), true);
     if (!$payload || !isset($payload['action'])) sendResponse('error', 'Payload invalide.');
 
@@ -507,10 +510,12 @@ if ($method === 'POST') {
             switch ($phase) {
                 case 'depreciation':          $n = $engine->runDepreciation($year); break;
                 case 'is_provision':          $n = $engine->runIsProvision($year); break;
-                case 'profit_incorporation':  $n = $engine->runProfitIncorporation($year); break;
+                case 'profit_incorporation':
+                    $r = $engine->resultSummary($year);
+                    sendResponse('success', $r['message'], ['created' => 0, 'phase' => $phase, 'result' => $r]);
                 default: sendResponse('error', "Phase inconnue: $phase");
             }
-            sendResponse('success', "$n écritures générées", ['created' => $n, 'phase' => $phase]);
+            sendResponse('success', $n ? "$n écriture(s) passée(s) au 31/12/$year." : "Rien à passer : la phase est déjà faite.", ['created' => $n, 'phase' => $phase]);
         } catch (Throwable $e) { sendResponse('error', $e->getMessage()); }
     }
     if ($action === 'closing_reverse_adj') {
@@ -524,103 +529,20 @@ if ($method === 'POST') {
     }
 
     if ($action === 'close_year') {
-        if ($user_role !== 'admin') sendResponse('error', 'Seul un Administrateur peut clôturer un exercice.');
-        $year = (int)$payload['year'];
-        $next_year = $year + 1;
-
+        // « Clôture définitive » (13.5). It used to be a separate path for the
+        // role named exactly 'admin': no state check, the À-nouveaux summed every
+        // entry ever (counting a closed year's history twice), the result left
+        // class 8 out, and it was linked as the closed year's own opening entry.
+        if (!Rbac::hasPermission('accounting.reports.close_year')) sendResponse('error', "Permission requise : clôturer l'exercice.");
+        require_once __DIR__ . '/../../includes/classes/YearEndClosing.php';
+        $year = (int) ($payload['year'] ?? 0);
         try {
-            $pdo->beginTransaction();
-
-            // 1. Check if already closed
-            $stmt = $pdo->prepare("SELECT status FROM financial_years WHERE year = ? FOR UPDATE");
-            $stmt->execute([$year]);
-            $status = $stmt->fetchColumn();
-            if ($status === 'closed') throw new Exception("L'exercice $year est déjà clôturé.");
-
-            // 2. Fetch Aggregates to calculate A-Nouveaux (Opening Balances)
-            $data = getFinancialAggregates($pdo, $year);
-
-            // 3. Create A-Nouveaux Journal Entry for Jan 1 of next year
-            $ref = "AN-$next_year";
-            $desc = "A-Nouveaux (Reports d'ouverture exercice $next_year)";
-            
-            // Insert as 'draft', never 'approved': migration 039 narrowed
-            // journal_entries.status to ENUM('draft','posted','reversed'), and
-            // there is no approved_by column (migration 004 adds posted_by /
-            // posted_at). The old statement therefore wrote an invalid enum
-            // and named a column that does not exist. Draft is also required:
-            // bi_journal_lines_check refuses to attach a line to a posted
-            // entry, so the transition happens after the lines, through
-            // post_journal_entry.
-            $stmtH = $pdo->prepare("INSERT INTO journal_entries (reference, journal_code, date, description, status, created_by) VALUES (?, 'OD', ?, ?, 'draft', ?)");
-            $stmtH->execute([$ref, "$next_year-01-01", $desc, $user_id]);
-            $an_entry_id = (int) $pdo->lastInsertId();
-
-            $stmtL = $pdo->prepare("INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit) VALUES (?, ?, ?, ?)");
-
-            // Loop through all Class 1-5 accounts from Year N and move them to Year N+1
-            $stmtAcc = $pdo->prepare("
-                SELECT ca.id, SUM(jl.debit - jl.credit) as net
-                FROM chart_of_accounts ca
-                JOIN journal_lines jl ON ca.id = jl.account_id
-                JOIN journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'posted'
-                WHERE SUBSTRING(ca.code, 1, 1) IN ('1','2','3','4','5') AND YEAR(je.date) <= ?
-                GROUP BY ca.id
-                HAVING net != 0
-            ");
-            $stmtAcc->execute([$year]);
-            $balances = $stmtAcc->fetchAll();
-
-            foreach ($balances as $b) {
-                $deb = $b['net'] > 0 ? $b['net'] : 0;
-                $cre = $b['net'] < 0 ? abs($b['net']) : 0;
-                $stmtL->execute([$an_entry_id, $b['id'], $deb, $cre]);
-            }
-
-            // 4. Incorporate the Net Result (Profit or Loss) into Class 13
-            $net_result = 0;
-            foreach ($data['resultat'] as $r) { $net_result += $r['net_N']; }
-
-            if (abs($net_result) > 0) {
-                // Find account 131 (Profit) or 139 (Loss)
-                $target_code = $net_result > 0 ? '131%' : '139%';
-                $stmt13 = $pdo->prepare("SELECT id FROM chart_of_accounts WHERE code LIKE ? LIMIT 1");
-                $stmt13->execute([$target_code]);
-                $acc_13 = $stmt13->fetchColumn();
-                
-                if ($acc_13) {
-                    // Profit is a credit balance. Loss is a debit balance.
-                    $deb = $net_result < 0 ? abs($net_result) : 0;
-                    $cre = $net_result > 0 ? $net_result : 0;
-                    $stmtL->execute([$an_entry_id, $acc_13, $deb, $cre]);
-                }
-            }
-
-            // Post the A-Nouveaux entry. The stored proc re-asserts
-            // SUM(debit) = SUM(credit) and stamps posted_at / posted_by;
-            // without it the entry stays a draft that no report reads.
-            $anPost = $pdo->prepare("CALL post_journal_entry(?, ?)");
-            $anPost->execute([$an_entry_id, $user_id]);
-            $anPost->closeCursor();
-
-            // 5. Lock the Year
-            $stmtClose = $pdo->prepare("
-                INSERT INTO financial_years (year, status, opening_balance_journal_id, locked_by, locked_at) 
-                VALUES (?, 'closed', ?, ?, CURRENT_TIMESTAMP) 
-                ON DUPLICATE KEY UPDATE status = 'closed', locked_by = ?, locked_at = CURRENT_TIMESTAMP
-            ");
-            $stmtClose->execute([$year, $an_entry_id, $user_id, $user_id]);
-
-            // Open the Next Year
-            $pdo->prepare("INSERT IGNORE INTO financial_years (year, status) VALUES (?, 'open')")->execute([$next_year]);
-
-            $pdo->commit();
-            sendResponse('success', "EXERCICE $year CLÔTURÉ AVEC SUCCÈS. Les A-Nouveaux ont été transférés sur $next_year.");
-
-        } catch (Exception $e) {
-            if (isset($pdo) && $pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
+            $engine = new YearEndClosing($pdo, (int) $user_id);
+            $r = $engine->closeDefinitively($year);
+            sendResponse('success', "Exercice $year clôturé. Les À-nouveaux sont passés au 01/01/" . ($year + 1)
+                . " (résultat : " . number_format($r['result'], 0, ',', ' ') . " F en " . $r['result_account'] . ").", $r);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
             sendResponse('error', $e->getMessage());
         }
     } else {

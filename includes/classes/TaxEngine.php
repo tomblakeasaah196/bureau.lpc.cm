@@ -151,6 +151,19 @@ final class TaxEngine
         $q->execute([$year, $month]);
         $inv = $q->fetch(PDO::FETCH_ASSOC) ?: ['turnover_ht' => 0, 'air_expected' => 0, 'invoice_count' => 0];
 
+        // Credit notes (avoirs, migration 152) issued in the month reduce the
+        // turnover the AIR is computed on: PROMETAL's 9 100 F avoir took 200 F of
+        // AIR back, so the attestation (9 810 F) covers the month exactly.
+        $avoirs = 0.0;
+        if (self::columnExists($db, 'payments', 'credit_amount_ht')) {
+            $q = $db->prepare("SELECT COALESCE(SUM(credit_amount_ht), 0) FROM payments
+                                WHERE payment_method = 'avoir' AND status = 'validated'
+                                  AND YEAR(payment_date) = ? AND MONTH(payment_date) = ?");
+            $q->execute([$year, $month]);
+            $avoirs = (float) $q->fetchColumn();
+        }
+        $inv['turnover_ht'] = max(0.0, (float) $inv['turnover_ht'] - $avoirs);
+
         $turnover  = self::round((float) $inv['turnover_ht']);
         $air_gross = self::round($turnover * $rate);
 
@@ -201,7 +214,7 @@ final class TaxEngine
             'destination' => 'dgi',
             'period'      => sprintf('%04d-%02d', $year, $month),
             'lines'       => [
-                ['line_code' => 'CHIFFRE_AFFAIRES_HT',   'label' => "Chiffre d'affaires HT du mois",
+                ['line_code' => 'CHIFFRE_AFFAIRES_HT',   'label' => "Chiffre d'affaires HT du mois (factures moins avoirs)",
                     'amount' => $turnover, 'is_credit' => 0, 'informational' => 1,
                     'source_ref' => "invoices(YEAR={$year} MONTH={$month}): {$inv['invoice_count']} factures"],
                 ['line_code' => 'AIR_TAUX',              'label' => "Taux AIR appliqué (régime {$s['tax_regime']})",
@@ -231,31 +244,35 @@ final class TaxEngine
     // -------------------------------------------------------------------------
 
     /**
-     * TVA formula:
-     *   collectée      = SUM(invoices.tva_amount issued in period)
-     *   déductible     = SUM(supplier_invoices.tva_amount posted in period)
-     *   crédit report  = prior period carry (if any)
-     *   net_tva        = max(0, collectée - déductible - crédit report)
+     * TVA, read from the ledger the month booked (VIDEO_QA_FINDINGS 13.3):
+     *   collectée      = the month's net credit on 4431 (invoices, less credit notes)
+     *   déductible     = the month's net debit on 4452 (receptions that split the
+     *                    recoverable TVA, when LPC is liable)
+     *   crédit reporté = the previous month's declaration's carry_forward
+     *   net à payer    = max(0, collectée − déductible − crédit reporté)
+     *   carry          = what is left of the credit, carried to the next month
+     * The payment clears exactly these accounts (tax_controller record_payment).
+     * Entries posted by a declaration's own payment are left out.
+     *
+     * It used to read invoices.tva_amount (credit notes ignored) and a
+     * `supplier_invoices` table that does not exist, so the deductible part was
+     * always 0, and the carry-over column did not exist either.
+     *
+     * « LPC assujetti à la TVA » (Paramètres; TaxEngine::settings()['tva_liable'])
+     * off: there is nothing to declare, the block says so and nets to 0.
      */
     public static function computeTva(int $year, int $month): array
     {
         $db = Database::getInstance()->getConnection();
+        $liable = !empty(self::settings()['tva_liable']);
 
-        $q = $db->prepare("SELECT COALESCE(SUM(tva_amount), 0) FROM invoices WHERE YEAR(date)=? AND MONTH(date)=?");
-        $q->execute([$year, $month]);
-        $collectee = self::round((float) $q->fetchColumn());
+        $collectee = $liable ? self::round(-self::ledgerMonthNet($db, '4431', $year, $month)) : 0.0;
+        $deductible = $liable ? self::round(self::ledgerMonthNet($db, '4452', $year, $month)) : 0.0;
+        $collectee  = max(0.0, $collectee);
+        $deductible = max(0.0, $deductible);
 
-        $deductible = 0.0;
-        if (self::tableExists($db, 'supplier_invoices') && self::columnExists($db, 'supplier_invoices', 'tva_amount')) {
-            $q = $db->prepare("SELECT COALESCE(SUM(tva_amount), 0) FROM supplier_invoices WHERE YEAR(date)=? AND MONTH(date)=?");
-            $q->execute([$year, $month]);
-            $deductible = self::round((float) $q->fetchColumn());
-        }
-
-        // Prior-period credit reportable (from tax_declarations.carry_forward
-        // if the column exists — added lazily; older schemas don't have it).
         $credit_report = 0.0;
-        if (self::columnExists($db, 'tax_declarations', 'carry_forward')) {
+        if ($liable && self::columnExists($db, 'tax_declarations', 'carry_forward')) {
             [$py, $pm] = self::previousPeriod($year, $month);
             $q = $db->prepare("SELECT COALESCE(MAX(carry_forward),0) FROM tax_declarations
                                 WHERE kind='tva' AND period_year=? AND period_month=?");
@@ -268,24 +285,51 @@ final class TaxEngine
         $net       = max(0.0, $total_due - $credit);
         $carry     = max(0.0, $credit - $total_due);
 
+        $lines = $liable ? [
+                ['line_code' => 'TVA_COLLECTEE',      'label' => 'TVA collectée sur ventes (4431)',
+                    'amount' => $collectee, 'is_credit' => 0],
+                ['line_code' => 'TVA_DEDUCTIBLE',     'label' => 'TVA déductible sur achats (4452)',
+                    'amount' => $deductible, 'is_credit' => 1],
+                ['line_code' => 'TVA_CREDIT_REPORTE', 'label' => 'Crédit de TVA reporté du mois précédent (4449)',
+                    'amount' => $credit_report, 'is_credit' => 1],
+                ['line_code' => 'TVA_CREDIT_A_REPORTER', 'label' => 'Crédit de TVA à reporter sur le mois suivant',
+                    'amount' => $carry, 'is_credit' => 0, 'informational' => 1],
+            ] : [
+                ['line_code' => 'TVA_NON_ASSUJETTI',  'label' => "LPC n'est pas assujetti à la TVA (Paramètres) : rien à déclarer",
+                    'amount' => 0.0, 'is_credit' => 0, 'informational' => 1],
+            ];
+
         return [
             'kind'        => 'tva',
             'destination' => 'dgi',
             'period'      => sprintf('%04d-%02d', $year, $month),
-            'lines'       => [
-                ['line_code' => 'TVA_COLLECTEE',      'label' => 'TVA collectée sur ventes',
-                    'amount' => $collectee, 'is_credit' => 0],
-                ['line_code' => 'TVA_DEDUCTIBLE',     'label' => 'TVA déductible sur achats',
-                    'amount' => $deductible, 'is_credit' => 1],
-                ['line_code' => 'TVA_CREDIT_REPORTE', 'label' => 'Crédit de TVA reporté du mois précédent',
-                    'amount' => $credit_report, 'is_credit' => 1],
-            ],
+            'lines'       => $lines,
             'total_due' => $total_due,
             'credit'    => $credit,
             'net'       => $net,
             'carry'     => $carry,
+            'liable'    => $liable,
             'due_date'  => self::deadline($year, $month),
         ];
+    }
+
+    /**
+     * Net movement (debit − credit) on one chart account (its own code and its
+     * sub-accounts) over a month, posted entries only, leaving out the entries a
+     * declaration's payment posted.
+     */
+    public static function ledgerMonthNet(PDO $db, string $code, int $year, int $month): float
+    {
+        $q = $db->prepare("
+            SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
+              FROM journal_lines jl
+              JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
+              JOIN chart_of_accounts ca ON ca.id = jl.account_id
+             WHERE ca.code LIKE ? AND YEAR(je.date) = ? AND MONTH(je.date) = ?
+               AND COALESCE(je.source_type, '') <> 'tax_declaration'
+        ");
+        $q->execute([$code . '%', $year, $month]);
+        return (float) $q->fetchColumn();
     }
 
     // -------------------------------------------------------------------------
@@ -429,43 +473,48 @@ final class TaxEngine
         $pf_rate       = 0.07;            // Prestations Familiales, patronal
         $at_rate       = (float) $settings['at_rate'];
 
-        $pvid_salarie   = self::round((float) $sums['plafonnee'] * $pvid_emp_rate);
+        // The lines add up to what the payslips booked on 433 (the declaration
+        // pays it, Dr 433). The employee part is the payslips' own; the employer
+        // part is PVID 4,2 % and PF 7 % of the capped base, and the accident du
+        // travail is the rest of what the payroll charged (Comptabilité 3: the
+        // payroll's 16,2 % implies AT 5 %, group C, while Paramètres say group A;
+        // a « Écart » line used to show the 20 475 F difference unexplained).
+        $pvid_salarie   = self::round((float) $sums['cnps_employee']);
         $pvid_patronal  = self::round((float) $sums['plafonnee'] * $pvid_emp_rate);   // 4.2 % pat
         $pf_patronal    = self::round((float) $sums['plafonnee'] * $pf_rate);
-        $at_patronal    = self::round((float) $sums['plafonnee'] * $at_rate);
+        $at_patronal    = self::round((float) $sums['cnps_employer'] - $pvid_patronal - $pf_patronal);
+        $at_implied     = (float) $sums['plafonnee'] > 0 ? $at_patronal / (float) $sums['plafonnee'] : $at_rate;
 
-        // Reconciliation: the sum computed from decomposition SHOULD match
-        // the stored cnps_employee + cnps_employer. If Payroll::compute uses
-        // a slightly different formula (Sprint 4 employer rate was 16.2%,
-        // not decomposed) we surface the delta as an informational line.
-        $decomposed_total = $pvid_salarie + $pvid_patronal + $pf_patronal + $at_patronal;
-        $stored_total     = self::round((float) $sums['cnps_employee'] + (float) $sums['cnps_employer']);
-        $delta            = self::round($stored_total - $decomposed_total);
+        $stored_total = self::round((float) $sums['cnps_employee'] + (float) $sums['cnps_employer']);
+        $total = $stored_total;   // what the payroll withheld and booked on 433
 
-        $total = $stored_total;   // The stored number is authoritative — it's what payroll already withheld.
-
-        return [
-            'kind'        => 'cnps',
-            'destination' => 'cnps',
-            'period'      => sprintf('%04d-%02d', $year, $month),
-            'lines'       => [
+        $pct = fn (float $r) => number_format($r * 100, 2, ',', ' ');
+        $lines = [
                 ['line_code' => 'MASSE_SALARIALE',       'label' => 'Masse salariale brute',
                     'amount' => self::round((float) $sums['gross_total']), 'is_credit' => 0, 'informational' => 1,
                     'source_ref' => "hr_payslips: " . (int)$sums['payslip_count'] . ' bulletin(s)'],
                 ['line_code' => 'MASSE_PLAFONNEE',       'label' => 'Masse plafonnée CNPS (750 000 / mois × effectif)',
                     'amount' => self::round((float) $sums['plafonnee']), 'is_credit' => 0, 'informational' => 1],
-                ['line_code' => 'CNPS_PVID_SAL',         'label' => 'PVID part salariale (4,2 %)',
+                ['line_code' => 'CNPS_PVID_SAL',         'label' => 'PVID part salariale (' . $pct($pvid_emp_rate) . ' %)',
                     'amount' => $pvid_salarie, 'is_credit' => 0],
-                ['line_code' => 'CNPS_PVID_PAT',         'label' => 'PVID part patronale (4,2 %)',
+                ['line_code' => 'CNPS_PVID_PAT',         'label' => 'PVID part patronale (' . $pct($pvid_emp_rate) . ' %)',
                     'amount' => $pvid_patronal, 'is_credit' => 0],
                 ['line_code' => 'CNPS_PF',               'label' => 'Prestations Familiales patronales (7 %)',
                     'amount' => $pf_patronal, 'is_credit' => 0],
-                ['line_code' => 'CNPS_AT',               'label' => 'Accident du Travail patronal (' . number_format($at_rate * 100, 2, ',', ' ') . ' % · groupe ' . $settings['cnps_group'] . ')',
+                ['line_code' => 'CNPS_AT',               'label' => 'Accident du Travail patronal (' . $pct($at_implied) . ' %, taux de la paie)',
                     'amount' => $at_patronal, 'is_credit' => 0],
-                ['line_code' => 'CNPS_STORED_DELTA',     'label' => 'Écart avec les fiches de paie (résiduel)',
-                    'amount' => $delta, 'is_credit' => 0, 'informational' => 1,
-                    'source_ref' => 'stored − decomposition; should be ≈ 0'],
-            ],
+        ];
+        if ((float) $sums['plafonnee'] > 0 && abs($at_implied - $at_rate) > 0.0005) {
+            $lines[] = ['line_code' => 'CNPS_AT_A_VERIFIER', 'label' => 'Taux AT de la paie ' . $pct($at_implied) . ' % ; Paramètres (groupe '
+                    . $settings['cnps_group'] . ') : ' . $pct($at_rate) . ' %. À vérifier avec la CNPS.',
+                'amount' => 0.0, 'is_credit' => 0, 'informational' => 1];
+        }
+
+        return [
+            'kind'        => 'cnps',
+            'destination' => 'cnps',
+            'period'      => sprintf('%04d-%02d', $year, $month),
+            'lines'       => $lines,
             'total_due' => $total,
             'credit'    => 0.0,
             'net'       => $total,
