@@ -83,7 +83,16 @@ class Paginator
         // count and MariaDB will happily do the sort anyway if we leave it).
         // ------------------------------------------------------------------
         $count_body = self::stripOrderBy($sql_body);
-        $count_sql  = 'SELECT ' . ($count_expr ?? 'COUNT(*)') . ' AS __total ' . $count_body;
+        // A grouped body (GROUP BY / HAVING) is counted as the rows it really returns: the page query
+        // wrapped as a derived table, with the caller's SELECT list so a HAVING on one of its aliases
+        // (`HAVING delivered > 0`) resolves. `SELECT COUNT(*) … GROUP BY` counted the first group's
+        // rows instead (the cash detail listed 4 accounts under « 1 »), and a HAVING on an alias
+        // failed outright: the executive dashboard's « Récupération d'emballages » detail answered
+        // « Erreur de chargement » (SQLSTATE 42S22). A caller's own $count_expr is left as given.
+        $grouped    = $count_expr === null && preg_match('/\b(GROUP\s+BY|HAVING)\b/i', $count_body) === 1;
+        $count_sql  = $grouped
+            ? 'SELECT COUNT(*) AS __total FROM (SELECT ' . $select . ' ' . $count_body . ') AS __rows'
+            : 'SELECT ' . ($count_expr ?? 'COUNT(*)') . ' AS __total ' . $count_body;
 
         // Cached COUNT: same identity + same params → skip the second query.
         $cacheKey = null;
