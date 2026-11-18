@@ -93,6 +93,8 @@ jobs:
         run: php scripts/tests/books_review.test.php
       - name: Facturation & AR (each client's 411, AIR once, credit notes, CSRF, the attestation letter)
         run: php scripts/tests/invoicing_flow.test.php
+      - name: Go-live readiness (the TVA switch, the DG's role, payroll without the IT partner, payment terms, 2FA)
+        run: php scripts/tests/go_live.test.php
       - name: Comptabilité 3 (tax payments posted, who approves and pays, the statements, the closing)
         run: php scripts/tests/tax_closing.test.php
 

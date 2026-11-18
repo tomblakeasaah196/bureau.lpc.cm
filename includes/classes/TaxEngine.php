@@ -267,7 +267,9 @@ final class TaxEngine
         $liable = !empty(self::settings()['tva_liable']);
 
         $collectee = $liable ? self::round(-self::ledgerMonthNet($db, '4431', $year, $month)) : 0.0;
-        $deductible = $liable ? self::round(self::ledgerMonthNet($db, '4452', $year, $month)) : 0.0;
+        // Only what receptions booked (Dr 601 HT + Dr 4452 / Cr 401, decision 19)
+        // and their cancellations: the ristourne's 4452 line is not a purchase.
+        $deductible = $liable ? self::round(self::ledgerMonthNet($db, '4452', $year, $month, ['purchase_order', 'purchase_order_reversal'])) : 0.0;
         $collectee  = max(0.0, $collectee);
         $deductible = max(0.0, $deductible);
 
@@ -318,17 +320,18 @@ final class TaxEngine
      * sub-accounts) over a month, posted entries only, leaving out the entries a
      * declaration's payment posted.
      */
-    public static function ledgerMonthNet(PDO $db, string $code, int $year, int $month): float
+    public static function ledgerMonthNet(PDO $db, string $code, int $year, int $month, array $sources = []): float
     {
+        $only = $sources ? ' AND je.source_type IN (' . implode(',', array_fill(0, count($sources), '?')) . ')' : '';
         $q = $db->prepare("
             SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
               FROM journal_lines jl
               JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
               JOIN chart_of_accounts ca ON ca.id = jl.account_id
              WHERE ca.code LIKE ? AND YEAR(je.date) = ? AND MONTH(je.date) = ?
-               AND COALESCE(je.source_type, '') <> 'tax_declaration'
+               AND COALESCE(je.source_type, '') <> 'tax_declaration' $only
         ");
-        $q->execute([$code . '%', $year, $month]);
+        $q->execute(array_merge([$code . '%', $year, $month], $sources));
         return (float) $q->fetchColumn();
     }
 

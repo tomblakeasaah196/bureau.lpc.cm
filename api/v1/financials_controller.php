@@ -530,7 +530,7 @@ if ($method === 'POST') {
 
     if ($action === 'close_year') {
         // « Clôture définitive » (13.5). It used to be a separate path for the
-        // role named exactly 'admin': no state check, the À-nouveaux summed every
+        // role named exactly « admin »: no state check, the À-nouveaux summed every
         // entry ever (counting a closed year's history twice), the result left
         // class 8 out, and it was linked as the closed year's own opening entry.
         if (!Rbac::hasPermission('accounting.reports.close_year')) sendResponse('error', "Permission requise : clôturer l'exercice.");

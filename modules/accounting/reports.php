@@ -10,7 +10,7 @@ Rbac::requirePermission('accounting.reports.view');
 $lang = lpc_i18n_current_lang();
 $user_role = $_SESSION['user_role'];
 // The closing is a permission, not a role name (VIDEO_QA_FINDINGS 13.5: only a
-// role named exactly 'admin' saw the assistant, though the Comptable and the
+// role named exactly « admin » saw the assistant, though the Comptable and the
 // Contrôleur Financier hold accounting.closing.run).
 $can_close = Rbac::hasPermission('accounting.closing.run');
 // Every year with entries, plus this one (the picker offered 2026 and 2025, fixed).

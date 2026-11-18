@@ -637,9 +637,10 @@ $lang = lpc_i18n_current_lang();
                             <div>
                                 <label class="block text-xs font-bold text-gray-700 mb-1"><?= htmlspecialchars(__t('ui.x.conditions_de_paiement')) ?></label>
                                 <select id="prop_payment" class="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-lpc-light outline-none font-medium">
-                                    <option value="Paiement à la Livraison"><?= htmlspecialchars(__t('ui.x.paiement_a_la_livraison')) ?></option>
-                                    <option value="Net 15 Jours"><?= htmlspecialchars(__t('ui.x.net_15_jours')) ?></option>
-                                    <option value="Net 30 Jours" selected><?= htmlspecialchars(__t('ui.x.net_30_jours')) ?></option>
+                                    <?php $lpcDefTerms = max(0, Prefs::int('default_payment_terms_days', 30)); // Paramètres, decision 24 ?>
+                                    <option value="Paiement à la Livraison" <?= $lpcDefTerms === 0 ? 'selected' : '' ?>><?= htmlspecialchars(__t('ui.x.paiement_a_la_livraison')) ?></option>
+                                    <option value="Net 15 Jours" <?= $lpcDefTerms > 0 && $lpcDefTerms <= 15 ? 'selected' : '' ?>><?= htmlspecialchars(__t('ui.x.net_15_jours')) ?></option>
+                                    <option value="Net 30 Jours" <?= $lpcDefTerms > 15 ? 'selected' : '' ?>><?= htmlspecialchars(__t('ui.x.net_30_jours')) ?></option>
                                 </select>
                             </div>
                             <div>

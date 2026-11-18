@@ -56,7 +56,10 @@ final class Prefs
         'tax_tva_rate'                => '19.25',
         'tax_air_rate'                => '2.2',
         'tax_cit_rate'                => '33',
-        'tax_tva_liable'              => '1',
+        // « LPC assujetti à la TVA »: off until the owner confirms with the tax
+        // adviser (decision 19, 18/11/2026). On, water invoices carry the TVA
+        // rate and receptions split the recoverable TVA (see TaxSwitch).
+        'tax_tva_liable'              => '0',
         'tax_cnps_group'              => 'A',
         'tax_filing_day'              => '15',
         'fiscal_year_start_month'     => '1',
