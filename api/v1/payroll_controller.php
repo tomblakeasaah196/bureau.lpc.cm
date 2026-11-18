@@ -110,13 +110,42 @@ function lpc_account_for(PDO $db, string $ohada_number): ?int {
  * requested in an earlier month whose payroll was already calculated is caught by
  * the next one instead of being forgotten.
  */
-function lpc_advances_to_deduct(PDO $db, int $uid, int $y, int $m): float {
+function lpc_advances_to_deduct(PDO $db, int $eid, int $y, int $m): float {
     $end = (new DateTimeImmutable(sprintf('%04d-%02d-01', $y, $m)))->format('Y-m-t');
     $st = $db->prepare("SELECT COALESCE(SUM(amount), 0) FROM hr_advances
-                         WHERE user_id = ? AND status = 'disbursed' AND payslip_id IS NULL
+                         WHERE employee_id = ? AND status = 'disbursed' AND payslip_id IS NULL
                            AND request_date <= ?");
-    $st->execute([$uid, $end]);
+    $st->execute([$eid, $end]);
     return (float) $st->fetchColumn();
+}
+
+/**
+ * Payroll is keyed on the employee (migration 144, VIDEO_QA_FINDINGS 10.6): an
+ * employee without a login (LPC's drivers) is paid like anyone. A request names
+ * `employee_id`; an older page that still sends `user_id` is mapped to its
+ * employee.
+ */
+function lpc_payroll_employee(PDO $db, array $src): int {
+    $eid = (int) ($src['employee_id'] ?? 0);
+    if ($eid > 0) return $eid;
+    $uid = (int) ($src['user_id'] ?? $src['contract_id'] ?? 0);
+    if ($uid <= 0) return 0;
+    $st = $db->prepare("SELECT employee_id FROM users WHERE id = ?");
+    $st->execute([$uid]);
+    return (int) $st->fetchColumn();
+}
+
+/** The employee's login, or null when they have none (no notification then). */
+function lpc_payroll_login(PDO $db, int $eid): ?int {
+    $st = $db->prepare("SELECT id FROM users WHERE employee_id = ? LIMIT 1");
+    $st->execute([$eid]);
+    $id = $st->fetchColumn();
+    return $id ? (int) $id : null;
+}
+
+/** A driver is paid at the cash box by default: their role, or their post. */
+function lpc_payroll_default_payment(?string $role, ?string $jobTitle): string {
+    return ($role === 'driver' || preg_match('/chauffeur|driver/i', (string) $jobTitle)) ? 'caisse' : 'bank';
 }
 
 try {
@@ -124,15 +153,11 @@ try {
     // READ actions
     // -------------------------------------------------------------------------
     if ($action === 'list_contracts') {
-        // Sprint 15: `employees` is the SSOT for contract fields. The users
-        // join stays LEFT because payroll continues to key by users.id for
-        // now (hr_payslips.user_id FK) — an employee with no login therefore
-        // appears here as user_id NULL and the payroll grid skips them until
-        // a login is provisioned. Migrating hr_payslips / hr_advances to
-        // employee_id is scheduled for a follow-up sprint.
+        // Every active employee, with or without a login (migration 144).
         $rows = $db->query("
             SELECT u.id       AS user_id,
                    e.id       AS employee_id,
+                   e.job_title,
                    e.employee_code,
                    CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
                    r.name     AS role_name,
@@ -155,15 +180,12 @@ try {
     }
 
     if ($action === 'list_advances') {
-        // Sprint 15: employee_name comes from `employees` via the users join.
-        // hr_advances.user_id still keys by the login row for now.
         $rows = $db->query("
             SELECT a.*,
                    CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
                    DATE_FORMAT(a.request_date, '%d/%m/%Y') AS request_date_fr
               FROM hr_advances a
-              JOIN users     u ON u.id = a.user_id
-              LEFT JOIN employees e ON e.id = u.employee_id
+              JOIN employees e ON e.id = a.employee_id
              ORDER BY a.id DESC LIMIT 200
         ")->fetchAll(PDO::FETCH_ASSOC);
         sendJson('success', '', ['advances' => $rows]);
@@ -177,19 +199,18 @@ try {
         [$y, $m] = explode('-', $period);
         $y = (int) $y; $m = (int) $m;
 
-        // Sprint 15: read from `employees` (SSOT). Only employees with a
-        // linked login appear in the grid, because hr_payslips still keys by
-        // user_id. When payslips migrate to employee_id, this JOIN becomes
-        // LEFT and unpaid non-login employees start showing up.
+        // Every active employee, login or not (migration 144, VIDEO_QA_FINDINGS
+        // 10.6): a driver without an account is paid like anyone.
         $emps = $db->query("
-            SELECT u.id AS user_id,
+            SELECT e.id AS employee_id, u.id AS user_id,
                    e.base_salary, e.housing_allowance, e.transport_allowance,
                    e.dependents_count, e.marital_status, e.tax_regime, e.seniority_years,
                    CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+                   e.job_title,
                    r.name AS role_name
               FROM employees e
-              JOIN users u ON u.employee_id = e.id
-              JOIN roles r ON r.id = u.role_id
+              LEFT JOIN users u ON u.employee_id = e.id
+              LEFT JOIN roles r ON r.id = u.role_id
              WHERE e.is_active = 1
              ORDER BY e.first_name ASC
         ")->fetchAll(PDO::FETCH_ASSOC);
@@ -201,8 +222,9 @@ try {
                    gross_salary, cnps_employee, irpp, cfc, cac, crtv, net_pay, payment_method,
                    driver_debt_deducted, breakdown_json
               FROM hr_payslips
-             WHERE user_id = ? AND month = ? AND year = ? AND status IN ('validated','paid')
+             WHERE employee_id = ? AND month = ? AND year = ? AND status IN ('validated','paid')
         ");
+        // Driver debts are recorded against a driver's login (driver_debts.driver_id).
         $stmt_debt = $db->prepare("
             SELECT COALESCE(SUM(amount), 0) FROM driver_debts
              WHERE driver_id = ? AND status = 'unpaid' AND MONTH(tour_date) = ? AND YEAR(tour_date) = ?
@@ -210,12 +232,15 @@ try {
 
         $grid = [];
         foreach ($emps as $e) {
-            $stmt_paid->execute([$e['user_id'], $m, $y]);
+            $stmt_paid->execute([$e['employee_id'], $m, $y]);
             $paid = $stmt_paid->fetch(PDO::FETCH_ASSOC);
             // A calculated payslip shows what it deducted; an open row, what it will.
-            $adv = $paid ? (float) $paid['advances_deducted'] : lpc_advances_to_deduct($db, (int) $e['user_id'], $y, $m);
-            $stmt_debt->execute([$e['user_id'], $m, $y]);
-            $debt = (float) $stmt_debt->fetchColumn();
+            $adv = $paid ? (float) $paid['advances_deducted'] : lpc_advances_to_deduct($db, (int) $e['employee_id'], $y, $m);
+            $debt = 0.0;
+            if ($e['user_id']) {
+                $stmt_debt->execute([$e['user_id'], $m, $y]);
+                $debt = (float) $stmt_debt->fetchColumn();
+            }
 
             // A calculated row shows its payslip's own figures (what was booked), not
             // today's contract: a salary changed since then must not seem to be in it.
@@ -240,9 +265,11 @@ try {
                 ];
             }
             $grid[] = [
-                'user_id'          => (int) $e['user_id'],
+                'employee_id'      => (int) $e['employee_id'],
+                'user_id'          => $e['user_id'] ? (int) $e['user_id'] : null,
                 'employee_name'    => $e['employee_name'],
                 'role_name'        => $e['role_name'],
+                'job_title'        => $e['job_title'],
                 'base_salary'      => (float) $e['base_salary'],
                 'housing'          => (float) $e['housing_allowance'],
                 'transport'        => (float) $e['transport_allowance'],
@@ -254,7 +281,7 @@ try {
                 'is_paid'          => (bool) $paid,
                 'payslip_status'   => $paid['status'] ?? null,
                 'token'            => $paid['token'] ?? null,
-                'default_payment'  => $e['role_name'] === 'driver' ? 'caisse' : 'bank',
+                'default_payment'  => lpc_payroll_default_payment($e['role_name'], $e['job_title']),
                 'slip'             => $slip,
                 // No salary on the record and no payslip: nothing to calculate.
                 'no_salary'        => !$paid && ((float) $e['base_salary'] + (float) $e['housing_allowance'] + (float) $e['transport_allowance']) <= 0,
@@ -267,12 +294,10 @@ try {
         $period = (string) ($_GET['period'] ?? '');
         if (!preg_match('/^\d{4}-\d{2}$/', $period)) throw new Exception("Période invalide.");
         [$y, $m] = array_map('intval', explode('-', $period));
-        // Sprint 15: employee_name via employees join.
         $stmt = $db->prepare("
             SELECT p.*, CONCAT(e.first_name, ' ', e.last_name) AS employee_name
               FROM hr_payslips p
-              JOIN users     u ON u.id = p.user_id
-              LEFT JOIN employees e ON e.id = u.employee_id
+              JOIN employees e ON e.id = p.employee_id
              WHERE p.month = ? AND p.year = ? AND p.status IN ('validated','paid')
              ORDER BY e.first_name ASC
         ");
@@ -319,15 +344,15 @@ try {
         $where = "p.month = ? AND p.year = ? AND p.status = 'validated'";
         if ($has_col) $where .= " AND p.payment_je_id IS NULL";
 
-        // Sprint 15: employee_name via employees join.
         $stmt = $db->prepare("
-            SELECT p.id, p.user_id, p.net_pay, p.payment_method,
+            SELECT p.id, p.employee_id, p.user_id, p.net_pay, p.payment_method,
                    CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+                   e.job_title,
                    r.name AS role_name
               FROM hr_payslips p
-              JOIN users     u ON u.id = p.user_id
-              JOIN roles     r ON r.id = u.role_id
-              LEFT JOIN employees e ON e.id = u.employee_id
+              JOIN employees e ON e.id = p.employee_id
+              LEFT JOIN users u ON u.id = p.user_id
+              LEFT JOIN roles r ON r.id = u.role_id
              WHERE {$where}
              ORDER BY p.payment_method, e.last_name, e.first_name
         ");
@@ -406,6 +431,7 @@ try {
         $paidSlips = $db->prepare("SELECT user_id, net_pay FROM hr_payslips WHERE id IN ($ph)");
         $paidSlips->execute($ids);
         foreach ($paidSlips->fetchAll(PDO::FETCH_ASSOC) as $slip) {
+            if (!$slip['user_id']) continue;   // no login, nobody to tell in the app
             lpc_notify_user(
                 $db,
                 (int) $slip['user_id'],
@@ -430,36 +456,38 @@ try {
     // + last 6 months payslip history.
     // -------------------------------------------------------------------------
     if ($action === 'employee_full_detail') {
-        $uid    = (int)   ($_GET['user_id'] ?? $payload['user_id'] ?? 0);
+        $eid    = lpc_payroll_employee($db, $_GET + (is_array($payload) ? $payload : []));
         $period = (string)($_GET['period']  ?? $payload['period']  ?? '');
-        if ($uid <= 0) throw new Exception("Utilisateur invalide.");
+        if ($eid <= 0) throw new Exception("Employé invalide.");
         if (!preg_match('/^\d{4}-\d{2}$/', $period)) throw new Exception("Période invalide (YYYY-MM).");
         [$y, $m] = array_map('intval', explode('-', $period));
         $month = new DateTimeImmutable(sprintf('%04d-%02d-01', $y, $m));
 
-        // 1. Identity + contract — Sprint 15: employees is the SSOT.
-        // Payroll still keys by users.id, so the query anchors on users and
-        // JOINs employees. is_active reads from employees (payroll filter),
-        // not from users.status (login lock) — the two are distinct.
+        // 1. Identity + contract, from the employee (the login, if any, joined).
+        // is_active reads from employees (payroll filter), not from users.status
+        // (login lock): the two are distinct.
         $stmt = $db->prepare("
-            SELECT u.id AS user_id, u.email, u.status AS user_status,
-                   e.first_name, e.last_name, e.employee_code,
+            SELECT e.id AS employee_id, u.id AS user_id, u.email, u.status AS user_status,
+                   e.first_name, e.last_name, e.employee_code, e.job_title,
                    e.base_salary, e.housing_allowance, e.transport_allowance,
                    e.cnps_number,
                    e.seniority_years, e.tax_regime, e.hire_date, e.is_active,
                    r.name AS role_name
-              FROM users u
-              JOIN roles     r ON r.id = u.role_id
-              LEFT JOIN employees e ON e.id = u.employee_id
-             WHERE u.id = ?
+              FROM employees e
+              LEFT JOIN users u ON u.employee_id = e.id
+              LEFT JOIN roles r ON r.id = u.role_id
+             WHERE e.id = ?
              LIMIT 1
         ");
-        $stmt->execute([$uid]);
+        $stmt->execute([$eid]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$row) throw new Exception("Employé introuvable.");
 
+        $uid = $row['user_id'] ? (int) $row['user_id'] : 0;   // the login, 0 when none
         $identity = [
-            'user_id'         => (int) $row['user_id'],
+            'employee_id'     => (int) $row['employee_id'],
+            'user_id'         => $uid ?: null,
+            'job_title'       => $row['job_title'],
             'employee_code'   => $row['employee_code'],
             'employee_name'   => trim(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? '')),
             'email'           => $row['email'],
@@ -483,10 +511,10 @@ try {
         // 2. Current-period slip (if generated) or live compute
         $stmt = $db->prepare("
             SELECT * FROM hr_payslips
-             WHERE user_id = ? AND month = ? AND year = ? AND status IN ('validated','paid')
+             WHERE employee_id = ? AND month = ? AND year = ? AND status IN ('validated','paid')
              ORDER BY id DESC LIMIT 1
         ");
-        $stmt->execute([$uid, $m, $y]);
+        $stmt->execute([$eid, $m, $y]);
         $slip = $stmt->fetch(PDO::FETCH_ASSOC);
 
         $current = null;
@@ -535,12 +563,12 @@ try {
                 'transport_allowance' => $contract['transport_allowance'],
             ]);
             // The same advances the grid shows: paid out, not yet deducted.
-            $adv_pending = lpc_advances_to_deduct($db, $uid, $y, $m);
+            $adv_pending = lpc_advances_to_deduct($db, $eid, $y, $m);
             $st2 = $db->prepare("SELECT COALESCE(SUM(amount),0) FROM driver_debts
                                   WHERE driver_id = ? AND status = 'unpaid'
                                     AND MONTH(tour_date) = ? AND YEAR(tour_date) = ?");
-            $st2->execute([$uid, $m, $y]);
-            $debt_pending = (float) $st2->fetchColumn();
+            $st2->execute([$uid, $m, $y]);   // driver debts are kept by login
+            $debt_pending = $uid ? (float) $st2->fetchColumn() : 0.0;
 
             $inputs = [
                 'bonuses'              => 0.0,
@@ -553,7 +581,7 @@ try {
             $current = [
                 'source'         => 'preview',
                 'is_paid'        => false,
-                'payment_method' => $identity['role_name'] === 'driver' ? 'caisse' : 'bank',
+                'payment_method' => lpc_payroll_default_payment($identity['role_name'], $row['job_title']),
                 'token'          => null,
                 'status'         => 'preview',
                 'computation'    => $result,
@@ -565,11 +593,11 @@ try {
         $stmt = $db->prepare("
             SELECT id, amount, request_date, status
               FROM hr_advances
-             WHERE user_id = ?
+             WHERE employee_id = ?
                AND MONTH(request_date) = ? AND YEAR(request_date) = ?
              ORDER BY request_date DESC
         ");
-        $stmt->execute([$uid, $m, $y]);
+        $stmt->execute([$eid, $m, $y]);
         $advances_period = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         $debts_period = [];
@@ -589,11 +617,11 @@ try {
         $stmt = $db->prepare("
             SELECT id, month, year, gross_salary, net_pay, status, token, payment_method, created_at, paid_at
               FROM hr_payslips
-             WHERE user_id = ? AND status IN ('validated','paid')
+             WHERE employee_id = ? AND status IN ('validated','paid')
              ORDER BY year DESC, month DESC
              LIMIT 6
         ");
-        $stmt->execute([$uid]);
+        $stmt->execute([$eid]);
         $history = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         sendJson('success', '', [
@@ -611,25 +639,21 @@ try {
     // PREVIEW — no writes, live breakdown for the UI
     // -------------------------------------------------------------------------
     if ($action === 'preview') {
-        // Sprint 15: `contract_id` no longer exists as a separate row —
-        // employee IS the contract. Kept as a POST param name for
-        // backward-compat with any cached client bundle: if present, it is
-        // treated as a users.id (which was the old semantic in every caller).
-        $user_id_p   = (int) ($payload['user_id']     ?? $payload['contract_id'] ?? 0);
-        $period      = (string) ($payload['period']   ?? '');
+        // The employee (employee_id; an older page's user_id is mapped).
+        $eid_p  = lpc_payroll_employee($db, $payload);
+        $period = (string) ($payload['period'] ?? '');
         if (!preg_match('/^\d{4}-\d{2}$/', $period)) throw new Exception("Période invalide.");
-        if ($user_id_p <= 0) throw new Exception("Utilisateur invalide.");
+        if ($eid_p <= 0) throw new Exception("Employé invalide.");
 
         $stmt = $db->prepare("
             SELECT e.base_salary, e.housing_allowance, e.transport_allowance,
                    e.tax_regime, e.seniority_years, e.marital_status,
                    e.dependents_count, e.cnps_number, e.is_active
               FROM employees e
-              JOIN users u ON u.employee_id = e.id
-             WHERE u.id = ? AND e.is_active = 1
+             WHERE e.id = ? AND e.is_active = 1
              LIMIT 1
         ");
-        $stmt->execute([$user_id_p]);
+        $stmt->execute([$eid_p]);
         $contract = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$contract) throw new Exception("Employé actif introuvable.");
 
@@ -666,25 +690,20 @@ try {
     }
 
     if ($action === 'request_advance') {
-        $uid = (int) ($payload['user_id'] ?? 0);
+        $eid = lpc_payroll_employee($db, $payload);
         $amt = (float)($payload['amount']  ?? 0);
-        if ($uid <= 0 || $amt <= 0) throw new Exception("Utilisateur ou montant invalide.");
-        $stmt = $db->prepare("INSERT INTO hr_advances (user_id, amount, request_date, status) VALUES (?, ?, CURRENT_DATE(), 'pending')");
-        $stmt->execute([$uid, $amt]);
-
-        // Sprint 15: employee name via employees join.
-        $empName = $db->prepare("
-            SELECT CONCAT(e.first_name, ' ', e.last_name)
-              FROM users u
-              LEFT JOIN employees e ON e.id = u.employee_id
-             WHERE u.id = ?
-        ");
-        $empName->execute([$uid]);
+        if ($eid <= 0 || $amt <= 0) throw new UserFacingException("Choisissez l'employé et un montant.");
+        $chkE = $db->prepare("SELECT CONCAT(first_name, ' ', last_name) FROM employees WHERE id = ? AND is_active = 1");
+        $chkE->execute([$eid]);
+        $empLabel = $chkE->fetchColumn();
+        if ($empLabel === false) throw new UserFacingException("Cet employé n'est pas actif.");
+        $stmt = $db->prepare("INSERT INTO hr_advances (employee_id, user_id, amount, request_date, status) VALUES (?, ?, ?, CURRENT_DATE(), 'pending')");
+        $stmt->execute([$eid, lpc_payroll_login($db, $eid), $amt]);
         lpc_notify_permission(
             $db,
             'hr.payroll.approve_advance',
             'Demande d\'acompte',
-            ($_SESSION['user_name'] ?? 'Un opérateur') . " a soumis une demande d'acompte pour " . ($empName->fetchColumn() ?: "#$uid")
+            ($_SESSION['user_name'] ?? 'Un opérateur') . " a soumis une demande d'acompte pour " . ($empLabel ?: "#$eid")
                 . " — " . number_format($amt, 0, ',', ' ') . " FCFA.",
             '/modules/hr/payroll_finance.php',
             'warning',
@@ -707,7 +726,7 @@ try {
 
         $adv = $db->prepare("SELECT user_id, amount FROM hr_advances WHERE id = ?");
         $adv->execute([$id]);
-        if ($a = $adv->fetch(PDO::FETCH_ASSOC)) {
+        if (($a = $adv->fetch(PDO::FETCH_ASSOC)) && $a['user_id']) {
             lpc_notify_user(
                 $db,
                 (int) $a['user_id'],
@@ -762,7 +781,7 @@ try {
 
         $adv2 = $db->prepare("SELECT user_id, amount FROM hr_advances WHERE id = ?");
         $adv2->execute([$advance_id]);
-        if ($a2 = $adv2->fetch(PDO::FETCH_ASSOC)) {
+        if (($a2 = $adv2->fetch(PDO::FETCH_ASSOC)) && $a2['user_id']) {
             lpc_notify_user(
                 $db,
                 (int) $a2['user_id'],
@@ -788,7 +807,7 @@ try {
 
         $adv3 = $db->prepare("SELECT user_id, amount FROM hr_advances WHERE id = ?");
         $adv3->execute([$id]);
-        if ($a3 = $adv3->fetch(PDO::FETCH_ASSOC)) {
+        if (($a3 = $adv3->fetch(PDO::FETCH_ASSOC)) && $a3['user_id']) {
             lpc_notify_user(
                 $db,
                 (int) $a3['user_id'],
@@ -809,23 +828,26 @@ try {
         [$y, $m] = array_map('intval', explode('-', $period));
         $month = new DateTimeImmutable(sprintf('%04d-%02d-01', $y, $m));
 
-        $employees = $payload['employees'] ?? null;      // array of { user_id, bonuses, absences_days, driver_debt_deducted, payment_method }
+        $employees = $payload['employees'] ?? null;      // array of { employee_id, bonuses, absences_days, driver_debt_deducted, payment_method }
         if (!is_array($employees) || empty($employees)) throw new UserFacingException("Aucun employé sélectionné.");
 
         $db->beginTransaction();
 
-        $find_slip = $db->prepare("SELECT id, status FROM hr_payslips WHERE user_id = ? AND month = ? AND year = ? FOR UPDATE");
+        $find_slip = $db->prepare("SELECT id, status FROM hr_payslips WHERE employee_id = ? AND month = ? AND year = ? FOR UPDATE");
+        // A month never calculated before inserts its payslips. The values list
+        // used to miss the person, the month and the year (21 values for 24
+        // places): only a month re-calculated after « Annuler la paie » worked.
         $insert_slip = $db->prepare("
             INSERT INTO hr_payslips
-                (user_id, month, year, base_salary, bonuses, gross_salary, taxable_base,
+                (employee_id, user_id, month, year, base_salary, bonuses, gross_salary, taxable_base,
                  cnps_employee, cnps_employer, irpp, cac, cfc, crtv, rav, tdl,
                  advances_deducted, driver_debt_deducted, absences_deducted,
                  net_pay, payment_method, status, token, token_expires_at,
                  breakdown_json, created_by, cfc_employer, fne_employer)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'validated', ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'validated', ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?)
         ");
-        // A payslip cancelled by « Annuler la paie » keeps its row (one per person and
-        // month, key user_period_idx) as 'draft'; calculating it again fills it anew.
+        // A payslip cancelled by « Annuler la paie » keeps its row (one per employee
+        // and month, key employee_period_idx) as 'draft'; calculating it again fills it anew.
         $refill_slip = $db->prepare("
             UPDATE hr_payslips
                SET base_salary = ?, bonuses = ?, gross_salary = ?, taxable_base = ?,
@@ -843,8 +865,9 @@ try {
         $skipped = [];
         $already = [];
         foreach ($employees as $emp) {
-            $uid = (int) ($emp['user_id'] ?? 0);
-            if ($uid <= 0) continue;
+            $eid = lpc_payroll_employee($db, is_array($emp) ? $emp : []);
+            if ($eid <= 0) continue;
+            $uid = lpc_payroll_login($db, $eid);   // null for an employee without a login
 
             // Contract fields from `employees` (Données de Base → Employés & RH).
             $stmt = $db->prepare("
@@ -853,18 +876,17 @@ try {
                        e.dependents_count, e.cnps_number, e.is_active,
                        CONCAT(e.first_name, ' ', e.last_name) AS employee_name
                   FROM employees e
-                  JOIN users u ON u.employee_id = e.id
-                 WHERE u.id = ? AND e.is_active = 1
+                 WHERE e.id = ? AND e.is_active = 1
                  LIMIT 1
             ");
-            $stmt->execute([$uid]);
+            $stmt->execute([$eid]);
             $contract = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$contract) continue;
-            $name = trim((string) $contract['employee_name']) ?: ('#' . $uid);
+            $name = trim((string) $contract['employee_name']) ?: ('#' . $eid);
 
             // One payslip per person and month. Before 18/11/2026 a second run
             // reached the unique key and answered « Erreur serveur ».
-            $find_slip->execute([$uid, $m, $y]);
+            $find_slip->execute([$eid, $m, $y]);
             $existing = $find_slip->fetch(PDO::FETCH_ASSOC) ?: null;
             if ($existing && $existing['status'] !== 'draft') { $already[] = $name; continue; }
 
@@ -872,17 +894,18 @@ try {
             // paid out and not yet deducted (VIDEO_QA_FINDINGS 10.2).
             $adv_ids_stmt = $db->prepare("
                 SELECT id, amount FROM hr_advances
-                 WHERE user_id = ? AND status = 'disbursed' AND payslip_id IS NULL AND request_date <= ?
+                 WHERE employee_id = ? AND status = 'disbursed' AND payslip_id IS NULL AND request_date <= ?
                  FOR UPDATE
             ");
-            $adv_ids_stmt->execute([$uid, $month->format('Y-m-t')]);
+            $adv_ids_stmt->execute([$eid, $month->format('Y-m-t')]);
             $advs = $adv_ids_stmt->fetchAll(PDO::FETCH_ASSOC);
 
             $inputs = [
                 'bonuses'              => max(0.0, (float) ($emp['bonuses']              ?? 0)),
                 'absences_days'        => max(0.0, (float) ($emp['absences_days']        ?? 0)),
                 'advances_deducted'    => array_sum(array_map(fn($a) => (float) $a['amount'], $advs)),
-                'driver_debt_deducted' => max(0.0, (float) ($emp['driver_debt_deducted'] ?? 0)),
+                // Driver debts are kept by login: none for an employee without one.
+                'driver_debt_deducted' => $uid ? max(0.0, (float) ($emp['driver_debt_deducted'] ?? 0)) : 0.0,
                 'other_deductions'     => max(0.0, (float) ($emp['other_deductions']     ?? 0)),
             ];
             $result = Payroll::compute($contract, $inputs, $month);
@@ -915,7 +938,7 @@ try {
                 $refill_slip->execute(array_merge($figures, [$json, $result['cfc_employer'], $result['fne_employer'], $user_id, (int) $existing['id']]));
                 $payslip_id = (int) $existing['id'];
             } else {
-                $insert_slip->execute(array_merge($figures, [$json, $user_id, $result['cfc_employer'], $result['fne_employer']]));
+                $insert_slip->execute(array_merge([$eid, $uid, $m, $y], $figures, [$json, $user_id, $result['cfc_employer'], $result['fne_employer']]));
                 $payslip_id = (int) $db->lastInsertId();
             }
 
@@ -933,7 +956,7 @@ try {
                    ->execute(array_merge([$payslip_id], array_map(fn($a) => (int) $a['id'], $advs)));
             }
 
-            if ($result['driver_debt_deducted'] > 0) {
+            if ($uid && $result['driver_debt_deducted'] > 0) {
                 $db->prepare("
                     UPDATE driver_debts SET status = 'deducted_from_salary'
                      WHERE driver_id = ? AND status = 'unpaid'
@@ -941,7 +964,7 @@ try {
                 ")->execute([$uid, $m, $y]);
             }
 
-            $created[] = ['user_id' => $uid, 'payslip_id' => $payslip_id, 'token' => $token, 'net' => $result['net']];
+            $created[] = ['employee_id' => $eid, 'user_id' => $uid, 'payslip_id' => $payslip_id, 'token' => $token, 'net' => $result['net']];
         }
 
         if (!$created && $already) {
@@ -954,6 +977,7 @@ try {
 
         // One notification per employee: not a broadcast.
         foreach ($created as $c) {
+            if (!$c['user_id']) continue;   // no login: the payslip is handed over in person
             lpc_notify_user(
                 $db,
                 (int) $c['user_id'],
@@ -1004,17 +1028,21 @@ try {
         if (!preg_match('/^\d{4}-\d{2}$/', $period)) throw new UserFacingException("Période invalide (attendu AAAA-MM).");
         if (mb_strlen($reason) < 3) throw new UserFacingException("Indiquez le motif de l'annulation.");
         [$y, $m] = array_map('intval', explode('-', $period));
-        $only = array_values(array_filter(array_map('intval', (array) ($payload['user_ids'] ?? []))));
+        // Which employees (employee_ids; an older page's user_ids are mapped).
+        $only = array_values(array_filter(array_map('intval', (array) ($payload['employee_ids'] ?? []))));
+        foreach (array_filter(array_map('intval', (array) ($payload['user_ids'] ?? []))) as $u) {
+            $e = lpc_payroll_employee($db, ['user_id' => $u]);
+            if ($e) $only[] = $e;
+        }
 
         $db->beginTransaction();
-        $sql = "SELECT p.id, p.user_id, p.status, p.driver_debt_deducted, p.journal_entry_id,
+        $sql = "SELECT p.id, p.employee_id, p.user_id, p.status, p.driver_debt_deducted, p.journal_entry_id,
                        CONCAT(e.first_name, ' ', e.last_name) AS employee_name
                   FROM hr_payslips p
-                  JOIN users u ON u.id = p.user_id
-                  LEFT JOIN employees e ON e.id = u.employee_id
+                  JOIN employees e ON e.id = p.employee_id
                  WHERE p.month = ? AND p.year = ? AND p.status IN ('validated','paid')";
         $args = [$m, $y];
-        if ($only) { $sql .= ' AND p.user_id IN (' . implode(',', array_fill(0, count($only), '?')) . ')'; $args = array_merge($args, $only); }
+        if ($only) { $sql .= ' AND p.employee_id IN (' . implode(',', array_fill(0, count($only), '?')) . ')'; $args = array_merge($args, $only); }
         $st = $db->prepare($sql . ' FOR UPDATE');
         $st->execute($args);
         $slips = $st->fetchAll(PDO::FETCH_ASSOC);
@@ -1034,7 +1062,7 @@ try {
             // Advances deducted before migration 096 were never paid out through the app.
             $db->prepare("UPDATE hr_advances SET status = 'approved', payslip_id = NULL WHERE payslip_id = ? AND status = 'deducted' AND disbursement_je_id IS NULL")
                ->execute([(int) $p['id']]);
-            if ((float) $p['driver_debt_deducted'] > 0) {
+            if ($p['user_id'] && (float) $p['driver_debt_deducted'] > 0) {
                 $db->prepare("UPDATE driver_debts SET status = 'unpaid'
                                WHERE driver_id = ? AND status = 'deducted_from_salary'
                                  AND MONTH(tour_date) = ? AND YEAR(tour_date) = ?")
@@ -1045,7 +1073,7 @@ try {
                                  updated_by = ?, updated_at = NOW()
                            WHERE id = ?")
                ->execute([bin2hex(random_bytes(32)), $user_id, (int) $p['id']]);
-            $cancelled[] = ['user_id' => (int) $p['user_id'], 'name' => $p['employee_name']];
+            $cancelled[] = ['employee_id' => (int) $p['employee_id'], 'user_id' => $p['user_id'] ? (int) $p['user_id'] : null, 'name' => $p['employee_name']];
         }
 
         if (!$cancelled) {
@@ -1057,6 +1085,7 @@ try {
         $db->commit();
 
         foreach ($cancelled as $c) {
+            if (!$c['user_id']) continue;
             lpc_notify_user($db, $c['user_id'], 'Bulletin de paie annulé',
                 "Votre bulletin de " . sprintf('%02d/%04d', $m, $y) . " a été annulé pour être recalculé. Motif : {$reason}",
                 '/modules/hr/payroll_finance.php', 'info');

@@ -378,8 +378,7 @@ function lpc_load_document(PDO $db, string $type, string $token): ?array
                        e.cnps_number, e.marital_status, e.dependents_count,
                        e.employee_code, e.job_title, e.hire_date
                   FROM hr_payslips p
-                  JOIN users     u ON u.id = p.user_id
-                  LEFT JOIN employees e ON e.id = u.employee_id
+                  JOIN employees e ON e.id = p.employee_id
                  WHERE p.token = ? LIMIT 1
             ");
             $stmt->execute([$token]);

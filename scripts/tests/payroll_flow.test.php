@@ -85,7 +85,7 @@ check('the advances are counted by the server, not taken from the page',
 echo "\nAdvances\n";
 check('approving needs a pending request', str_contains(action_body($pc, 'approve_advance'), "WHERE id = ? AND status = 'pending'"));
 check('refusing needs a pending request', str_contains(action_body($pc, 'reject_advance'), "WHERE id = ? AND status = 'pending'"));
-check('an approved, not paid out advance is not deducted', str_contains($pc, "WHERE user_id = ? AND status = 'disbursed' AND payslip_id IS NULL")
+check('an approved, not paid out advance is not deducted', str_contains($pc, "WHERE employee_id = ? AND status = 'disbursed' AND payslip_id IS NULL")
       && !str_contains($pc, "status IN ('approved','disbursed')"));
 check('« Décaisser » passes the name through data attributes (no quote in onclick)',
       str_contains($js, 'onclick="openDisburseAdvanceModal(+this.dataset.id, +this.dataset.amount, this.dataset.name)"')
@@ -124,6 +124,30 @@ check('the payslip prints no family situation', !str_contains($pdf, "'Situation'
 check('the DIPE sums the CFC patronale and FNE each payslip booked',
       str_contains($te, 'SUM(COALESCE(fne_employer, ROUND(gross_salary * :fne_rate)))')
       && str_contains($te, 'SUM(COALESCE(cfc_employer, ROUND(gross_salary * :cfc_rate)))'));
+
+echo "\nEmployees without a login (VIDEO_QA_FINDINGS 10.6, migration 144)\n";
+$m144 = (string) @file_get_contents($root . '/migrations/144_payroll_by_employee.sql');
+check('payslips and advances carry the employee, the login is optional',
+      str_contains($m144, 'ALTER TABLE hr_payslips ADD COLUMN employee_id') && str_contains($m144, 'ALTER TABLE hr_advances ADD COLUMN employee_id')
+      && str_contains($m144, 'MODIFY COLUMN user_id INT NULL'));
+check('one payslip per employee and month', str_contains($m144, 'UNIQUE KEY employee_period_idx (employee_id, month, year)'));
+check('existing rows are given their employee', str_contains($m144, 'SET p.employee_id = u.employee_id') && str_contains($m144, 'SET a.employee_id = u.employee_id'));
+$grid = action_body($pc, 'get_payroll_grid');
+check('the grid lists every active employee, login or not',
+      str_contains($grid, 'LEFT JOIN users u ON u.employee_id = e.id') && !preg_match('/\n\s+JOIN users u ON u\.employee_id = e\.id/', $grid));
+check('a calculated month is read by employee', str_contains($grid, 'WHERE employee_id = ? AND month = ? AND year = ?'));
+$gen = action_body($pc, 'generate_month');
+check('the month is calculated by employee', str_contains($gen, 'WHERE employee_id = ? AND month = ? AND year = ? FOR UPDATE') && str_contains($gen, 'WHERE e.id = ? AND e.is_active = 1'));
+check('a new month\'s payslip gets the employee, the login, the month and the year (it lacked three values)',
+      str_contains($gen, '(employee_id, user_id, month, year, base_salary') && str_contains($gen, 'array_merge([$eid, $uid, $m, $y], $figures'));
+check('an advance is requested for an employee', str_contains(action_body($pc, 'request_advance'), 'INSERT INTO hr_advances (employee_id, user_id, amount'));
+check('nobody without a login is notified in the app', substr_count($pc, "if (!\$c['user_id']) continue;") >= 2);
+check('a driver is paid at the cash box by default, by role or post', str_contains($pc, "function lpc_payroll_default_payment") && str_contains($pc, 'chauffeur|driver'));
+check('an older page sending user_id still works', str_contains($pc, 'function lpc_payroll_employee') && str_contains($pc, "SELECT employee_id FROM users WHERE id = ?"));
+check('the page sends the employee', str_contains($js, "employee_id: r.getAttribute('data-uid')") && str_contains($js, 'data-uid="${e.employee_id}"')
+      && str_contains($js, "employee_full_detail&employee_id="));
+check('the payslip and the advance entry name the employee, not the login',
+      str_contains($pdf, 'JOIN employees e ON e.id = p.employee_id') && str_contains($jp, 'JOIN employees e ON e.id = a.employee_id'));
 
 echo "\n" . ($fail ? "{$fail} failed" : 'All payroll checks passed.') . "\n";
 exit($fail ? 1 : 0);

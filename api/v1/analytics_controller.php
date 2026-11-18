@@ -528,24 +528,27 @@ if ($action === 'drilldown_payroll') {
 
     $sql_body = "
         FROM hr_payslips p
+        LEFT JOIN employees e ON e.id = p.employee_id
         LEFT JOIN users u ON u.id = p.user_id
         LEFT JOIN roles r ON r.id = u.role_id
         WHERE (p.year * 12 + p.month) BETWEEN :s_key AND :e_key
           AND p.status IN ('validated', 'paid')
-        ORDER BY p.year DESC, p.month DESC, u.first_name ASC
+        ORDER BY p.year DESC, p.month DESC, e.first_name ASC
     ";
+    // The person from the employee record (migration 144): an employee without a
+    // login is in the payroll too; the role is the login's, else the post.
     $select = "p.id, p.year, p.month, p.gross_salary, p.net_pay, p.status,
                p.cnps_employee, p.irpp,
-               COALESCE(u.first_name, '') AS first_name,
-               COALESCE(u.last_name,  '') AS last_name,
-               COALESCE(u.employee_code, '') AS employee_code,
-               COALESCE(r.name, '')     AS role_name";
+               COALESCE(e.first_name, '') AS first_name,
+               COALESCE(e.last_name,  '') AS last_name,
+               COALESCE(e.employee_code, '') AS employee_code,
+               COALESCE(r.name, e.job_title, '') AS role_name";
 
     analytics_run_drilldown(
         $pdo, $sql_body,
         ['s_key' => $s_key, 'e_key' => $e_key],
         $select,
-        ['u.first_name', 'u.last_name', 'u.employee_code', 'r.name', 'p.status'],
+        ['e.first_name', 'e.last_name', 'e.employee_code', 'r.name', 'p.status'],
         ['Année', 'Mois', 'Code', 'Nom', 'Prénom', 'Rôle', 'Brut FCFA', 'CNPS FCFA', 'IRPP FCFA', 'Net FCFA', 'Statut'],
         ['year', 'month', 'employee_code', 'last_name', 'first_name', 'role_name', 'gross_salary', 'cnps_employee', 'irpp', 'net_pay', 'status'],
         'payroll'

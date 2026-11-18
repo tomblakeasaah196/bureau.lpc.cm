@@ -171,9 +171,9 @@ function verify_summary(PDO $db, array $sig): ?array
                 // are the display fields on users.
                 $s = $db->prepare("
                     SELECT p.year, p.month, p.net_pay,
-                           TRIM(CONCAT(u.first_name, ' ', u.last_name)) AS employee_name
+                           TRIM(CONCAT(e.first_name, ' ', e.last_name)) AS employee_name
                       FROM hr_payslips p
-                      LEFT JOIN users u ON u.id = p.user_id
+                      LEFT JOIN employees e ON e.id = p.employee_id
                      WHERE p.id = ? LIMIT 1
                 ");
                 $s->execute([$docId]);

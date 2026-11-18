@@ -1420,10 +1420,10 @@ final class JournalPoster
 
         // 1. Load and lock the advance.
         $stmt = $db->prepare("
-            SELECT a.id, a.user_id, a.amount, a.status, a.disbursement_je_id,
-                   CONCAT(u.first_name, ' ', u.last_name) AS employee_name
+            SELECT a.id, a.user_id, a.employee_id, a.amount, a.status, a.disbursement_je_id,
+                   CONCAT(e.first_name, ' ', e.last_name) AS employee_name
               FROM hr_advances a
-              JOIN users u ON u.id = a.user_id
+              JOIN employees e ON e.id = a.employee_id
              WHERE a.id = ?
              FOR UPDATE
         ");
