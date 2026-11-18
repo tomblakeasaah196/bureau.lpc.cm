@@ -18,6 +18,7 @@ its choreography together.
 | Modules, partie 2 : Gestion des Achats (order at the tariff, price check, remise or ristourne, two receptions, ristourne earned, payment, order detail, cancellation, the Grand Livre) | `gestion-des-achats.js` | Made 18/11/2026, 5:40, 11 chapters, -16.1 LUFS, 14.5 MB (refilmed the same day with the owner's ristourne rule; the first cut was replaced); sent in the chat; files in `bureau_video/publish/gestion-des-achats/`; to publish (§5) |
 | Modules, partie 3 : Stock & Emballages et Fiche de Stock (the KPIs and the table, an avarie, the Historique, a sealed inventory and its certificate, the Fiche in bottles and francs, 311 and 6031 in the Grand Livre) | `stock-et-emballages.js` | Made 18/11/2026 (track A), 6:04, 8 chapters, -16.1 LUFS, 16.3 MB; sent in the chat; files in `bureau_video/publish/stock-et-emballages/`; to publish (§5) |
 | Modules, partie 6 : Flotte (the truck, its daily assignment, fuel, a breakdown, the repair, the visite technique and a vidange, Finance validating the fuel expense) | `flotte.js` | Made 18/11/2026 (track B), 4:39, 10 chapters, -16.1 LUFS, 12.3 MB; sent in the chat; files in `bureau_video/publish/flotte/`; to publish (§5) |
+| Modules, partie 9 : Trésorerie & Dépenses (the accounts and the Grand Livre's 552, a transfer to the cash box, a fuel advance, Operations' request and fill-up, Finance validating and paying, the Carburant comparison and « Rattacher », a reconciliation, a recurring expense) | `tresorerie-depenses.js` | Made 18/11/2026 (track B), 6:05, 10 chapters, -16.1 LUFS, 18.9 MB; sent in the chat; files in `bureau_video/publish/tresorerie-depenses/`; to publish (§5) |
 | Modules, partie 10 : Salaires (an advance requested, approved and paid out; November undone, calculated again and paid; the detail, the payslip, the entries). Real pay: library audience = the payroll roles | `salaires.js` | Made 18/11/2026 (track C), 6:55, 12 chapters, -16.1 LUFS, 19.2 MB; sent in the chat; files in `bureau_video/publish/salaires/`; to publish (§5), with no `audience` (see §8) |
 
 ---
@@ -516,5 +517,15 @@ the help search, the help AI's answers and each page's « ? »), and sent in the
       (561 713 F). Rehearsing each shot's actions without recording (a light driver) caught four issues before a filming
       turn was spent. Owner questions #13 and #14 (live November, the FNE never accrued) and finding 10.6 (payroll needs
       a login, so drivers without one cannot be paid) are open. The copy is left as snapshot `after-10-salaires`.
+- [x] Modules, partie 9 · Trésorerie & Dépenses (18/11/2026, track B on copy B): QA (crawler as the CF, the Comptable, the DG
+      and Operations on both pages, then the API and every step by hand, scripted), PR #67 (§9 of VIDEO_QA_FINDINGS 9.1
+      to 9.6 and the owner's answer 6: one gate with CSRF, Finance pays, opening balances posted to 471, correction
+      requests answered, Retour de Tournée removed, the Carburant tab with « Rattacher », recurring drafts without a cron;
+      migrations 139 and 140, `treasury_expenses.test.php`), merged and deployed; live serves the new scripts and both
+      APIs refuse anonymous calls (139 on live data not checked: needs a sign-in). Decisions: the fuel advance equals the
+      fill-up (30 L × 828 = 24 840 F) so « Rattacher » ends concordant; the recurring model (internet, 30 000 F) is an
+      example; MTN's COA link left as is (it posts to 552 by type); 9.7 and the 471 origin are owner questions 19 and 20.
+      The copy is left as snapshot `after-09-tresorerie` (MTN 519 320 F, cash box 17 660 F, November fuel concordant at
+      74 520 F, the visite technique and vidange requests still « à valider »).
 - [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
       Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.

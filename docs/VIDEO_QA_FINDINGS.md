@@ -148,6 +148,11 @@ Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026):
    insuffisants ». **Default decided:** refuse the same way in Gestion du Personnel, but only once CCA Bank and
    Caisse Principale carry their real balances on live (owner #20): until then refusing would block the real
    November payroll. For the Comptabilité 2 or the admin series session; nothing changed yet.
+8. [V] No screen records money coming back into an account except a transfer: change returned from a fuel advance,
+   a refund from a supplier, a bank interest. A fuel gap left by an advance larger than its fill-ups can only be
+   cleared by an OD. Proposal: an « Entrée diverse » card on Opérations & Transferts (Finance, with its account and
+   category, posted Dr 5x / Cr the chosen account), counted by the Carburant tab when its category is Carburant.
+   Found by the Trésorerie session, 18/11/2026; not built.
 
 ## 10 · Gestion du Personnel (salaires)
 
