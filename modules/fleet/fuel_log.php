@@ -1,6 +1,9 @@
 <?php
 // RBAC + env bootstrap (loads .env, DB, session cookie hardening, Rbac).
 require_once __DIR__ . '/../../includes/bootstrap.php';
+// lpc_help_link() lives in help.php, which the shell's topbar loads. This mobile page has no topbar,
+// so it called an undefined function and stopped before drawing anything (Journal d'Erreurs, 17/11/2026).
+require_once __DIR__ . '/../../includes/functions/help.php';
 Rbac::requirePermission('fleet.fuel.log');
 $lang = lpc_i18n_current_lang();
 ?>
