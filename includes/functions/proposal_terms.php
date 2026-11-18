@@ -19,9 +19,9 @@
  *     later order links to through sales_orders.proposal_id);
  *   · makes a prospect an active client (its 411 account exists since it was
  *     created);
- *   · raises a product's « Seuil Min. » to the buffer the signed contracts
- *     promise (« Stock Tampon (Semaines) » × the monthly quantity), so the
- *     stock alert fires before LPC runs short of what it promised (3.6).
+ *   · it does NOT touch the product's « Seuil Min. » (the owner's answer 20 on
+ *     #16, 18/11/2026): the buffer a devis promises stays in the devis;
+ *     the threshold is set by hand in Données de Base.
  *
  * The parsers are pure functions: scripts/tests/proposal_flow.test.php runs them.
  * -----------------------------------------------------------------------------
@@ -180,14 +180,9 @@ function lpc_proposal_accept(PDO $db, int $proposalId): array
          WHERE id = ?
     ")->execute([$out['terms_days'], $out['empties_pct'], $proposalId, $clientId]);
 
-    // 3. The buffer the contracts promise raises the stock alert (3.6). Only
-    //    ever raised: a person lowers it in Données de Base.
-    foreach (array_keys($productIds) as $pid) {
-        $need = lpc_proposal_committed_buffer($db, $pid);
-        $u = $db->prepare("UPDATE products SET min_stock_level = ? WHERE id = ? AND COALESCE(min_stock_level, 0) < ?");
-        $u->execute([$need, $pid, $need]);
-        if ($u->rowCount() > 0) $out['thresholds'][$pid] = $need;
-    }
+    // « Seuil Min. » is not touched: the owner decided a devis must not raise
+    // it (answer 20 on register #16). lpc_proposal_committed_buffer() still
+    // says what the signed contracts promise, for whoever wants to read it.
 
     return $out;
 }
