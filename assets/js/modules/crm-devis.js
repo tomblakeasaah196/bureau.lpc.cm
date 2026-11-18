@@ -192,13 +192,19 @@
         // through LPC.raw, or the outer H`` escapes it and the cell shows the
         // markup as text (the "<span class=devis-badge-visa…>" seen in QA).
         var visa = row.lpc_signed
-            ? H`<span class="devis-badge devis-badge-visa" title="Signé en interne par La Petite Cour — le client n'a pas encore signé">Visé LPC</span>`
+            ? H`<span class="devis-badge devis-badge-visa" title="Signé en interne par La Petite Cour, le client n'a pas encore signé">Visé LPC</span>`
             : '';
 
         if (row.derived_status === 'signed') {
             // Client signed. The internal visa is implied context at that
             // point, so it is not repeated.
             return H`<span class="devis-badge devis-badge-signed">Signé</span>`;
+        }
+        if (row.derived_status === 'declined') {
+            // « Je souhaite discuter » on the signing page (VIDEO_QA_FINDINGS
+            // 4.4): the client wants to talk before signing. Revising the
+            // devis sends it again.
+            return H`<span class="devis-badge devis-badge-stale" title="Le client souhaite discuter de l'offre avant de signer">À revoir</span>${LPC.raw(visa)}`;
         }
         if (row.derived_status === 'expired') {
             return H`<span class="devis-badge devis-badge-expired">Expiré</span>${LPC.raw(visa)}`;
@@ -357,12 +363,14 @@
         var badgeEl = document.getElementById('devis-modal-badge');
         badgeEl.innerHTML = d.stale
             ? H`<span class="devis-badge devis-badge-stale">Signé · modifié depuis</span>`
-            : badge({ derived_status: d.derived_status });
+            : badge({ derived_status: d.derived_status, lpc_signed: !!d.visa });
 
         document.getElementById('devis-modal-body').innerHTML =
             (d.signature ? signatureBlock(d) : '') +
+            (d.applied ? appliedBlock(d) : '') +
             (d.editable ? editableTerms(p) : readonlyTerms(p)) +
-            linesBlock(d);
+            linesBlock(d) +
+            ordersBlock(d);
 
         if (d.editable) {
             mountLineEditors(d);
@@ -401,6 +409,56 @@
                         <p class="text-[10px] text-gray-400 font-mono mt-1">${s.hash_prefix}…</p>
                     </div>
                 </div>
+            </div>`;
+    }
+
+    /**
+     * What the client's signature carried onto its record
+     * (includes/functions/proposal_terms.php, VIDEO_QA_FINDINGS 4.1): the
+     * signed prices are its tariff in Ventes, the payment terms date its
+     * invoices, the empties minimum is what Gestion des Vides expects back.
+     */
+    function appliedBlock(d) {
+        var a = d.applied;
+        var pay = a.payment_terms_days === null ? 'non précisé'
+                : (a.payment_terms_days === 0 ? 'à la livraison' : a.payment_terms_days + ' jours');
+        var items = [
+            [a.tariff_lines + (a.tariff_lines > 1 ? ' prix signés' : ' prix signé'), 'tarif du client dans Ventes & Commandes'],
+            ['Paiement ' + pay, 'échéance de ses factures'],
+            [a.empties_min_pct === null ? 'Emballages' : 'Retour minimum ' + a.empties_min_pct + ' %', 'suivi dans Gestion des Vides'],
+            [a.client_status === 'active' ? 'Client actif' : 'Client ' + a.client_status, 'fiche client'],
+        ];
+        return H`
+            <div class="mb-6">
+                <h4 class="text-xs font-black text-gray-400 uppercase tracking-widest mb-3 border-b border-gray-200 pb-2">Appliqué à la fiche client</h4>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    ${LPC.raw(items.map(function (it) {
+                        return H`<div class="rounded-xl border border-gray-200 bg-white p-3">
+                            <p class="text-sm font-bold text-gray-900">${it[0]}</p>
+                            <p class="text-[11px] text-gray-500 mt-0.5">${it[1]}</p>
+                        </div>`;
+                    }).join(''))}
+                </div>
+            </div>`;
+    }
+
+    /** The orders made under this devis (sales_orders.proposal_id). */
+    function ordersBlock(d) {
+        var list = d.orders || [];
+        if (d.derived_status !== 'signed' && !list.length) return '';
+        var body = list.length
+            ? list.map(function (o) {
+                return H`<a href="/modules/sales/order_detail.php?id=${o.id}" class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50">
+                    <span class="text-sm font-bold text-lpc-dark">${o.reference}</span>
+                    <span class="text-xs text-gray-500">${F.date(o.date)}</span>
+                    <span class="text-sm font-bold text-gray-900">${F.fcfa(o.total_amount)}</span>
+                </a>`;
+            }).join('')
+            : H`<p class="text-sm text-gray-500">Aucune commande pour l'instant. Les commandes saisies pour ce client dans Ventes & Commandes s'y rattachent.</p>`;
+        return H`
+            <div class="mt-6">
+                <h4 class="text-xs font-black text-gray-400 uppercase tracking-widest mb-3 border-b border-gray-200 pb-2">Commandes issues de ce devis</h4>
+                ${LPC.raw(body)}
             </div>`;
     }
 
@@ -465,8 +523,7 @@
                             'Échange 1-pour-1 (100%)',
                             'Retour Minimum Exigé (90%)',
                             'Retour Minimum Exigé (80%)',
-                            'Retour Minimum Exigé (70%)',
-                            'Consigne Payée (Facturée)'
+                            'Retour Minimum Exigé (70%)'
                         ]))}
                     </div>
                     <div>
@@ -480,7 +537,7 @@
                      change a document already in someone's inbox. Re-addressing
                      means a new devis. -->
                 <p class="text-[11px] text-gray-400 mt-3">
-                    Le client (${p.client_name}) et la référence ne sont pas modifiables — créez un nouveau devis pour les changer.
+                    Le client (${p.client_name}) et la référence ne sont pas modifiables : créez un nouveau devis pour les changer.
                 </p>
             </div>`;
     }
@@ -517,7 +574,7 @@
                              data-pack="${it.pack_note || ''}">
                     <td class="py-2.5 px-4">
                         <div class="text-sm font-bold">${it.product_description}</div>
-                        <div class="text-[11px] italic">Devis antérieur — produit non modifiable</div>
+                        <div class="text-[11px] italic">Devis antérieur : produit non modifiable</div>
                     </td>
                     <td class="p-2">
                         <input type="number" class="line-qty w-full border border-gray-300 rounded-lg p-2 text-sm text-center font-bold" value="${it.quantity}" min="1">
@@ -670,7 +727,7 @@
 
             actions.innerHTML = H`
                 <span class="text-[11px] text-gray-400 mr-2 hidden md:inline">
-                    ${d.signed ? 'Signé — non modifiable' : 'Lecture seule'}
+                    ${d.signed ? 'Signé par le client : non modifiable' : 'Lecture seule'}
                 </span>
                 <button type="button" onclick="closeModal('devisModal')"
                         class="px-5 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors">Fermer</button>
@@ -1061,7 +1118,7 @@
 
         if (!copied) {
             addProposalRow();
-            LPC.toast('Les lignes de ce devis sont antérieures au suivi des produits — à ressaisir.', 'info');
+            LPC.toast('Les lignes de ce devis sont antérieures au suivi des produits : à ressaisir.', 'info');
         }
     }
 

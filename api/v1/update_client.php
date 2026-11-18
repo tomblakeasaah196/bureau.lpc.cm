@@ -3,6 +3,12 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 Rbac::requirePermission('crm.clients.edit');
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['status' => 'error', 'message' => 'POST requis.']);
+    exit;
+}
+Csrf::requireValid();
 // api/v1/update_client.php
 header('Content-Type: application/json');
 
@@ -31,7 +37,7 @@ try {
     $stmtCheck->execute(['id' => $data['id']]);
     $client = $stmtCheck->fetch();
 
-    if (!$client) throw new Exception("Client introuvable.");
+    if (!$client) throw new UserFacingException("Client introuvable.");
 
     $account_id = $client['account_id'];
     $new_status = isset($data['status']) ? $data['status'] : $client['status'];
@@ -61,7 +67,7 @@ try {
     // Guard: only the four legal AIR rates per LF 2026 (2.2 %, 5.5 %, 10 %, 15 %).
     $legal   = [0.0, 0.022, 0.055, 0.10, 0.15];
     if (!in_array(round($wa_rate, 4), $legal, true)) {
-        throw new Exception("Taux de retenue AIR invalide. Valeurs autorisées : 2.2 %, 5.5 %, 10 %, 15 %.");
+        throw new UserFacingException("Taux de retenue AIR invalide. Valeurs autorisées : 2,2 %, 5,5 %, 10 %, 15 %.");
     }
 
     // Same NIU rule as create_client.php: one value, both columns. This UPDATE
@@ -118,6 +124,12 @@ try {
         $db->rollBack();
     }
     http_response_code(500);
+    if ($e instanceof UserFacingException) {
+        // A rule the person can fix (the AIR rate): say it, in their words (4.8).
+        http_response_code(400);
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+        exit;
+    }
     error_log('API error: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     echo json_encode(['status' => 'error', 'message' => 'Erreur serveur. Veuillez réessayer.']);
 }

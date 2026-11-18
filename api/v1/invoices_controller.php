@@ -222,10 +222,15 @@ try {
             }, TreasuryAccount::invoiceable());
 
             $default_id = null;
+            $terms_days = null;
             if ($client_id > 0) {
-                $stmt = $db->prepare("SELECT default_payment_account_id FROM clients WHERE id = ?");
+                $stmt = $db->prepare("SELECT default_payment_account_id, payment_terms_days FROM clients WHERE id = ?");
                 $stmt->execute([$client_id]);
-                $default_id = (int) $stmt->fetchColumn() ?: null;
+                $cr = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+                $default_id = (int) ($cr['default_payment_account_id'] ?? 0) ?: null;
+                // The client's payment terms from its signed devis (migration
+                // 137): the invoice form dates the due date from them.
+                $terms_days = isset($cr['payment_terms_days']) ? (int) $cr['payment_terms_days'] : null;
             }
             // Only honour the client default if it is still offerable.
             if ($default_id && !in_array($default_id, array_column($accounts, 'id'), true)) {
@@ -236,6 +241,7 @@ try {
                 'status'             => 'success',
                 'accounts'           => $accounts,
                 'default_account_id' => $default_id ?: ($accounts[0]['id'] ?? null),
+                'payment_terms_days' => $terms_days,
             ], JSON_UNESCAPED_UNICODE);
             break;
 
@@ -647,13 +653,18 @@ try {
             // refused rather than passed to the INSERT, where MySQL would either
             // reject it (strict mode) or coerce it to '0000-00-00' (lax mode);
             // both outcomes leave a broken invoice halfway through the
-            // transaction. A missing due_date defaults to +30 days.
+            // transaction. A missing due_date takes the client's payment terms
+            // (its signed devis, migration 137), else 30 days.
             $isDate = static fn($s) => (bool) preg_match('/^\d{4}-\d{2}-\d{2}$/', $s);
             if (!$isDate($date)) {
                 throw new UserFacingException("Date de facture invalide.");
             }
             if ($due_date === '') {
-                $due_date = date('Y-m-d', strtotime($date . ' +30 days'));
+                $td = $db->prepare("SELECT payment_terms_days FROM clients WHERE id = ?");
+                $td->execute([$client_id]);
+                $days = $td->fetchColumn();
+                $days = ($days === false || $days === null) ? 30 : max(0, (int) $days);
+                $due_date = date('Y-m-d', strtotime($date . " +{$days} days"));
             } elseif (!$isDate($due_date)) {
                 throw new UserFacingException("Date d'échéance invalide.");
             } elseif ($due_date < $date) {

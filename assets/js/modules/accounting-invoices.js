@@ -709,6 +709,22 @@
                 const json = await res.json();
                 const accounts = (json.status === 'success' && Array.isArray(json.accounts)) ? json.accounts : [];
 
+                // The due date follows the client's payment terms, from its
+                // signed devis (Net 15 → invoice date + 15 days). No terms:
+                // the usual 30 days (VIDEO_QA_FINDINGS 4.1).
+                const days = (json.payment_terms_days === null || json.payment_terms_days === undefined)
+                    ? 30 : Number(json.payment_terms_days);
+                const base = document.getElementById('gen_date').valueAsDate || new Date();
+                const due = new Date(base.getTime());
+                due.setDate(due.getDate() + days);
+                document.getElementById('gen_due_date').valueAsDate = due;
+                const hint = document.getElementById('gen_due_hint');
+                if (hint) {
+                    hint.textContent = json.payment_terms_days === null || json.payment_terms_days === undefined
+                        ? 'Échéance par défaut : 30 jours.'
+                        : (days === 0 ? 'Conditions du client : paiement à la livraison.' : `Conditions du client : paiement à ${days} jours.`);
+                }
+
                 if (!accounts.length) {
                     host.innerHTML = LPC.html`
                         <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 font-medium">

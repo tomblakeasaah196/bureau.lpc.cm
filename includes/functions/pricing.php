@@ -194,7 +194,7 @@ function lpc_price_disparities(array $lines, array $tariff, array $catalogue): a
  * append-only log, migration 062). Before 062 the former was overwritten in
  * place by api/v1/mdm_controller.php with no record of what it had been.
  *
- * @param string $source 'order' | 'client_file' | 'import'
+ * @param string $source 'order' | 'client_file' | 'import' | 'proposal' (a signed devis, migration 137)
  * @return bool false when the price was already at $newPrice (no-op, no log row)
  */
 function lpc_apply_client_price_change(
@@ -233,7 +233,7 @@ function lpc_apply_client_price_change(
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ")->execute([
         $clientId, $productId, $oldPrice, $newPrice,
-        in_array($source, ['order', 'client_file', 'import'], true) ? $source : 'order',
+        in_array($source, ['order', 'client_file', 'import', 'proposal'], true) ? $source : 'order',
         $sourceReference, $note, $userId,
         substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45),
     ]);

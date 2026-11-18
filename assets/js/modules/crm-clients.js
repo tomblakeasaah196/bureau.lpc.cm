@@ -217,22 +217,19 @@
                 
                 if (result.status === 'success') {
                     closeModal('proposalModal');
-                    const link = `https://bureau.lpc.cm/quote.php?token=${result.token}`;
-                    
-                    // Instantly open the quote in a new tab
-                    window.open(link, '_blank');
-                    
-                    // Refresh the table to show the new prospect-to-client status if applicable
-                    loadClients(); 
+                    // The address this page was served from, not a hardcoded
+                    // https://bureau.lpc.cm (VIDEO_QA_FINDINGS 4.5).
+                    window.open(`${window.location.origin}/quote.php?token=${encodeURIComponent(result.token)}`, '_blank');
+                    loadClients();
+                    if (typeof window.reloadDevis === 'function') window.reloadDevis();
                 } else {
-                    LPC.modal.alert("Erreur: " + result.message);
+                    LPC.modal.alert("Erreur : " + result.message);
                 }
             } catch (error) {
+                // No devis was written: say so. It used to open a made-up
+                // link as if it had worked (VIDEO_QA_FINDINGS 4.5).
                 console.error("Error submitting proposal:", error);
-                
-                // MOCK SUCCESS FOR TESTING THE UI
-                closeModal('proposalModal');
-                window.open("https://bureau.lpc.cm/quote.php?token=sec_a8f93j2k", '_blank');
+                LPC.modal.alert("Le devis n'a pas pu être créé : la connexion au serveur a échoué. Réessayez.");
             }
         }
         // Load clients AND KPIs when the page loads
@@ -269,54 +266,79 @@
                 return;
             }
 
+            const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+            const can = (perm) => !!(window.LPC && typeof window.LPC.can === 'function' && window.LPC.can(perm));
+
             clientsToRender.forEach(client => {
-                let statusBadge = client.status === 'prospect' 
+                let statusBadge = client.status === 'prospect'
                     ? `<span class="px-2 py-1 bg-gray-100 text-gray-600 rounded text-[10px] font-bold uppercase tracking-wider">Prospect</span>`
-                    : `<span class="px-2 py-1 bg-green-100 text-green-700 rounded text-[10px] font-bold uppercase tracking-wider">Actif</span>`;
-                
-                let convertBtn = client.status === 'prospect'
-                    ? `<button onclick="convertClient(${client.id})" class="text-xs bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-2 py-1 rounded transition-colors" title="Convertir en Client Actif" aria-label="Convertir en Client Actif">Convertir</button>`
+                    : (client.status === 'inactive'
+                        ? `<span class="px-2 py-1 bg-red-50 text-red-600 rounded text-[10px] font-bold uppercase tracking-wider">Inactif</span>`
+                        : `<span class="px-2 py-1 bg-green-100 text-green-700 rounded text-[10px] font-bold uppercase tracking-wider">Actif</span>`);
+
+                // Each button only for who may use it (VIDEO_QA_FINDINGS 4.8);
+                // the server checks again.
+                let convertBtn = client.status === 'prospect' && can('crm.clients.convert')
+                    ? `<button onclick="convertClient(${client.id})" class="text-xs bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-2 py-1 rounded transition-colors" title="Convertir en client actif" aria-label="Convertir en client actif">Convertir</button>`
+                    : '';
+                const devisBtn = can('crm.proposals.create')
+                    ? `<button data-id="${client.id}" data-name="${esc(client.name)}" onclick="openProposalModal(this.dataset.id, this.dataset.name)" class="bg-lpc-light hover:bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold shadow-sm transition-colors inline-flex items-center">Devis</button>`
+                    : '';
+                const editBtn = can('crm.clients.edit')
+                    ? `<button onclick="openEditModal(${client.id})" class="text-gray-400 hover:text-lpc-dark transition-colors px-2 py-1.5" title="Modifier" aria-label="Modifier">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                       </button>`
                     : '';
 
                 // Client-side gate only (UX): the real check is
                 // Rbac::requirePermission('crm.clients.delete') on
-                // delete_client.php. window.LPC.can is defined by
-                // lpc-rbac.js, loaded ahead of this file via head_assets.php.
-                const canDelete = window.LPC && typeof window.LPC.can === 'function' && window.LPC.can('crm.clients.delete');
-                const deleteBtn = canDelete
-                    ? `<button onclick="openDeleteClientModal(${client.id}, '${client.name.replace(/'/g, "\\'")}')" class="text-gray-400 hover:text-red-600 transition-colors px-2 py-1.5" title="Déplacer vers la corbeille" aria-label="Déplacer vers la corbeille">
+                // delete_client.php.
+                const deleteBtn = can('crm.clients.delete')
+                    ? `<button data-id="${client.id}" data-name="${esc(client.name)}" onclick="openDeleteClientModal(this.dataset.id, this.dataset.name)" class="text-gray-400 hover:text-red-600 transition-colors px-2 py-1.5" title="Déplacer vers la corbeille" aria-label="Déplacer vers la corbeille">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                        </button>`
                     : '';
+
+                // The terms its signed devis set (migration 137), under the name.
+                const terms = [];
+                if (client.payment_terms_days !== null && client.payment_terms_days !== undefined) {
+                    terms.push(Number(client.payment_terms_days) === 0 ? 'Paiement à la livraison' : `Paiement ${Number(client.payment_terms_days)} jours`);
+                }
+                if (client.empties_return_min_pct !== null && client.empties_return_min_pct !== undefined) {
+                    terms.push(`Retour vides min. ${Number(client.empties_return_min_pct)} %`);
+                }
+                const termsLine = terms.length
+                    ? `<div class="text-[11px] text-gray-500 mt-0.5">${esc(terms.join(' · '))}${client.terms_proposal_ref ? ' <span class="text-gray-400">(' + esc(client.terms_proposal_ref) + ')</span>' : ''}</div>`
+                    : '';
+
+                const debt = Number(client.financial_debt || 0);
+                const owed = Number(client.empties_owed || 0);
 
                 const row = `
                     <tr class="hover:bg-gray-50 transition-colors">
                         <td class="py-4 px-6">
                             <div class="flex items-center gap-2">
-                                <div class="font-extrabold text-gray-900 text-base">${client.name}</div>
+                                <div class="font-extrabold text-gray-900 text-base">${esc(client.name)}</div>
                                 ${statusBadge}
                             </div>
-                            <div class="text-xs text-lpc-light font-bold uppercase tracking-wide">${client.type} | ${client.lpc_code}</div>
+                            <div class="text-xs text-lpc-light font-bold uppercase tracking-wide">${esc(client.type)} | ${esc(client.lpc_code)}</div>
+                            ${termsLine}
                         </td>
                         <td class="py-4 px-6">
-                            <div class="text-sm font-medium text-gray-800">${client.contact_person || 'N/A'}</div>
-                            <div class="text-xs text-gray-500">${client.address || 'N/A'}</div>
+                            <div class="text-sm font-medium text-gray-800">${esc(client.contact_person || '—')}</div>
+                            <div class="text-xs text-gray-500">${esc(client.address || '—')}</div>
                         </td>
                         <td class="py-4 px-6 text-right">
-                            <div class="text-sm font-bold text-gray-900">0 FCFA</div>
-                            <div class="text-xs text-gray-400">Plafond: ${LPC.fmt.int(client.credit_limit)} FCFA</div>
+                            <div class="text-sm font-bold ${debt > 0 ? 'text-red-600' : 'text-gray-900'}">${LPC.fmt.fcfa(debt)}</div>
+                            <div class="text-xs text-gray-400">Plafond : ${LPC.fmt.int(client.credit_limit)} FCFA</div>
                         </td>
                         <td class="py-4 px-6 text-center">
-                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-600">0 Vides</span>
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${owed > 0 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'}">${LPC.fmt.int(owed)} ${owed > 1 ? 'vides' : 'vide'}</span>
                         </td>
                         <td class="py-4 px-6 text-right space-x-2 flex justify-end items-center">
                             ${convertBtn}
-                            <button onclick="openProposalModal(${client.id}, '${client.name.replace(/'/g, "\\'")}')" class="bg-lpc-light hover:bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold shadow-sm transition-colors inline-flex items-center">
-                                Devis
-                            </button>
-                            <button onclick="openEditModal(${client.id})" class="text-gray-400 hover:text-lpc-dark transition-colors px-2 py-1.5" title="Modifier" aria-label="Modifier">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
-                            </button>
+                            ${devisBtn}
+                            ${editBtn}
                             ${deleteBtn}
                         </td>
                     </tr>
@@ -364,10 +386,11 @@
                     document.getElementById('kpi-bottles').innerText = result.data.bottle_debt + ' Vides';
                 }
             } catch (error) {
+                // A dash, not a made-up zero, when the figures could not be read.
                 console.error("Failed to fetch KPIs", error);
-                document.getElementById('kpi-clients').innerText = "0";
-                document.getElementById('kpi-ar').innerText = "0 FCFA";
-                document.getElementById('kpi-bottles').innerText = "0 Vides";
+                document.getElementById('kpi-clients').innerText = "—";
+                document.getElementById('kpi-ar').innerText = "—";
+                document.getElementById('kpi-bottles').innerText = "—";
             }
         }
         
@@ -424,7 +447,7 @@
 
         // Trigger the conversion API
         async function convertClient(clientId) {
-            if(!(await LPC.modal.confirm("Voulez-vous convertir ce prospect en client actif ? Un compte comptable OHADA sera généré."))) return;
+            if(!(await LPC.modal.confirm("Convertir ce prospect en client actif ? Il garde son compte client 411. Un client qui signe un devis devient actif tout seul."))) return;
 
             try {
                 const response = await fetch('/api/v1/convert_client.php', {

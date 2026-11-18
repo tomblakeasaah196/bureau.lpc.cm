@@ -15,9 +15,17 @@
         // window.location.href: this page can be reached with &html=1 (legacy
         // debug param) or other transient query state, and none of that belongs
         // in a link pasted into a client's WhatsApp or inbox.
+        // The token, from ?token= or from the short address /quote/<token>
+        // (.htaccess), which used to load an empty proposal.
+        function quoteToken() {
+            const q = new URLSearchParams(window.location.search).get('token');
+            if (q) return q;
+            const m = window.location.pathname.match(/\/quote\/([A-Fa-f0-9]{16,64})\/?$/);
+            return m ? m[1] : '';
+        }
         const currentUrl = (function () {
-            const token = new URLSearchParams(window.location.search).get('token') || '';
-            const base  = window.location.origin + window.location.pathname;
+            const token = quoteToken();
+            const base  = window.location.origin + '/quote.php';
             return token ? base + '?token=' + encodeURIComponent(token) : base;
         })();
 
@@ -61,7 +69,7 @@
 
         // 3. DATA FETCHING
         const urlParams = new URLSearchParams(window.location.search);
-        const proposalToken = urlParams.get('token');
+        const proposalToken = quoteToken();
 
         async function fetchProposalData() {
             if (!proposalToken) {
@@ -125,6 +133,7 @@
             document.getElementById('dyn_empties_policy').innerText = slaTranslations[p.empties_policy] ? slaTranslations[p.empties_policy][lang] : p.empties_policy;
             
             document.getElementById('dyn_buffer_stock_weeks').innerText = p.buffer_stock_weeks;
+            fillEmptiesClause(lang);
             document.getElementById('dyn_validity_days').innerText = p.validity_days;
 
             // Signatures — Sprint 11: the signature area is now rendered
@@ -256,8 +265,32 @@ document.getElementById('input_email_body').value =
         }
 
         // 6. LANGUAGE SWITCHER
+        /**
+         * Article 1's second sentence follows the proposal's « Politique des
+         * emballages » (VIDEO_QA_FINDINGS 4.2): it said « 1 vide pour 1 plein »
+         * whatever was chosen. Same wording as lpc_proposal_empties_clause()
+         * in includes/functions/proposal_terms.php.
+         */
+        function emptiesClause(policy, lang) {
+            const m = String(policy || '').match(/(\d{1,3})\s*%/);
+            const pct = m ? Number(m[1]) : null;
+            if (lang === 'en') {
+                if (pct === null) return 'Empty bottles are collected by LA PETITE COUR at each delivery.';
+                if (pct >= 100)   return 'The client returns one empty bottle for each full bottle delivered (1 for 1), collected at each delivery.';
+                return `The client undertakes to return at least ${pct} % of the bottles delivered, collected by LA PETITE COUR at each delivery.`;
+            }
+            if (pct === null) return 'Les bonbonnes vides sont reprises par LA PETITE COUR à chaque livraison.';
+            if (pct >= 100)   return 'Le client restitue une bonbonne vide pour chaque bonbonne pleine livrée (1 pour 1), reprise à chaque livraison.';
+            return `Le client s'engage à restituer au minimum ${pct} % des bonbonnes livrées, reprises par LA PETITE COUR à chaque livraison.`;
+        }
+        function fillEmptiesClause(lang) {
+            const el = document.getElementById('dyn_tc_1_policy');
+            if (el && apiData) el.textContent = emptiesClause(apiData.proposal.empties_policy, lang);
+        }
+
         function setLang(lang) {
             currentLang = lang;
+            fillEmptiesClause(lang);
             
             // Toggle Button Styles
             if(lang === 'en') {

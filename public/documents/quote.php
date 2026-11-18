@@ -433,7 +433,7 @@ $proposalLogos = lpc_proposal_logos();
                     <h3 class="text-2xl font-serif font-bold text-gray-900 mb-6" data-i18n="sec5_title"><?= pq('sec5_title') ?></h3>
                     
                     <div class="space-y-5 text-xs text-gray-600 leading-relaxed text-justify mb-8">
-                        <p><strong class="text-gray-800" data-i18n="tc_1_title"><?= pq('tc_1_title') ?></strong> <span data-i18n="tc_1_body"><?= pq('tc_1_body') ?></span></p>
+                        <p><strong class="text-gray-800" data-i18n="tc_1_title"><?= pq('tc_1_title') ?></strong> <span data-i18n="tc_1_body"><?= pq('tc_1_body') ?></span> <span id="dyn_tc_1_policy"></span></p>
                         
                         <p><strong class="text-gray-800" data-i18n="tc_2_title"><?= pq('tc_2_title') ?></strong> <span data-i18n="tc_2_body"><?= pq('tc_2_body') ?></span></p>
 

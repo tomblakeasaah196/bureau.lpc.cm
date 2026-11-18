@@ -22,13 +22,40 @@ try {
     // is_withholding_agent + withholding_air_rate needed by the edit modal
     // (crm-clients.js openEditModal) so the checkbox + rate dropdown pre-fill
     // correctly. Columns come from migration 020_cameroon_tax_module.sql.
+    // « Dette Financière » and « Dette Emballages » per client, from the same
+    // tables as the KPI cards above the list (fetch_crm_kpis.php): what is
+    // left to pay on its invoices, and the empties it owes. The list printed
+    // « 0 FCFA » and « 0 Vides » for everyone (VIDEO_QA_FINDINGS 4.7).
+    // The terms come from the client's signed devis (migration 137).
     $stmt = $db->query("
-        SELECT id, lpc_code, name, type, contact_person, email, phone, address, niu, rc, tax_id, credit_limit, status,
-               COALESCE(is_withholding_agent, 0) AS is_withholding_agent,
-               COALESCE(withholding_air_rate, 0) AS withholding_air_rate
-        FROM clients
-        WHERE deleted_at IS NULL
-        ORDER BY id DESC
+        SELECT c.id, c.lpc_code, c.name, c.type, c.contact_person, c.email, c.phone, c.address, c.niu, c.rc,
+               c.tax_id, c.credit_limit, c.status,
+               COALESCE(c.is_withholding_agent, 0) AS is_withholding_agent,
+               COALESCE(c.withholding_air_rate, 0) AS withholding_air_rate,
+               c.payment_terms_days, c.empties_return_min_pct,
+               tp.reference AS terms_proposal_ref,
+               COALESCE(ar.due, 0)      AS financial_debt,
+               COALESCE(em.owed, 0)     AS empties_owed
+        FROM clients c
+        LEFT JOIN proposals tp ON tp.id = c.terms_proposal_id
+        LEFT JOIN (
+            SELECT i.client_id,
+                   SUM(i.total_amount - COALESCE((
+                       SELECT SUM(p.amount) FROM payments p
+                        WHERE p.invoice_id = i.id AND p.status = 'validated'
+                   ), 0)) AS due
+              FROM invoices i
+             WHERE i.status <> 'paid'
+             GROUP BY i.client_id
+        ) ar ON ar.client_id = c.id
+        LEFT JOIN (
+            SELECT client_id, SUM(quantity_owed) AS owed
+              FROM client_empties_ledger
+             WHERE quantity_owed > 0
+             GROUP BY client_id
+        ) em ON em.client_id = c.id
+        WHERE c.deleted_at IS NULL
+        ORDER BY c.id DESC
     ");
     $clients = $stmt->fetchAll(PDO::FETCH_ASSOC);
 

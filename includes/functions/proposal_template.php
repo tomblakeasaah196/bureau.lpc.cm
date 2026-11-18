@@ -147,7 +147,11 @@ function lpc_proposal_defaults(): array
         'header_p4'       => ['Conditions & Signatures', 'Terms & Signatures'],
         'sec5_title'      => ['5. Conditions Générales de Service', '5. General Terms of Service'],
         'tc_1_title'      => ['Article 1 : Gestion Écoresponsable des Emballages.', 'Article 1: Eco-Responsible Packaging.'],
-        'tc_1_body'       => ["Dans le cadre de notre démarche environnementale, les bonbonnes de 10L et 20L sont réutilisables et mises à votre disposition. Pour assurer une rotation fluide, nous appliquons un principe d'échange (1 vide pour 1 plein). Nous comptons sur notre partenariat pour le bon soin de ces contenants.", 'As part of our environmental commitment, 10L and 20L bottles are reusable and provided for your convenience. To ensure a smooth rotation, we apply a 1-for-1 exchange principle. We rely on our collaborative partnership for the proper care of these containers.'],
+        // The policy sentence (« 1 vide pour 1 plein », « au minimum 80 % ») is
+        // printed after this text from the devis itself (documents-quote.js,
+        // lpc_proposal_empties_clause()): it used to be fixed here whatever the
+        // policy chosen (VIDEO_QA_FINDINGS 4.2, migration 138).
+        'tc_1_body'       => ["Dans le cadre de notre démarche environnementale, les bonbonnes de 10L et 20L sont réutilisables : nous les reprenons pour les recycler. Nous comptons sur notre partenariat pour le bon soin de ces contenants.", 'As part of our environmental commitment, 10L and 20L bottles are reusable: we collect them for recycling. We rely on our partnership for the proper care of these containers.'],
         'tc_2_title'      => ['Article 2 : Maintien du Parc Matériel.', 'Article 2: Equipment Maintenance.'],
         'tc_2_body'       => ["Afin de garantir une hygiène irréprochable, les bonbonnes ne doivent contenir que de l'eau. En cas de perte ou de détérioration majeure d'un contenant, des frais de remplacement au tarif en vigueur pourront être appliqués afin d'assurer le renouvellement qualitatif de notre flotte.", 'To guarantee impeccable hygiene, bottles must contain only water. In the event of loss or significant damage to a container, replacement fees at the current rate may be applied to help us maintain a high-quality fleet.'],
         'tc_3_title'      => ['Article 3 : Facturation et Souplesse.', 'Article 3: Invoicing and Flexibility.'],
@@ -205,7 +209,7 @@ function lpc_proposal_defaults(): array
         // one-pager a complete contract rather than a price note. Edit it with
         // that in mind.
         'onepager_conditions_title' => ['Conditions essentielles', 'Key Terms'],
-        'onepager_terms_ref'        => ["Les conditions générales de service (articles 1 à 6), le barème des consignes et les annexes font partie intégrante de la présente offre et sont remis avec la proposition commerciale complète.", 'The general terms of service (articles 1 to 6), the deposit schedule and the appendices form an integral part of this offer and are supplied with the full commercial proposal.'],
+        'onepager_terms_ref'        => ["Les conditions générales de service (articles 1 à 6) et les annexes font partie intégrante de la présente offre et sont remises avec la proposition commerciale complète.", 'The general terms of service (articles 1 to 6) and the appendices form an integral part of this offer and are supplied with the full commercial proposal.'],
         'onepager_more_lines'       => ['Autres articles', 'Further items'],
 
         'sig_lpc'         => ['Pour La Petite Cour :', 'For La Petite Cour:'],

@@ -591,9 +591,20 @@
             const inFlightCell = inFlight > 0
                 ? LPC.raw(LPC.html`<span class="font-black text-amber-700">${inFlight}</span>`)
                 : LPC.raw('<span class="text-gray-300">—</span>');
+            /* The minimum return the client signed (its devis' « Politique des
+               emballages », migration 137): what LPC must recover of the
+               bottles delivered, and what is still short of it. */
+            const minPct = row.empties_return_min_pct === null || row.empties_return_min_pct === undefined
+                ? null : Number(row.empties_return_min_pct);
+            let minLine = '';
+            if (minPct !== null) {
+                const expected = Math.ceil(Number(row.total_out || 0) * minPct / 100);
+                const short = Math.max(0, expected - Number(row.total_in || 0));
+                minLine = LPC.html`<span class="block text-[10px] font-bold ${short > 0 ? 'text-rose-600' : 'text-green-700'} mt-0.5">Retour minimum ${minPct} % · ${short > 0 ? 'encore ' + short + ' à récupérer' : 'atteint'}</span>`;
+            }
             tbody.insertAdjacentHTML('beforeend', LPC.html`
                 <tr class="hover:bg-gray-50 transition-colors">
-                    <td class="py-3 px-4 font-black text-gray-900">${row.client_name} ${siteName}</td>
+                    <td class="py-3 px-4 font-black text-gray-900">${row.client_name} ${siteName}${LPC.raw(minLine)}</td>
                     <td class="py-3 px-4 text-xs font-bold text-gray-600">${row.product_name}</td>
                     <td class="py-3 px-4 text-center font-black text-blue-600">${row.total_out}</td>
                     <td class="py-3 px-4 text-center font-black text-green-600">${row.total_in}</td>

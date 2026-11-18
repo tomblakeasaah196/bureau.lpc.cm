@@ -16,11 +16,11 @@
  *
  * ── Stale signatures ──────────────────────────────────────────────────────
  * fetch_proposals.php marks a devis "Signé" from a plain SQL join: any
- * non-revoked document_signatures row. That is the right rule for LOCKING and
+ * non-revoked CLIENT ('external') signature. That is the rule for LOCKING and
  * it is cheap enough to page and count on. Here, with a single devis loaded,
- * we can afford DocumentSignature::getActive(), which additionally re-hashes
- * the current figures and returns null if they no longer match what was
- * signed. Comparing it against latestAny() separates:
+ * we can afford DocumentSignature::getActiveByParty(), which additionally
+ * re-hashes the current figures and returns null if they no longer match what
+ * was signed. Comparing it against latestByParty() separates:
  *
  *   active  — signed, and the figures still match. The normal signed devis.
  *   stale   — signed, then the document changed underneath the signature.
@@ -79,7 +79,7 @@ try {
                DATE_ADD(`date`, INTERVAL validity_days DAY) AS expires_on,
                delivery_frequency, buffer_stock_weeks, payment_terms,
                empties_policy, total_amount, token, language, status,
-               client_name, client_contact, client_title, client_email, client_phone,
+               client_id, client_name, client_contact, client_title, client_email, client_phone,
                sales_rep_name, created_at
           FROM proposals
          WHERE id = :id
@@ -148,25 +148,39 @@ try {
     // renderer hashes, which is what makes getActive()'s comparison
     // meaningful. Token-based because that is the signature subsystem's only
     // lookup key.
+    // Signé means the CLIENT signed (party 'external'), as in the list
+    // (fetch_proposals.php) and the edit lock (update_proposal.php). LPC's
+    // own visa is reported beside it as `visa`, never as the client's
+    // agreement: the detail used to say « Signé » and lock after a visa
+    // while the list said « Envoyé · Visé LPC » (VIDEO_QA_FINDINGS 4.4).
+    $visa = null;
     if (!empty($p['token'])) {
         $doc = lpc_load_document($db, 'quote', (string) $p['token']);
         if ($doc) {
-            $active = DocumentSignature::getActive('quote', (int) $p['id'], $doc);
-            $latest = DocumentSignature::latestAny('quote', (int) $p['id']);
+            $active = DocumentSignature::getActiveByParty('quote', (int) $p['id'], $doc, 'external');
+            $latest = DocumentSignature::latestByParty('quote', (int) $p['id'], 'external');
 
-            $signed = (bool) $latest;                       // matches the list's rule
+            $signed = (bool) $latest;
             $stale  = $latest && !$active;                  // signed, then changed
             $row    = $active ?: $latest;
 
+            $verifyBase = defined('APP_URL') ? APP_URL : 'https://bureau.lpc.cm';
             if ($row) {
-                $verifyBase = defined('APP_URL') ? APP_URL : 'https://bureau.lpc.cm';
                 $signature = [
-                    'signer_name'  => $row['signer_name'],
-                    'signer_role'  => $row['signer_role'],
+                    'signer_name'  => $row['signatory_name'] ?: $row['signer_name'],
+                    'signer_role'  => $row['signatory_role'] ?: $row['signer_role'],
                     'signed_at'    => $row['signed_at'],
                     'hash_prefix'  => substr((string) $row['content_hash'], 0, 16),
                     'verify_url'   => rtrim($verifyBase, '/') . '/verify/' . $row['verify_token'],
                     'stale'        => $stale,
+                ];
+            }
+            $vrow = DocumentSignature::latestByParty('quote', (int) $p['id'], 'internal');
+            if ($vrow) {
+                $visa = [
+                    'signer_name' => $vrow['signer_name'],
+                    'signed_at'   => $vrow['signed_at'],
+                    'verify_url'  => rtrim($verifyBase, '/') . '/verify/' . $vrow['verify_token'],
                 ];
             }
         }
@@ -177,13 +191,51 @@ try {
     // the devis only stores the name snapshot. Matched on name, restricted to
     // clients not in the corbeille. Null is a legitimate answer (client
     // renamed or deleted) and the UI falls back to asking the user to pick.
-    $cid = $db->prepare("
-        SELECT id FROM clients
-         WHERE name = :name AND deleted_at IS NULL
-         ORDER BY id ASC LIMIT 1
+    if (empty($p['client_id'])) {
+        $cid = $db->prepare("
+            SELECT id FROM clients
+             WHERE name = :name AND deleted_at IS NULL
+             ORDER BY id ASC LIMIT 1
+        ");
+        $cid->execute(['name' => $p['client_name']]);
+        $p['client_id'] = ($v = $cid->fetchColumn()) ? (int) $v : null;
+    } else {
+        $p['client_id'] = (int) $p['client_id'];
+    }
+
+    // ---- what the signature carried (VIDEO_QA_FINDINGS 4.1) ---------------
+    // The client's terms when they come from this devis, and the orders made
+    // under it (sales_orders.proposal_id, written by Ventes & Commandes).
+    $applied = null;
+    if ($p['client_id']) {
+        $ct = $db->prepare("
+            SELECT status, payment_terms_days, empties_return_min_pct, terms_proposal_id
+              FROM clients WHERE id = ?
+        ");
+        $ct->execute([$p['client_id']]);
+        $c = $ct->fetch(PDO::FETCH_ASSOC);
+        if ($c && (int) $c['terms_proposal_id'] === (int) $p['id']) {
+            $tp = $db->prepare("
+                SELECT COUNT(*) FROM client_price_history
+                 WHERE client_id = ? AND source = 'proposal' AND source_reference = ?
+            ");
+            $tp->execute([$p['client_id'], $p['reference']]);
+            $applied = [
+                'client_status'      => $c['status'],
+                'payment_terms_days' => $c['payment_terms_days'] !== null ? (int) $c['payment_terms_days'] : null,
+                'empties_min_pct'    => $c['empties_return_min_pct'] !== null ? (int) $c['empties_return_min_pct'] : null,
+                'tariff_lines'       => (int) $tp->fetchColumn(),
+            ];
+        }
+    }
+    $os = $db->prepare("
+        SELECT id, reference, `date`, total_amount, status
+          FROM sales_orders
+         WHERE proposal_id = ? AND deleted_at IS NULL
+         ORDER BY `date` DESC, id DESC
     ");
-    $cid->execute(['name' => $p['client_name']]);
-    $p['client_id'] = ($v = $cid->fetchColumn()) ? (int) $v : null;
+    $os->execute([$id]);
+    $orders = $os->fetchAll(PDO::FETCH_ASSOC);
 
     $expired = !$signed
         && !empty($p['expires_on'])
@@ -196,11 +248,17 @@ try {
         'signed'          => $signed,
         'stale'           => $stale,
         'signature'       => $signature,
+        'visa'            => $visa,
+        'applied'         => $applied,
+        'orders'          => $orders,
         // The single flag the UI keys off. Server-side, update_proposal.php
         // re-derives it independently — this value is convenience, never
         // authorisation.
         'editable'        => !$signed && Rbac::hasPermission('crm.proposals.create'),
-        'derived_status'  => $signed ? 'signed' : ($expired ? 'expired' : 'sent'),
+        // 'declined': the client pressed « Je souhaite discuter » (status
+        // 'rejected'); editing the devis sends it again.
+        'derived_status'  => $signed ? 'signed'
+                           : ($p['status'] === 'rejected' ? 'declined' : ($expired ? 'expired' : 'sent')),
         'quote_url'       => (defined('APP_URL') ? rtrim(APP_URL, '/') : 'https://bureau.lpc.cm')
                              . '/quote.php?token=' . $p['token'],
     ]);

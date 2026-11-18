@@ -151,7 +151,7 @@ $lang = lpc_i18n_current_lang();
     <div id="lpc-shell-main">
 
         <div class="lpc-toolbar">
-            <button data-lpc-new onclick="openNewClientModal()" class="bg-lpc-dark hover:bg-[#004722] text-white px-4 md:px-5 py-2.5 rounded-xl font-bold shadow-md transition-all flex items-center shrink-0">
+            <button data-lpc-new data-perm="crm.clients.create" onclick="openNewClientModal()" class="bg-lpc-dark hover:bg-[#004722] text-white px-4 md:px-5 py-2.5 rounded-xl font-bold shadow-md transition-all flex items-center shrink-0">
                 <svg class="w-5 h-5 md:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                 <span class="hidden md:inline"><?php echo __t('ui.nouveau_client'); ?></span>
             </button>
@@ -272,35 +272,11 @@ $lang = lpc_i18n_current_lang();
                             <th class="py-4 px-6 text-right"><?= htmlspecialchars(__t('ui.x.actions')) ?></th>
                         </tr>
                     </thead>
+                    <!-- Filled by crm-clients.js from fetch_clients.php. It held a
+                         static demo row with made-up debts
+                         until the list loaded (VIDEO_QA_FINDINGS 4.7). -->
                     <tbody id="clients-tbody" class="divide-y divide-gray-100">
-                        <tr class="hover:bg-gray-50 transition-colors">
-                            <td class="py-4 px-6">
-                                <div class="font-extrabold text-gray-900 text-base">Prometal S.A.</div>
-                                <div class="text-xs text-lpc-light font-bold uppercase tracking-wide"><?= htmlspecialchars(__t('ui.x.corporate_b2b')) ?></div>
-                            </td>
-                            <td class="py-4 px-6">
-                                <div class="text-sm font-medium text-gray-800">Jean-Paul Etou</div>
-                                <div class="text-xs text-gray-500">Zone Industrielle, Bassa</div>
-                            </td>
-                            <td class="py-4 px-6 text-right">
-                                <div class="text-sm font-bold text-red-600">450,000 FCFA</div>
-                                <div class="text-xs text-gray-400"><?= htmlspecialchars(__t('ui.x.plafond_2m_fcfa')) ?></div>
-                            </td>
-                            <td class="py-4 px-6 text-center">
-                                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
-                                    15 Vides
-                                </span>
-                            </td>
-                            <td class="py-4 px-6 text-right space-x-2">
-                                <button onclick="openProposalModal(1, 'Prometal S.A.')" class="bg-lpc-light hover:bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold shadow-sm transition-colors inline-flex items-center">
-                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 012 2z"></path></svg>
-                                    Devis
-                                </button>
-                                <button class="text-gray-400 hover:text-lpc-dark transition-colors px-2 py-1.5">
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
-                                </button>
-                            </td>
-                        </tr>
+                        <tr><td colspan="5" class="py-10 text-center text-gray-400 text-sm italic">Chargement…</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -403,6 +379,7 @@ $lang = lpc_i18n_current_lang();
                             <button type="button" class="devis-chip is-active" data-status="all">Tous</button>
                             <button type="button" class="devis-chip" data-status="sent">Envoyés</button>
                             <button type="button" class="devis-chip" data-status="signed">Signés</button>
+                            <button type="button" class="devis-chip" data-status="declined">À revoir</button>
                             <button type="button" class="devis-chip" data-status="expired">Expirés</button>
                         </div>
 
@@ -672,7 +649,6 @@ $lang = lpc_i18n_current_lang();
                                     <option value="Retour Minimum Exigé (90%)"><?= htmlspecialchars(__t('ui.x.retour_minimum_exige_90')) ?></option>
                                     <option value="Retour Minimum Exigé (80%)"><?= htmlspecialchars(__t('ui.x.retour_minimum_exige_80')) ?></option>
                                     <option value="Retour Minimum Exigé (70%)"><?= htmlspecialchars(__t('ui.x.retour_minimum_exige_70')) ?></option>
-                                    <option value="Consigne Payée (Facturée)"><?= htmlspecialchars(__t('ui.x.consigne_payee_facturee')) ?></option>
                                 </select>
                             </div>
                         </div>
