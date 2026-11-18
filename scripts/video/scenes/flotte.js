@@ -8,7 +8,8 @@
  * Financier validates and pays (Luc Nana). Narrated by role (runbook §2).
  *
  * Ground: snapshot pre-06-film (after-02-gestion-des-achats + migration 133, no vehicle yet). The scene writes:
- * the truck (an example plate until LPC gives its own), today's assignment, a 60 L fuel fill (EX-2611-00001),
+ * the truck (an example plate until LPC gives its own), today's assignment to Nelson Tanyu (a driver added on
+ * copy B with his name and post only, as the owner allowed: drivers are not in the live system yet), a 60 L fuel fill (EX-2611-00001),
  * a breakdown, a repair of 85 000 F (EX-2611-00002), and the fuel request paid from MTN MOBILE MONEY.
  */
 const h = require("../helpers");
@@ -32,6 +33,8 @@ const pickLike = async (s, select, re) => {
 };
 const setDate = async (s, sel, iso) => { await s.hover(s.page.locator(sel)); await s.page.locator(sel).fill(iso); await s.wait(0.5); };
 const tab = (s, id) => s.click(s.page.locator(`#tab-${id}`));
+/** A tab's own button (the page holds hidden twins of some names elsewhere). */
+const btn = (s, id, name) => s.page.locator(`#content-${id} button`).filter({ hasText: name }).first();
 const toast = (s, text) => s.page.locator("#lpc-toast-root, .lpc-toast, [role=status], [role=alert]").filter({ hasText: text }).last();
 const expenseRow = (s, ref) => s.page.locator("#list_body tr").filter({ hasText: ref }).first();
 
@@ -104,7 +107,7 @@ module.exports = {
         kind: "desktop", as: "bertin", role: "operations", start: PAGE.fleet, snapshot: true,
         lines: [
           { say: "Dans Parc Automobile, il ajoute le camion de livraison.",
-            do: async (s) => { await tab(s, "flotte"); await s.click(h.button(s, "Ajouter un Véhicule")); } },
+            do: async (s) => { await tab(s, "flotte"); await s.click(btn(s, "flotte", "Ajouter un Véhicule")); } },
           { say: "L'immatriculation, le type, Camion, puis la marque et le modèle.",
             do: async (s) => {
               await s.type(s.page.locator("#veh_plate"), TRUCK.plate, { delay: 90 });
@@ -134,11 +137,11 @@ module.exports = {
           { say: "Chaque matin, il note qui conduit quel véhicule, dans Affectations.",
             do: (s) => tab(s, "affectations") },
           { say: "« Nouvelle Affectation » : seuls les véhicules en service sont proposés.",
-            do: async (s) => { await s.click(h.button(s, "Nouvelle Affectation")); await pickLike(s, "#assign_vehicle_id", new RegExp(TRUCK.plate)); } },
+            do: async (s) => { await s.click(btn(s, "affectations", "Nouvelle Affectation")); await pickLike(s, "#assign_vehicle_id", new RegExp(TRUCK.plate)); } },
           { say: "Le chauffeur se choisit dans la liste du personnel : un employé n'a pas besoin de compte.",
             do: (s) => h.soft(s, s.page.locator("#assign_driver_id")) },
-          { say: "Aujourd'hui, le Responsable des Opérations conduit lui-même.",
-            do: (s) => pickLike(s, "#assign_driver_id", /Bertin/) },
+          { say: "Il choisit le chauffeur du jour.",
+            do: (s) => pickLike(s, "#assign_driver_id", /Nelson TANYU/) },
           { say: "Le jour est déjà le bon, et le kilométrage de départ reprend le dernier relevé.",
             do: (s) => h.tour(s, [s.page.locator("#assign_date"), s.page.locator("#assign_odo_start")], 0.4) },
           { say: "« Affecter » : la journée est notée.",
@@ -153,7 +156,7 @@ module.exports = {
         kind: "desktop", as: "bertin", role: "operations", start: PAGE.fleet, snapshot: true,
         lines: [
           { say: "De retour de la station, il saisit le plein dans Suivi Carburant.",
-            do: async (s) => { await tab(s, "carburant"); await s.click(h.button(s, "Saisir Carburant")); } },
+            do: async (s) => { await tab(s, "carburant"); await s.click(btn(s, "carburant", "Saisir Carburant")); } },
           { say: "Le camion. Le type de carburant suit le véhicule : gasoil.",
             do: async (s) => { await pickLike(s, "#fuel_vehicle_id", new RegExp(TRUCK.plate)); await s.page.locator("#fuel_vehicle_id").dispatchEvent("change"); await h.soft(s, s.page.locator("#fuel_type")); } },
           { say: "La station, puis le compteur : 84 310 kilomètres.",
@@ -186,7 +189,7 @@ module.exports = {
         lines: [
           "En fin de tournée, l'embrayage patine : le camion doit s'arrêter.",
           { say: "Dans Parc Automobile, il déclare la panne.",
-            do: async (s) => { await tab(s, "flotte"); await s.click(h.button(s, "Déclarer une panne")); } },
+            do: async (s) => { await tab(s, "flotte"); await s.click(btn(s, "flotte", "Déclarer une panne")); } },
           { say: "Le camion, et ce qui ne va pas.",
             do: async (s) => {
               await pickLike(s, "#brk_vehicle_id", new RegExp(TRUCK.plate));
@@ -206,7 +209,7 @@ module.exports = {
         kind: "desktop", as: "bertin", role: "operations", start: PAGE.fleet, snapshot: true,
         lines: [
           { say: "Le garage a remplacé l'embrayage. Dans Maintenance & Documents, il enregistre l'intervention.",
-            do: async (s) => { await tab(s, "maintenance"); await s.click(h.button(s, "Enregistrer Intervention")); } },
+            do: async (s) => { await tab(s, "maintenance"); await s.click(btn(s, "maintenance", "Enregistrer Intervention")); } },
           { say: "Le camion, le type Réparation, et le coût : 85 000 FCFA.",
             speech: "Le camion, le type Réparation, et le coût : quatre-vingt-cinq mille francs.",
             do: async (s) => {
@@ -230,9 +233,46 @@ module.exports = {
     },
 
     {
+      name: "L'entretien et la visite technique",
+      shots: [{
+        kind: "desktop", as: "bertin", role: "operations", start: PAGE.fleet + "#maintenance", snapshot: true,
+        lines: [
+          { say: "En tête du journal, l'alerte du jour : la visite technique arrive à échéance.",
+            do: (s) => h.soft(s, s.page.locator("#table-body-maintenance tr").first(), 8000) },
+          { say: "Le camion passe la visite. « Régler » ouvre l'intervention, déjà remplie.",
+            do: (s) => s.click(s.page.locator("#table-body-maintenance tr").first().locator("button").filter({ hasText: "Régler" })) },
+          { say: "La nouvelle date d'expiration, le 30 novembre 2027, et le coût : 25 000 FCFA.",
+            speech: "La nouvelle date d'expiration, le trente novembre deux mille vingt-sept, et le coût : vingt-cinq mille francs.",
+            do: async (s) => {
+              await setDate(s, "#maint_new_expiry", "2027-11-30");
+              await s.type(s.page.locator("#maint_cost"), "25000", { delay: 110 });
+              await s.type(s.page.locator("#maint_garage"), "Centre de visite technique", { delay: 50 });
+            } },
+          { say: "« Enregistrer » : la date du camion est renouvelée, et l'alerte disparaît.",
+            do: async (s) => { await s.click(s.page.locator("#btn-submit-maint")); await s.wait(1.2); await h.soft(s, s.page.locator("#table-body-maintenance tr").first(), 6000); } },
+          { say: "Puis la vidange, avec le prochain service à 89 310 kilomètres.",
+            speech: "Puis la vidange, avec le prochain service à quatre-vingt-neuf mille trois cent dix kilomètres.",
+            do: async (s) => {
+              await s.click(btn(s, "maintenance", "Enregistrer Intervention"));
+              await pickLike(s, "#maint_vehicle_id", new RegExp(TRUCK.plate));
+              await pick(s, "#maint_type", "routine");
+              await s.type(s.page.locator("#maint_cost"), "45000", { delay: 110 });
+              await s.type(s.page.locator("#maint_garage"), "Garage Akwa Auto", { delay: 50 });
+              await s.type(s.page.locator("#maint_desc"), "Vidange et filtres.", { delay: 45 });
+              await s.type(s.page.locator("#maint_next_odo"), "89310", { delay: 110 });
+            } },
+          { say: "L'ERP préviendra cinq cents kilomètres avant. Chaque coût part, lui aussi, à la Finance.",
+            speech: "L'E R P préviendra cinq cents kilomètres avant. Chaque coût part, lui aussi, à la Finance.",
+            do: async (s) => { await s.click(s.page.locator("#btn-submit-maint")); await h.soft(s, toast(s, "EX-2611-00004"), 6000); } },
+        ],
+      }],
+    },
+
+    {
       name: "La Finance valide",
       shots: [{
-        kind: "desktop", as: "luc", role: "controleur", start: PAGE.expenses, snapshot: true,
+        // No snapshot of its own: it runs on from the chapter before (refilm the two together).
+        kind: "desktop", as: "luc", role: "controleur", start: PAGE.expenses,
         lines: [
           { say: "Côté Finance, le Contrôleur Financier ouvre Gestion des Dépenses.",
             do: (s) => h.soft(s, h.shell.menu(s, "Gestion des Dépenses")) },
