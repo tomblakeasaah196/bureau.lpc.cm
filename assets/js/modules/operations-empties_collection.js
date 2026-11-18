@@ -821,10 +821,13 @@
             });
             const result = await res.json();
             if (result.status === 'success') {
+                // The client's phone, read before the form is reset, for the
+                // WhatsApp link (it came out empty).
+                const phone = document.getElementById('client_phone').value;
                 document.getElementById('form-cre').reset();
                 renderCreQtyGrid();   // reset the qty inputs
                 loadSites();
-                openCreDispatchGate(result.data.reference, result.data.token, document.getElementById('client_phone').value);
+                openCreDispatchGate(result.data.reference, result.data.token, phone);
                 loadHistory();
                 loadEmptiesKPIs();
             } else {
@@ -924,7 +927,11 @@
         }
 
         const signerName = LPC.escapeHtml((window.LPC && LPC.user && LPC.user.name) || '—');
-        const signerRole = LPC.escapeHtml((window.LPC && LPC.user && LPC.user.role) || '—');
+        // The role as Paramètres names it, not its technical key.
+        const ROLE_LABELS = { admin: 'Administrateur', directeur_general: 'Directeur Général', operations: 'Responsable des Opérations',
+                              controleur_financier: 'Contrôleur Financier', accountant: 'Comptable', sales: 'Commercial' };
+        const roleKey = (window.LPC && LPC.user && LPC.user.role) || '';
+        const signerRole = LPC.escapeHtml(ROLE_LABELS[roleKey] || roleKey);
 
         body.innerHTML = `
             <p class="text-sm text-gray-600">Vous êtes sur le point de signer ce retour d'emballages dans son état <strong>actuel</strong>, au nom de :</p>
@@ -1001,7 +1008,7 @@
                 const lblCls   = isNoCork ? 'text-rose-500' : 'text-gray-500';
                 inner += ''
                     + '<div>'
-                    + '  <div class="flex justify-between items-center mb-1">'
+                    + '  <div class="flex justify-between items-center gap-2 mb-1">'
                     + '    <label for="rec_' + p.id + '" class="text-[10px] font-bold ' + lblCls + ' uppercase">' + LPC.escapeHtml(label) + '</label>'
                     + '    <span class="flex items-center gap-1">'
                     + '      <span id="price_' + p.id + '" class="text-[10px] font-black text-amber-600">' + fmt(basePriceOf(p.id)) + ' F</span>'
