@@ -51,6 +51,67 @@ function sendResponse($status, $message, $data = null) {
     exit;
 }
 
+/**
+ * A database refusal in words the Comptable can act on. The triggers of
+ * migrations 004, 005 and 088 speak English to developers; anything else
+ * from the database is logged and never shown (it names tables and SQL).
+ */
+function acc_db_message(Throwable $e): string {
+    $m = $e->getMessage();
+    // Migration 088's triggers already speak French: pass their sentence on.
+    if (preg_match('/\b1644\s+((?:Écriture|Exercice|Modification|Redatation)\b.*)$/u', $m, $fr)) return trim($fr[1]);
+    if (stripos($m, 'closed financial year') !== false || (stripos($m, 'exercice') !== false && stripos($m, 'clôtur') !== false)) {
+        return "L'exercice de cette date est clôturé : choisissez une date de l'exercice ouvert.";
+    }
+    if (stripos($m, 'debit != credit') !== false || stripos($m, 'balanced') !== false) {
+        return "L'écriture n'est pas équilibrée : le total des débits doit égaler le total des crédits.";
+    }
+    if (stripos($m, 'not in draft') !== false) {
+        return "Cette écriture n'est plus un brouillard.";
+    }
+    error_log('accounting_controller: ' . $m . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    return "Erreur serveur : l'opération n'a pas été enregistrée. Réessayez ; si cela se reproduit, signalez-le au support.";
+}
+
+/**
+ * Which module an entry comes from, in the words of the menu. An entry with
+ * no source was typed in « Saisie Manuelle ».
+ */
+function acc_source_label(?string $type): string {
+    $t = (string) $type;
+    if ($t === '') return 'Saisie manuelle';
+    $map = [
+        'purchase_order_payment' => 'Achats · paiement fournisseur',
+        'purchase_stock_entry'   => 'Achats · entrée en stock',
+        'purchase_order'         => 'Achats · réception',
+        'rebate'                 => 'Achats · ristourne',
+        'payroll_settlement'     => 'Paie · règlement',
+        'advance'                => 'Paie · acompte',
+        'payslip_reversal'       => 'Paie · annulation',
+        'payslip'                => 'Paie · bulletin',
+        'treasury_opening'       => "Trésorerie · solde d'ouverture",
+        'transfer'               => 'Trésorerie · virement',
+        'loan_movement'          => 'Emprunts · remboursement',
+        'loan'                   => 'Emprunts & Financements',
+        'fleet'                  => 'Flotte · dépense',
+        'fuel'                   => 'Dépenses · carburant',
+        'expense'                => 'Dépenses',
+        'recycling'              => 'Vides · vente recyclage',
+        'invoice_credit_note'    => 'Facturation · avoir',
+        'invoice'                => 'Facturation',
+        'payment'                => 'Facturation · encaissement',
+        'wallet'                 => 'Facturation · avoir client',
+        'delivery'               => 'Ventes · livraison',
+        'stock'                  => 'Stock',
+        'depreciation'           => 'Immobilisations · amortissement',
+        'fixed_asset'            => 'Immobilisations',
+    ];
+    foreach ($map as $prefix => $label) {
+        if (strpos($t, $prefix) === 0) return $label . (str_ends_with($t, '_reversal') && $prefix !== 'payslip_reversal' ? ' · extourne' : '');
+    }
+    return 'Module';
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
 $action = $_GET['action'] ?? null;
 
@@ -141,7 +202,7 @@ if ($method === 'GET') {
                 // "check the top rows, batch-post them, then focus on the
                 // suspicious tail."
                 $stmtQ = $pdo->query("
-                    SELECT id, reference, date, description, status, journal_code,
+                    SELECT id, reference, date, description, status, journal_code, created_by,
                            confidence_score, confidence_reasons, confidence_scored_at
                       FROM journal_entries
                      WHERE status = 'draft'
@@ -174,6 +235,77 @@ if ($method === 'GET') {
 
                 $response_data['queue']                = $queue;
                 $response_data['auto_post_threshold']  = JournalConfidence::autoPostThreshold();
+                $response_data['user_id']              = (int) $user_id;
+                $response_data['can_approve']          = Rbac::hasPermission('accounting.journal.approve');
+                break;
+
+            case 'journal':
+                // Every posted entry of a month, newest first, with the module
+                // it came from: what reached the books by itself and what was
+                // typed by hand. A reversed entry stays posted (its mirror
+                // cancels it, register 11.4) and says so.
+                $month = (string) ($_GET['month'] ?? date('Y-m'));
+                if (!preg_match('/^\d{4}-\d{2}$/', $month)) $month = date('Y-m');
+                $journal = strtoupper(trim((string) ($_GET['journal'] ?? '')));
+                $origin  = (string) ($_GET['origin'] ?? '');
+                $q       = trim((string) ($_GET['q'] ?? ''));
+
+                $where  = ["je.status = 'posted'", "DATE_FORMAT(je.date, '%Y-%m') = ?"];
+                $params = [$month];
+                if ($journal !== '' && preg_match('/^[A-Z]{2,4}$/', $journal)) { $where[] = 'je.journal_code = ?'; $params[] = $journal; }
+                if ($origin === 'manual') $where[] = "(je.source_type IS NULL OR je.source_type = '')";
+                if ($origin === 'auto')   $where[] = "(je.source_type IS NOT NULL AND je.source_type <> '')";
+                if ($q !== '') {
+                    $where[] = '(je.reference LIKE ? OR je.description LIKE ?)';
+                    $params[] = '%' . $q . '%'; $params[] = '%' . $q . '%';
+                }
+                $stmtJ = $pdo->prepare("
+                    SELECT je.id, je.reference, je.date, je.journal_code, je.description,
+                           je.source_type, je.reversed_by_entry_id, je.posted_at,
+                           TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) AS author
+                      FROM journal_entries je
+                      LEFT JOIN users u ON u.id = je.created_by
+                     WHERE " . implode(' AND ', $where) . "
+                     ORDER BY je.date DESC, je.id DESC
+                     LIMIT 300
+                ");
+                $stmtJ->execute($params);
+                $rows = $stmtJ->fetchAll(PDO::FETCH_ASSOC);
+
+                $lines = [];
+                if ($rows) {
+                    $ids = array_map(fn ($r) => (int) $r['id'], $rows);
+                    $ph  = implode(',', array_fill(0, count($ids), '?'));
+                    $stL = $pdo->prepare("
+                        SELECT jl.journal_entry_id, jl.debit, jl.credit, ca.code AS account_code, ca.name AS account_name
+                          FROM journal_lines jl JOIN chart_of_accounts ca ON ca.id = jl.account_id
+                         WHERE jl.journal_entry_id IN ($ph)
+                         ORDER BY jl.journal_entry_id, (jl.debit > 0) DESC, jl.id
+                    ");
+                    $stL->execute($ids);
+                    foreach ($stL->fetchAll(PDO::FETCH_ASSOC) as $l) $lines[(int) $l['journal_entry_id']][] = $l;
+                }
+                $reversals = [];
+                foreach ($rows as $r) if ($r['reversed_by_entry_id']) $reversals[(int) $r['reversed_by_entry_id']] = true;
+
+                $out = []; $auto = 0; $manual = 0;
+                foreach ($rows as $r) {
+                    $isManual = ($r['source_type'] ?? '') === '';
+                    $isManual ? $manual++ : $auto++;
+                    $out[] = [
+                        'id'          => (int) $r['id'],
+                        'reference'   => $r['reference'],
+                        'date'        => $r['date'],
+                        'journal_code'=> $r['journal_code'],
+                        'description' => $r['description'],
+                        'origin'      => acc_source_label($r['source_type']),
+                        'manual'      => $isManual,
+                        'reversed'    => (bool) $r['reversed_by_entry_id'],
+                        'author'      => $isManual ? $r['author'] : '',
+                        'lines'       => $lines[(int) $r['id']] ?? [],
+                    ];
+                }
+                $response_data = ['month' => $month, 'entries' => $out, 'count_auto' => $auto, 'count_manual' => $manual];
                 break;
 
             default:
@@ -183,7 +315,7 @@ if ($method === 'GET') {
         sendResponse('success', 'Données chargées', $response_data);
 
     } catch (PDOException $e) {
-        sendResponse('error', 'Erreur base de données: ' . $e->getMessage());
+        sendResponse('error', acc_db_message($e));
     }
 }
 
@@ -191,6 +323,8 @@ if ($method === 'GET') {
 // [POST] WRITE OPERATIONS (Data Mutation)
 // ==========================================
 else if ($method === 'POST') {
+    // Every write carries the page's token (lpc-rbac.js adds it to fetch).
+    Csrf::requireValid();
     $payload = json_decode(file_get_contents('php://input'), true);
     if (!$payload || !isset($payload['action'])) sendResponse('error', 'Payload invalide.');
 
@@ -490,10 +624,26 @@ else if ($method === 'POST') {
                 throw new Exception("Champs obligatoires manquants ou moins de 2 lignes.");
             }
 
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $date)) throw new Exception("Date comptable invalide.");
+            if (!in_array($journal_code, ['OD', 'AC', 'VT', 'CA', 'BQ'], true)) throw new Exception("Journal inconnu.");
+
+            // Each line: an active account of the chart, one side only, no
+            // negative amount (the triggers of migration 004 would refuse it
+            // in English; say it here in words).
+            $chkAcc = $pdo->prepare("SELECT code, is_active FROM chart_of_accounts WHERE id = ?");
             $total_debit = 0.0; $total_credit = 0.0;
             foreach ($lines as $line) {
-                $total_debit  += (float)$line['debit'];
-                $total_credit += (float)$line['credit'];
+                $d = round((float) ($line['debit'] ?? 0), 2);
+                $c = round((float) ($line['credit'] ?? 0), 2);
+                if ($d < 0 || $c < 0) throw new Exception("Un montant ne peut pas être négatif.");
+                if ($d > 0 && $c > 0) throw new Exception("Une ligne est soit au débit, soit au crédit, pas les deux.");
+                if ($d == 0 && $c == 0) throw new Exception("Une ligne a un compte mais aucun montant.");
+                $chkAcc->execute([(int) ($line['account_id'] ?? 0)]);
+                $acc = $chkAcc->fetch(PDO::FETCH_ASSOC);
+                if (!$acc) throw new Exception("Un compte est manquant sur une ligne.");
+                if ((int) $acc['is_active'] !== 1) throw new Exception("Le compte {$acc['code']} est désactivé : choisissez un compte actif.");
+                $total_debit  += $d;
+                $total_credit += $c;
             }
 
             if ($wants_post) {
@@ -658,9 +808,32 @@ else if ($method === 'POST') {
             sendResponse('success', "$count écriture(s) postée(s) au Grand Livre.", ['posted' => $count]);
         }
 
+        // 5. DELETE A DRAFT — a brouillard typed by mistake. Only a draft (a
+        //    posted entry is corrected by an opposite entry, never deleted);
+        //    its author, or whoever may post entries.
+        if ($action === 'delete_draft') {
+            Rbac::requirePermission('accounting.journal.create');
+            $entry_id = (int) ($payload['id'] ?? 0);
+            $st = $pdo->prepare("SELECT status, reference, created_by FROM journal_entries WHERE id = ? FOR UPDATE");
+            $st->execute([$entry_id]);
+            $row = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$row) throw new Exception("Écriture introuvable.");
+            if ($row['status'] !== 'draft') throw new Exception("Seul un brouillard se supprime : une écriture postée se corrige par une écriture inverse.");
+            if ((int) $row['created_by'] !== (int) $user_id && !Rbac::hasPermission('accounting.journal.approve')) {
+                throw new Exception("Seul son auteur ou un valideur peut supprimer ce brouillard.");
+            }
+            $pdo->prepare("DELETE FROM journal_lines WHERE journal_entry_id = ?")->execute([$entry_id]);
+            $pdo->prepare("DELETE FROM journal_entries WHERE id = ? AND status = 'draft'")->execute([$entry_id]);
+            $pdo->commit();
+            sendResponse('success', "Brouillard {$row['reference']} supprimé.");
+        }
+
         // Unknown action falls through — roll back and complain.
         throw new Exception("Action inconnue : " . htmlspecialchars((string)$action));
 
+    } catch (PDOException $e) {
+        if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
+        sendResponse('error', acc_db_message($e));
     } catch (Exception $e) {
         if (isset($pdo) && $pdo->inTransaction()) {
             $pdo->rollBack();

@@ -1841,14 +1841,16 @@ final class JournalPoster
      * Migration 004 forbids deleting a posted entry, and rightly so — the
      * correction for a mistake in the books is an opposing entry, not an
      * erasure. This mirrors each line (debits become credits), posts the
-     * mirror, then stamps the original 'reversed' and points it at its mirror.
+     * mirror, and points the original at its mirror (reversed_by_entry_id).
+     * The original stays 'posted': with its mirror it nets to zero in every
+     * report, which read posted entries only (VIDEO_QA_FINDINGS 11.4).
      *
      * The reversal is dated today, not on the original entry's date: back-
      * dating it would drop the correction into a period that may already be
      * closed, and migration 005's triggers would refuse the write anyway.
      *
-     * Entries already marked 'reversed' are skipped, so calling this twice on
-     * the same document is harmless.
+     * Entries already pointing at a mirror are skipped, so calling this twice
+     * on the same document is harmless.
      *
      * @param  string   $source_type e.g. 'purchase_order', 'rebate_accrual'
      * @param  int      $source_id
@@ -1870,6 +1872,7 @@ final class JournalPoster
             SELECT id, reference, journal_code, description
               FROM journal_entries
              WHERE source_type = ? AND source_id = ? AND status = 'posted'
+               AND reversed_by_entry_id IS NULL
              ORDER BY id ASC
              FOR UPDATE
         ");
@@ -1899,7 +1902,11 @@ final class JournalPoster
             }
             self::post($db, $rev_id, $user_id);
 
-            $db->prepare("UPDATE journal_entries SET status = 'reversed', reversed_by_entry_id = ? WHERE id = ?")
+            // The original STAYS posted and points at its mirror: the two
+            // cancel out in every balance. Stamping it 'reversed' took it out
+            // of the reports (they read posted only) while the mirror stayed,
+            // so a cancellation counted twice (VIDEO_QA_FINDINGS 11.4).
+            $db->prepare("UPDATE journal_entries SET reversed_by_entry_id = ? WHERE id = ?")
                ->execute([$rev_id, $entry['id']]);
 
             $created[] = $rev_id;

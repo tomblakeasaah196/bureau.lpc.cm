@@ -96,6 +96,8 @@
         return j.data;
     }
 
+    function fmtDate(iso) { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || '')); return m ? `${m[3]}/${m[2]}/${m[1]}` : String(iso || ''); }
+
     // ---------- load -----------------------------------------------------
     async function load(year) {
         const d = await apiGet('load', { year });
@@ -105,12 +107,14 @@
         STATE.editable   = !!d.editable;
         STATE.blocking_entries = d.blocking_entries || 0;
         STATE.can_save   = !!d.can_save;
+        STATE.suspense   = d.suspense || { balance: 0, items: [] };
         STATE.dirty      = false;
 
-        // Pre-populate treasury lines from the stored balance IF there is no
-        // existing opening entry yet (i.e. never saved). Once an opening JE
-        // exists, its lines are the source of truth.
-        if (!STATE.existing) {
+        // Pre-populate treasury lines from the stored balance IF the year is
+        // still empty and nothing was saved. On a year that has moved, today's
+        // balances are not an opening: showing them invented a gap on a page
+        // nobody can save (copy, 18/11/2026: « Écart +112 287 »).
+        if (!STATE.existing && STATE.editable) {
             STATE.accounts.forEach(a => {
                 if (a.treasury_balance !== null && a.debit === 0 && a.credit === 0) {
                     const b = Number(a.treasury_balance);
@@ -131,6 +135,7 @@
         $root.innerHTML = `
             ${renderHeader(totals, balanced, diff)}
             ${renderLockBanner()}
+            ${renderSuspense()}
             ${renderTierNote()}
             ${renderTable()}
         `;
@@ -152,7 +157,6 @@
         document.getElementById('ob-filter').addEventListener('input', renderTableOnly);
         document.getElementById('ob-show-empty').addEventListener('change', renderTableOnly);
         document.getElementById('ob-show-pnl').addEventListener('change', renderTableOnly);
-        document.getElementById('ob-show-legacy').addEventListener('change', renderTableOnly);
 
         // renderTable() only emits the table shell — the rows themselves are
         // painted by renderTableOnly(), which is also what the filter and the
@@ -203,7 +207,7 @@
                                 ${balanced ? '0' : (diff > 0 ? '+' : '') + fmt(diff)}
                             </div>
                         </div>
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 ${STATE.editable ? '' : 'hidden'}">
                             <button type="button" id="ob-reset"
                                 class="px-4 py-2 text-sm font-bold text-gray-600 hover:text-gray-800">
                                 Réinitialiser
@@ -228,20 +232,53 @@
         return `
             <div class="bg-amber-50 border border-amber-200 text-amber-900 px-5 py-3 rounded-xl text-sm">
                 <b>Bilan d’ouverture figé.</b>
-                L’exercice ${STATE.year} contient déjà ${STATE.blocking_entries} écriture(s) autres que l’ouverture ;
-                la saisie est en lecture seule. Toute correction doit passer par une écriture OD manuelle (Journal → Nouvelle écriture).
+                L’exercice ${STATE.year} compte déjà ${STATE.blocking_entries} écriture(s) : les soldes d’ouverture ne se saisissent plus ici.
+                Un solde oublié ou à corriger passe par une écriture d’opérations diverses (OD) :
+                <a href="/modules/accounting/journal_entry.php#wizard" class="font-black underline">Écritures → Saisie Manuelle</a>.
             </div>
+        `;
+    }
+
+    // The suspense account 471: what waits for its origin, and how it leaves.
+    function renderSuspense() {
+        const s = STATE.suspense || { balance: 0, items: [] };
+        if (!Number(s.balance)) return '';
+        const loanState = { pending: 'en attente de l’approbation du DG', approved: 'approuvé', closed: 'soldé' };
+        const items = (s.items || []).map(it => `
+            <li class="flex flex-wrap items-baseline gap-x-3">
+                <span class="font-mono text-[11px] text-gray-500">${esc(it.reference)}</span>
+                <span class="font-bold">${esc(fmtDate(it.date))}</span>
+                <span>${esc(it.description)}</span>
+                <span class="font-black font-mono">${fmt(it.amount)} F</span>
+                ${it.loan_reference ? `<span class="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">Emprunt ${esc(it.loan_reference)} · ${esc(loanState[it.loan_status] || it.loan_status)}</span>` : ''}
+            </li>`).join('');
+        return `
+            <section class="bg-white border border-rose-200 rounded-2xl px-6 py-4 text-sm text-gray-800 space-y-3">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <h3 class="font-black text-rose-800">Compte d’attente 471 : ${fmt(Math.abs(s.balance))} F à régulariser</h3>
+                    <div class="flex flex-wrap gap-2 text-xs font-bold">
+                        <a href="/modules/accounting/ledger.php?account=471#grandlivre" class="px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50">Voir le 471 au Grand Livre</a>
+                        <a href="/modules/accounting/cashflow.php#loans" class="px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50">Emprunts &amp; Financements</a>
+                        <a href="/modules/accounting/journal_entry.php#wizard" class="px-3 py-1.5 rounded-lg bg-lpc-dark text-white hover:bg-green-800">Passer l’OD de régularisation</a>
+                    </div>
+                </div>
+                <p class="text-xs text-gray-600 leading-relaxed">
+                    Un solde d’ouverture saisi dans Trésorerie (« Nouveau Compte ») attend ici que son origine soit connue.
+                    Il en sort de deux façons : de l’argent <b>prêté</b> à LPC s’enregistre comme un emprunt (Trésorerie → Emprunts &amp; Financements, « Est déjà sur le compte ») et quitte le 471 à l’approbation du Directeur Général ;
+                    sinon le Comptable passe une <b>OD</b> : débit 471, crédit le bon compte (capital 101, compte courant d’associé 4621, autre banque…).
+                </p>
+                ${items ? `<ul class="text-xs space-y-1">${items}</ul>` : ''}
+            </section>
         `;
     }
 
     function renderTierNote() {
         return `
             <div class="bg-sky-50 border border-sky-200 text-sky-900 px-5 py-3 rounded-xl text-xs leading-relaxed">
-                <b>Détail par tiers ?</b>
-                Ce tableau porte le total agrégé de chaque compte (par exemple <span class="font-mono">411 Clients</span> global).
-                Pour poser un solde ouvert <em>par client</em> ou <em>par fournisseur</em>, créez une <b>facture d’ouverture</b>
-                (Comptabilité → Factures / Achats → Nouvelle facture, datée du 1<sup>er</sup> janvier) pour chaque tiers.
-                La somme de ces factures doit égaler la ligne 411/401 saisie ici.
+                <b>Détail par tiers.</b>
+                Chaque client, fournisseur et compte de trésorerie a son propre sous-compte (411…, 401…, 5211…) :
+                son solde d’ouverture se saisit sur sa ligne. Un solde client ou fournisseur saisi ici est au Grand Livre,
+                pas dans les factures à encaisser ou les commandes à payer.
             </div>
         `;
     }
@@ -257,10 +294,6 @@
                     </label>
                     <label class="text-xs text-gray-600 font-bold flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" id="ob-show-pnl"> Afficher classes 6/7/8 (P&amp;L)
-                    </label>
-                    <label class="text-xs text-gray-600 font-bold flex items-center gap-2 cursor-pointer"
-                           title="Comptes de démonstration hérités du jeu initial (codes LPC…). Ils seront supprimés lors de la remise à zéro.">
-                        <input type="checkbox" id="ob-show-legacy"> Afficher les comptes hérités (LPC…)
                     </label>
                 </header>
                 <div class="overflow-x-auto">
@@ -286,7 +319,6 @@
         const q    = document.getElementById('ob-filter').value.trim().toLowerCase();
         const showEmpty = document.getElementById('ob-show-empty').checked;
         const showPnl   = document.getElementById('ob-show-pnl').checked;
-        const showLegacy= document.getElementById('ob-show-legacy').checked;
         const readonly  = !STATE.editable || !STATE.can_save;
 
         let lastClass = null;
@@ -294,9 +326,6 @@
 
         STATE.accounts
             .filter(a => {
-                // A legacy row with an amount already keyed stays visible
-                // regardless, so saving can never silently drop it.
-                if (!showLegacy && isLegacy(a) && !a.debit && !a.credit) return false;
                 if (!showPnl && PNL_CLASSES.has(a.class)) return false;
                 if (!showEmpty && a.debit === 0 && a.credit === 0) return false;
                 if (q) {

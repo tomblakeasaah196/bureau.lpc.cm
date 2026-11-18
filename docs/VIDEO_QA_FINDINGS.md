@@ -55,9 +55,8 @@ Seen and left:
 
 10. [V] Renaming a client (« Modifier ») does not rename its 411 account (the Données de Base session did
     it for suppliers).
-11. [V] Live keeps active 411 accounts of clients deleted long ago (Societe Generale Bonapriso, DDLP SA,
-    XYZ Ltd twice, JBS Praxis ×3, HOREB SARL, SCDP, CIMENCAM): no client points at them. For the
-    Comptabilité 1 session to review with the Plan Comptable.
+11. Done: migration 144 (decision 13) deleted those 411 rows of deleted clients (checked by the Comptabilité 1
+    session on copy C: none is left).
 12. [V] The Studio's « Stock Tampon » paragraph on page 2 promises « Capacité de stockage dédiée »: it is
     now backed by the threshold rise, but nothing reserves stock for a client (by design: a devis
     reserves nothing).
@@ -125,6 +124,11 @@ Reproduced on the copy and fixed by the « Flotte » video session (18/11/2026):
 9. [V] `notifyAdminFinance` (`invoices_controller.php:73`) targets roles admin / finance / accountant by name;
    `finance` does not exist. The signature notices moved to permissions (5.7, `lpc_notify_permission`): do the
    same here.
+11. [V] **No credit note (avoir) exists** (was 11.2): `JournalPoster::postSalesCreditNote` has no caller and no
+   screen issues an avoir against an invoice, although Ventes tells the user « établissez un avoir dans Facturation »
+   for a signed BL. « Trop Perçus (Avoirs) » is the client's overpayment wallet, not a credit note. For Facturation:
+   an « Avoir » on an invoice (lines or amount, reason), posted Dr 7019 (or 701) + Dr 4431 / Cr the client's 411,
+   that reduces what the invoice still owes; numbered by DocCounter (the hidden `credit_note_prefix`, 15.1).
 10. [V] Ventes (5.5) now keeps the order's own remise in `sales_orders.order_discount_amount`; the invoice's
    « Remise » takes only that, pro rata of the BLs billed. The invoice lines are billed at the price sold, the
    line remise inside it. Check the PDF shows it that way.
@@ -160,23 +164,19 @@ employee without one has none deducted; the data wipe's own-rows list removes pa
 
 ## 11 · Comptabilité 1 (Plan Comptable, Bilan d'Ouverture, Écritures, Grand Livre)
 
-1. [V] Every automatic entry posts at once (no draft): the « File d'Attente (Brouillards) » holds manual
-   drafts only. « Validations en attente » and the closing check « Aucune écriture en attente
-   d'approbation » look for status `pending`, which does not exist (draft, posted, reversed):
-   always 0 (`YearEndClosing.php:139`).
-2. [V] `postSalesCreditNote` has no caller: no credit-note entries.
-3. See 3.1 (stock accounting, 601 vs 31x/6031), 8.1 (invoice on the first 411), 8.2 (AIR twice), 4.6
-   (second 411 on conversion): the ledger checks belong here if their module sessions did not fix them.
-   Since migration 144 (decision 13) « the first 411 » is the parent's own row « 411 Clients », no longer a deleted
-   test client's 411004; posting each invoice to the client's own 411 (8.1) is still to do. The same for 701: its own
-   row « 701 Ventes de marchandises » replaces the inactive « LPC70111 Sales of 20L Opur » as the fallback.
-4. [V] **A reversal counts twice in the reports** (found by the Ventes session, 18/11/2026):
-   `JournalPoster::reverseSource` posts the mirror entry and stamps the original `reversed`, while the Grand
-   Livre, the Balance and the review screens read `status = 'posted'` only (`review_controller.php:152, 289,
-   349, 369, 387`). The original drops out and the mirror stays: a cancelled reception shows 601 at minus its
-   amount instead of 0. Callers: purchase cancellation, payroll undo (« Annuler la Paie »), rebates. Fix
-   either side (read posted + reversed, or leave the original posted) and check 311, 601, 661 on the copy.
-   Ventes avoided it: a cancelled BL books its own opposite entry (`postStockAdjustment`).
+Reproduced on copy C and fixed by the « Comptabilité 1 » video session (track C, 18/11/2026): 11.1 (drafts are
+what waits), 11.4 (a cancelled entry stays posted beside its mirror; migration 147 puts back the stamped ones), and
+what the QA found on the four pages (docs/TRAINING_VIDEOS.md §7). 11.2 belongs to Facturation: it is now 8.11.
+Left:
+
+3. 8.1 (invoices post to the generic « 411 Clients », not the client's own 411) and 8.2 (AIR booked twice) are
+   Facturation's; 3.1 (Stock) and 4.6 (Proposition) are done. Once 8.1 lands, the Balance des Tiers shows each
+   client; today copy C has no invoice yet.
+5. [V] Journal codes: payroll, stock entries and treasury openings post in OD, purchases in AC, payments in BQ.
+   Nothing posts in VT or CA yet (invoices and cash sales are Facturation's). Fine for the books; the « Journal »
+   filter shows it.
+6. [V] A client's or supplier's opening balance keyed on Bilan d'Ouverture reaches its 411/401 sub-account but
+   creates no invoice or order to collect or pay. The screen says so. Only matters for a new year.
 
 ## 12 · Comptabilité 2 (Immobilisations, Budgets & Performance)
 
@@ -287,3 +287,4 @@ marked fixed). What was fixed is in docs/TRAINING_VIDEOS.md §7. Left:
 | 24 | When LPC **lends**, where does the borrower's debt sit? The owner set the borrowing side (4621, 466, 162, 168). | Default: a related company 466 (a sub-account apart from its loan to LPC, « … (prêt de LPC) »), anyone else 271 « Prêts et créances non commerciales ». Note: OHADA company law forbids a company to lend to its managers and physical-person associates; the screen allows it and leaves it to the DG's approval. |
 | 25 | A loan's one-off fee and its interest: which accounts? | Default: the fee is kept out of the money paid over; LPC borrows: 631 Frais bancaires; LPC lends: 771. Interest LPC pays: 671 « Intérêts des emprunts » (all lenders); interest it earns: 771 « Intérêts de prêts et créances diverses » (771 read « Gains de change », which SYSCOHADA numbers 776: renamed, 776 added). Interest adds to what is owed, on the loan date's day each month. |
 | 26 | The parents' own rows « 521 Banques », « 571 Caisse » and « 552 Monnaie électronique » had no entry once each account had its sub-account. | Deleted with the other unused rows (no treasury posting can reach a parent any more); 411 and 701 got their own row instead, being where invoices still post (8.1). |
+| 27 | **Purchase TVA** (open point under answer 9). Supplier orders are TTC and reception books the whole TTC to 601 and 31x; the ristourne already sends its 19,25 % TVA to 4452 « TVA récupérable ». Under SYSCOHADA and the CGI, input TVA is deductible only on purchases used for operations **subject to TVA** (taxed at 19,25 %, or at 0 % with the right to deduct, like exports). If LPC's water is **outside or exempt from TVA** (the owner thinks there is no TVA on water), the purchase TVA is a cost: 601 and 31x at TTC are right, and the ristourne's 19,25 % should go to 6019 too, not 4452. If LPC **charges TVA** on its sales (Préférences say « assujetti TVA », 19,25 %), reception should split it: Dr 601 HT + Dr 4452 TVA / Cr 401 TTC, stock 31x at HT, and LPC deducts it each month. Which is LPC's position (ask the tax adviser: exempt, 0 % with deduction, or 19,25 %)? | Nothing changed: reception keeps 601 and 31x at TTC (right if water is not taxed). On the answer, a session changes reception, the ristourne's TVA line and the CUMP together, and decides whether past receptions are restated. |

@@ -53,9 +53,16 @@ $user_role = $_SESSION['user_role'];
             <button onclick="switchTab('wizard')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-wizard">
                 <i class="fas fa-magic mr-2"></i> Saisie Manuelle (Assistant)
             </button>
-            <button onclick="switchTab('chart')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-chart">
-                <i class="fas fa-sitemap mr-2"></i> Plan Comptable LPC
+            <button onclick="switchTab('journal')" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-journal">
+                <i class="fas fa-list-ul mr-2"></i> Journal des Écritures
             </button>
+            <?php if (Rbac::hasPermission('accounting.chart.view')): ?>
+            <!-- The chart has its own page since the owner's decision 14 (classes,
+                 search, tree, sub-accounts): this tab opens it. -->
+            <a href="/modules/admin/chart_of_accounts.php" class="tab-link py-4 border-b-[3px] border-transparent text-gray-400 hover:text-gray-600 font-bold text-sm uppercase tracking-wider whitespace-nowrap" id="tab-chart">
+                <i class="fas fa-sitemap mr-2"></i> Plan Comptable <i class="fas fa-arrow-right ml-1 text-[10px]"></i>
+            </a>
+            <?php endif; ?>
 
             <!-- Spacer pushes the help + batch controls to the right of the toolbar. -->
             <div class="ml-auto"></div>
@@ -74,7 +81,7 @@ $user_role = $_SESSION['user_role'];
                 <div class="bg-blue-50 border border-blue-200 p-5 rounded-2xl flex justify-between items-center shrink-0 gap-4 flex-wrap">
                     <div class="flex-1 min-w-[300px]">
                         <h3 class="font-black text-blue-900 text-sm uppercase tracking-widest flex items-center"><i class="fas fa-shield-alt mr-2"></i> <?= htmlspecialchars(__t('ui.x.zone_de_validation')) ?></h3>
-                        <p class="text-xs text-blue-700 font-bold mt-1">Ces écritures ont été générées par l'ERP (Ventes, Flotte, Trésorerie) ou sauvegardées en brouillon. Le score de confiance à droite indique le niveau de similarité avec vos écritures habituelles.</p>
+                        <p class="text-xs text-blue-700 font-bold mt-1">Les écritures des modules (Achats, Stock, Paie, Trésorerie, Dépenses, Emprunts…) arrivent seules au Grand Livre : voyez-les dans « Journal des Écritures ». Ici attendent les brouillards saisis à la main : relisez, puis « Valider » les poste au Grand Livre. Le score de confiance compare chaque brouillard à vos écritures habituelles.</p>
                     </div>
 
                     <!-- Batch action bar. Reveals itself as soon as at least
@@ -109,7 +116,7 @@ $user_role = $_SESSION['user_role'];
                                     <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest"><?= htmlspecialchars(__t('ui.x.description_2')) ?></th>
                                     <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right"><?= htmlspecialchars(__t('ui.x.lignes_debit_credit')) ?></th>
                                     <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-center w-24">Confiance</th>
-                                    <th class="py-4 px-6 text-right"><?= htmlspecialchars(__t('ui.x.actions')) ?></th>
+                                    <th class="py-4 px-6 text-[10px] uppercase text-gray-400 font-black tracking-widest text-right"><?= htmlspecialchars(__t('ui.x.actions')) ?></th>
                                 </tr>
                             </thead>
                             <tbody id="table-body-queue" class="divide-y divide-gray-100 text-sm">
@@ -208,24 +215,52 @@ $user_role = $_SESSION['user_role'];
                 </div>
             </div>
 
-            <div id="content-chart" class="tab-content flex-col h-full gap-6">
-                <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex justify-between items-center shrink-0">
-                    <div class="relative w-full max-w-md">
-                        <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                        <input type="text" onkeyup="filterChart(this.value)" placeholder="Rechercher un compte (Code ou Nom)..." class="w-full pl-11 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-acc-highlight">
+            <div id="content-journal" class="tab-content flex-col h-full gap-4">
+                <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-wrap items-end gap-4 shrink-0">
+                    <div>
+                        <label for="jr_month" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Mois</label>
+                        <input type="month" id="jr_month" onchange="fetchJournal()" class="bg-white border border-gray-300 rounded-lg p-2 text-sm font-bold outline-none focus:ring-2 focus:ring-acc-highlight">
                     </div>
-                    <button onclick="openAccountModal()" class="bg-acc-dark hover:bg-black text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2">
-                        <i class="fas fa-plus"></i> Nouveau Compte Auxiliaire
-                    </button>
+                    <div>
+                        <label for="jr_journal" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Journal</label>
+                        <select id="jr_journal" onchange="fetchJournal()" class="bg-white border border-gray-300 rounded-lg p-2 text-sm font-bold outline-none focus:ring-2 focus:ring-acc-highlight">
+                            <option value="">Tous</option>
+                            <option value="AC">Achats (AC)</option>
+                            <option value="VT">Ventes (VT)</option>
+                            <option value="BQ">Banque (BQ)</option>
+                            <option value="CA">Caisse (CA)</option>
+                            <option value="OD">Opérations Diverses (OD)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="jr_origin" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Origine</label>
+                        <select id="jr_origin" onchange="fetchJournal()" class="bg-white border border-gray-300 rounded-lg p-2 text-sm font-bold outline-none focus:ring-2 focus:ring-acc-highlight">
+                            <option value="">Toutes</option>
+                            <option value="auto">Des modules (automatiques)</option>
+                            <option value="manual">Saisies à la main</option>
+                        </select>
+                    </div>
+                    <div class="flex-1 min-w-[220px]">
+                        <label for="jr_q" class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Rechercher</label>
+                        <input type="search" id="jr_q" oninput="debouncedJournal()" placeholder="Référence ou libellé (ex. PO-2611, Paie)" class="w-full bg-white border border-gray-300 rounded-lg p-2 text-sm font-medium outline-none focus:ring-2 focus:ring-acc-highlight">
+                    </div>
+                    <p id="jr_counts" class="text-xs font-bold text-gray-500 ml-auto"></p>
                 </div>
-
                 <div class="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col flex-1 overflow-hidden">
-                    <div class="p-4 bg-gray-50 border-b border-gray-200 flex justify-between text-[10px] uppercase text-gray-500 font-black tracking-widest pr-10">
-                        <span class="w-1/4">Racine OHADA</span>
-                        <span class="w-3/4"><?= htmlspecialchars(__t('ui.x.comptes_auxiliaires_lpc_6_chiffres')) ?></span>
+                    <div class="overflow-auto flex-1">
+                        <table class="min-w-full text-left border-collapse">
+                            <thead class="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
+                                <tr>
+                                    <th class="py-3 px-4 text-[10px] uppercase text-gray-400 font-black tracking-widest">Date</th>
+                                    <th class="py-3 px-4 text-[10px] uppercase text-gray-400 font-black tracking-widest">Journal</th>
+                                    <th class="py-3 px-4 text-[10px] uppercase text-gray-400 font-black tracking-widest">Pièce & libellé</th>
+                                    <th class="py-3 px-4 text-[10px] uppercase text-gray-400 font-black tracking-widest">Origine</th>
+                                    <th class="py-3 px-4 text-[10px] uppercase text-gray-400 font-black tracking-widest">Lignes (débit / crédit)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-body-journal" class="divide-y divide-gray-100 text-sm"></tbody>
+                        </table>
                     </div>
-                    <div class="overflow-auto flex-1 p-4 space-y-4" id="chart-container">
-                        </div>
                 </div>
             </div>
 
@@ -236,7 +271,7 @@ $user_role = $_SESSION['user_role'];
     <!-- Threshold tuning modal. Writes to accounting_confidence_threshold via
          the shared settings_controller.php `save_preferences` action, so the
          change is validated + audited exactly like any other pref edit. -->
-    <div id="modal-threshold" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
+    <div id="modal-threshold" class="hidden fixed inset-0 z-[9000] flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
             <div class="bg-acc-dark px-6 py-5 flex justify-between items-center text-white border-b border-gray-800">
                 <h3 class="font-black text-lg tracking-wide flex items-center gap-3"><i class="fas fa-sliders-h"></i> Seuil d'auto-revue</h3>
@@ -278,37 +313,6 @@ $user_role = $_SESSION['user_role'];
         </div>
     </div>
     <?php endif; ?>
-
-    <div id="modal-add-account" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm p-4 transition-opacity">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-slide-up">
-            <div class="bg-acc-dark px-6 py-5 flex justify-between items-center text-white border-b border-gray-800">
-                <h3 class="font-black text-lg tracking-wide flex items-center gap-3"><i class="fas fa-sitemap"></i> <?= htmlspecialchars(__t('ui.x.creer_compte_auxiliaire')) ?></h3>
-                <button type="button" onclick="closeModal('modal-add-account')" class="text-gray-400 hover:text-white"><i class="fas fa-times text-xl"></i></button>
-            </div>
-            <div class="p-8 bg-slate-50">
-                <form id="form-account" class="space-y-5">
-                    <div>
-                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5"><?= htmlspecialchars(__t('ui.x.compte_racine_ohada')) ?></label>
-                        <select id="new_acc_parent" required class="w-full bg-white border border-gray-200 rounded-lg p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-acc-highlight">
-                            </select>
-                    </div>
-                    <div>
-                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5"><?= htmlspecialchars(__t('ui.x.code_lpc_strictement_6_chiffres')) ?></label>
-                        <input type="text" id="new_acc_code" required pattern="[0-9]{6}" maxlength="6" placeholder="Ex: 411001" class="w-full bg-white border border-gray-200 rounded-lg p-3 text-sm font-black outline-none focus:ring-2 focus:ring-acc-highlight font-mono tracking-widest">
-                        <p class="text-[9px] text-gray-400 font-bold mt-1"><?= htmlspecialchars(__t('ui.x.doit_commencer_par_les_chiffres_du_compt')) ?></p>
-                    </div>
-                    <div>
-                        <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5"><?= htmlspecialchars(__t('ui.x.nom_du_compte')) ?></label>
-                        <input type="text" id="new_acc_name" required placeholder="Ex: Client Boutique Maman" class="w-full bg-white border border-gray-200 rounded-lg p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-acc-highlight">
-                    </div>
-                </form>
-            </div>
-            <div class="bg-white px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
-                <button type="button" onclick="closeModal('modal-add-account')" class="px-5 py-2.5 text-sm font-bold text-gray-500"><?= htmlspecialchars(__t('ui.x.annuler')) ?></button>
-                <button type="button" onclick="submitAccount()" class="px-6 py-2.5 bg-acc-highlight hover:bg-blue-600 text-white rounded-lg font-bold text-sm shadow-md transition-all"><?= htmlspecialchars(__t('ui.x.creer')) ?></button>
-            </div>
-        </div>
-    </div>
 
     <script src="<?= lpc_asset('/assets/js/modules/accounting-journal_entry.js') ?>" defer></script>
 </body>

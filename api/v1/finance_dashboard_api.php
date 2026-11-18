@@ -266,14 +266,14 @@ if ($__action === 'drilldown_pending') {
               JOIN users u ON u.id = cr.driver_id
              WHERE cr.status = 'pending_accountant'
              UNION ALL
-            SELECT 'Écriture comptable' AS kind,
+            SELECT 'Brouillard à valider' AS kind,
                    je.date,
                    je.reference,
                    COALESCE(uu.first_name, '—') AS author,
                    (SELECT COALESCE(SUM(jl.debit), 0) FROM journal_lines jl WHERE jl.journal_entry_id = je.id) AS amount
               FROM journal_entries je
               LEFT JOIN users uu ON uu.id = je.created_by
-             WHERE je.status = 'pending'
+             WHERE je.status = 'draft'
         ) t
         ORDER BY t.date DESC
     ";
@@ -400,7 +400,7 @@ $q_pending = function () use ($db): int {
     $stmt = $db->query("
         SELECT
             (SELECT COUNT(*) FROM cash_reconciliations WHERE status = 'pending_accountant') +
-            (SELECT COUNT(*) FROM journal_entries      WHERE status = 'pending') AS v
+            (SELECT COUNT(*) FROM journal_entries      WHERE status = 'draft') AS v
     ");
     return (int) $stmt->fetch()['v'];
 };

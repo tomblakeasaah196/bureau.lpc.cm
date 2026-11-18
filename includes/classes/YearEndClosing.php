@@ -135,17 +135,20 @@ class YearEndClosing
             'detail'=> abs($delta) < 0.01 ? 'OK' : "Écart de $delta FCFA",
         ];
 
-        // 2. Pending journal entries
+        // 2. Drafts still waiting in Écritures → File d'Attente. The status
+        //    vocabulary is draft / posted / reversed (migration 039): there
+        //    has never been a 'pending', so this check always read 0
+        //    (VIDEO_QA_FINDINGS 11.1).
         $st = $this->pdo->prepare(
-            "SELECT COUNT(*) FROM journal_entries WHERE YEAR(date) = ? AND status = 'pending'"
+            "SELECT COUNT(*) FROM journal_entries WHERE YEAR(date) = ? AND status = 'draft'"
         );
         $st->execute([$year]);
         $pending = (int)$st->fetchColumn();
         $checks[] = [
             'key' => 'no_pending_entries',
-            'label' => 'Aucune écriture en attente d\'approbation',
+            'label' => 'Aucun brouillard en attente de validation (Écritures)',
             'ok'    => $pending === 0,
-            'detail'=> "$pending en attente",
+            'detail'=> $pending === 0 ? 'OK' : "$pending brouillard(s) à valider ou supprimer",
         ];
 
         // 3. All fixed assets have monthly depreciation run for every month of year
