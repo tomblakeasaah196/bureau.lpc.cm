@@ -1134,6 +1134,14 @@ try {
                 );
             }
 
+            // A settled invoice letters its 411 lines (the sale, or the Bilan
+            // d'Ouverture's line for a « solde d'ouverture », and its payments),
+            // as the Grand Livre's lettrage would (the owner's answer 26).
+            if ($invoice_id && ($status ?? '') === 'paid') {
+                try { JournalPoster::letterDocument($db, 'invoice', (int) $invoice_id); }
+                catch (Throwable $e) { error_log('register_payment lettrage: ' . $e->getMessage()); }
+            }
+
             // Sprint 9 — general "a payment landed" event, distinct from the
             // AIR-uncertified alert below (that one is a standing problem to
             // fix; this one is just "FYI, money came in"). Same permission
@@ -1556,6 +1564,10 @@ try {
                 JournalPoster::postSalesCreditNote($invoice_id, $amount_ht, $vat, $date, $avRef, $reason, $air_part, $payment_id);
             } catch (RuntimeException $e) {
                 throw new UserFacingException("L'avoir n'a pas pu être comptabilisé. Détail : " . $e->getMessage());
+            }
+            if ($status === 'paid') {
+                try { JournalPoster::letterDocument($db, 'invoice', (int) $invoice_id); }
+                catch (Throwable $e) { error_log('credit_note lettrage: ' . $e->getMessage()); }
             }
 
             notifyAdminFinance($db, 'Avoir émis',

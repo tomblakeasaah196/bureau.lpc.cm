@@ -28,11 +28,19 @@
  *     Treasury CoA rows also update the mirror treasury_accounts.balance
  *     so the cashflow screen matches.
  *
- * NON-GOALS
- *   Per-tier subledger (each client's opening AR, each supplier's opening
- *   AP) — the app tracks those via invoices, not per-tier CoA rows. The UI
- *   surfaces a clear note pointing operators at the invoice screen for
- *   that seeding.
+ * EACH CLIENT AND SUPPLIER (the owner's answer 26, register 11.6)
+ *   A client's or supplier's opening balance is keyed on its own sub-account
+ *   (411xxx / 401xxx). In the first year of the books (no entry before
+ *   01/01), saving also creates one « solde d'ouverture » document for it:
+ *   an open invoice for a client that owes LPC (OUV-YYYY-C<id>), an unpaid
+ *   supplier debt for a supplier LPC owes (OUV-YYYY-F<id>), flagged
+ *   is_opening and posting nothing (the opening entry already holds the
+ *   ledger side). Payments are then recorded against them like any other
+ *   debt, show in the aged balance, the client's balance and the supplier's
+ *   « Dettes », and letter against the opening line once settled
+ *   (JournalPoster::letterDocument). Re-saving replaces them (the year is
+ *   still empty, so none has a payment). A closed year's À-nouveaux create
+ *   none: the old invoices and orders are still open.
  * -----------------------------------------------------------------------------
  */
 require_once __DIR__ . '/../../includes/bootstrap.php';
@@ -91,6 +99,58 @@ function opening_year_editable(PDO $pdo, int $year, ?int $opening_je_id): array
         'editable' => $other === 0,
         'blocking_entries' => $other,
     ];
+}
+
+/**
+ * One « solde d'ouverture » document per client that owes LPC and per supplier
+ * LPC owes, from the opening lines on their own sub-accounts. Only in the first
+ * year of the books (a later year opens from the À-nouveaux, its documents
+ * still open). Replaces the year's previous ones (none can have a payment:
+ * the year is frozen as soon as any other entry exists).
+ * @return array{clients:int, suppliers:int}
+ */
+function opening_tier_documents(PDO $pdo, int $year, string $date, array $clean, int $user_id): array
+{
+    $out = ['clients' => 0, 'suppliers' => 0];
+    $prior = $pdo->prepare("SELECT COUNT(*) FROM journal_entries WHERE status = 'posted' AND date < ?");
+    $prior->execute([$date]);
+    if ((int) $prior->fetchColumn() > 0) return $out;
+
+    $pdo->prepare("DELETE FROM invoices WHERE is_opening = 1 AND YEAR(date) = ?
+                    AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.invoice_id = invoices.id)")->execute([$year]);
+    $pdo->prepare("DELETE FROM purchase_orders WHERE is_opening = 1 AND YEAR(date) = ? AND payment_je_id IS NULL")
+        ->execute([$year]);
+
+    $client = $pdo->prepare("SELECT id, name, COALESCE(payment_terms_days, 0) AS terms FROM clients WHERE account_id = ? AND deleted_at IS NULL LIMIT 1");
+    $supplier = $pdo->prepare("SELECT id, name FROM suppliers WHERE account_id = ? AND deleted_at IS NULL LIMIT 1");
+    $insInv = $pdo->prepare("
+        INSERT INTO invoices (reference, token, client_id, date, due_date, subtotal, gross_subtotal, tva_rate, tva_amount,
+                              total_amount, net_payable, air_rate, air_amount, status, created_by, notes, is_opening)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 0, 0, 'unpaid', ?, ?, 1)
+    ");
+    $insPo = $pdo->prepare("
+        INSERT INTO purchase_orders (reference, supplier_id, date, status, subtotal, total_amount, payment_status, token,
+                                     created_by, remise_type, is_opening)
+        VALUES (?, ?, ?, 'received', ?, ?, 'unpaid', ?, ?, 'none', 1)
+    ");
+    foreach ($clean as $l) {
+        $acc = (int) $l['account_id'];
+        $client->execute([$acc]);
+        if (($c = $client->fetch(PDO::FETCH_ASSOC)) && $l['debit'] > 0) {
+            $amt = (float) $l['debit'];
+            $insInv->execute([sprintf('OUV-%d-C%d', $year, $c['id']), bin2hex(random_bytes(16)), (int) $c['id'], $date, $date,
+                              $amt, $amt, $amt, $amt, $user_id, "Solde d'ouverture $year (Bilan d'Ouverture) : ce que le client devait au démarrage."]);
+            $out['clients']++;
+            continue;
+        }
+        $supplier->execute([$acc]);
+        if (($f = $supplier->fetch(PDO::FETCH_ASSOC)) && $l['credit'] > 0) {
+            $amt = (float) $l['credit'];
+            $insPo->execute([sprintf('OUV-%d-F%d', $year, $f['id']), (int) $f['id'], $date, $amt, $amt, bin2hex(random_bytes(16)), $user_id]);
+            $out['suppliers']++;
+        }
+    }
+    return $out;
 }
 
 $method = $_SERVER['REQUEST_METHOD'];
@@ -455,6 +515,10 @@ if ($method === 'POST' && $action === 'save') {
              WHERE year = ?
         ")->execute([$je_id, $year]);
 
+        // 6b. Each client's and supplier's opening balance as a document to
+        //     collect or pay (the owner's answer 26).
+        $docs = opening_tier_documents($pdo, $year, $date, $clean, (int) $user_id);
+
         // 7. Mirror to the treasury module.
         //
         //    treasury_accounts.balance is a stored running total that the
@@ -507,11 +571,16 @@ if ($method === 'POST' && $action === 'save') {
         }
 
         $pdo->commit();
-        jr('success', "Bilan d'ouverture enregistré ($ref).", [
+        $msg = "Bilan d'ouverture enregistré ($ref).";
+        if ($docs['clients'] || $docs['suppliers']) {
+            $msg .= " Soldes repris : {$docs['clients']} client(s) à encaisser dans Facturation, {$docs['suppliers']} fournisseur(s) à payer dans Gestion des Achats.";
+        }
+        jr('success', $msg, [
             'journal_entry_id' => $je_id,
             'reference'        => $ref,
             'total_debit'      => $sum_d,
             'total_credit'     => $sum_c,
+            'opening_documents'=> $docs,
         ]);
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();

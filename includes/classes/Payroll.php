@@ -35,7 +35,12 @@ final class Payroll
      */
     private const DEFAULT_RATES = [
         'cnps_employee_rate'  => 0.042,
-        'cnps_employer_rate'  => 0.162,
+        // The employer's CNPS is never a stored figure: PVID 4,2 % + prestations
+        // familiales 7 % + the accident du travail of the risk group set in
+        // Paramètres (« Groupe CNPS », tax_cnps_group; the owner's answer 25:
+        // LPC is group A). cnpsEmployerParts() builds it on every calculation.
+        'cnps_pvid_employer_rate' => 0.042,
+        'cnps_pf_rate'        => 0.070,
         'cnps_ceiling'        => 750000.0,
         'cfc_employee_rate'   => 0.010,
         'cfc_employer_rate'   => 0.015,
@@ -94,6 +99,11 @@ final class Payroll
     {
         $year = (int) $month->format('Y');
         [$rates, $irpp_brackets, $crtv_brackets] = self::loadConfig($year);
+        // Read the CNPS group now, not from the per-year cache: changing it in
+        // Paramètres changes the next calculation.
+        $cnps = self::cnpsEmployerParts($rates);
+        $rates['cnps_employer_rate'] = $cnps['employer_rate'];
+        $rates['cnps_at_rate']       = $cnps['at'];
 
         // -- 1. Gross salary --------------------------------------------------
         $base       = (float) ($contract['base_salary']         ?? 0);
@@ -116,6 +126,7 @@ final class Payroll
         $cnps_base       = min($gross, (float) $rates['cnps_ceiling']);
         $cnps_employee   = self::roundFcfa($cnps_base * (float) $rates['cnps_employee_rate']);
         $cnps_employer   = self::roundFcfa($cnps_base * (float) $rates['cnps_employer_rate']);
+        $cnps_group      = $cnps['group'];
 
         // -- 3. IRPP progressive brackets on the monthly taxable base ---------
         // Taxable base = (gross - CNPS) × (1 - frais_pro_rate) - abattement/12
@@ -206,6 +217,7 @@ final class Payroll
             'taxable_base'          => self::roundFcfa($taxable_base),
             'cnps_employee'         => $cnps_employee,
             'cnps_employer'         => $cnps_employer,
+            'cnps_group'            => $cnps_group,
             'irpp'                  => $irpp,
             'cac'                   => $cac,
             'cfc_employee'          => $cfc_employee,
@@ -230,6 +242,31 @@ final class Payroll
      * Returns a float so the callers can keep type-coherent addition, but
      * every returned value has no fractional part.
      */
+    /**
+     * The employer's CNPS rate and its parts, from the risk group set in
+     * Paramètres (VIDEO_QA_FINDINGS owner table 33, the owner's answer 25):
+     *   PVID patronale (payroll_rates cnps_pvid_employer_rate, 4,2 %)
+     * + prestations familiales (cnps_pf_rate, 7 %)
+     * + accident du travail of the group: Paramètres « CNPS accident du travail,
+     *   groupe A / B / C » (tax_at_rate_a/b/c: 1,75 / 2,5 / 5 %).
+     * Group A gives 12,95 %. The payroll used a stored 16,2 % (group C) whatever
+     * the setting said. TaxEngine reads the same parts for the declaration.
+     *
+     * @return array{group:string, pvid:float, pf:float, at:float, employer_rate:float}
+     */
+    public static function cnpsEmployerParts(array $rates = []): array
+    {
+        $group = class_exists('Prefs') ? strtoupper(trim(Prefs::str('tax_cnps_group', 'A'))) : 'A';
+        if (!in_array($group, ['A', 'B', 'C'], true)) $group = 'A';
+        $key = 'tax_at_rate_' . strtolower($group);
+        $def = ['A' => 1.75, 'B' => 2.5, 'C' => 5.0][$group];
+        $at  = class_exists('Prefs') ? Prefs::rate($key, $def) : $def / 100;
+        $pvid = (float) ($rates['cnps_pvid_employer_rate'] ?? self::DEFAULT_RATES['cnps_pvid_employer_rate']);
+        $pf   = (float) ($rates['cnps_pf_rate'] ?? self::DEFAULT_RATES['cnps_pf_rate']);
+        return ['group' => $group, 'pvid' => $pvid, 'pf' => $pf, 'at' => (float) $at,
+                'employer_rate' => round($pvid + $pf + (float) $at, 6)];
+    }
+
     private static function roundFcfa(float $amount): float
     {
         return (float) round($amount, 0, PHP_ROUND_HALF_UP);

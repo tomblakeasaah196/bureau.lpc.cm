@@ -91,5 +91,24 @@ check('a database error is not shown', !str_contains($ob, "'Erreur base de donn�
 check('treasury balances pre-fill only an empty year', str_contains($obJs, 'if (!STATE.existing && STATE.editable)'));
 check('the 471 waiting to be cleared is shown', str_contains($ob, "'suspense'") && str_contains($obJs, 'function renderSuspense'));
 
+echo "\nOpening debts per client and supplier (the owner's answer 26, register 11.6)\n";
+$inv  = $read('api/v1/invoices_controller.php');
+$proc = $read('api/v1/procurement_controller.php');
+$m160 = $read('migrations/160_cnps_group_and_opening_tiers.sql');
+$tierDocs = substr($ob, (int) strpos($ob, 'function opening_tier_documents'), 3500);
+check('saving creates the documents', str_contains($ob, '$docs = opening_tier_documents($pdo, $year, $date, $clean, (int) $user_id);'));
+check('a client that owes LPC: an open invoice OUV-YYYY-C<id>, posting nothing', str_contains($tierDocs, "sprintf('OUV-%d-C%d'") && str_contains($tierDocs, "'unpaid', ?, ?, 1)") && !str_contains($tierDocs, 'JournalPoster'));
+check('a supplier LPC owes: an unpaid received debt OUV-YYYY-F<id>', str_contains($tierDocs, "sprintf('OUV-%d-F%d'") && str_contains($tierDocs, "VALUES (?, ?, ?, 'received', ?, ?, 'unpaid'"));
+check('only in the first year of the books (a closed year keeps its own documents)', str_contains($tierDocs, "WHERE status = 'posted' AND date < ?"));
+check('re-saving replaces only documents without a payment', str_contains($tierDocs, 'NOT EXISTS (SELECT 1 FROM payments p WHERE p.invoice_id = invoices.id)') && str_contains($tierDocs, 'payment_je_id IS NULL'));
+check('migration 160 adds is_opening to invoices and purchase orders', str_contains($m160, "table_name = 'invoices' AND column_name = 'is_opening'") && str_contains($m160, "table_name = 'purchase_orders' AND column_name = 'is_opening'"));
+$letter = substr($jp, (int) strpos($jp, 'public static function letterDocument'), 4500);
+check('a settled document letters its lines, the opening line included', str_contains($letter, 'opening_balance_journal_id') && str_contains($letter, 'abs($net) >= 0.5') && str_contains($letter, 'UPDATE journal_lines SET lettrage = ?'));
+check('a payment that settles an invoice letters it', str_contains($inv, "JournalPoster::letterDocument(\$db, 'invoice', (int) \$invoice_id)"));
+check('a supplier settlement letters the order', str_contains($proc, "JournalPoster::letterDocument(\$db, 'purchase_order', \$po_id)"));
+check('an opening debt is not cancelled as an order', str_contains($proc, "C'est un solde d'ouverture"));
+check('the invoice shows « Solde d\'ouverture » as its line', str_contains($read('api/v1/get_invoice.php'), "Solde d'ouverture au ") && str_contains($read('includes/functions/document_pdf.php'), "Solde d'ouverture au "));
+check('the screen says what becomes of a client\'s or supplier\'s balance', str_contains($obJs, 'devient une facture'));
+
 echo "\n" . ($fail ? "$fail check(s) failed.\n" : "All checks passed.\n");
 exit($fail ? 1 : 0);
