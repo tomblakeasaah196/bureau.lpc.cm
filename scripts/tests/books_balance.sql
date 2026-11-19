@@ -95,3 +95,12 @@ SELECT
  GROUP BY td.id, td.net_to_pay
 HAVING ABS(SUM(CASE WHEN ca.code LIKE '5%' THEN jl.credit - jl.debit ELSE 0 END) - td.net_to_pay) >= 1;
 -- Expected: no rows
+
+-- 8. A « solde d'ouverture » document (Bilan d'Ouverture, the owner's answer 26)
+--    posts nothing of its own: the opening entry already holds its 411 / 401 line.
+SELECT
+    'Opening documents with an entry of their own' AS check_name,
+    (SELECT COUNT(*) FROM journal_entries je JOIN invoices i ON je.source_type = 'invoice' AND je.source_id = i.id WHERE i.is_opening = 1)
+  + (SELECT COUNT(*) FROM journal_entries je JOIN purchase_orders po ON je.source_type = 'purchase_order' AND je.source_id = po.id WHERE po.is_opening = 1)
+      AS posted;
+-- Expected: posted = 0

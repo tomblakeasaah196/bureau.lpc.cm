@@ -264,6 +264,11 @@ try {
                     $note
                 );
 
+                // The paid order letters its 401 lines: its reception (or the
+                // Bilan d'Ouverture's line for a « solde d'ouverture ») and this payment.
+                try { JournalPoster::letterDocument($db, 'purchase_order', $po_id); }
+                catch (Throwable $e) { error_log('settle_supplier_pos lettrage: ' . $e->getMessage()); }
+
                 $posted[]    = ['po_id' => $po_id, 'reference' => $po['reference'], 'je_id' => $je_id, 'amount' => (float)$po['total_amount']];
                 $grand_paid += (float) $po['total_amount'];
             }
@@ -1281,12 +1286,15 @@ try {
             $db->beginTransaction();
 
             $stmtPO = $db->prepare("
-                SELECT id, reference, supplier_id, status, discount_amount
+                SELECT id, reference, supplier_id, status, discount_amount, COALESCE(is_opening, 0) AS is_opening
                   FROM purchase_orders WHERE id = ? FOR UPDATE
             ");
             $stmtPO->execute([$po_id]);
             $po = $stmtPO->fetch(PDO::FETCH_ASSOC);
             if (!$po) throw new UserFacingException("Bon de commande introuvable.");
+            if ((int) $po['is_opening'] === 1) {
+                throw new UserFacingException("C'est un solde d'ouverture : il se corrige dans Bilan d'Ouverture, ou par une OD dans Écritures.");
+            }
             if ($po['status'] === 'cancelled') {
                 throw new UserFacingException("Cette commande est déjà annulée.");
             }

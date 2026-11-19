@@ -277,8 +277,9 @@
             <div class="bg-sky-50 border border-sky-200 text-sky-900 px-5 py-3 rounded-xl text-xs leading-relaxed">
                 <b>Détail par tiers.</b>
                 Chaque client, fournisseur et compte de trésorerie a son propre sous-compte (411…, 401…, 5211…) :
-                son solde d’ouverture se saisit sur sa ligne. Un solde client ou fournisseur saisi ici est au Grand Livre,
-                pas dans les factures à encaisser ou les commandes à payer.
+                son solde d’ouverture se saisit sur sa ligne. À l’enregistrement, ce qu’un client doit devient une facture
+                « Solde d’ouverture » à encaisser dans Facturation, et ce que LPC doit à un fournisseur une dette à payer
+                dans Gestion des Achats : leurs paiements s’y enregistrent et se lettrent sur cette ligne.
             </div>
         `;
     }

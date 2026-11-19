@@ -759,7 +759,9 @@
             document.getElementById('pdet_other_deductions').innerHTML = otherHtml.join('');
 
             // Employer charges
-            const cnpsEmpRate = Number(rates.cnps_employer_rate || 0.162);
+            // The rate the server computed from the CNPS group in Paramètres.
+            const cnpsEmpRate = Number(rates.cnps_employer_rate || 0)
+                || (Number(comp.cnps_employer || 0) / Math.max(1, Math.min(Number(comp.gross_salary || 0), cnpsCeil)));
             const cfcEmpRate  = Number(rates.cfc_employer_rate  || 0.015);
             const fneRate     = Number(rates.fne_rate || 0.01);
             const cnpsEmp = Number(comp.cnps_employer || 0);
@@ -770,7 +772,7 @@
                 LPC.html`
                 <tr>
                     <td class="py-1.5 text-gray-800 font-bold">CNPS (part patronale)</td>
-                    <td class="py-1.5 text-gray-500 text-[11px]">min(${fmt(gross)} ; ${fmt(cnpsCeil)}) × ${(cnpsEmpRate*100).toFixed(1)}%</td>
+                    <td class="py-1.5 text-gray-500 text-[11px]">min(${fmt(gross)} ; ${fmt(cnpsCeil)}) × ${(cnpsEmpRate*100).toFixed(2).replace('.', ',')} %${comp.cnps_group ? ' (groupe ' + comp.cnps_group + ')' : ''}</td>
                     <td class="py-1.5 text-right font-black text-purple-700">${fmt(cnpsEmp)}</td>
                 </tr>
                 <tr>

@@ -111,12 +111,10 @@ final class TaxEngine
      */
     private static function atRateForGroup(string $group): float
     {
-        if (!class_exists('Prefs')) {
-            return match ($group) { 'B' => 0.025, 'C' => 0.05, default => 0.0175 };
-        }
-        $key = match ($group) { 'B' => 'tax_at_rate_b', 'C' => 'tax_at_rate_c', default => 'tax_at_rate_a' };
-        $def = match ($group) { 'B' => 2.5,             'C' => 5.0,             default => 1.75 };
-        return Prefs::rate($key, $def);
+        // One source with the payroll (Payroll::cnpsEmployerParts, the group set
+        // in Paramètres): the declaration and the payslips cannot disagree.
+        require_once __DIR__ . '/Payroll.php';
+        return (float) Payroll::cnpsEmployerParts()['at'];
     }
 
     // -------------------------------------------------------------------------

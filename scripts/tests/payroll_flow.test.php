@@ -30,6 +30,17 @@ $root = dirname(__DIR__, 2);
 ini_set('error_log', PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null');   // the rate fallback logs
 require_once $root . '/includes/classes/Payroll.php';
 
+/**
+ * Paramètres, as the payroll reads them (the CNPS group, the owner's answer 25):
+ * a stand-in for Prefs so the test can change the group and calculate again.
+ */
+final class Prefs
+{
+    public static array $v = ['tax_cnps_group' => 'A'];
+    public static function str(string $k, string $d = ''): string { return (string) (self::$v[$k] ?? $d); }
+    public static function rate(string $k, float $d = 0.0): float { return (float) (self::$v[$k] ?? $d) / 100; }
+}
+
 $pc  = file_get_contents($root . '/api/v1/payroll_controller.php');
 $jp  = file_get_contents($root . '/includes/classes/JournalPoster.php');
 $te  = file_get_contents($root . '/includes/classes/TaxEngine.php');
@@ -62,7 +73,28 @@ $r = Payroll::compute(
 check('gross 110 000, net 95 799 (as live computed it)', $r['gross_salary'] == 110000 && $r['net'] == 95799, "{$r['gross_salary']} / {$r['net']}");
 check('employee lines: CNPS 4 620, IRPP 3 210, CAC 321, CFC 1 100, CRTV 1 950, TDL 3 000',
       [$r['cnps_employee'], $r['irpp'], $r['cac'], $r['cfc_employee'], $r['crtv'], $r['tdl']] == [4620, 3210, 321, 1100, 1950, 3000]);
-check('employer: CNPS 17 820, CFC 1 650, FNE 1 % = 1 100', $r['cnps_employer'] == 17820 && $r['cfc_employer'] == 1650 && $r['fne_employer'] == 1100);
+check('employer, group A (12,95 %): CNPS 14 245, CFC 1 650, FNE 1 % = 1 100',
+      $r['cnps_employer'] == 14245 && $r['cfc_employer'] == 1650 && $r['fne_employer'] == 1100, (string) $r['cnps_employer']);
+check('the payslip says which group it used', ($r['cnps_group'] ?? '') === 'A' && abs($r['rates_used']['cnps_employer_rate'] - 0.1295) < 1e-9);
+
+echo "\nThe CNPS group is a setting the payroll always reads (owner's answer 25)\n";
+Prefs::$v['tax_cnps_group'] = 'C';
+$rc = Payroll::compute(
+    ['base_salary' => 100000, 'housing_allowance' => 0, 'transport_allowance' => 10000, 'tax_regime' => 'standard'],
+    ['bonuses' => 0, 'absences_days' => 0, 'advances_deducted' => 0],
+    new DateTimeImmutable('2026-11-01')
+);
+check('switched to group C, the next calculation charges 16,2 %: 17 820', $rc['cnps_employer'] == 17820 && $rc['cnps_group'] === 'C', (string) $rc['cnps_employer']);
+Prefs::$v['tax_at_rate_c'] = 4.0;
+$rc2 = Payroll::compute(['base_salary' => 100000, 'transport_allowance' => 10000], [], new DateTimeImmutable('2026-11-01'));
+check('the group\'s rate is read too (C at 4 %: 15,2 % = 16 720)', $rc2['cnps_employer'] == 16720, (string) $rc2['cnps_employer']);
+Prefs::$v = ['tax_cnps_group' => 'A'];
+check('the net never moves with the group (employer part only)', $rc['net'] == $r['net']);
+$payrollSrc = file_get_contents($root . '/includes/classes/Payroll.php');
+check('no stored employer rate: built from PVID + PF + AT of the group', !str_contains($payrollSrc, "'cnps_employer_rate'  => 0.162") && str_contains($payrollSrc, 'cnpsEmployerParts($rates)'));
+check('the declaration reads the same group', str_contains($te, 'Payroll::cnpsEmployerParts()'));
+check('the grid and the payslip show the rate used, not 16,2 %',
+      !str_contains($js, 'cnps_employer_rate || 0.162') && !str_contains($pdf, "part patronale (16,2 %)"));
 $deb = array_sum(array_column($r['breakdown_lines'], 'debit'));
 $cre = array_sum(array_column($r['breakdown_lines'], 'credit'));
 check('the entry the engine describes balances', abs($deb - $cre) < 0.5, "{$deb} vs {$cre}");

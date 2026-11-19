@@ -555,6 +555,8 @@ Each is fixed on the video's branch, in the screen's own code, and listed here.
 | 18/11/2026 | Vue Ventes (14.5, 14.12) | The DG saw 0: only orders he typed; English statuses | Fixed: the DG and Finance see every sale by default; French statuses |
 | 18/11/2026 | Rapports Consolidés (14.11) | Budget targets invented (actual × 0,9), gross margin 100 %, Mobile Money 0 F, empties risk on every bottle held at fixed prices, raw codes | Fixed: Budgets & Performance targets (« Sans objectif »), cost of goods (13 %), treasury by kind, the minimum and the empty's price (6 000 F), French words |
 | 18/11/2026 | Tableaux de bord, detail windows and help (14.8) | The windows ignored the period on screen; the five help articles quoted tables, columns and the old wrong rules | Fixed: the windows take the period; migration 159 rewrites the five articles (fr, en) |
+| 19/11/2026 | The owner's answer 25 (register owner table 33): the CNPS group | The payroll charged a stored 16,2 % employer CNPS (group C) whatever « Groupe CNPS » said in Paramètres (A); the declaration then showed a gap; the payslip PDF printed « 16,2 % » | Fixed (migration 160): the employer rate is PVID 4,2 % + PF 7 % + the AT of the group set in Paramètres, read on every calculation (grid preview, payslips, CNPS declaration); group A: 12,95 % (Bertin: 14 245 F instead of 17 820 F); switching the group changes the next calculation (tested both ways on copy A and in `payroll_flow.test.php`) |
+| 19/11/2026 | The owner's answer 26 (register 11.6, owner table 34): opening debts | A client's or supplier's balance keyed in Bilan d'Ouverture reached its 411 / 401 sub-account but nothing could collect or pay it | Fixed (migration 160): saving creates a « Solde d'ouverture » invoice per client (OUV-YYYY-C…) and an unpaid debt per supplier (OUV-YYYY-F…), posting nothing; they show in the aged balance, the client's balance and the supplier's debts; paying them letters the opening line with the payments (tested on copy A: PROMETAL 500 000 F in the 90-day bucket, paid 200 000 then 300 000, lettered « A », the aged balance cleared; HOREB 227 500 F paid and lettered); an opening debt cannot be cancelled as an order |
 
 ## 8 · Where the work stands
 
@@ -800,5 +802,11 @@ the help search, the help AI's answers and each page's « ? »), and sent in the
       The crawler ran on every glimpsed page as its role: clean. PRs #87 and #91 (the scene, « Camion » in the capitalisation queue),
       then the delivery PR (station 12 and a second map line per station, which brought it from 6:56 to 8:02 without new filming).
       Series « Introduction », part 0: it comes before Premiers pas.
+- [x] The owner's answers 25 and 26 (19/11/2026, track A on copy A from `after-13-comptabilite-3`, no video): the CNPS
+      group is a Paramètres setting the payroll always reads (group A, 12,95 % employer), and opening debts per client and
+      supplier in Bilan d'Ouverture become documents to collect and pay, lettered once settled (migration 160; tests in
+      `payroll_flow.test.php`, `books_review.test.php`, `syscohada_postings.test.py`, `books_balance.sql`; help: the new
+      article « Saisir le Bilan d'Ouverture », the payroll and preferences articles). Copy A restored to
+      `after-13-comptabilite-3` afterwards (the test year 2025 was not kept).
 - [ ] The modules, one series each (Commerce & CRM with real clients such as PROMETAL; Logistique &
       Stock; Comptabilité & Finance; Administration & RH), in the order the owner chooses.

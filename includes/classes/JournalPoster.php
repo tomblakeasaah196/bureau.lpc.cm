@@ -2196,6 +2196,77 @@ final class JournalPoster
     }
 
     /**
+     * Letter (lettrage) a document once it is settled: the lines its entries put
+     * on the client's 411 or the supplier's 401 sub-account, when they cancel to
+     * the franc, get the account's next free letter (A, B … ZZZ), as the Grand
+     * Livre's lettrage would. For an invoice: its sale, its credit notes and its
+     * payments; for a purchase order: its reception and its payment. A « solde
+     * d'ouverture » document (is_opening, the owner's answer 26) matches the
+     * Bilan d'Ouverture's line on that sub-account instead of a sale or a
+     * reception. Lines already lettered are left alone; nothing happens while
+     * the lines do not cancel (a partial payment). Returns the letter or null.
+     */
+    public static function letterDocument(PDO $db, string $kind, int $doc_id): ?string
+    {
+        if ($kind === 'invoice') {
+            $q = $db->prepare("SELECT client_id, date, COALESCE(is_opening, 0) AS is_opening FROM invoices WHERE id = ?");
+            $q->execute([$doc_id]);
+            $doc = $q->fetch(PDO::FETCH_ASSOC);
+            if (!$doc) return null;
+            $account = self::coaForClient($db, (int) $doc['client_id']);
+            $where = "((je.source_type IN ('invoice', 'invoice_credit_note') AND je.source_id = :id)
+                       OR (je.source_type = 'invoice_payment' AND je.source_id IN (SELECT id FROM payments WHERE invoice_id = :id2)))";
+        } elseif ($kind === 'purchase_order') {
+            $q = $db->prepare("SELECT supplier_id, date, COALESCE(is_opening, 0) AS is_opening FROM purchase_orders WHERE id = ?");
+            $q->execute([$doc_id]);
+            $doc = $q->fetch(PDO::FETCH_ASSOC);
+            if (!$doc) return null;
+            $account = self::coaForSupplier($db, (int) $doc['supplier_id']);
+            $where = "(je.source_type IN ('purchase_order', 'purchase_order_payment') AND je.source_id = :id)";
+        } else {
+            return null;
+        }
+        $params = [':id' => $doc_id, ':acc' => $account];
+        if ($kind === 'invoice') $params[':id2'] = $doc_id;
+        if ((int) $doc['is_opening'] === 1) {
+            $year = (int) substr((string) $doc['date'], 0, 4);
+            $ob = $db->prepare("SELECT opening_balance_journal_id FROM financial_years WHERE year = ?");
+            $ob->execute([$year]);
+            $openId = (int) $ob->fetchColumn();
+            if ($openId) { $where = "($where OR je.id = :open)"; $params[':open'] = $openId; }
+        }
+        $st = $db->prepare("
+            SELECT jl.id, jl.debit, jl.credit, jl.lettrage
+              FROM journal_lines jl
+              JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
+             WHERE jl.account_id = :acc AND je.reversed_by_entry_id IS NULL AND $where
+        ");
+        $st->execute($params);
+        $lines = $st->fetchAll(PDO::FETCH_ASSOC);
+        $open = array_values(array_filter($lines, fn ($l) => $l['lettrage'] === null || $l['lettrage'] === ''));
+        if (count($open) < 2) return null;
+        $net = 0.0;
+        foreach ($open as $l) $net += (float) $l['debit'] - (float) $l['credit'];
+        if (abs($net) >= 0.5) return null;
+
+        $used = $db->prepare("SELECT DISTINCT lettrage FROM journal_lines WHERE account_id = ? AND lettrage IS NOT NULL");
+        $used->execute([$account]);
+        $taken = array_flip($used->fetchAll(PDO::FETCH_COLUMN));
+        $letter = null;
+        for ($len = 1; $len <= 3 && $letter === null; $len++) {
+            for ($n = 0; $n < 26 ** $len; $n++) {
+                $s = ''; $x = $n;
+                for ($i = 0; $i < $len; $i++) { $s = chr(65 + ($x % 26)) . $s; $x = intdiv($x, 26); }
+                if (!isset($taken[$s])) { $letter = $s; break; }
+            }
+        }
+        if ($letter === null) return null;
+        $upd = $db->prepare("UPDATE journal_lines SET lettrage = ? WHERE id = ?");
+        foreach ($open as $l) $upd->execute([$letter, (int) $l['id']]);
+        return $letter;
+    }
+
+    /**
      * The journal a treasury movement belongs in (VIDEO_QA_FINDINGS 11.5):
      * « CA » (caisse) for a cash box, « BQ » for a bank or Mobile Money account.
      * Everything that moved money used BQ, so the Caisse journal stayed empty.

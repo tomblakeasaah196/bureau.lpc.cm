@@ -128,6 +128,12 @@ try {
     ");
     $stmtItems->execute([$invoice_id]);
     $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
+    // A « solde d'ouverture » (Bilan d'Ouverture, the owner's answer 26) has no
+    // sale behind it: one line says what it is.
+    if (!$items && !empty($invData['is_opening'])) {
+        $items = [['description' => "Solde d'ouverture au " . date('d/m/Y', strtotime((string) $invData['date'])) . " (Bilan d'Ouverture)",
+                   'quantity' => 1, 'unit_price' => (float) $invData['total_amount'], 'total_price' => (float) $invData['total_amount']]];
+    }
 
     // 4b. Fetch the BL(s) this invoice was generated from — replaces the old
     // generic "conditions de règlement" boilerplate with the actual delivery

@@ -639,8 +639,10 @@ def scenario_dipe_payment():
 
 def scenario_cnps_payment():
     """
-    CNPS November 2026: 4,2 % employee + 16,2 % employer on 630 000 = 128 520 F,
-    exactly what the payslips credited to 433.
+    CNPS November 2026 on the copy: 4,2 % employee + 16,2 % employer on 630 000 =
+    128 520 F, exactly what those payslips credited to 433. They were calculated
+    before the owner's answer 25: the payroll now reads the CNPS group in
+    Paramètres (LPC: A), 4,2 + 7 + 1,75 = 12,95 % employer.
 
         Dr 433   128 520
         Cr 5211  128 520
@@ -662,6 +664,8 @@ def scenario_cnps_payment():
     at = employer - pvid_pat - pf
     check("CNPS · AT is the rest of the payroll's employer part", at, Decimal("31500"))
     check("CNPS · breakdown adds up", employee + pvid_pat + pf + at, total)
+    group_a = fcfa(base * (Decimal("0.042") + Decimal("0.07") + Decimal("0.0175")))
+    check("CNPS · group A from Paramètres: 12,95 % employer", group_a, Decimal("81585"))
     return e
 
 
@@ -756,6 +760,32 @@ def scenario_year_opening():
     return e
 
 
+def scenario_opening_debts():
+    """
+    Go-live (the owner's answer 26): PROMETAL owes 500 000 F and LPC owes HOREB
+    227 500 F on day one. Bilan d'Ouverture puts each on its own sub-account and
+    creates the documents to collect and to pay, which post nothing themselves.
+    PROMETAL pays in two goes, HOREB is paid in full; each sub-account's lines
+    cancel and are lettered together.
+
+        ouverture   Dr 411035 500 000   Dr 5211 227 500   Cr 401002 227 500   Cr 471 500 000
+        encaissement 1  Dr 5211 200 000 / Cr 411035 200 000
+        encaissement 2  Dr 5211 300 000 / Cr 411035 300 000
+        règlement       Dr 401002 227 500 / Cr 5211 227 500
+    """
+    e = Entry("Ouverture · soldes clients et fournisseurs, puis leurs règlements")
+    e.debit("411035", 500000).debit("5211", 227500).credit("401002", 227500).credit("471", 500000)
+    e.debit("5211", 200000).credit("411035", 200000)
+    e.debit("5211", 300000).credit("411035", 300000)
+    e.debit("401002", 227500).credit("5211", 227500)
+    check_balanced(e)
+    check("opening debts · the client's sub-account is settled (lettered)", e.net("411035"), Decimal("0"))
+    check("opening debts · the supplier's sub-account is settled (lettered)", e.net("401002"), Decimal("0"))
+    check("opening debts · the bank holds what came in less what went out", e.net("5211"), Decimal("500000"))
+    check("opening debts · never the generic 411 / 401", ("411" in e.accounts(), "401" in e.accounts()), (False, False))
+    return e
+
+
 # ===========================================================================
 def main():
     scenarios = [
@@ -779,6 +809,7 @@ def main():
         scenario_air_settled_by_attestation,
         scenario_tva_month,
         scenario_year_opening,
+        scenario_opening_debts,
     ]
 
     print("SYSCOHADA posting rules — achats / ventes")

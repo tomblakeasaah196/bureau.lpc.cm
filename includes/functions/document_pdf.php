@@ -223,6 +223,13 @@ function lpc_load_document(PDO $db, string $type, string $token): ?array
             ");
             $items->execute([$r['id']]);
             $lines = $items->fetchAll(PDO::FETCH_ASSOC);
+            // A « solde d'ouverture » (Bilan d'Ouverture, the owner's answer 26)
+            // has no sale behind it: one line says what it is.
+            if (!$lines && !empty($r['is_opening'])) {
+                $lines = [['description' => "Solde d'ouverture au " . date('d/m/Y', strtotime((string) $r['date'])) . " (Bilan d'Ouverture)",
+                           'product_name' => null, 'format' => null, 'product_id' => null, 'quantity' => 1,
+                           'unit_price' => (float) $r['total_amount'], 'total_price' => (float) $r['total_amount']]];
+            }
 
             // BL(s) this invoice was generated from. Same query as
             // api/v1/get_invoice.php so the dompdf render and the HTML view
@@ -1963,7 +1970,17 @@ function lpc_render_payslip_pdf_html(array $doc, array $lh, string $lhLogo, stri
     $cfcEr  = (float) ($bd['cfc_employer'] ?? 0);
     // FNE (1 %), booked by the payroll since 18/11/2026; earlier payslips carry none.
     $fneEr  = (float) ($bd['fne_employer'] ?? ($r['fne_employer'] ?? 0));
-    $charges = [['CNPS — part patronale (16,2 %)', $cnpsEr]];
+    // The rate this payslip was calculated at (the CNPS group in Paramètres,
+    // Payroll::cnpsEmployerParts); a payslip without its breakdown shows it
+    // from its own amounts. It read « 16,2 % » whatever the group.
+    $cnpsRate = (float) ($bd['rates_used']['cnps_employer_rate'] ?? 0);
+    if ($cnpsRate <= 0) {
+        $cnpsBase = min((float) ($r['gross_salary'] ?? 0), (float) ($bd['rates_used']['cnps_ceiling'] ?? 750000));
+        $cnpsRate = $cnpsBase > 0 ? $cnpsEr / $cnpsBase : 0.0;
+    }
+    $cnpsLabel = 'CNPS — part patronale (' . number_format($cnpsRate * 100, 2, ',', ' ') . ' %'
+               . (!empty($bd['cnps_group']) ? ', groupe ' . $bd['cnps_group'] : '') . ')';
+    $charges = [[$cnpsLabel, $cnpsEr]];
     if ($cfcEr > 0) $charges[] = ['CFC — part patronale (1,5 %)', $cfcEr];
     if ($fneEr > 0) $charges[] = ["FNE — Fonds National de l'Emploi (1 %)", $fneEr];
     $totalCharges = $cnpsEr + $cfcEr + $fneEr;

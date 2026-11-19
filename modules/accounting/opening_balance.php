@@ -2,6 +2,7 @@
 // Bilan d'Ouverture — enter first-year opening balances for every account.
 // Backend: api/v1/opening_balance_controller.php.
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/functions/help.php';
 Rbac::requirePermission('accounting.chart.view');
 $lang = lpc_i18n_current_lang();
 ?>
@@ -22,6 +23,9 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/components/admin_sidebar.php
 require $_SERVER['DOCUMENT_ROOT'] . '/includes/components/topbar.php';
 ?>
 <div id="lpc-shell-main">
+    <div class="lpc-toolbar">
+        <?php echo lpc_help_link('accounting.opening_balance', $lang); ?>
+    </div>
     <main role="main" id="main" class="lpc-page">
         <div id="ob-root" class="space-y-5"></div>
     </main>
