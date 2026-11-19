@@ -63,7 +63,7 @@ module.exports = {
     title: "L'histoire d'une bonbonne",
     subtitle: "Toute la chaîne de LPC en huit minutes, et la place de chaque rôle",
     series: "Introduction",
-    part: 0,
+    part: null, // the opening video: no part number; the library sorts it first in « Introduction » (it refuses part 0)
     parts: 2,
     audience: null,
     pages: [],
