@@ -1244,10 +1244,18 @@ html[data-lpc-theme="dark"] .bg-amber-100\/50 { background-color: color-mix(in s
 html[data-lpc-theme="dark"] .hover\:bg-amber-100\/50:hover { background-color: color-mix(in srgb, #f59e0b 11.0%, transparent); }
 html[data-lpc-theme="dark"] .focus\:bg-amber-100\/50:focus { background-color: color-mix(in srgb, #f59e0b 11.0%, transparent); }
 html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-amber-100\/50 { background-color: color-mix(in srgb, #f59e0b 11.0%, transparent); }
+html[data-lpc-theme="dark"] .bg-amber-400\/10 { background-color: color-mix(in srgb, #f59e0b 10%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-amber-400\/10:hover { background-color: color-mix(in srgb, #f59e0b 10%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-amber-400\/10:focus { background-color: color-mix(in srgb, #f59e0b 10%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-amber-400\/10 { background-color: color-mix(in srgb, #f59e0b 10%, transparent); }
 html[data-lpc-theme="dark"] .bg-amber-50\/30 { background-color: color-mix(in srgb, #f59e0b 4.2%, transparent); }
 html[data-lpc-theme="dark"] .hover\:bg-amber-50\/30:hover { background-color: color-mix(in srgb, #f59e0b 4.2%, transparent); }
 html[data-lpc-theme="dark"] .focus\:bg-amber-50\/30:focus { background-color: color-mix(in srgb, #f59e0b 4.2%, transparent); }
 html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-amber-50\/30 { background-color: color-mix(in srgb, #f59e0b 4.2%, transparent); }
+html[data-lpc-theme="dark"] .bg-amber-50\/40 { background-color: color-mix(in srgb, #f59e0b 5.6%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-amber-50\/40:hover { background-color: color-mix(in srgb, #f59e0b 5.6%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-amber-50\/40:focus { background-color: color-mix(in srgb, #f59e0b 5.6%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-amber-50\/40 { background-color: color-mix(in srgb, #f59e0b 5.6%, transparent); }
 html[data-lpc-theme="dark"] .bg-amber-50\/50 { background-color: color-mix(in srgb, #f59e0b 7.0%, transparent); }
 html[data-lpc-theme="dark"] .hover\:bg-amber-50\/50:hover { background-color: color-mix(in srgb, #f59e0b 7.0%, transparent); }
 html[data-lpc-theme="dark"] .focus\:bg-amber-50\/50:focus { background-color: color-mix(in srgb, #f59e0b 7.0%, transparent); }
@@ -1288,18 +1296,26 @@ html[data-lpc-theme="dark"] .bg-emerald-50\/30 { background-color: color-mix(in 
 html[data-lpc-theme="dark"] .hover\:bg-emerald-50\/30:hover { background-color: color-mix(in srgb, #10b981 4.2%, transparent); }
 html[data-lpc-theme="dark"] .focus\:bg-emerald-50\/30:focus { background-color: color-mix(in srgb, #10b981 4.2%, transparent); }
 html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-emerald-50\/30 { background-color: color-mix(in srgb, #10b981 4.2%, transparent); }
+html[data-lpc-theme="dark"] .bg-emerald-50\/40 { background-color: color-mix(in srgb, #10b981 5.6%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-emerald-50\/40:hover { background-color: color-mix(in srgb, #10b981 5.6%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-emerald-50\/40:focus { background-color: color-mix(in srgb, #10b981 5.6%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-emerald-50\/40 { background-color: color-mix(in srgb, #10b981 5.6%, transparent); }
 html[data-lpc-theme="dark"] .bg-emerald-50\/50 { background-color: color-mix(in srgb, #10b981 7.0%, transparent); }
 html[data-lpc-theme="dark"] .hover\:bg-emerald-50\/50:hover { background-color: color-mix(in srgb, #10b981 7.0%, transparent); }
 html[data-lpc-theme="dark"] .focus\:bg-emerald-50\/50:focus { background-color: color-mix(in srgb, #10b981 7.0%, transparent); }
 html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-emerald-50\/50 { background-color: color-mix(in srgb, #10b981 7.0%, transparent); }
+html[data-lpc-theme="dark"] .bg-emerald-50\/60 { background-color: color-mix(in srgb, #10b981 8.4%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-emerald-50\/60:hover { background-color: color-mix(in srgb, #10b981 8.4%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-emerald-50\/60:focus { background-color: color-mix(in srgb, #10b981 8.4%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-emerald-50\/60 { background-color: color-mix(in srgb, #10b981 8.4%, transparent); }
 html[data-lpc-theme="dark"] .bg-emerald-500\/10 { background-color: color-mix(in srgb, #10b981 10%, transparent); }
 html[data-lpc-theme="dark"] .hover\:bg-emerald-500\/10:hover { background-color: color-mix(in srgb, #10b981 10%, transparent); }
 html[data-lpc-theme="dark"] .focus\:bg-emerald-500\/10:focus { background-color: color-mix(in srgb, #10b981 10%, transparent); }
 html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-emerald-500\/10 { background-color: color-mix(in srgb, #10b981 10%, transparent); }
-html[data-lpc-theme="dark"] .bg-emerald-500\/20 { background-color: color-mix(in srgb, #10b981 20%, transparent); }
-html[data-lpc-theme="dark"] .hover\:bg-emerald-500\/20:hover { background-color: color-mix(in srgb, #10b981 20%, transparent); }
-html[data-lpc-theme="dark"] .focus\:bg-emerald-500\/20:focus { background-color: color-mix(in srgb, #10b981 20%, transparent); }
-html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-emerald-500\/20 { background-color: color-mix(in srgb, #10b981 20%, transparent); }
+html[data-lpc-theme="dark"] .bg-green-50\/40 { background-color: color-mix(in srgb, #22c55e 5.6%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-green-50\/40:hover { background-color: color-mix(in srgb, #22c55e 5.6%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-green-50\/40:focus { background-color: color-mix(in srgb, #22c55e 5.6%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-green-50\/40 { background-color: color-mix(in srgb, #22c55e 5.6%, transparent); }
 html[data-lpc-theme="dark"] .bg-green-50\/50 { background-color: color-mix(in srgb, #22c55e 7.0%, transparent); }
 html[data-lpc-theme="dark"] .hover\:bg-green-50\/50:hover { background-color: color-mix(in srgb, #22c55e 7.0%, transparent); }
 html[data-lpc-theme="dark"] .focus\:bg-green-50\/50:focus { background-color: color-mix(in srgb, #22c55e 7.0%, transparent); }
@@ -1316,10 +1332,22 @@ html[data-lpc-theme="dark"] .bg-indigo-50\/30 { background-color: color-mix(in s
 html[data-lpc-theme="dark"] .hover\:bg-indigo-50\/30:hover { background-color: color-mix(in srgb, #6366f1 4.2%, transparent); }
 html[data-lpc-theme="dark"] .focus\:bg-indigo-50\/30:focus { background-color: color-mix(in srgb, #6366f1 4.2%, transparent); }
 html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-indigo-50\/30 { background-color: color-mix(in srgb, #6366f1 4.2%, transparent); }
+html[data-lpc-theme="dark"] .bg-indigo-50\/40 { background-color: color-mix(in srgb, #6366f1 5.6%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-indigo-50\/40:hover { background-color: color-mix(in srgb, #6366f1 5.6%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-indigo-50\/40:focus { background-color: color-mix(in srgb, #6366f1 5.6%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-indigo-50\/40 { background-color: color-mix(in srgb, #6366f1 5.6%, transparent); }
 html[data-lpc-theme="dark"] .bg-indigo-50\/50 { background-color: color-mix(in srgb, #6366f1 7.0%, transparent); }
 html[data-lpc-theme="dark"] .hover\:bg-indigo-50\/50:hover { background-color: color-mix(in srgb, #6366f1 7.0%, transparent); }
 html[data-lpc-theme="dark"] .focus\:bg-indigo-50\/50:focus { background-color: color-mix(in srgb, #6366f1 7.0%, transparent); }
 html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-indigo-50\/50 { background-color: color-mix(in srgb, #6366f1 7.0%, transparent); }
+html[data-lpc-theme="dark"] .bg-indigo-50\/60 { background-color: color-mix(in srgb, #6366f1 8.4%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-indigo-50\/60:hover { background-color: color-mix(in srgb, #6366f1 8.4%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-indigo-50\/60:focus { background-color: color-mix(in srgb, #6366f1 8.4%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-indigo-50\/60 { background-color: color-mix(in srgb, #6366f1 8.4%, transparent); }
+html[data-lpc-theme="dark"] .bg-indigo-800\/60 { background-color: color-mix(in srgb, #6366f1 60%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-indigo-800\/60:hover { background-color: color-mix(in srgb, #6366f1 60%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-indigo-800\/60:focus { background-color: color-mix(in srgb, #6366f1 60%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-indigo-800\/60 { background-color: color-mix(in srgb, #6366f1 60%, transparent); }
 html[data-lpc-theme="dark"] .bg-purple-50\/10 { background-color: color-mix(in srgb, #a855f7 1.4%, transparent); }
 html[data-lpc-theme="dark"] .hover\:bg-purple-50\/10:hover { background-color: color-mix(in srgb, #a855f7 1.4%, transparent); }
 html[data-lpc-theme="dark"] .focus\:bg-purple-50\/10:focus { background-color: color-mix(in srgb, #a855f7 1.4%, transparent); }
@@ -1336,6 +1364,14 @@ html[data-lpc-theme="dark"] .bg-red-50\/30 { background-color: color-mix(in srgb
 html[data-lpc-theme="dark"] .hover\:bg-red-50\/30:hover { background-color: color-mix(in srgb, #ef4444 4.2%, transparent); }
 html[data-lpc-theme="dark"] .focus\:bg-red-50\/30:focus { background-color: color-mix(in srgb, #ef4444 4.2%, transparent); }
 html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-red-50\/30 { background-color: color-mix(in srgb, #ef4444 4.2%, transparent); }
+html[data-lpc-theme="dark"] .bg-red-50\/40 { background-color: color-mix(in srgb, #ef4444 5.6%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-red-50\/40:hover { background-color: color-mix(in srgb, #ef4444 5.6%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-red-50\/40:focus { background-color: color-mix(in srgb, #ef4444 5.6%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-red-50\/40 { background-color: color-mix(in srgb, #ef4444 5.6%, transparent); }
+html[data-lpc-theme="dark"] .bg-red-50\/50 { background-color: color-mix(in srgb, #ef4444 7.0%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-red-50\/50:hover { background-color: color-mix(in srgb, #ef4444 7.0%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-red-50\/50:focus { background-color: color-mix(in srgb, #ef4444 7.0%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-red-50\/50 { background-color: color-mix(in srgb, #ef4444 7.0%, transparent); }
 html[data-lpc-theme="dark"] .bg-red-500\/10 { background-color: color-mix(in srgb, #ef4444 10%, transparent); }
 html[data-lpc-theme="dark"] .hover\:bg-red-500\/10:hover { background-color: color-mix(in srgb, #ef4444 10%, transparent); }
 html[data-lpc-theme="dark"] .focus\:bg-red-500\/10:focus { background-color: color-mix(in srgb, #ef4444 10%, transparent); }
@@ -1356,18 +1392,30 @@ html[data-lpc-theme="dark"] .bg-rose-50\/30 { background-color: color-mix(in srg
 html[data-lpc-theme="dark"] .hover\:bg-rose-50\/30:hover { background-color: color-mix(in srgb, #f43f5e 4.2%, transparent); }
 html[data-lpc-theme="dark"] .focus\:bg-rose-50\/30:focus { background-color: color-mix(in srgb, #f43f5e 4.2%, transparent); }
 html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-rose-50\/30 { background-color: color-mix(in srgb, #f43f5e 4.2%, transparent); }
+html[data-lpc-theme="dark"] .bg-rose-50\/40 { background-color: color-mix(in srgb, #f43f5e 5.6%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-rose-50\/40:hover { background-color: color-mix(in srgb, #f43f5e 5.6%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-rose-50\/40:focus { background-color: color-mix(in srgb, #f43f5e 5.6%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-rose-50\/40 { background-color: color-mix(in srgb, #f43f5e 5.6%, transparent); }
 html[data-lpc-theme="dark"] .bg-rose-50\/50 { background-color: color-mix(in srgb, #f43f5e 7.0%, transparent); }
 html[data-lpc-theme="dark"] .hover\:bg-rose-50\/50:hover { background-color: color-mix(in srgb, #f43f5e 7.0%, transparent); }
 html[data-lpc-theme="dark"] .focus\:bg-rose-50\/50:focus { background-color: color-mix(in srgb, #f43f5e 7.0%, transparent); }
 html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-rose-50\/50 { background-color: color-mix(in srgb, #f43f5e 7.0%, transparent); }
+html[data-lpc-theme="dark"] .bg-sky-50\/40 { background-color: color-mix(in srgb, #0ea5e9 5.6%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-sky-50\/40:hover { background-color: color-mix(in srgb, #0ea5e9 5.6%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-sky-50\/40:focus { background-color: color-mix(in srgb, #0ea5e9 5.6%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-sky-50\/40 { background-color: color-mix(in srgb, #0ea5e9 5.6%, transparent); }
+html[data-lpc-theme="dark"] .bg-teal-50\/60 { background-color: color-mix(in srgb, #14b8a6 8.4%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-teal-50\/60:hover { background-color: color-mix(in srgb, #14b8a6 8.4%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-teal-50\/60:focus { background-color: color-mix(in srgb, #14b8a6 8.4%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-teal-50\/60 { background-color: color-mix(in srgb, #14b8a6 8.4%, transparent); }
+html[data-lpc-theme="dark"] .border-amber-400\/30 { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-amber-400\/30:hover { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-amber-400\/30:focus { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-amber-400\/30 { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
 html[data-lpc-theme="dark"] .border-amber-500\/30 { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
 html[data-lpc-theme="dark"] .hover\:border-amber-500\/30:hover { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
 html[data-lpc-theme="dark"] .focus\:border-amber-500\/30:focus { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
 html[data-lpc-theme="dark"] .group:hover .group-hover\:border-amber-500\/30 { border-color: color-mix(in srgb, #f59e0b 38%, var(--lpc-border)); }
-html[data-lpc-theme="dark"] .border-emerald-400\/30 { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
-html[data-lpc-theme="dark"] .hover\:border-emerald-400\/30:hover { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
-html[data-lpc-theme="dark"] .focus\:border-emerald-400\/30:focus { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
-html[data-lpc-theme="dark"] .group:hover .group-hover\:border-emerald-400\/30 { border-color: color-mix(in srgb, #10b981 38%, var(--lpc-border)); }
 html[data-lpc-theme="dark"] .border-emerald-400\/40 { border-color: color-mix(in srgb, #10b981 40%, var(--lpc-border)); }
 html[data-lpc-theme="dark"] .hover\:border-emerald-400\/40:hover { border-color: color-mix(in srgb, #10b981 40%, var(--lpc-border)); }
 html[data-lpc-theme="dark"] .focus\:border-emerald-400\/40:focus { border-color: color-mix(in srgb, #10b981 40%, var(--lpc-border)); }
@@ -1380,14 +1428,22 @@ html[data-lpc-theme="dark"] .border-green-900\/30 { border-color: color-mix(in s
 html[data-lpc-theme="dark"] .hover\:border-green-900\/30:hover { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
 html[data-lpc-theme="dark"] .focus\:border-green-900\/30:focus { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
 html[data-lpc-theme="dark"] .group:hover .group-hover\:border-green-900\/30 { border-color: color-mix(in srgb, #22c55e 38%, var(--lpc-border)); }
-html[data-lpc-theme="dark"] .border-red-400\/30 { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
-html[data-lpc-theme="dark"] .hover\:border-red-400\/30:hover { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
-html[data-lpc-theme="dark"] .focus\:border-red-400\/30:focus { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
-html[data-lpc-theme="dark"] .group:hover .group-hover\:border-red-400\/30 { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .border-red-400\/40 { border-color: color-mix(in srgb, #ef4444 40%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .hover\:border-red-400\/40:hover { border-color: color-mix(in srgb, #ef4444 40%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .focus\:border-red-400\/40:focus { border-color: color-mix(in srgb, #ef4444 40%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:border-red-400\/40 { border-color: color-mix(in srgb, #ef4444 40%, var(--lpc-border)); }
 html[data-lpc-theme="dark"] .border-red-500\/30 { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
 html[data-lpc-theme="dark"] .hover\:border-red-500\/30:hover { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
 html[data-lpc-theme="dark"] .focus\:border-red-500\/30:focus { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
 html[data-lpc-theme="dark"] .group:hover .group-hover\:border-red-500\/30 { border-color: color-mix(in srgb, #ef4444 38%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .text-amber-100\/80 { color: #fcd34d; }
+html[data-lpc-theme="dark"] .hover\:text-amber-100\/80:hover { color: #fcd34d; }
+html[data-lpc-theme="dark"] .focus\:text-amber-100\/80:focus { color: #fcd34d; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-amber-100\/80 { color: #fcd34d; }
+html[data-lpc-theme="dark"] .text-amber-100\/90 { color: #fcd34d; }
+html[data-lpc-theme="dark"] .hover\:text-amber-100\/90:hover { color: #fcd34d; }
+html[data-lpc-theme="dark"] .focus\:text-amber-100\/90:focus { color: #fcd34d; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-amber-100\/90 { color: #fcd34d; }
 html[data-lpc-theme="dark"] .text-amber-700\/80 { color: #fcd34d; }
 html[data-lpc-theme="dark"] .hover\:text-amber-700\/80:hover { color: #fcd34d; }
 html[data-lpc-theme="dark"] .focus\:text-amber-700\/80:focus { color: #fcd34d; }
@@ -1400,6 +1456,10 @@ html[data-lpc-theme="dark"] .text-emerald-600\/70 { color: #6ee7b7; }
 html[data-lpc-theme="dark"] .hover\:text-emerald-600\/70:hover { color: #6ee7b7; }
 html[data-lpc-theme="dark"] .focus\:text-emerald-600\/70:focus { color: #6ee7b7; }
 html[data-lpc-theme="dark"] .group:hover .group-hover\:text-emerald-600\/70 { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .text-emerald-900\/80 { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .hover\:text-emerald-900\/80:hover { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .focus\:text-emerald-900\/80:focus { color: #6ee7b7; }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:text-emerald-900\/80 { color: #6ee7b7; }
 html[data-lpc-theme="dark"] .text-red-400\/70 { color: #f87171; }
 html[data-lpc-theme="dark"] .hover\:text-red-400\/70:hover { color: #f87171; }
 html[data-lpc-theme="dark"] .focus\:text-red-400\/70:focus { color: #f87171; }
@@ -1411,6 +1471,10 @@ html[data-lpc-theme="dark"] .group:hover .group-hover\:text-red-400\/70 { color:
    on neutral ink is dropped rather than preserved: it was a softening device
    chosen against white, and on a dark ground the ink ramp already encodes that
    softening in three steps. */
+html[data-lpc-theme="dark"] .bg-gray-50\/40 { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 40%, transparent); }
+html[data-lpc-theme="dark"] .hover\:bg-gray-50\/40:hover { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 40%, transparent); }
+html[data-lpc-theme="dark"] .focus\:bg-gray-50\/40:focus { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 40%, transparent); }
+html[data-lpc-theme="dark"] .group:hover .group-hover\:bg-gray-50\/40 { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 40%, transparent); }
 html[data-lpc-theme="dark"] .bg-gray-50\/50 { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 50%, transparent); }
 html[data-lpc-theme="dark"] .hover\:bg-gray-50\/50:hover { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 50%, transparent); }
 html[data-lpc-theme="dark"] .focus\:bg-gray-50\/50:focus { background-color: color-mix(in srgb, var(--lpc-surface-sunken) 50%, transparent); }
@@ -1432,7 +1496,7 @@ html[data-lpc-theme="dark"] .hover\:text-gray-900\/90:hover { color: var(--lpc-i
 html[data-lpc-theme="dark"] .focus\:text-gray-900\/90:focus { color: var(--lpc-ink); }
 html[data-lpc-theme="dark"] .group:hover .group-hover\:text-gray-900\/90 { color: var(--lpc-ink); }
 
-/* 46 fractional utilities found in the markup and remapped. */
+/* 62 fractional utilities found in the markup and remapped. */
 
 /* ===========================================================================
    5c. Brand and module-accent tokens
@@ -2691,18 +2755,6 @@ html[data-lpc-theme="dark"] .lpc-help-skeleton { background: linear-gradient(90d
    scripts/build_theme_css.py, scan_page_styles(). Do not hand-edit: fix the
    colour in the page, or the mapping in map_colour(), and rebuild.
 
-   MIGRATION NOTE (WCAG audit sprint):
-   The .st-*, .lvl-*, .devis-badge-*, .status-badge-*, .row-master and
-   .row-sig rules below are now REDUNDANT — those selectors have been
-   migrated in the module pages to read from the --lpc-status-* tokens in
-   lpc-shell.css §Status, which invert automatically in dark mode. The
-   rules here still resolve to the same colour-mix values, so leaving them
-   in causes no visible change; the next run of build_theme_css.py should
-   detect that the underlying page-local hex values have been removed and
-   emit a shorter file. Until then, both mechanisms produce the same
-   pixels — the shell tokens carry the semantics, these rules carry the
-   history.
-
    Colours are mapped by lightness and saturation rather than from a lookup
    table, because these pages never shared a palette. #F9FAFB, #f8fafc, #f1f5f9
    and #FCFCFD all mean "one step below the card"; all four land on
@@ -2710,23 +2762,28 @@ html[data-lpc-theme="dark"] .lpc-help-skeleton { background: linear-gradient(90d
    colours keep their hue (red still means overdue) and only get re-pitched for
    a dark background.
    ========================================================================= */
-/* 89 rules generated from 88 page selectors. */
+/* 118 rules generated from 115 page selectors. */
 
 /* --- includes/classes/Rbac.php --- */
 html[data-lpc-theme="dark"] .card { background: color-mix(in srgb, var(--lpc-surface) 6%, transparent); border: 1px solid color-mix(in srgb, var(--lpc-border) 15%, transparent); }
-html[data-lpc-theme="dark"] code { background: color-mix(in srgb, var(--lpc-surface) 8%, transparent); color: var(--lpc-accent-on-dark); }
 html[data-lpc-theme="dark"] a { color: var(--lpc-accent-on-dark); }
+html[data-lpc-theme="dark"] code { background: color-mix(in srgb, var(--lpc-surface) 8%, transparent); color: var(--lpc-accent-on-dark); }
 
 /* --- modules/accounting/budgets.php --- */
 html[data-lpc-theme="dark"] ::-webkit-scrollbar-thumb { background: var(--lpc-surface-chip); }
-html[data-lpc-theme="dark"] .sticky-col-header { background: var(--lpc-surface-sunken); }
+html[data-lpc-theme="dark"] .lpc-pill-ok { background: color-mix(in srgb, #2fe992 18%, var(--lpc-surface)); color: #92fbde; }
+html[data-lpc-theme="dark"] .lpc-pill-warn { background: color-mix(in srgb, #fbcf1e 18%, var(--lpc-surface)); color: #f5bc99; }
+html[data-lpc-theme="dark"] .lpc-pill-bad { background: color-mix(in srgb, #f72121 18%, var(--lpc-surface)); color: #f09e9e; }
+html[data-lpc-theme="dark"] .lpc-pill-none { background: var(--lpc-surface-sunken); color: var(--lpc-ink); }
 
 /* --- modules/accounting/cashflow.php --- */
 html[data-lpc-theme="dark"] .reconciled-row { color: #95f8dd; }
 
-/* --- modules/accounting/fixed_assets.php --- */
-html[data-lpc-theme="dark"] .vnc-zero { background-color: var(--lpc-surface-sunken); color: var(--lpc-ink-mute); }
-html[data-lpc-theme="dark"] .vnc-zero .font-black { color: var(--lpc-ink-mute); }
+/* --- modules/accounting/expenses.php --- */
+html[data-lpc-theme="dark"] .exp-modal { background: color-mix(in srgb, var(--lpc-surface-raised) 75%, transparent); }
+html[data-lpc-theme="dark"] .exp-modal-card { background: var(--lpc-surface); }
+html[data-lpc-theme="dark"] .empty-state { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .empty-state i { color: var(--lpc-ink-mute); }
 
 /* --- modules/accounting/budgets.php --- */
 html[data-lpc-theme="dark"] ::-webkit-scrollbar-thumb { background: var(--lpc-surface-chip); border: 2px solid var(--lpc-border); }
@@ -2744,46 +2801,53 @@ html[data-lpc-theme="dark"] .unbalanced { background-color: color-mix(in srgb, #
 
 /* --- modules/accounting/ledger.php --- */
 html[data-lpc-theme="dark"] .row-class { background-color: var(--lpc-surface-raised); }
-html[data-lpc-theme="dark"] .row-master { background-color: var(--lpc-surface-sunken); color: var(--lpc-ink); border-top: 2px solid var(--lpc-border); }
-html[data-lpc-theme="dark"] .row-aux:hover { background-color: var(--lpc-surface-sunken); }
 html[data-lpc-theme="dark"] .anomaly-text { color: #f69898; }
 
 /* --- modules/accounting/reports.php --- */
-html[data-lpc-theme="dark"] .row-sig { background-color: color-mix(in srgb, #1a4fff 18%, var(--lpc-surface)); color: #aca8e6; border-top: 2px solid color-mix(in srgb, #1e4afb 42%, var(--lpc-border)); border-bottom: 2px solid color-mix(in srgb, #1e4afb 42%, var(--lpc-border)); }
 html[data-lpc-theme="dark"] .clickable-row:hover { background-color: var(--lpc-surface-sunken); }
 html[data-lpc-theme="dark"] .clickable-row td:first-child:hover { color: #a19df1; }
 
 /* --- modules/accounting/tax_declarations.php --- */
-html[data-lpc-theme="dark"] .st-draft { background: var(--lpc-surface-sunken); color: var(--lpc-ink); }
-html[data-lpc-theme="dark"] .st-ready { background: color-mix(in srgb, #fbcf1e 18%, var(--lpc-surface)); color: #f5bc99; }
-html[data-lpc-theme="dark"] .st-filed { background: color-mix(in srgb, #207df9 18%, var(--lpc-surface)); color: #9fb2ef; }
-html[data-lpc-theme="dark"] .st-paid { background: color-mix(in srgb, #2ced6e 18%, var(--lpc-surface)); color: #a3ebbe; }
+html[data-lpc-theme="dark"] .kind-dipe { color: color-mix(in srgb, #e5a0ee 65%, var(--lpc-ink)); }
+html[data-lpc-theme="dark"] #tax-monthly-modal { background: color-mix(in srgb, var(--lpc-surface-raised) 65%, transparent); }
+html[data-lpc-theme="dark"] #tax-monthly-modal .kind-section { border: 1px solid var(--lpc-border); }
+html[data-lpc-theme="dark"] #tax-monthly-modal .kind-section > header { background: var(--lpc-surface-sunken); color: var(--lpc-ink); border-bottom: 1px solid var(--lpc-border); }
+html[data-lpc-theme="dark"] #tax-monthly-modal table.lines th { border-bottom: 1px solid var(--lpc-border); }
+html[data-lpc-theme="dark"] #tax-monthly-modal table.lines td { border-bottom: 1px solid var(--lpc-border); }
+html[data-lpc-theme="dark"] #tax-monthly-modal table.lines th { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] #tax-monthly-modal .info-line { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] #tax-monthly-modal .credit-line { color: #a3ebbe; }
+html[data-lpc-theme="dark"] #tax-monthly-modal .totals { background: var(--lpc-surface-sunken); }
 
 /* --- modules/admin/error_monitor.php --- */
 html[data-lpc-theme="dark"] .glass { background: var(--lpc-surface); border: 1px solid var(--lpc-border); }
-html[data-lpc-theme="dark"] .chip { background: var(--lpc-surface-sunken); border: 1px solid var(--lpc-border); color: var(--lpc-ink); }
-html[data-lpc-theme="dark"] .lvl-fatal { background: color-mix(in srgb, #f72121 18%, var(--lpc-surface)); color: #eea0a0; }
-html[data-lpc-theme="dark"] .lvl-parse { background: color-mix(in srgb, #f72121 18%, var(--lpc-surface)); color: #eea0a0; }
-html[data-lpc-theme="dark"] .lvl-error { background: color-mix(in srgb, #f72121 18%, var(--lpc-surface)); color: #eea0a0; }
-html[data-lpc-theme="dark"] .lvl-warning { background: color-mix(in srgb, #fbcf1e 18%, var(--lpc-surface)); color: #f5bc99; }
-html[data-lpc-theme="dark"] .lvl-notice { background: color-mix(in srgb, #1ee8fa 18%, var(--lpc-surface)); color: #a0dbee; }
-html[data-lpc-theme="dark"] .lvl-deprecated { background: color-mix(in srgb, #1ee8fa 18%, var(--lpc-surface)); color: #a0dbee; }
-html[data-lpc-theme="dark"] .lvl-strict { background: color-mix(in srgb, #1ee8fa 18%, var(--lpc-surface)); color: #a0dbee; }
-html[data-lpc-theme="dark"] .lvl-info { background: var(--lpc-surface-sunken); color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .lvl-notice { color: color-mix(in srgb,#92ecfc 60%,var(--lpc-ink)); }
+html[data-lpc-theme="dark"] .lvl-deprecated { color: color-mix(in srgb,#92ecfc 60%,var(--lpc-ink)); }
+html[data-lpc-theme="dark"] .lvl-strict { color: color-mix(in srgb,#92ecfc 60%,var(--lpc-ink)); }
 html[data-lpc-theme="dark"] .btn-secondary { background: var(--lpc-surface); color: var(--lpc-ink); border: 1px solid var(--lpc-border); }
 html[data-lpc-theme="dark"] .btn-secondary:hover { background: var(--lpc-surface-sunken); }
+html[data-lpc-theme="dark"] .err-check { accent-color: var(--lpc-accent-on-light); }
+html[data-lpc-theme="dark"] .err-copy-btn { background: var(--lpc-surface); color: var(--lpc-ink); border: 1px solid var(--lpc-border); }
+html[data-lpc-theme="dark"] .err-multibar { background: color-mix(in srgb, #34e46b 18%, var(--lpc-surface)); border: 1px solid color-mix(in srgb, #32e771 42%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .err-fix-btn { background: var(--lpc-surface); color: #a3ebbe; border: 1px solid color-mix(in srgb, #34e474 42%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .err-fix-btn:hover { background: color-mix(in srgb, #34e46b 18%, var(--lpc-surface)); border-color: color-mix(in srgb, #3bdd77 42%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .err-fix-btn.err-reopen { color: var(--lpc-ink); border-color: var(--lpc-border); }
+html[data-lpc-theme="dark"] .err-state-fixed { background: color-mix(in srgb, #2ced6e 18%, var(--lpc-surface)); color: #a3ebbe; }
+html[data-lpc-theme="dark"] .err-state-returned { background: color-mix(in srgb, #f72121 18%, var(--lpc-surface)); color: #eea0a0; }
+html[data-lpc-theme="dark"] .err-all-green { background: color-mix(in srgb, #34e46b 18%, var(--lpc-surface)); border: 1px solid color-mix(in srgb, #34e474 42%, var(--lpc-border)); color: #a3ebbe; }
+html[data-lpc-theme="dark"] .err-multibar .count { color: #a3ebbe; }
+html[data-lpc-theme="dark"] .err-toast { background: var(--lpc-surface-raised); }
 
 /* --- modules/crm/clients.php --- */
 html[data-lpc-theme="dark"] .custom-scrollbar::-webkit-scrollbar-thumb { background-color: var(--lpc-surface-chip); }
 html[data-lpc-theme="dark"] .lpc-kpi-card:hover { border-color: var(--lpc-brand, var(--lpc-accent-on-light)); }
 html[data-lpc-theme="dark"] .lpc-kpi-card .lpc-kpi-hint { color: var(--lpc-ink-mute); }
-html[data-lpc-theme="dark"] a.kpi-row:hover { background: var(--lpc-surface-sunken); border-color: var(--lpc-border); }
-html[data-lpc-theme="dark"] .kpi-row-name { color: var(--lpc-ink); }
-html[data-lpc-theme="dark"] .kpi-row-meta { color: var(--lpc-ink-soft); }
-html[data-lpc-theme="dark"] .kpi-overdue { color: #f09e9e; }
-html[data-lpc-theme="dark"] .kpi-bar { background: var(--lpc-surface-sunken); }
-html[data-lpc-theme="dark"] .kpi-bar > i { background: var(--lpc-brand, var(--lpc-accent-on-light)); }
-html[data-lpc-theme="dark"] .kpi-stat { border-bottom: 1px dashed var(--lpc-border); }
+html[data-lpc-theme="dark"] .lpc-tab { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .lpc-tab:hover { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .lpc-tab[aria-selected="true"] { color: var(--lpc-brand, var(--lpc-accent-on-light)); border-color: var(--lpc-brand, var(--lpc-accent-on-light)); }
+html[data-lpc-theme="dark"] .devis-chip { border: 1px solid var(--lpc-border); background: var(--lpc-surface); color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .devis-chip:hover { border-color: var(--lpc-border); color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .devis-chip.is-active { background: var(--lpc-brand, var(--lpc-accent-on-light)); border-color: var(--lpc-brand, var(--lpc-accent-on-light)); }
 
 /* --- modules/crm/proposal_studio.php --- */
 html[data-lpc-theme="dark"] .pt-field { border-bottom: 1px solid var(--lpc-border, var(--lpc-border)); }
@@ -2791,21 +2855,11 @@ html[data-lpc-theme="dark"] .pt-input { border: 1px solid var(--lpc-border); col
 html[data-lpc-theme="dark"] .pt-input:focus { border-color: var(--lpc-accent-on-light); }
 html[data-lpc-theme="dark"] .pt-input.dirty { border-color: color-mix(in srgb, #f47e24 42%, var(--lpc-border)); background: color-mix(in srgb, #ffd11a 18%, var(--lpc-surface)); }
 html[data-lpc-theme="dark"] .pt-lang { color: var(--lpc-ink-mute); }
-html[data-lpc-theme="dark"] .pt-badge { background: color-mix(in srgb, #fbcf1e 18%, var(--lpc-surface)); color: #f5bc99; }
 html[data-lpc-theme="dark"] .pt-logo-prev { background: var(--lpc-surface-sunken); border: 1px solid var(--lpc-border); }
 html[data-lpc-theme="dark"] .pt-count { color: var(--lpc-ink-mute); }
-html[data-lpc-theme="dark"] .pt-count.warn { color: #fac094; }
-html[data-lpc-theme="dark"] .pt-count.over { color: #f09e9e; }
-html[data-lpc-theme="dark"] .pt-count.under { color: var(--lpc-ink-soft); }
-html[data-lpc-theme="dark"] .pt-input.over { border-color: color-mix(in srgb, #e13838 42%, var(--lpc-border)); background: color-mix(in srgb, #ef2a2a 18%, var(--lpc-surface)); }
 html[data-lpc-theme="dark"] .pt-upload-btn { border: 1px solid var(--lpc-accent-on-light); color: var(--lpc-accent-on-light); background: var(--lpc-surface); }
 html[data-lpc-theme="dark"] .pt-upload-btn:hover { background: var(--lpc-accent-on-light); }
 html[data-lpc-theme="dark"] .pt-upload-name { color: var(--lpc-ink-soft); }
-
-/* --- modules/fleet/vehicles.php --- */
-html[data-lpc-theme="dark"] .status-badge-active { background: color-mix(in srgb, #2fe992 18%, var(--lpc-surface)); color: #92fbde; border: 1px solid color-mix(in srgb, #35e393 42%, var(--lpc-border)); }
-html[data-lpc-theme="dark"] .status-badge-repair { background: color-mix(in srgb, #ef2a2a 18%, var(--lpc-surface)); color: #f09e9e; border: 1px solid color-mix(in srgb, #fb1e1e 42%, var(--lpc-border)); }
-html[data-lpc-theme="dark"] .status-badge-retired { background: var(--lpc-surface-sunken); color: var(--lpc-ink); border: 1px solid var(--lpc-border); }
 
 /* --- modules/inventory/fiche_stock.php --- */
 html[data-lpc-theme="dark"] .toggle-checkbox:checked { border-color: var(--lpc-accent-on-light); }
@@ -2815,25 +2869,58 @@ html[data-lpc-theme="dark"] .toggle-checkbox:checked + .toggle-label { backgroun
 html[data-lpc-theme="dark"] .seamless-input:focus { border-bottom: 1px solid var(--lpc-accent-on-dark); background: var(--lpc-surface-sunken); }
 html[data-lpc-theme="dark"] .seamless-input:hover { border-bottom: 1px solid var(--lpc-accent-on-dark); background: var(--lpc-surface-sunken); }
 
+/* --- modules/inventory/stock.php --- */
+html[data-lpc-theme="dark"] .kpi-filter-btn.kpi-active[data-kpi-filter="all"] { border-color: var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .kpi-filter-btn.kpi-active[data-kpi-filter="alert"] { border-color: color-mix(in srgb, #f99420 42%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .kpi-filter-btn.kpi-active[data-kpi-filter="rupture"] { border-color: color-mix(in srgb, #df3939 42%, var(--lpc-border)); }
+
 /* --- modules/settings/index.php --- */
 html[data-lpc-theme="dark"] .lpc-field-label { color: var(--lpc-ink-soft); }
 html[data-lpc-theme="dark"] .lpc-input { background: var(--lpc-surface-sunken); border: 1px solid var(--lpc-border); color: var(--lpc-ink); }
 html[data-lpc-theme="dark"] .lpc-input:focus { border-color: var(--lpc-accent-on-light); background: var(--lpc-surface); }
-html[data-lpc-theme="dark"] .lpc-input:disabled { background: var(--lpc-surface-sunken); color: var(--lpc-ink-mute); }
-html[data-lpc-theme="dark"] .lpc-input.is-dirty { border-color: var(--lpc-accent-on-dark); background: color-mix(in srgb, #9edb3e 18%, var(--lpc-surface)); }
-html[data-lpc-theme="dark"] .lpc-input.is-error { border-color: color-mix(in srgb, #df3939 42%, var(--lpc-border)); background: color-mix(in srgb, #ef2a2a 18%, var(--lpc-surface)); }
-html[data-lpc-theme="dark"] .lpc-field-help { color: var(--lpc-ink-mute); }
 html[data-lpc-theme="dark"] .lpc-section { background: var(--lpc-surface); border: 1px solid var(--lpc-border); }
 html[data-lpc-theme="dark"] .lpc-section-head { border-bottom: 1px solid var(--lpc-border); background: var(--lpc-surface-sunken); }
 html[data-lpc-theme="dark"] .lpc-savebar { background: color-mix(in srgb, var(--lpc-surface) 92%, transparent); border: 1px solid var(--lpc-border); }
 html[data-lpc-theme="dark"] .lpc-logo-drop { border: 2px dashed var(--lpc-border); background: var(--lpc-surface-sunken); }
-html[data-lpc-theme="dark"] .lpc-logo-drop:hover { border-color: var(--lpc-accent-on-dark); background: color-mix(in srgb, #9edb3e 18%, var(--lpc-surface)); }
 html[data-lpc-theme="dark"] .perm-row:hover { background: var(--lpc-surface-sunken); }
 html[data-lpc-theme="dark"] .lpc-matrix input[type=checkbox] { accent-color: var(--lpc-accent-on-light); }
 html[data-lpc-theme="dark"] .lpc-role-chip { border: 1px solid var(--lpc-border); background: var(--lpc-surface); }
-html[data-lpc-theme="dark"] .lpc-role-chip:hover { border-color: var(--lpc-accent-on-dark); }
-html[data-lpc-theme="dark"] .lpc-role-chip.active { border-color: var(--lpc-accent-on-light); background: color-mix(in srgb, #9edb3e 18%, var(--lpc-surface)); }
 html[data-lpc-theme="dark"] .lpc-letterhead { border: 1px solid var(--lpc-border); background: var(--lpc-surface); }
+
+/* --- public/verify.php --- */
+html[data-lpc-theme="dark"] body { background: var(--lpc-surface-sunken); color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .brand-name { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .authbanner { background: color-mix(in srgb, #2fe992 18%, var(--lpc-surface)); color: #95f8dd; }
+html[data-lpc-theme="dark"] .authbanner.revoked { background: color-mix(in srgb, #ef2a2a 18%, var(--lpc-surface)); color: #eaa4a4; }
+html[data-lpc-theme="dark"] .authbanner.unknown { background: var(--lpc-surface-sunken); color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .authbanner strong { color: #95f8dd; }
+html[data-lpc-theme="dark"] .authbanner.revoked strong { color: #eaa4a4; }
+html[data-lpc-theme="dark"] .authbanner.unknown strong { color: var(--lpc-ink); }
+
+/* --- includes/classes/Rbac.php --- */
+html[data-lpc-theme="dark"] .card { background: var(--lpc-surface); }
+
+/* --- public/verify.php --- */
+html[data-lpc-theme="dark"] .badge.valid { background: color-mix(in srgb, #2fe992 18%, var(--lpc-surface)); color: #92fbde; border: 1px solid color-mix(in srgb, #35e393 42%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .badge.revoked { background: color-mix(in srgb, #ef2a2a 18%, var(--lpc-surface)); color: #f09e9e; border: 1px solid color-mix(in srgb, #fb1e1e 42%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .badge.unknown { background: var(--lpc-surface-sunken); color: var(--lpc-ink-soft); border: 1px solid var(--lpc-border); }
+html[data-lpc-theme="dark"] .party-tag.internal { background: color-mix(in srgb, #1a4fff 18%, var(--lpc-surface)); color: #aca8e6; border: 1px solid color-mix(in srgb, #1e4afb 42%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] .party-tag.external { background: color-mix(in srgb, #fbcf1e 18%, var(--lpc-surface)); color: #f5bc99; border: 1px solid color-mix(in srgb, #fbcf1d 42%, var(--lpc-border)); }
+html[data-lpc-theme="dark"] h1 { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .doctype { color: var(--lpc-ink-mute); }
+html[data-lpc-theme="dark"] .sub { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .kv { border-top: 1px solid var(--lpc-border); }
+html[data-lpc-theme="dark"] .kv .row { border-bottom: 1px solid var(--lpc-border); }
+html[data-lpc-theme="dark"] .kv .k { color: var(--lpc-ink-soft); }
+html[data-lpc-theme="dark"] .kv .v { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .section-title { color: var(--lpc-ink-mute); }
+html[data-lpc-theme="dark"] .hash { color: var(--lpc-ink-soft); border-top: 1px dashed var(--lpc-border); }
+html[data-lpc-theme="dark"] .contacts .row { border-bottom: 1px solid var(--lpc-border); }
+html[data-lpc-theme="dark"] .contacts .k { color: var(--lpc-ink-mute); }
+html[data-lpc-theme="dark"] .contacts .v { color: var(--lpc-ink); }
+html[data-lpc-theme="dark"] .contacts a { color: var(--lpc-ink); border-bottom: 1px dotted var(--lpc-border-strong); }
+html[data-lpc-theme="dark"] .foot { color: var(--lpc-ink-mute); }
+html[data-lpc-theme="dark"] .foot a { color: var(--lpc-ink-soft); }
 
 /* Printed output is always on white paper, so the dark theme is dropped
    wholesale for print rather than fixed rule by rule. */
